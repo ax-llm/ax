@@ -443,6 +443,8 @@ struct Core {
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
   static Value tool_invoke(Value fn, Value params, const AxToolContext& context);
+  // extras: the run's tool_call_extras map, for a context handler.
+  static Value tool_invoke(Value fn, Value params, Value extras);
   static Value legacy_response_to_chat_response(Value raw);
   static Value record_new(Value name, Value values);
   static Value field_item(Value field);
@@ -861,7 +863,7 @@ struct Core {
   static Value _select_structured_output_rung(Value signature, Value features, Value options);
   static Value _regex_peek(Value s);
   static Value chat_session_validate_required_arguments(Value schema, Value arguments, Value path);
-  static Value _execute_tool_call(Value functions, Value call);
+  static Value _execute_tool_call(Value functions, Value call, Value options);
   static Value _date_parse_dates_option_impl(Value base_options, Value options);
   static Value _regex_take(Value s);
   static Value stream_extraction_route(Value has_complex_fields);
@@ -872,6 +874,7 @@ struct Core {
   static Value _validate_optimization_component_value(Value component, Value value);
   static Value _regex_hexdigit(Value c);
   static Value _date_parse_fields_impl(Value fields, Value base_options, Value options);
+  static Value tool_call_extras(Value options, Value name);
   static Value _render_stream_result_impl(Value run, Value output);
   static Value _regex_node(Value k);
   static Value _date_convert_field_value_impl(Value field, Value type_name, Value value, Value may_skip);
@@ -2059,7 +2062,15 @@ struct AxToolContext {
   std::shared_ptr<std::atomic<bool>> cancelled;
   std::string call_id;
   std::function<bool()> cancellation_requested;
+  // What TypeScript gives a tool besides its arguments: the run's sessionId
+  // and eventContext when set (else empty and null), and under a run control
+  // its executionPath (<the run's path>/<the tool's name>, else empty).
+  std::string session_id;
+  std::string execution_path;
+  Value event_context;
   bool is_cancelled() const {return (cancelled && cancelled->load()) || (cancellation_requested && cancellation_requested());}
+  // Sets the extras from a tool_call_extras map.
+  void set_extras(const Value& extras);
 };
 class Tool {
  public:

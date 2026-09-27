@@ -201,10 +201,13 @@ class SessionRun final:public AIClient {
     Core::chat_session_register_call(state_,call,execution);blocking_=execution!="background";emit("tool.started",object({{"call_id",id}}));
     auto callbacks=registered_tool(display(Core::get(tool,"__tool_id")));auto handler=callbacks.first;auto contextual=callbacks.second;
     auto inherited=runtime_hook_frames;auto results=results_;params=parse_json(stringify(params));call=parse_json(stringify(call));Value returns=parse_json(stringify(Core::get(tool,"returns",Value::array())));
-    std::thread([handler,contextual,inherited,results,params,call,returns,name,id]{
+    // As TS, the tool gets the run's extras (tool_call_extras).
+    Value extras=parse_json(stringify(Core::tool_call_extras(options_,Value(name))));
+    std::thread([handler,contextual,inherited,results,params,call,returns,name,id,extras]{
       runtime_hook_frames=inherited;
       try{
         AxToolContext context{std::shared_ptr<std::atomic<bool>>(results,&results->cancelled),id};
+        context.set_extras(extras);
         Value result=invoke_runtime_tool(name,[&]{return contextual?contextual(params,context):handler(params);});
         if(Core::truthy(returns)&&result.is_object())Core::validate_fields(returns,result,"tool."+name+".return");
         results->push(object({{"call",call},{"result",result},{"ok",true}}));

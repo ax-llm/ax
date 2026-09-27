@@ -850,7 +850,7 @@ class AxGen:
         return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):
-        return _execute_tool_call(self.functions, call)
+        return _execute_tool_call(self.functions, call, self.options)
 
 
 def ax(
@@ -1340,7 +1340,24 @@ def _core_validation_error(message):
     return AxValidationError(str(message))
 
 
+_TOOL_EXTRA_KEYS = {"sessionId": "session_id", "executionPath": "execution_path", "eventContext": "event_context"}
+
+
+def _core_tool_context(context):
+    # A context handler's context: the run's extras (TS's sessionId,
+    # executionPath and eventContext, as session_id, execution_path and
+    # event_context, each when set) and a cancellation signal.
+    if context is None:
+        return None
+    out = {_TOOL_EXTRA_KEYS.get(key, key): value for key, value in context.items()}
+    if "signal" not in out:
+        import threading
+        out["signal"] = threading.Event()
+    return out
+
+
 def _core_tool_invoke(fn, params, context=None):
+    context = _core_tool_context(context)
     name = str(getattr(fn, "name", "") or "tool")
     with _runtime_hook_scope(
         None,

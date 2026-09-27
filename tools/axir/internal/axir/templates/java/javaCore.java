@@ -1186,7 +1186,10 @@ final class Core {
     catch(InterruptedException error){Thread.currentThread().interrupt();cancellation.throwIfCancelled();throw new RuntimeException(error);}
   }
   static Object toolInvoke(Object fn,Object params){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted());}
-  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {
+  // extras: the run's tool_call_extras map, for an extrasHandler.
+  static Object toolInvoke(Object fn,Object params,Object extras){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted(),extras);}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {return toolInvoke(fn,params,cancelled,null);}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled,Object extras) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");
     AxGlobals.Scope scope = AxGlobals.openScope(
         AxRuntimeHooks.empty(),
@@ -1195,7 +1198,7 @@ final class Core {
         "ax_gen_tool",
         Map.of("ax.tool.name", tool.name));
     try {
-      return tool.call(asMap(params),cancelled);
+      return tool.call(asMap(params),cancelled,extras);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;

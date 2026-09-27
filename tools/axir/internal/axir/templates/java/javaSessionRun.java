@@ -158,7 +158,8 @@ final class SessionRun implements AiClient,AutoCloseable {
       // A worker owns only the invocation and its result, which goes to the
       // session that started it, never to a later one.
       workers.execute(AxGlobals.inherit(()->{Object result=null;Throwable failure=null;
-        try {result=Core.toolInvoke(selected,values,()->cancelled || Thread.currentThread().isInterrupted());}catch(Throwable error){failure=error;}
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        try {result=Core.toolInvoke(selected,values,()->cancelled || Thread.currentThread().isInterrupted(),Core.tool_call_extras(options,name));}catch(Throwable error){failure=error;}
         if(!cancelled) queue.offer(new Delivery("tool",call,result,failure));
       }));
     }

@@ -1473,6 +1473,8 @@ def _run_forward(fixture):
             _assert_equal(names, check["function_names"], f"request {index} function names")
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+    if "expected_tool_extras" in fixture:
+        _assert_equal(tool_calls.extras, fixture["expected_tool_extras"], "tool extras")
     if "expected_trace" in fixture:
         traces = gen.get_traces()
         if not traces:
@@ -1803,6 +1805,8 @@ def _run_streaming_forward(fixture):
     _assert_speak_requests(fixture, client)
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+    if "expected_tool_extras" in fixture:
+        _assert_equal(tool_calls.extras, fixture["expected_tool_extras"], "tool extras")
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     _assert_last_request_tail(fixture, client)
@@ -4343,8 +4347,24 @@ def _field_from_spec(spec):
     return field
 
 
+class _ToolCalls(list):
+    # The tool calls, and in .extras the extras each record_extras tool saw.
+    def __init__(self):
+        super().__init__()
+        self.extras = []
+
+
+def _tool_extras_seen(context):
+    # A tool context's extras, under TS's names.
+    seen = {}
+    for key, name in (("session_id", "sessionId"), ("execution_path", "executionPath"), ("event_context", "eventContext")):
+        if (context or {}).get(key) is not None:
+            seen[name] = copy.deepcopy(context[key])
+    return seen
+
+
 def _build_tools(specs):
-    calls = []
+    calls = _ToolCalls()
     tools = []
     for spec in specs:
         builder = fn(spec["name"]).description(spec.get("description") or spec["name"])
@@ -4361,6 +4381,14 @@ def _build_tools(specs):
                 raise RuntimeError(_error)
             return copy.deepcopy(_result)
 
+        if spec.get("record_extras"):
+            # A context handler, recording the extras it gets.
+            def context_handler(args, context, *, _name=spec["name"], _handler=handler):
+                calls.extras.append({"name": _name, "extras": _tool_extras_seen(context)})
+                return _handler(args)
+
+            tools.append(builder.context_handler(context_handler).build())
+            continue
         tools.append(builder.handler(handler).build())
     return tools, calls
 

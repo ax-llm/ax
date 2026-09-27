@@ -2178,6 +2178,15 @@ Value Core::retry_sleep(Value attempt, Value, Value) {
   return Value();
 }
 Value Core::tool_invoke(Value fn, Value params) {return tool_invoke(std::move(fn),std::move(params),AxToolContext{});}
+Value Core::tool_invoke(Value fn, Value params, Value extras) {AxToolContext context;context.set_extras(extras);return tool_invoke(std::move(fn),std::move(params),context);}
+void AxToolContext::set_extras(const Value& extras) {
+  if (!extras.is_object()) return;
+  Value session = Core::get(extras, "sessionId");
+  if (!session.is_null()) session_id = display(session);
+  Value path = Core::get(extras, "executionPath");
+  if (!path.is_null()) execution_path = display(path);
+  event_context = Core::get(extras, "eventContext");
+}
 Value Core::tool_invoke(Value fn,Value params,const AxToolContext& context) {
   if(context.is_cancelled())throw AxAIServiceAbortedError("Tool invocation cancelled");
   Value args = get_key(fn, "args", Value::array());
@@ -18296,7 +18305,7 @@ Value Core::chat_session_validate_required_arguments(Value schema, Value argumen
   return Value();
 }
 
-Value Core::_execute_tool_call(Value functions, Value call) {
+Value Core::_execute_tool_call(Value functions, Value call, Value options) {
   axir_coverage_mark("_execute_tool_call");
   Value fn_call = Core::get(call, Value("function"), Value());
   Value direct_name = Core::get(call, Value("name"), Value());
@@ -18322,7 +18331,8 @@ Value Core::_execute_tool_call(Value functions, Value call) {
     Value fn_name = Core::get(fn, Value("name"), Value());
     Value matches = Core::eq(fn_name, name);
     if (Core::truthy(matches)) {
-      Value result = Core::tool_invoke(fn, params);
+      Value extras = Core::tool_call_extras(options, name);
+      Value result = Core::tool_invoke(fn, params, extras);
       return result;
     }
   }
@@ -18761,6 +18771,39 @@ Value Core::_date_parse_fields_impl(Value fields, Value base_options, Value opti
     Core::append(out, field_copy);
   }
   return out;
+}
+
+Value Core::tool_call_extras(Value options, Value name) {
+  axir_coverage_mark("tool_call_extras");
+  Value extras = Value::object();
+  Value options_map = Core::type_is(options, Value("object"));
+  if (Core::truthy(options_map)) {
+    // empty
+  }
+  if (!Core::truthy(options_map)) {
+    return extras;
+  }
+  Value session_snake = Core::get(options, Value("session_id"), Value());
+  Value session = Core::get(options, Value("sessionId"), session_snake);
+  Value has_session = Core::is_not_none(session);
+  if (Core::truthy(has_session)) {
+    Core::set(extras, Value("sessionId"), session);
+  }
+  Value control = Core::get(options, Value("control"), Value());
+  Value controlled = Core::is_not_none(control);
+  if (Core::truthy(controlled)) {
+    Value path_snake = Core::get(options, Value("execution_path"), Value("root"));
+    Value path = Core::get(options, Value("executionPath"), path_snake);
+    Value tool_path = Core::string_format(Value("{}/{}"), path, name);
+    Core::set(extras, Value("executionPath"), tool_path);
+  }
+  Value event_snake = Core::get(options, Value("event_context"), Value());
+  Value event_context = Core::get(options, Value("eventContext"), event_snake);
+  Value has_event_context = Core::is_not_none(event_context);
+  if (Core::truthy(has_event_context)) {
+    Core::set(extras, Value("eventContext"), event_context);
+  }
+  return extras;
 }
 
 Value Core::_render_stream_result_impl(Value run, Value output) {
@@ -21451,7 +21494,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       messages = updated_messages;
       for (auto call : Core::iter(calls)) {
         try {
-          Value tool_result = Core::_execute_tool_call(functions, call);
+          Value tool_result = Core::_execute_tool_call(functions, call, runtime_options);
           Value tool_message = Core::_tool_result_message_impl(call, tool_result);
           Core::append(messages, tool_message);
           Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));
@@ -28150,7 +28193,7 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           messages = updated_messages;
           for (auto call : Core::iter(tool_calls)) {
             try {
-              Value tool_result = Core::_execute_tool_call(functions, call);
+              Value tool_result = Core::_execute_tool_call(functions, call, runtime_options);
               Value tool_message = Core::_tool_result_message_impl(call, tool_result);
               Core::append(messages, tool_message);
               Core::axgen_memory_add_function_result(gen, call, tool_result, Value(true));

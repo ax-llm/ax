@@ -855,7 +855,7 @@ class AxGen:
         return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):
-        return _execute_tool_call(self.functions, call)
+        return _execute_tool_call(self.functions, call, self.options)
 
 
 def ax(
@@ -1345,7 +1345,24 @@ def _core_validation_error(message):
     return AxValidationError(str(message))
 
 
+_TOOL_EXTRA_KEYS = {"sessionId": "session_id", "executionPath": "execution_path", "eventContext": "event_context"}
+
+
+def _core_tool_context(context):
+    # A context handler's context: the run's extras (TS's sessionId,
+    # executionPath and eventContext, as session_id, execution_path and
+    # event_context, each when set) and a cancellation signal.
+    if context is None:
+        return None
+    out = {_TOOL_EXTRA_KEYS.get(key, key): value for key, value in context.items()}
+    if "signal" not in out:
+        import threading
+        out["signal"] = threading.Event()
+    return out
+
+
 def _core_tool_invoke(fn, params, context=None):
+    context = _core_tool_context(context)
     name = str(getattr(fn, "name", "") or "tool")
     with _runtime_hook_scope(
         None,
@@ -1986,7 +2003,7 @@ def chat_session_validate_required_arguments(schema: Any, arguments: Any, path: 
     return None
 
 
-def _execute_tool_call(functions: list[Any], call: Any) -> Any:
+def _execute_tool_call(functions: list[Any], call: Any, options: Any) -> Any:
     _core_coverage_mark("_execute_tool_call")
     fn_call = _core_get(call, "function", None)
     direct_name = _core_get(call, "name", None)
@@ -2015,7 +2032,8 @@ def _execute_tool_call(functions: list[Any], call: Any) -> Any:
         fn_name = _core_get(fn, "name", None)
         matches = _core_eq(fn_name, name)
         if matches:
-            result = _core_tool_invoke(fn, params)
+            extras = tool_call_extras(options, name)
+            result = _core_tool_invoke(fn, params, extras)
             return result
         else:
             pass
@@ -2459,6 +2477,40 @@ def _date_parse_fields_impl(fields: Any, base_options: Any, options: Any) -> Any
         field_copy["parse_dates"] = True
         out.append(field_copy)
     return out
+
+
+def tool_call_extras(options: Any, name: str) -> Any:
+    _core_coverage_mark("tool_call_extras")
+    extras = {}
+    options_map = _core_type_is(options, "object")
+    if options_map:
+        pass
+    else:
+        return extras
+    session_snake = _core_get(options, "session_id", None)
+    session = _core_get(options, "sessionId", session_snake)
+    has_session = _core_is_not_none(session)
+    if has_session:
+        extras["sessionId"] = session
+    else:
+        pass
+    control = _core_get(options, "control", None)
+    controlled = _core_is_not_none(control)
+    if controlled:
+        path_snake = _core_get(options, "execution_path", "root")
+        path = _core_get(options, "executionPath", path_snake)
+        tool_path = _core_string_format("{}/{}", path, name)
+        extras["executionPath"] = tool_path
+    else:
+        pass
+    event_snake = _core_get(options, "event_context", None)
+    event_context = _core_get(options, "eventContext", event_snake)
+    has_event_context = _core_is_not_none(event_context)
+    if has_event_context:
+        extras["eventContext"] = event_context
+    else:
+        pass
+    return extras
 
 
 def _render_stream_result_impl(run: Any, output: Any) -> Any:
@@ -5304,7 +5356,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
             messages = updated_messages
             for call in calls:
                 try:
-                    tool_result = _execute_tool_call(functions, call)
+                    tool_result = _execute_tool_call(functions, call, runtime_options)
                     tool_message = _tool_result_message_impl(call, tool_result)
                     messages.append(tool_message)
                     _core_axgen_memory_add_function_result(gen, call, tool_result, True)
@@ -12402,7 +12454,7 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
                     messages = updated_messages
                     for call in tool_calls:
                         try:
-                            tool_result = _execute_tool_call(functions, call)
+                            tool_result = _execute_tool_call(functions, call, runtime_options)
                             tool_message = _tool_result_message_impl(call, tool_result)
                             messages.append(tool_message)
                             _core_axgen_memory_add_function_result(gen, call, tool_result, True)

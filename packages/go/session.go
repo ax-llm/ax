@@ -498,9 +498,11 @@ func (p *genSessionClient) start(call Value) {
 	// The worker's result goes to the session that started it, never to a
 	// later request's session, and closing that session cancels it.
 	ctx, results := p.ctx, p.results
+	// As TS, the tool gets the run's extras (tool_call_extras).
+	toolCtx := withToolExtras(ctx, mustCore(tool_call_extras(p.options, name)))
 	go func() {
 		result, err := safeValue(func() Value {
-			return mustCore(tool.invokeContext(ctx, ownedArgs))
+			return mustCore(tool.invokeContext(toolCtx, ownedArgs))
 		})
 		select {
 		case results <- sessionToolResult{ownedCall, result, err}:

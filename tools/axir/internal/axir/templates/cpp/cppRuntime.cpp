@@ -2178,6 +2178,15 @@ Value Core::retry_sleep(Value attempt, Value, Value) {
   return Value();
 }
 Value Core::tool_invoke(Value fn, Value params) {return tool_invoke(std::move(fn),std::move(params),AxToolContext{});}
+Value Core::tool_invoke(Value fn, Value params, Value extras) {AxToolContext context;context.set_extras(extras);return tool_invoke(std::move(fn),std::move(params),context);}
+void AxToolContext::set_extras(const Value& extras) {
+  if (!extras.is_object()) return;
+  Value session = Core::get(extras, "sessionId");
+  if (!session.is_null()) session_id = display(session);
+  Value path = Core::get(extras, "executionPath");
+  if (!path.is_null()) execution_path = display(path);
+  event_context = Core::get(extras, "eventContext");
+}
 Value Core::tool_invoke(Value fn,Value params,const AxToolContext& context) {
   if(context.is_cancelled())throw AxAIServiceAbortedError("Tool invocation cancelled");
   Value args = get_key(fn, "args", Value::array());

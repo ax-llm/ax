@@ -975,6 +975,11 @@ impl SessionRun {
         // session that started it, never to a later one.
         let sender = self.sender.clone();
         let cancelled = self.cancelled.clone();
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        let extras = core_value_to_json(&tool_call_extras(&[
+            core_value_from_json(&self.options),
+            CoreValue::from(name),
+        ])?);
         let inherited = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().clone());
         std::thread::spawn(move || {
             RUNTIME_HOOK_FRAMES.with(|frames| *frames.borrow_mut() = inherited);
@@ -985,7 +990,8 @@ impl SessionRun {
                         call_id: call["id"].as_str().map(str::to_string),
                         cancelled: cancelled.clone(),
                         ..AxToolContext::default()
-                    },
+                    }
+                    .with_extras(&extras),
                 )
             }))
             .unwrap_or_else(|_| Err(AxError::runtime("Tool handler panicked")));

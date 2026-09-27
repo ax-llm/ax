@@ -1186,7 +1186,10 @@ final class Core {
     catch(InterruptedException error){Thread.currentThread().interrupt();cancellation.throwIfCancelled();throw new RuntimeException(error);}
   }
   static Object toolInvoke(Object fn,Object params){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted());}
-  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {
+  // extras: the run's tool_call_extras map, for an extrasHandler.
+  static Object toolInvoke(Object fn,Object params,Object extras){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted(),extras);}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {return toolInvoke(fn,params,cancelled,null);}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled,Object extras) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");
     AxGlobals.Scope scope = AxGlobals.openScope(
         AxRuntimeHooks.empty(),
@@ -1195,7 +1198,7 @@ final class Core {
         "ax_gen_tool",
         Map.of("ax.tool.name", tool.name));
     try {
-      return tool.call(asMap(params),cancelled);
+      return tool.call(asMap(params),cancelled,extras);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -16683,7 +16686,7 @@ final class Core {
     return null;
   }
 
-  static Object _execute_tool_call(Object functions, Object call) {
+  static Object _execute_tool_call(Object functions, Object call, Object options) {
     axirCoverageMark("_execute_tool_call");
     Object fn_call = Core.get(call, "function", null);
     Object direct_name = Core.get(call, "name", null);
@@ -16709,7 +16712,8 @@ final class Core {
       Object fn_name = Core.get(fn, "name", null);
       Object matches = Core.eq(fn_name, name);
       if (Core.truthy(matches)) {
-        Object result = Core.toolInvoke(fn, params);
+        Object extras = Core.tool_call_extras(options, name);
+        Object result = Core.toolInvoke(fn, params, extras);
         return result;
       }
     }
@@ -17148,6 +17152,39 @@ final class Core {
       Core.append(out, field_copy);
     }
     return out;
+  }
+
+  static Object tool_call_extras(Object options, Object name) {
+    axirCoverageMark("tool_call_extras");
+    Object extras = new java.util.LinkedHashMap<String, Object>();
+    Object options_map = Core.typeIs(options, "object");
+    if (Core.truthy(options_map)) {
+      // empty
+    }
+    if (!Core.truthy(options_map)) {
+      return extras;
+    }
+    Object session_snake = Core.get(options, "session_id", null);
+    Object session = Core.get(options, "sessionId", session_snake);
+    Object has_session = Core.isNotNone(session);
+    if (Core.truthy(has_session)) {
+      Core.set(extras, "sessionId", session);
+    }
+    Object control = Core.get(options, "control", null);
+    Object controlled = Core.isNotNone(control);
+    if (Core.truthy(controlled)) {
+      Object path_snake = Core.get(options, "execution_path", "root");
+      Object path = Core.get(options, "executionPath", path_snake);
+      Object tool_path = Core.stringFormat("{}/{}", path, name);
+      Core.set(extras, "executionPath", tool_path);
+    }
+    Object event_snake = Core.get(options, "event_context", null);
+    Object event_context = Core.get(options, "eventContext", event_snake);
+    Object has_event_context = Core.isNotNone(event_context);
+    if (Core.truthy(has_event_context)) {
+      Core.set(extras, "eventContext", event_context);
+    }
+    return extras;
   }
 
   static Object _render_stream_result_impl(Object run, Object output) {
@@ -19835,7 +19872,7 @@ final class Core {
         messages = updated_messages;
         for (Object call : Core.iter(calls)) {
           try {
-            Object tool_result = Core._execute_tool_call(functions, call);
+            Object tool_result = Core._execute_tool_call(functions, call, runtime_options);
             Object tool_message = Core._tool_result_message_impl(call, tool_result);
             Core.append(messages, tool_message);
             Core.axgenMemoryAddFunctionResult(gen, call, tool_result, Boolean.TRUE);
@@ -26520,7 +26557,7 @@ final class Core {
             messages = updated_messages;
             for (Object call : Core.iter(tool_calls)) {
               try {
-                Object tool_result = Core._execute_tool_call(functions, call);
+                Object tool_result = Core._execute_tool_call(functions, call, runtime_options);
                 Object tool_message = Core._tool_result_message_impl(call, tool_result);
                 Core.append(messages, tool_message);
                 Core.axgenMemoryAddFunctionResult(gen, call, tool_result, Boolean.TRUE);

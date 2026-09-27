@@ -5938,6 +5938,9 @@ pub struct AxToolContext {
     cancelled: Arc<std::sync::atomic::AtomicBool>,
     control: Option<AxRunControl>,
     cancellation: Option<AxCancellationToken>,
+    session_id: Option<String>,
+    execution_path: Option<String>,
+    event_context: Option<Value>,
 }
 impl AxToolContext {
     pub fn is_cancelled(&self) -> bool {
@@ -5947,6 +5950,45 @@ impl AxToolContext {
                 .cancellation
                 .as_ref()
                 .is_some_and(AxCancellationToken::is_cancelled)
+    }
+    /// The run's sessionId, as TypeScript gives a tool, when set.
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+    /// Under a run control, the tool's executionPath, as TypeScript gives it:
+    /// `<the run's path>/<the tool's name>`.
+    pub fn execution_path(&self) -> Option<&str> {
+        self.execution_path.as_deref()
+    }
+    /// The run's eventContext, as TypeScript gives a tool, when set.
+    pub fn event_context(&self) -> Option<&Value> {
+        self.event_context.as_ref()
+    }
+    // Sets the extras from a tool_call_extras map.
+    pub(crate) fn with_extras(mut self, extras: &Value) -> Self {
+        self.session_id = extras
+            .get("sessionId")
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string())
+            });
+        self.execution_path = extras
+            .get("executionPath")
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string())
+            });
+        self.event_context = extras
+            .get("eventContext")
+            .filter(|value| !value.is_null())
+            .cloned();
+        self
     }
 }
 impl Tool {
@@ -23819,9 +23861,28 @@ fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     Some(current)
 }
 
+// The extras each record_extras tool of the running fixture saw
+// (build_fixture_tools_recording resets them).
+static FIXTURE_TOOL_EXTRAS: OnceLock<Mutex<Vec<Value>>> = OnceLock::new();
+
+fn fixture_tool_extras() -> Value {
+    Value::Array(
+        FIXTURE_TOOL_EXTRAS
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .unwrap()
+            .clone(),
+    )
+}
+
 fn build_fixture_tools_recording(
     fixture: &Value,
 ) -> AxResult<(Vec<Tool>, std::sync::Arc<std::sync::Mutex<Vec<Value>>>)> {
+    FIXTURE_TOOL_EXTRAS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap()
+        .clear();
     let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut out = Vec::new();
     for raw in fixture
@@ -23849,16 +23910,49 @@ fn build_fixture_tools_recording(
         }
         let tool_name = name.to_string();
         let recorder = std::sync::Arc::clone(&calls);
-        let tool = builder.handler(move |args| {
-            recorder
-                .lock()
-                .unwrap()
-                .push(json!({"name": tool_name, "args": args}));
-            if let Some(error) = &error {
-                return Err(AxError::runtime(error.clone()));
-            }
-            Ok(result.clone())
-        });
+        let tool = if raw
+            .get("record_extras")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            // A context handler, recording the extras it gets.
+            builder.context_handler(move |args, context| {
+                let mut seen = Map::new();
+                if let Some(session) = context.session_id() {
+                    seen.insert("sessionId".into(), json!(session));
+                }
+                if let Some(path) = context.execution_path() {
+                    seen.insert("executionPath".into(), json!(path));
+                }
+                if let Some(event) = context.event_context() {
+                    seen.insert("eventContext".into(), event.clone());
+                }
+                FIXTURE_TOOL_EXTRAS
+                    .get_or_init(|| Mutex::new(Vec::new()))
+                    .lock()
+                    .unwrap()
+                    .push(json!({"name": tool_name, "extras": Value::Object(seen)}));
+                recorder
+                    .lock()
+                    .unwrap()
+                    .push(json!({"name": tool_name, "args": args}));
+                if let Some(error) = &error {
+                    return Err(AxError::runtime(error.clone()));
+                }
+                Ok(result.clone())
+            })
+        } else {
+            builder.handler(move |args| {
+                recorder
+                    .lock()
+                    .unwrap()
+                    .push(json!({"name": tool_name, "args": args}));
+                if let Some(error) = &error {
+                    return Err(AxError::runtime(error.clone()));
+                }
+                Ok(result.clone())
+            })
+        };
         out.push(tool);
     }
     Ok((out, calls))
@@ -24717,6 +24811,9 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_equal("tool calls", &actual, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_tool_extras") {
+        expect_json_equal("tool extras", &fixture_tool_extras(), expected)?;
+    }
     if let Some(expected) = fixture.get("expected_processor_calls") {
         let actual = Value::Array(processor_calls.lock().unwrap().clone());
         expect_json_equal("field processor calls", &actual, expected)?;
@@ -25441,6 +25538,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_tool_calls").and_then(Value::as_array) {
         let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_list_exact_subsets("tool calls", &actual, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_tool_extras") {
+        expect_json_equal("tool extras", &fixture_tool_extras(), expected)?;
     }
     if let Some(expected) = fixture
         .get("expected_function_traces_subset")
@@ -31307,7 +31407,11 @@ impl CoreHost for ToolHost {
                 } else {
                     core_value_to_json(&params)
                 };
-                let result = self.tool.call(payload)?;
+                // The run's extras (tool_call_extras), for a context handler.
+                let extras = core_value_to_json(&core_arg(args, 1));
+                let result = self
+                    .tool
+                    .call_with_context(payload, AxToolContext::default().with_extras(&extras))?;
                 Ok(core_value_from_json(&result))
             }
             "name" => Ok(CoreValue::from(self.tool.name.as_str())),
@@ -31943,8 +32047,9 @@ fn core_tool_invoke(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::Map(_) => core_get(&target, &CoreValue::from("__tool_host"), CoreValue::Null),
         _ => CoreValue::Null,
     };
+    let extras = core_arg(args, 2);
     match host {
-        CoreValue::Host(host) => host.call_method("call", &[params]),
+        CoreValue::Host(host) => host.call_method("call", &[params, extras]),
         _ => Err(AxError::runtime(
             "intrinsic.tool.invoke target is not a tool",
         )),
@@ -68714,6 +68819,7 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_execute_tool_call");
     let mut v_functions = core_arg(args, 0);
     let mut v_call = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
     let mut v_argument_params = CoreValue::Null;
     let mut v_available = CoreValue::Null;
     let mut v_available_joined = CoreValue::Null;
@@ -68723,6 +68829,7 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_direct_params = CoreValue::Null;
     let mut v_empty_params = CoreValue::Null;
     let mut v_error = CoreValue::Null;
+    let mut v_extras = CoreValue::Null;
     let mut v_fn = CoreValue::Null;
     let mut v_fn_call = CoreValue::Null;
     let mut v_fn_name = CoreValue::Null;
@@ -68764,7 +68871,8 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_fn_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
         v_matches = core_eq(&[v_fn_name.clone(), v_name.clone()])?;
         if core_truthy(&v_matches) {
-            v_result = core_tool_invoke(&[v_fn.clone(), v_params.clone()])?;
+            v_extras = tool_call_extras(&[v_options.clone(), v_name.clone()])?;
+            v_result = core_tool_invoke(&[v_fn.clone(), v_params.clone(), v_extras.clone()])?;
             return Ok(v_result.clone());
         }
     }
@@ -69531,6 +69639,88 @@ fn _date_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_append(&v_out, v_field_copy.clone())?;
     }
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn tool_call_extras(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("tool_call_extras");
+    let mut v_options = core_arg(args, 0);
+    let mut v_name = core_arg(args, 1);
+    let mut v_control = CoreValue::Null;
+    let mut v_controlled = CoreValue::Null;
+    let mut v_event_context = CoreValue::Null;
+    let mut v_event_snake = CoreValue::Null;
+    let mut v_extras = CoreValue::Null;
+    let mut v_has_event_context = CoreValue::Null;
+    let mut v_has_session = CoreValue::Null;
+    let mut v_options_map = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_path_snake = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    let mut v_session_snake = CoreValue::Null;
+    let mut v_tool_path = CoreValue::Null;
+    v_extras = CoreValue::new_map();
+    v_options_map = core_type_is(&v_options, CoreValue::from("object"));
+    if core_truthy(&v_options_map) {
+    } else {
+        return Ok(v_extras.clone());
+    }
+    v_session_snake = core_get(&v_options, &CoreValue::from("session_id"), CoreValue::Null);
+    v_session = core_get(
+        &v_options,
+        &CoreValue::from("sessionId"),
+        v_session_snake.clone(),
+    );
+    v_has_session = core_is_not_none(&[v_session.clone()])?;
+    if core_truthy(&v_has_session) {
+        core_set(&v_extras, CoreValue::from("sessionId"), v_session.clone())?;
+    }
+    v_control = core_get(&v_options, &CoreValue::from("control"), CoreValue::Null);
+    v_controlled = core_is_not_none(&[v_control.clone()])?;
+    if core_truthy(&v_controlled) {
+        v_path_snake = core_get(
+            &v_options,
+            &CoreValue::from("execution_path"),
+            CoreValue::from("root"),
+        );
+        v_path = core_get(
+            &v_options,
+            &CoreValue::from("executionPath"),
+            v_path_snake.clone(),
+        );
+        v_tool_path =
+            core_string_format(&[CoreValue::from("{}/{}"), v_path.clone(), v_name.clone()])?;
+        core_set(
+            &v_extras,
+            CoreValue::from("executionPath"),
+            v_tool_path.clone(),
+        )?;
+    }
+    v_event_snake = core_get(
+        &v_options,
+        &CoreValue::from("event_context"),
+        CoreValue::Null,
+    );
+    v_event_context = core_get(
+        &v_options,
+        &CoreValue::from("eventContext"),
+        v_event_snake.clone(),
+    );
+    v_has_event_context = core_is_not_none(&[v_event_context.clone()])?;
+    if core_truthy(&v_has_event_context) {
+        core_set(
+            &v_extras,
+            CoreValue::from("eventContext"),
+            v_event_context.clone(),
+        )?;
+    }
+    return Ok(v_extras.clone());
 }
 
 #[allow(
@@ -74892,7 +75082,11 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             for v_call in core_iter(&v_calls)? {
                 let mut v_call = v_call;
                 let __core_try: Result<CoreFlow, AxError> = (|| {
-                    v_tool_result = _execute_tool_call(&[v_functions.clone(), v_call.clone()])?;
+                    v_tool_result = _execute_tool_call(&[
+                        v_functions.clone(),
+                        v_call.clone(),
+                        v_runtime_options.clone(),
+                    ])?;
                     v_tool_message =
                         _tool_result_message_impl(&[v_call.clone(), v_tool_result.clone()])?;
                     core_append(&v_messages, v_tool_message.clone())?;
@@ -88016,8 +88210,11 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     for v_call in core_iter(&v_tool_calls)? {
                         let mut v_call = v_call;
                         let __core_try: Result<CoreFlow, AxError> = (|| {
-                            v_tool_result =
-                                _execute_tool_call(&[v_functions.clone(), v_call.clone()])?;
+                            v_tool_result = _execute_tool_call(&[
+                                v_functions.clone(),
+                                v_call.clone(),
+                                v_runtime_options.clone(),
+                            ])?;
                             v_tool_message = _tool_result_message_impl(&[
                                 v_call.clone(),
                                 v_tool_result.clone(),
@@ -129656,7 +129853,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (962 of 962 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (963 of 963 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

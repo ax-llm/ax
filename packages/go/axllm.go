@@ -2273,14 +2273,54 @@ func _core_json_parse_strict(value Value) (Value, error) {
 // TS JSON.stringify(value): keys in insertion order, null as null.
 func _core_json_stringify(value Value) Value        { return orderedStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
-func _core_tool_invoke(fn Value, params Value) (Value, error) {
+// _core_tool_invoke runs a tool; extras (TS's sessionId, executionPath and
+// eventContext, see tool_call_extras) reach a ContextHandler through its ctx.
+func _core_tool_invoke(fn Value, params Value, extras ...Value) (Value, error) {
+	ctx := context.Background()
+	if len(extras) > 0 {
+		ctx = withToolExtras(ctx, extras[0])
+	}
 	if t, ok := fn.(Tool); ok {
-		return t.invoke(asMap(params))
+		return t.invokeContext(ctx, asMap(params))
 	}
 	if t, ok := fn.(*Tool); ok {
-		return t.invoke(asMap(params))
+		return t.invokeContext(ctx, asMap(params))
 	}
 	return nil, AxError{Category: "runtime", Message: "unknown tool"}
+}
+
+// AxToolExtras are what TypeScript gives a tool besides its arguments: the
+// run's sessionId and eventContext when set, and under a run control its
+// executionPath (<the run's path>/<the tool's name>).
+type AxToolExtras struct {
+	SessionID     string
+	ExecutionPath string
+	EventContext  Value
+}
+
+type toolExtrasContextKey struct{}
+
+// AxToolExtrasFromContext returns the extras of the tool call that a
+// ContextHandler's ctx belongs to; outside one, the zero value.
+func AxToolExtrasFromContext(ctx context.Context) AxToolExtras {
+	if ctx == nil {
+		return AxToolExtras{}
+	}
+	extras, _ := ctx.Value(toolExtrasContextKey{}).(AxToolExtras)
+	return extras
+}
+
+// withToolExtras puts a tool call's extras, a tool_call_extras map, on ctx.
+func withToolExtras(ctx context.Context, raw Value) context.Context {
+	values := asMap(raw)
+	extras := AxToolExtras{EventContext: coreGet(values, "eventContext", nil)}
+	if session := coreGet(values, "sessionId", nil); session != nil {
+		extras.SessionID = display(session)
+	}
+	if path := coreGet(values, "executionPath", nil); path != nil {
+		extras.ExecutionPath = display(path)
+	}
+	return context.WithValue(ctx, toolExtrasContextKey{}, extras)
 }
 func _core_ai_error_response(message Value, rest ...Value) Value {
 	return aiError("AxAIServiceResponseError", message, rest...)
@@ -34427,6 +34467,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	axirCoverageMark("_execute_tool_call")
 	var v_functions Value
 	var v_call Value
+	var v_options Value
 	var v_argument_params Value
 	var v_available Value
 	var v_available_joined Value
@@ -34436,6 +34477,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	var v_direct_params Value
 	var v_empty_params Value
 	var v_error Value
+	var v_extras Value
 	var v_fn Value
 	var v_fn_call Value
 	var v_fn_name Value
@@ -34452,6 +34494,8 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	_ = v_functions
 	if len(args) > 1 { v_call = args[1] }
 	_ = v_call
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
 	_ = v_argument_params
 	_ = v_available
 	_ = v_available_joined
@@ -34461,6 +34505,7 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	_ = v_direct_params
 	_ = v_empty_params
 	_ = v_error
+	_ = v_extras
 	_ = v_fn
 	_ = v_fn_call
 	_ = v_fn_name
@@ -34503,7 +34548,8 @@ func _execute_tool_call(args ...Value) (Value, error) {
 		v_fn_name = coreGet(v_fn, "name", nil)
 		v_matches = _core_eq(v_fn_name, v_name)
 		if coreTruthy(v_matches) {
-			{ v, err := _core_tool_invoke(v_fn, v_params); if err != nil { return nil, err }; v_result = v }
+			{ v, err := tool_call_extras(v_options, v_name); if err != nil { return nil, err }; v_extras = v }
+			{ v, err := _core_tool_invoke(v_fn, v_params, v_extras); if err != nil { return nil, err }; v_result = v }
 			return v_result, nil
 		} else {
 		// empty
@@ -35390,6 +35436,76 @@ func _date_parse_fields_impl(args ...Value) (Value, error) {
 		v_out = coreAppend(v_out, v_field_copy)
 	}
 	return v_out, nil
+}
+
+func tool_call_extras(args ...Value) (Value, error) {
+	axirCoverageMark("tool_call_extras")
+	var v_options Value
+	var v_name Value
+	var v_control Value
+	var v_controlled Value
+	var v_event_context Value
+	var v_event_snake Value
+	var v_extras Value
+	var v_has_event_context Value
+	var v_has_session Value
+	var v_options_map Value
+	var v_path Value
+	var v_path_snake Value
+	var v_session Value
+	var v_session_snake Value
+	var v_tool_path Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	if len(args) > 1 { v_name = args[1] }
+	_ = v_name
+	_ = v_control
+	_ = v_controlled
+	_ = v_event_context
+	_ = v_event_snake
+	_ = v_extras
+	_ = v_has_event_context
+	_ = v_has_session
+	_ = v_options_map
+	_ = v_path
+	_ = v_path_snake
+	_ = v_session
+	_ = v_session_snake
+	_ = v_tool_path
+	v_extras = Object()
+	v_options_map = coreTypeIs(v_options, "object")
+	if coreTruthy(v_options_map) {
+	// empty
+	} else {
+		return v_extras, nil
+	}
+	v_session_snake = coreGet(v_options, "session_id", nil)
+	v_session = coreGet(v_options, "sessionId", v_session_snake)
+	v_has_session = _core_is_not_none(v_session)
+	if coreTruthy(v_has_session) {
+		if err := coreSet(v_extras, "sessionId", v_session); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_control = coreGet(v_options, "control", nil)
+	v_controlled = _core_is_not_none(v_control)
+	if coreTruthy(v_controlled) {
+		v_path_snake = coreGet(v_options, "execution_path", "root")
+		v_path = coreGet(v_options, "executionPath", v_path_snake)
+		v_tool_path = _core_string_format("{}/{}", v_path, v_name)
+		if err := coreSet(v_extras, "executionPath", v_tool_path); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_event_snake = coreGet(v_options, "event_context", nil)
+	v_event_context = coreGet(v_options, "eventContext", v_event_snake)
+	v_has_event_context = _core_is_not_none(v_event_context)
+	if coreTruthy(v_has_event_context) {
+		if err := coreSet(v_extras, "eventContext", v_event_context); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_extras, nil
 }
 
 func _render_stream_result_impl(args ...Value) (Value, error) {
@@ -41328,7 +41444,7 @@ func _forward_impl(args ...Value) (Value, error) {
 			for _, v_call = range coreIter(v_calls) {
 				{
 					__flow, __err := func() (coreFlow, error) {
-						{ v, err := _execute_tool_call(v_functions, v_call); if err != nil { return coreFlow{}, err }; v_tool_result = v }
+						{ v, err := _execute_tool_call(v_functions, v_call, v_runtime_options); if err != nil { return coreFlow{}, err }; v_tool_result = v }
 						{ v, err := _tool_result_message_impl(v_call, v_tool_result); if err != nil { return coreFlow{}, err }; v_tool_message = v }
 						v_messages = coreAppend(v_messages, v_tool_message)
 						_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_result, true)
@@ -55782,7 +55898,7 @@ func _streaming_forward_impl(args ...Value) (Value, error) {
 					for _, v_call = range coreIter(v_tool_calls) {
 						{
 							__flow, __err := func() (coreFlow, error) {
-								{ v, err := _execute_tool_call(v_functions, v_call); if err != nil { return coreFlow{}, err }; v_tool_result = v }
+								{ v, err := _execute_tool_call(v_functions, v_call, v_runtime_options); if err != nil { return coreFlow{}, err }; v_tool_result = v }
 								{ v, err := _tool_result_message_impl(v_call, v_tool_result); if err != nil { return coreFlow{}, err }; v_tool_message = v }
 								v_messages = coreAppend(v_messages, v_tool_message)
 								_core_axgen_memory_add_function_result(v_gen, v_call, v_tool_result, true)
@@ -104746,9 +104862,15 @@ func runConformancePrompt(fixture map[string]Value) {
 	}
 }
 
+// conformanceToolExtras holds the extras each record_extras tool of the
+// running fixture saw (conformanceBuildTools resets it).
+var conformanceToolExtras = MutableArray()
+
 func conformanceBuildTools(specs Value) ([]Tool, Value) {
 	tools := []Tool{}
 	calls := MutableArray()
+	conformanceToolExtras = MutableArray()
+	extrasLog := conformanceToolExtras
 	for _, raw := range asSlice(specs) {
 		spec := asMap(raw)
 		name := display(coreGet(spec, "name", "tool"))
@@ -104770,6 +104892,25 @@ func conformanceBuildTools(specs Value) ([]Tool, Value) {
 				return nil, AxError{Category: "runtime", Message: errMsg}
 			}
 			return result, nil
+		}
+		if coreTruthy(coreGet(spec, "record_extras", false)) {
+			// A context handler, recording the extras it gets.
+			handler := tool.Handler
+			tool = tool.WithContextHandler(func(ctx context.Context, args map[string]Value) (Value, error) {
+				extras := AxToolExtrasFromContext(ctx)
+				seen := Object()
+				if extras.SessionID != "" {
+					seen["sessionId"] = extras.SessionID
+				}
+				if extras.ExecutionPath != "" {
+					seen["executionPath"] = extras.ExecutionPath
+				}
+				if extras.EventContext != nil {
+					seen["eventContext"] = cloneValue(extras.EventContext)
+				}
+				coreAppend(extrasLog, Object("name", name, "extras", seen))
+				return handler(args)
+			})
 		}
 		tools = append(tools, tool)
 	}
@@ -104931,6 +105072,9 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
 		}
+		if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+			assertEqual(conformanceToolExtras, expected, "tool extras")
+		}
 		if expected := coreGet(fixture, "expected_memory_history_count", nil); expected != nil && len(asSlice(gen.Memory)) != int(num(expected)) {
 			panic(AxError{Category: "fixture", Message: "expected memory history count mismatch"})
 		}
@@ -104968,6 +105112,9 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
+		}
+		if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+			assertEqual(conformanceToolExtras, expected, "tool extras")
 		}
 	}
 }
@@ -105208,6 +105355,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 		assertEqual(calls, expected, "tool calls")
+	}
+	if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+		assertEqual(conformanceToolExtras, expected, "tool extras")
 	}
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
