@@ -113,6 +113,7 @@ function tsChunk(chunk: ChunkSpec): AxChatResponse {
 function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
   const queue = clone(responses);
   let calls = 0;
+  const prompts: Json[][] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features?.functions as boolean | undefined) ?? true,
@@ -124,8 +125,9 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
           }
         : {}),
     },
-    chatResponse: async () => {
+    chatResponse: async (req) => {
       calls++;
+      prompts.push(clone(req.chatPrompt) as unknown as Json[]);
       const next = queue.shift();
       if (!next) throw new Error('scripted client exhausted');
       if ('error' in next) throw tsError(next.error);
@@ -155,7 +157,7 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
       functionCot: features.function_cot as boolean,
     });
   }
-  return { ai, calls: () => calls };
+  return { ai, calls: () => calls, prompts: () => prompts };
 }
 
 // Option keys the fixtures spell in snake_case, mapped to TS names.
@@ -266,12 +268,8 @@ function tsProcessor(spec: ProcessorSpec, calls: JsonMap[]) {
     if (spec.throws !== undefined) throw new Error(spec.throws);
     if (spec.when_done && !done) return undefined;
     if (spec.times !== undefined && returned >= spec.times) return undefined;
-    const result = spec.echo
-      ? value
-      : spec.returns === null
-        ? undefined
-        : clone(spec.returns);
-    if (result !== undefined) returned++;
+    const result = spec.echo ? value : clone(spec.returns);
+    if (result !== undefined && result !== null) returned++;
     return result;
   };
 }
@@ -300,6 +298,8 @@ type Case = {
   error_contains?: string;
   // Pin TS's whole error message, not only its first line.
   full_error?: boolean;
+  // Pin this many messages at the end of the last request's prompt.
+  request_tail?: number;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -307,7 +307,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const input = spec.input ?? { question: 'Status?' };
   const toolCalls: JsonMap[] = [];
   const processorCalls: JsonMap[] = [];
-  const { ai, calls } = scriptedAI(spec.responses, spec.features);
+  const { ai, calls, prompts } = scriptedAI(spec.responses, spec.features);
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
     functions: tsTools(spec.tools ?? [], toolCalls),
@@ -409,6 +409,11 @@ async function record(name: string, spec: Case): Promise<void> {
   }
   if (spec.control) fixture.expected_control_events = controlEvents;
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
+  if (spec.request_tail !== undefined) {
+    fixture.expected_last_request_tail = (prompts().at(-1) ?? []).slice(
+      -spec.request_tail
+    );
+  }
   if (spec.feedback_processors || spec.streaming_processors)
     fixture.expected_processor_calls = processorCalls;
   if (kind === 'streaming_forward') {
@@ -943,6 +948,53 @@ const cases: Record<string, Case> = {
     responses: [
       streamed(text('Answer: dra'), done('ft')),
       streamed(text('Answer: final'), done()),
+    ],
+  },
+
+  // Feedback a streaming processor returns mid-stream waits for the end of
+  // the step: it follows the full answer and the run takes another step.
+  'streaming-forward-mid-stream-feedback-continues': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', returns: 'Please avoid the word draft.', times: 1 },
+    ],
+    request_tail: 2,
+    responses: [
+      streamed(text('Answer: a draft'), done(' then more text')),
+      streamed(text('Answer: a final'), done(' answer')),
+    ],
+  },
+  // Mid-stream feedback comes before the feedback given on the final value.
+  'streaming-forward-mid-stream-and-final-feedback-order': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', returns: 'Avoid drafts.', times: 1 },
+    ],
+    feedback_processors: [
+      { field: 'answer', returns: 'Keep it short.', times: 1 },
+    ],
+    request_tail: 3,
+    responses: [
+      streamed(text('Answer: a draft'), done(' then more')),
+      streamed(text('Answer: ok'), done()),
+    ],
+  },
+  // A processor that returns null gives no feedback.
+  'streaming-forward-processor-null-no-feedback': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [{ field: 'answer', returns: null }],
+    feedback_processors: [{ field: 'answer', returns: null }],
+    responses: [streamed(text('Answer: a draft'), done(' then more'))],
+  },
+  // Feedback on a finished answer is a user message with a text part.
+  'forward-feedback-request-shape': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    feedback_processors: [{ field: 'answer', returns: 'Check it.', times: 1 }],
+    request_tail: 2,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: first' }] },
+      { results: [{ index: 0, content: 'Answer: second' }] },
     ],
   },
 

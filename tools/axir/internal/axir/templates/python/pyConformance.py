@@ -1151,6 +1151,7 @@ def _run_forward(fixture):
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    _assert_last_request_tail(fixture, client)
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     if "expected_output" in fixture:
@@ -1255,6 +1256,17 @@ def _fixture_processor(spec, calls):
     return processor
 
 
+def _assert_last_request_tail(fixture, client):
+    # The last messages of the last request's prompt, compared by role and
+    # content.
+    expected = fixture.get("expected_last_request_tail")
+    if expected is None:
+        return
+    prompt = (client.requests[-1] if client.requests else {}).get("chat_prompt") or []
+    tail = [{key: message[key] for key in ("role", "content") if key in message} for message in prompt[-len(expected):]]
+    _assert_equal(tail, expected, "last request tail")
+
+
 def _assert_error_cause(fixture, exc):
     # "Generate failed: ..." keeps the failure it wraps as its cause.
     expected = fixture.get("expected_error_cause_contains")
@@ -1329,6 +1341,7 @@ def _run_streaming_forward(fixture):
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
+    _assert_last_request_tail(fixture, client)
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:
