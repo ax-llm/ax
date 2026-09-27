@@ -2542,6 +2542,19 @@ const sessionCases: Record<string, Case> = {
     native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
     responses: [],
   },
+  // A tool that runs in a native session gets the run's extras too.
+  'forward-native-session-tool-extras': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [extrasLookupTool],
+    forward_options: {
+      sessionId: 'session-1',
+      eventContext: eventContextSample,
+    },
+    native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
+    responses: [],
+  },
   // A correction's fresh session gets the whole conversation, the first
   // session's tool call and result included.
   'forward-native-session-tool-then-correction': {
