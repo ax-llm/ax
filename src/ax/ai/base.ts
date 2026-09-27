@@ -2185,7 +2185,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           span,
           abortSignal,
-          corsProxy: this.corsProxy,
+          corsProxy: options?.corsProxy ?? this.corsProxy,
           onResponseMetadata,
           retry: options?.retry ?? this.retry,
           includeRequestBodyInErrors:
@@ -2745,7 +2745,7 @@ export class AxBaseAI<
           timeout: this.timeout,
           span,
           abortSignal,
-          corsProxy: this.corsProxy,
+          corsProxy: options?.corsProxy ?? this.corsProxy,
           onResponseMetadata,
           retry: options?.retry ?? this.retry,
           includeRequestBodyInErrors:
@@ -3242,7 +3242,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           span,
           abortSignal,
-          corsProxy: this.corsProxy,
+          corsProxy: options?.corsProxy ?? this.corsProxy,
           retry: options?.retry ?? this.retry,
           includeRequestBodyInErrors:
             options?.includeRequestBodyInErrors ??
