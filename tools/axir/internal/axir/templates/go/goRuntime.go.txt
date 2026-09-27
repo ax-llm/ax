@@ -7768,14 +7768,19 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
+	// As TS evaluates each task from a fresh state, the prediction carries
+	// only this run's share of the agent's logs.
+	marks := mustCore(_agent_eval_marks(a.State))
 	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
-	if err == nil {
-		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
+	completion := Object("type", "final", "output", output)
+	if err != nil {
+		if clarification, ok := agentClarificationFromError(err); ok {
+			completion = Object("type", "askClarification", "clarification", clarification)
+		} else {
+			completion = Object("type", "error", "message", err.Error())
+		}
 	}
-	if clarification, ok := agentClarificationFromError(err); ok {
-		return Object("completionType", "askClarification", "clarification", clarification, "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
-	}
-	return Object("completionType", "error", "error", Object("message", err.Error()), "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(err.Error()), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	return mustCore(_build_agent_run_prediction(a.State, marks, completion, a.GetUsage(), a.ExportTrace()))
 }
 func (a *AxAgent) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
 	opts := options
@@ -14914,6 +14919,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
 			assertSubset(prediction, expected, "eval prediction")
 		}
+		// Fields that must match exactly: a list compares in full.
+		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
+		for _, key := range orderedKeys(fields) {
+			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
+		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
 		request := Object("contractVersion", "axir-optimize-contract-v1", "programKind", conformanceProgramKind(fixture), "components", components, "dataset", mustCore(_normalize_optimization_dataset(coreGet(fixture, "dataset", Array()))), "options", coreGet(fixture, "optimize_options", Object()), "trace", Object(), "evaluator", Object("available", true, "contractVersion", "axir-optimizer-evaluator-v1"))
@@ -15396,7 +15406,15 @@ func conformanceBuildProgram(fixture map[string]Value) AxProgram {
 	tools, _ := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	switch display(coreGet(fixture, "program", "axgen")) {
 	case "agent":
-		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		options := asMap(coreGet(fixture, "options", Object()))
+		// An agent's runtime_script runs its actor code, as in the agent fixtures.
+		if script := coreGet(fixture, "runtime_script", nil); script != nil {
+			options = cloneMap(options)
+			runtime := newConformanceScriptedCodeRuntime(script, Object())
+			runtime.LanguageName = display(coreGet(fixture, "runtime_language", "JavaScript"))
+			coreSet(options, "runtime", runtime)
+		}
+		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		ag.Executor.Functions = tools
 		return ag
 	case "flow":

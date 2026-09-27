@@ -1725,6 +1725,15 @@ static void run_optimize(Value fixture) {
         return;
       }
     }
+    // An agent's runtime_script runs its actor code, as in the agent fixtures.
+    std::unique_ptr<ScriptedCodeRuntime> scripted_runtime;
+    if (!Core::get(fixture, "runtime_script").is_null()) {
+      scripted_runtime = std::make_unique<ScriptedCodeRuntime>(
+          Core::get(fixture, "runtime_script", Value::array()),
+          display(Core::get(fixture, "runtime_language", "JavaScript")),
+          "");
+      Core::set(options, "runtime", Core::code_runtime_ref(*scripted_runtime));
+    }
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), options);
     if (op == "components") {
       Value components = ag.get_optimizable_components();
@@ -1798,6 +1807,11 @@ static void run_optimize(Value fixture) {
       ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
       Value prediction = ag.evaluate_optimization_task(client, Core::get(fixture, "task", object({{"input", Core::get(fixture, "input", Value::object())}})), Core::get(fixture, "eval_options", Value::object()));
       if (!Core::get(fixture, "expected_prediction_subset").is_null()) assert_subset(prediction, Core::get(fixture, "expected_prediction_subset"), "eval prediction");
+      // Fields that must match exactly: a list compares in full.
+      for (const auto& kv : as_object(Core::get(fixture, "expected_prediction_fields", Value::object()))) {
+        if (kv.first == "__order") continue;
+        assert_equal(Core::get(prediction, kv.first), kv.second, "eval prediction " + kv.first);
+      }
       return;
     }
   } catch (const AxError& error) {
