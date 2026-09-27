@@ -358,6 +358,12 @@ struct Core {
   static Value string_title_from_camel(Value value);
   static Value string_ends_with(Value value, Value suffix);
   static Value string_starts_with(Value value, Value prefix);
+  // Streamed text: appending a chunk, which joins a surrogate pair split
+  // across stream events into one code point, and dropping a trailing high
+  // surrogate (half of such a pair) from a delta. parse_json keeps a lone
+  // surrogate escape as 3 WTF-8 bytes (see the definitions).
+  static Value string_concat_stream_text(Value left, Value right);
+  static Value string_drop_trailing_high_surrogate(Value value);
   static Value string_replace(Value value, Value old_value, Value new_value);
   static Value string_slice(Value value, Value start, Value end = Value());
   static Value string_remove_suffix(Value value, Value suffix);
@@ -470,6 +476,7 @@ struct Core {
   static Value agent_runtime_export_state(Value session, Value options);
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
+  static Value agent_runtime_language(Value runtime);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
@@ -500,6 +507,10 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  static Value ai_warn_once(Value key, Value message);
+  // Conformance hook: forgets the one-time warnings already shown and sends
+  // new ones to sink (an empty sink prints them to stderr again).
+  static void ai_capture_warnings(std::function<void(const std::string&)> sink);
   // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
@@ -798,6 +809,14 @@ struct Core {
   static Value provider_require_expensive_model_confirmation(Value provider, Value model, Value client_options, Value options);
   static Value _gemini_vertex_embed_content_model_impl(Value model);
   static Value provider_embed_url(Value profile, Value model, Value options);
+  static Value provider_require_api_url(Value profile, Value options);
+  static Value provider_missing_api_key_message(Value profile);
+  static Value _provider_reads_own_key_env_impl(Value provider_id);
+  static Value provider_default_model_config(Value profile);
+  static Value _provider_apply_model_sampling_support_impl(Value profile, Value provider, Value transport, Value request, Value options);
+  static Value _provider_sampling_snake_key_impl(Value key);
+  static Value _provider_sampling_request_reasons_impl(Value transport, Value model, Value config, Value supported);
+  static Value _provider_warn_dropped_sampling_impl(Value model, Value key, Value without_reasoning_only);
   static Value _openai_responses_apply_prompt_cache_retention(Value payload, Value request, Value options, Value model);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
@@ -1307,6 +1326,11 @@ struct Core {
   static Value _agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
   static Value _agent_streaming_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
   static Value _agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options);
+  static Value _agent_actor_stage_signatures(Value runtime_enabled, Value code_field_name);
+  static Value _agent_runtime_configured(Value state);
+  static Value _agent_stage_mode_fields(Value state);
+  static Value _agent_runtime_stage_fields(Value state, Value runtime);
+  static Value _agent_use_stage_mode(Value state, Value options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
@@ -2567,6 +2591,20 @@ class AxAgent : public AxProgram {
   void learn_playbook_failures(Value output);
   std::unique_ptr<AxGen> make_responder(const Value& options);
   Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
+  // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+  // the RLM stages, or "plain", the runtime-less stages. The members hold the
+  // set in use; the other mode's set waits in stage_sets_, and
+  // optimized_components_ apply to a set when a run switches to it.
+  struct StageSet {
+    std::unique_ptr<AxGen> distiller;
+    std::unique_ptr<AxGen> executor;
+    std::unique_ptr<AxGen> responder;
+  };
+  std::string stage_mode_ = "plain";
+  std::map<std::string, StageSet> stage_sets_;
+  Value optimized_components_ = Value::object();
+  void reset_stage_sets();
+  void use_stage_mode(const Value& options);
 };
 
 std::string stringify(const Value& value);

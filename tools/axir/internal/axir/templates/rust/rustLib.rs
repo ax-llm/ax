@@ -2441,10 +2441,10 @@ impl OpenAICompatibleClient {
         {
             req["model"] = json!(self.model.clone());
         }
-        let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
-        if self.profile != "typesafe" && base_config.get("temperature").is_none() {
-            base_config["temperature"] = json!(0);
-        }
+        // Only the caller's settings: provider_build_chat_request adds the
+        // provider's sampling defaults (as its TS class starts from) under
+        // them, after dropping the explicit ones the model rejects.
+        let base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
         let override_config = req
             .get("model_config")
             .or_else(|| req.get("modelConfig"))
@@ -2547,7 +2547,8 @@ impl OpenAICompatibleClient {
             && self.api_key.is_empty()
             && self.credential_provider.is_none()
         {
-            return Err(AxError::new("authentication", format!("{} requires api_key or credential_provider", self.profile)));
+            let message = core_value_to_json(&provider_missing_api_key_message(&[CoreValue::from(self.profile.as_str())])?);
+            return Err(AxError::new("authentication", message.as_str().unwrap_or_default().to_string()));
         }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest {
@@ -3907,11 +3908,16 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
     let profile = defaults.profile.clone();
     let vertex = options.get("project_id").or_else(|| options.get("projectId")).is_some() && options.get("region").is_some();
+    // OPENAI_API_KEY belongs to OpenAI's own profiles and the generic client:
+    // the OpenAI key never goes to another provider. A profile that needs a
+    // key and has none fails on its first request (a credential provider can
+    // still be attached after ai()).
+    let reads_openai_env = matches!(profile.as_str(), "openai" | "openai-responses" | "openai-compatible");
     let api_key = string_at(&options, "api_key")
         .or_else(|| string_at(&options, "apiKey"))
         .or_else(|| if vertex && matches!(profile.as_str(), "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
-        .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() })
-        .unwrap_or_else(|| if profile == "typesafe" { String::new() } else { "test-key".to_string() });
+        .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else if reads_openai_env { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() } else { None })
+        .unwrap_or_default();
     if profile == "typesafe" {
         let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
         typesafe_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
@@ -3928,10 +3934,8 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .or_else(|| resolved_descriptor.get("baseUrl").and_then(Value::as_str).map(ToString::to_string))
         .unwrap_or_else(|| defaults.api_url.to_string());
     if defaults.requires_api_url && api_url.is_empty() {
-        return Err(AxError::validation(format!(
-            "AxAI profile {} requires api_url",
-            profile
-        )));
+        // TS resolveProfileURL: "<Name> requires apiURL".
+        provider_require_api_url(&[CoreValue::from(profile.as_str()), core_value_from_json(&json!({}))])?;
     }
     let embed_model = string_at(&options, "embed_model").unwrap_or_else(|| defaults.embed_model.to_string());
     let mut client = OpenAICompatibleClient::new(api_key, model)
@@ -5447,7 +5451,17 @@ pub struct AxAgent {
     playbook_instruction_base: String,
     citations_observer: Option<Box<dyn FnMut(Value)>>,
     playbook_observer: Option<Box<dyn FnMut(Value)>>,
+    // The client named with with_playbook_student, for the playbook config's
+    // run-end learning; None uses the forward's client.
+    playbook_student: Option<Rc<RefCell<dyn AxAIClient>>>,
     runtime_hooks: AxRuntimeHooks,
+    // Each run uses the stage set of its mode (see use_stage_mode): "runtime",
+    // the RLM stages, or "plain", the runtime-less stages. The fields above hold
+    // the set in use; the other mode's set waits in stage_sets, and
+    // optimized_components apply to a set when a run switches to it.
+    stage_mode: String,
+    stage_sets: BTreeMap<String, (CoreValue, CoreValue, CoreValue)>,
+    optimized_components: Value,
 }
 
 thread_local! {
@@ -5691,6 +5705,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     .text();
     let llm_query_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("llm_query_description"), CoreValue::from("")));
     let responder = agent_responder_gen(&state, &options, responder_signature, responder_instruction)?;
+    let stage_mode = if core_truthy(&core_get(&state, &CoreValue::from("runtime_enabled"), CoreValue::Bool(false))) { "runtime" } else { "plain" }.to_string();
     Ok(AxAgent {
         configured_options: options.clone(),
         state,
@@ -5711,7 +5726,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         playbook_instruction_base,
         citations_observer: None,
         playbook_observer: None,
+        playbook_student: None,
         runtime_hooks: AxRuntimeHooks::default(),
+        stage_mode,
+        stage_sets: BTreeMap::new(),
+        optimized_components: json!({}),
     })
 }
 
@@ -5726,6 +5745,7 @@ impl AxAgent {
         rebuilt.execution_context = self.execution_context;
         rebuilt.citations_observer = self.citations_observer;
         rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_student = self.playbook_student;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
         rebuilt.refresh_playbook_prompt();
@@ -5742,6 +5762,7 @@ impl AxAgent {
         rebuilt.execution_context=self.execution_context;
         rebuilt.citations_observer=self.citations_observer;
         rebuilt.playbook_observer=self.playbook_observer;
+        rebuilt.playbook_student=self.playbook_student;
         rebuilt.playbook_config=self.playbook_config;
         rebuilt.playbook_snapshot=self.playbook_snapshot;
         rebuilt.refresh_playbook_prompt();
@@ -5752,8 +5773,25 @@ impl AxAgent {
         let hooks = self.runtime_hooks.clone();
         let mut rebuilt = agent_with_core_options(spec, options)?;
         rebuilt.runtime_hooks = hooks;
+        rebuilt.playbook_student = self.playbook_student.take();
         *self = rebuilt;
         Ok(self)
+    }
+
+    /// Name the client that runs the `playbook` config's run-end learning (the
+    /// reflector and curator calls), as TypeScript's `playbook.studentAI`
+    /// does. Rust agent options are JSON, which cannot hold a client, and a
+    /// Rust agent has no default `ai`, so without a student the learning runs
+    /// on the client passed to `forward`. A student that is already borrowed
+    /// when the run ends (for example because it is also the forward's client)
+    /// is not borrowed again, and the learning runs on the forward's client.
+    /// Without a `playbook` config the student is unused. An `Rc<RefCell<_>>`
+    /// is not `Send`, so the student stays with this agent: should `AxAgent`
+    /// get a worker factory, an agent that a worker rebuilds learns on the
+    /// forward's client.
+    pub fn with_playbook_student<C: AxAIClient + 'static>(mut self, student: Rc<RefCell<C>>) -> Self {
+        self.playbook_student = Some(student);
+        self
     }
 
     pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
@@ -5829,6 +5867,64 @@ impl AxAgent {
         Self::write_stage_instruction(target, &instruction);
     }
 
+    // A run's stages follow its runtime: the agent's, else the forward call's;
+    // without one, the runtime-less stages run. A set coming back into use
+    // takes the instructions from the agent's state (a standing instruction set
+    // since) and the optimized components again.
+    fn use_stage_mode(&mut self, options: &CoreValue) -> AxResult<()> {
+        let record = core_value_to_json(&_agent_use_stage_mode(&[self.state.clone(), options.clone()])?);
+        let mode = record.get("mode").and_then(Value::as_str).unwrap_or("plain").to_string();
+        if mode == self.stage_mode {
+            return Ok(());
+        }
+        let text = |field: &str| record.get(field).and_then(Value::as_str).unwrap_or_default().to_string();
+        let (distiller, executor, responder) = match self.stage_sets.remove(&mode) {
+            Some(set) => {
+                Self::write_stage_instruction(&set.0, &text("distiller_description"));
+                Self::write_stage_instruction(&set.1, &text("executor_description"));
+                Self::write_stage_instruction(&set.2, &text("responder_description"));
+                set
+            }
+            None => {
+                let retries = core_value_to_json(&core_get(
+                    &self.configured_options,
+                    &CoreValue::from("validation_retries"),
+                    core_get(&self.configured_options, &CoreValue::from("validationRetries"), CoreValue::Num(1.0)),
+                ));
+                let distiller = agent_stage_gen(
+                    s(&text("distiller_signature"))?,
+                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description")}),
+                );
+                let executor = agent_stage_gen(
+                    s(&text("executor_signature"))?,
+                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description")}),
+                );
+                let responder_signature = signature_from_record(&core_get(&self.state, &CoreValue::from("responder_signature"), CoreValue::Null))?;
+                let responder = agent_responder_gen(&self.state, &self.configured_options, responder_signature, json!(text("responder_description")))?;
+                (distiller, executor, responder)
+            }
+        };
+        if self.optimized_components.as_object().is_some_and(|map| !map.is_empty()) {
+            let components = core_value_from_json(&self.optimized_components);
+            core_program_apply_components(&[distiller.clone(), components.clone()])?;
+            core_program_apply_components(&[executor.clone(), components.clone()])?;
+            core_program_apply_components(&[responder.clone(), components])?;
+        }
+        let outgoing = (
+            std::mem::replace(&mut self.distiller, distiller),
+            std::mem::replace(&mut self.executor, executor),
+            std::mem::replace(&mut self.responder, responder),
+        );
+        let previous = std::mem::replace(&mut self.stage_mode, mode);
+        self.stage_sets.insert(previous, outgoing);
+        if self.playbook_configured() {
+            let field = if self.playbook_stage_name() == "responder" { "responder_description" } else { "executor_description" };
+            self.playbook_instruction_base = text(field);
+            self.refresh_playbook_prompt();
+        }
+        Ok(())
+    }
+
     pub fn get_instruction(&self) -> String {
         self.state_json("stage_instruction").as_str().unwrap_or_default().to_string()
     }
@@ -5863,7 +5959,20 @@ impl AxAgent {
         input: Value,
         options: impl Into<AxForwardOptions>,
     ) -> AxResult<Value> {
-        self.run(client, input, options.into(), None)
+        self.run(client, input, options.into(), None, None)
+    }
+
+    // A forward with a runtime on the call, as the other ports take one (the
+    // conformance runner's runtime_on_forward). Rust attaches runtimes with
+    // with_runtime, so a runtime per call is reachable only inside the crate.
+    pub(crate) fn forward_with_runtime_host<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        runtime: Option<CoreValue>,
+    ) -> AxResult<Value> {
+        self.run(client, input, options, None, runtime)
     }
 
     /// Runs the agent and streams the responder's output, as TypeScript's
@@ -5883,13 +5992,25 @@ impl AxAgent {
         client: &mut C,
         input: Value,
         options: impl Into<AxForwardOptions>,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value> {
+        self.streaming_forward_with_runtime_host(client, input, options.into(), None, on_delta)
+    }
+
+    // streaming_forward with a runtime on the call; see forward_with_runtime_host.
+    pub(crate) fn streaming_forward_with_runtime_host<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: AxForwardOptions,
+        runtime: Option<CoreValue>,
         mut on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
     ) -> AxResult<Value> {
         let host = Rc::new(CoreDeltaSinkHost {
             sink: RefCell::new(Box::new(move |envelope| on_delta(AxGenDelta::from_envelope(&envelope)))),
             stopped: RefCell::new(None),
         });
-        let result = self.run(client, input, options.into(), Some(host.clone()));
+        let result = self.run(client, input, options, Some(host.clone()), runtime);
         // The consumer's own error, not the abort that carried it out of the run.
         let stop = host.stopped.borrow_mut().take();
         match stop {
@@ -5905,6 +6026,7 @@ impl AxAgent {
         input: Value,
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
+        forward_runtime: Option<CoreValue>,
     ) -> AxResult<Value> {
         session::with_control(options, |options| {
         let defaults = self.runtime_hooks.clone();
@@ -5914,11 +6036,17 @@ impl AxAgent {
             attributes.insert("ax.streaming".to_string(), json!(true));
         }
         with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
+        // The run's options as the IR takes them, with a runtime on the call.
+        let run_options = core_value_from_json(&options);
+        if let Some(runtime) = &forward_runtime {
+            core_set(&run_options, CoreValue::from("runtime"), runtime.clone())?;
+        }
+        self.use_stage_mode(&run_options)?;
         let call_context=self.execution_context.clone().or_else(mcp::MCPRunScope::current);
         let _context_scope=mcp::MCPRunScope::enter(call_context.clone());
         if call_context.is_some() || core_truthy(&core_get(&self.state,&CoreValue::from("mcp_run_context_active"),CoreValue::Bool(false))) {
             let modules=match &call_context {Some(context)=>agent_context_modules(context)?,None=>CoreValue::new_list()};
-            _agent_apply_run_context(&[self.state.clone(),self.configured_options.clone(),core_value_from_json(&options),modules])?;
+            _agent_apply_run_context(&[self.state.clone(),self.configured_options.clone(),run_options.clone(),modules])?;
             if core_truthy(&core_get(&self.state,&CoreValue::from("runtime_enabled"),CoreValue::Bool(false))) {
                 for (field,stage) in [("distiller_description","distiller"),("executor_description","executor"),("responder_description","responder")] {
                     let instruction=core_get(&self.state,&CoreValue::from(field),CoreValue::from("")).text();
@@ -5953,7 +6081,10 @@ impl AxAgent {
         // thread-local client bound by with_core_client below (CoreValue::Null
         // here resolves to that binding), so it captures only Send + Sync data.
         let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+        let runtime_host = match &forward_runtime {
+            Some(runtime) => runtime.clone(),
+            None => core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null),
+        };
         let invocation_binding = AgentRunBinding::new(self.state.clone());
         if let CoreValue::Host(host) = &runtime_host {
             for raw_name in core_iter(&_agent_runtime_callable_names(&[self.state.clone()])?)? {
@@ -6008,7 +6139,7 @@ impl AxAgent {
                 self.responder.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                core_value_from_json(&options),
+                run_options.clone(),
             ]),
             Some(sink) => _agent_streaming_forward(&[
                 self.state.clone(),
@@ -6017,7 +6148,7 @@ impl AxAgent {
                 self.responder.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                core_value_from_json(&options),
+                run_options.clone(),
                 CoreValue::Host(sink.clone()),
             ]),
         });
@@ -6082,7 +6213,18 @@ impl AxAgent {
         self
     }
 
+    // The run-end learning runs on the named playbook student, or on the
+    // forward's client without one or while the student is borrowed.
     fn learn_playbook_failures<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
+        let student = self.playbook_student.clone();
+        let mut borrowed = student.as_ref().and_then(|student| student.try_borrow_mut().ok());
+        match borrowed.as_deref_mut() {
+            Some(student) => self.learn_playbook_failures_with(&mut ProgramClient(student), output),
+            None => self.learn_playbook_failures_with(client, output),
+        }
+    }
+
+    fn learn_playbook_failures_with<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
         if self.playbook_config.is_null() || self.playbook_config.as_bool() == Some(false) { return; }
         let _ = (|| -> AxResult<()> {
             let config = self.playbook_config.as_object().cloned().unwrap_or_default();
@@ -6315,6 +6457,12 @@ impl AxAgent {
             core_value_from_json(&components),
             core_value_from_json(component_map),
         ])?;
+        // Kept for the other stage set, which gets them when a run switches to it.
+        if let (Some(kept), Some(updates)) = (self.optimized_components.as_object_mut(), component_map.as_object()) {
+            for (key, value) in updates {
+                kept.insert(key.clone(), value.clone());
+            }
+        }
         let component_core = core_value_from_json(component_map);
         core_program_apply_components(&[self.distiller.clone(), component_core.clone()])?;
         core_program_apply_components(&[self.executor.clone(), component_core.clone()])?;
@@ -6500,6 +6648,7 @@ impl AxAgent {
         rebuilt.execution_context = self.execution_context;
         rebuilt.citations_observer = self.citations_observer;
         rebuilt.playbook_observer = self.playbook_observer;
+        rebuilt.playbook_student = self.playbook_student;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
         rebuilt.refresh_playbook_prompt();
@@ -13037,12 +13186,20 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         ScriptedCodeRuntime::new(script.clone(), language, usage)
     });
     let executed_handle = scripted.as_ref().map(|runtime| runtime.executed_handle());
+    // runtime_on_forward: the runtime goes on each forward call (unless a run
+    // says without_runtime) instead of the constructor.
+    let runtime_on_forward = fixture.get("runtime_on_forward").and_then(Value::as_bool).unwrap_or(false);
+    let mut forward_runtime: Option<CoreValue> = None;
     if let Some(runtime) = scripted {
         let host = core_code_runtime_host_shared(
             Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
             core_runtime_capabilities_full(),
         );
-        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        if runtime_on_forward {
+            forward_runtime = Some(host);
+        } else {
+            core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        }
     }
     // agent_runtime_real (G1): drive forward() through the REAL embedded engine.
     if fixture.get("runtime_engine").is_some() {
@@ -13133,6 +13290,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(snapshot) = fixture.get("restore_runtime_state") {
         agent.restore_runtime_state(snapshot.clone())?;
     }
+    if let Some(components) = fixture.get("apply_components") {
+        agent.apply_optimized_components(components)?;
+    }
     let mut run_state_projections = Vec::<Value>::new();
     let mut saved_runtime_state: Option<Value> = None;
     let mut state_roundtrip_projection = json!({});
@@ -13164,6 +13324,9 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                     }
                     _ => {}
                 }
+                if let Some(signature) = run.get("set_signature").and_then(Value::as_str) {
+                    agent.set_signature(signature)?;
+                }
                 let input = run.get("input").cloned().unwrap_or_else(|| json!({}));
                 let mut forward_options = run
                     .get("forward_options")
@@ -13173,7 +13336,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                     install_semantic_observer(options, "onUsedSkills", "forward.used_skills", false);
                     install_semantic_observer(options, "onUsedMemories", "forward.used_memories", false);
                 }
-                outputs.push(agent.forward_with_options(&mut client, input, forward_options)?);
+                let run_runtime = if run.get("without_runtime").and_then(Value::as_bool).unwrap_or(false) { None } else { forward_runtime.clone() };
+                outputs.push(agent.forward_with_runtime_host(&mut client, input, AxForwardOptions::from(forward_options), run_runtime)?);
                 let run_exported = agent.export_runtime_state()?;
                 if run
                     .get("save_runtime_state")
@@ -13216,7 +13380,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         if streaming {
             let deltas = stream_deltas.clone();
             let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
-            let result = agent.streaming_forward(&mut client, input, run_options, move |update| {
+            let result = agent.streaming_forward_with_runtime_host(&mut client, input, run_options, forward_runtime.clone(), move |update| {
                 let mut deltas = deltas.borrow_mut();
                 deltas.push(json!({"version": update.version, "index": update.index, "delta": update.delta}));
                 if stop_after.is_some_and(|limit| deltas.len() as u64 >= limit) {
@@ -13230,7 +13394,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                 other => other,
             };
         }
-        agent.forward_with_options(&mut client, input, run_options)
+        agent.forward_with_runtime_host(&mut client, input, run_options, forward_runtime.clone())
     })();
     let assert_run_projections = |agent: &mut AxAgent, client: &FixtureClient| -> AxResult<()> {
         if streaming || fixture.get("expected_deltas").is_some() {
@@ -13626,6 +13790,9 @@ fn agent_request_stage(request: &Value) -> &'static str {
         "executor"
     } else if system.contains("`Generator answer`") || system.contains("`Question context`") {
         "playbook"
+    } else if system.contains("Your task is to generate new fields: `Completion`") {
+        // The ports' runtime-less distiller or executor (port-only).
+        "runtime_less"
     } else if system.contains("context-map Distiller") || system.contains("context-map Cartographer") {
         "context_map"
     } else {
@@ -17557,8 +17724,55 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+// Sets (or, for null, unsets) the fixture's environment variables and returns
+// their previous values.
+fn apply_fixture_env(fixture: &Value) -> Vec<(String, Option<String>)> {
+    let mut saved = Vec::new();
+    if let Some(env) = fixture.get("env").and_then(Value::as_object) {
+        for (name, value) in env {
+            saved.push((name.clone(), std::env::var(name).ok()));
+            match value.as_str() {
+                Some(text) => std::env::set_var(name, text),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+    saved
+}
+
+fn restore_fixture_env(saved: Vec<(String, Option<String>)>) {
+    for (name, value) in saved {
+        match value {
+            Some(text) => std::env::set_var(&name, text),
+            None => std::env::remove_var(&name),
+        }
+    }
+}
+
+// A chat fixture can set environment variables, and pins the one-time
+// warnings the request logs with expected_warnings.
 fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
+    let saved = apply_fixture_env(fixture);
+    ai_capture_warnings(true);
+    let result = run_ai_chat_request_fixture(fixture);
+    let captured = ai_capture_warnings(false);
+    restore_fixture_env(saved);
+    result?;
+    if let Some(expected) = fixture.get("expected_warnings") {
+        expect_json_equal("ai chat warnings", &json!(captured), expected)?;
+    }
+    Ok(())
+}
+
+fn run_ai_chat_request_fixture(fixture: &Value) -> AxResult<()> {
+    let built = fixture_client(fixture);
+    if fixture.get("expected_error_contains").is_some() {
+        if let Err(err) = built {
+            // A client that fails to build has sent nothing.
+            return expect_validation_result(Err(err), fixture);
+        }
+    }
+    let (mut client, requests, credential_requests) = built?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     // Fixture `options` are the call's options (client options come from
     // `service_options`, falling back to `options`).
@@ -17935,8 +18149,18 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     if fixture.get("credential_provider_fixture").is_some() {
         options["api_key"] = json!("");
     }
-    if options.get("api_key").is_none() {options["api_key"]=fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));}
-    let mut client = ai(provider, options)?.with_transport(transport);
+    // no_api_key: the client gets no key argument (the env fixtures).
+    if options.get("api_key").is_none() && !fixture.get("no_api_key").and_then(Value::as_bool).unwrap_or(false) {options["api_key"]=fixture.get("api_key").cloned().unwrap_or_else(|| json!("test-key"));}
+    let mut client = if fixture.get("client_class").and_then(Value::as_str) == Some("OpenAICompatibleClient") {
+        // The generic client built by its own constructor instead of ai().
+        let api_key = options.get("api_key").and_then(Value::as_str).unwrap_or("test-key").to_string();
+        let model = options.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
+        OpenAICompatibleClient::new(api_key, model)
+            .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({})))
+            .with_transport(transport)
+    } else {
+        ai(provider, options)?.with_transport(transport)
+    };
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
         let header_sets = credential_fixture.get("headers").and_then(Value::as_array).cloned().unwrap_or_default();
         let error = credential_fixture.get("error").and_then(Value::as_str).map(ToString::to_string);
@@ -23078,6 +23302,50 @@ fn core_axgen_check_streaming_assertion(args: &[CoreValue]) -> Result<CoreValue,
     core_axgen_assertion_outcome("pass", "message", CoreValue::Null)
 }
 
+static AI_WARNINGS_SHOWN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static AI_WARNINGS_CAPTURED: Mutex<Option<Vec<String>>> = Mutex::new(None);
+
+// python: _core_ai_warn_once(key, message). TS console.warn, once per key per
+// process: a setting Ax could not send, such as a sampling parameter the
+// selected model rejects.
+#[allow(dead_code)]
+fn core_ai_warn_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let first = AI_WARNINGS_SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(core_arg(args, 0).text());
+    if first {
+        let message = core_arg(args, 1).text();
+        let mut captured = AI_WARNINGS_CAPTURED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match captured.as_mut() {
+            Some(messages) => messages.push(message),
+            None => eprintln!("axllm: {message}"),
+        }
+    }
+    Ok(CoreValue::Null)
+}
+
+// Conformance hook: forgets the one-time warnings already shown and returns
+// the ones captured since the last call; with `capture`, collects new ones
+// instead of printing them.
+#[allow(dead_code)]
+fn ai_capture_warnings(capture: bool) -> Vec<String> {
+    AI_WARNINGS_SHOWN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+    let mut captured = AI_WARNINGS_CAPTURED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let collected = captured.take().unwrap_or_default();
+    if capture {
+        *captured = Some(Vec::new());
+    }
+    collected
+}
+
 // python: _core_axgen_deprecation(key, message). Deprecated port behavior
 // warns once per key per process.
 #[allow(dead_code)]
@@ -24595,6 +24863,21 @@ fn core_agent_runtime_restore_state(args: &[CoreValue]) -> Result<CoreValue, AxE
 // python: _core_agent_runtime_close(session); None results normalize to
 // {"closed": True}.
 #[allow(dead_code)]
+// A runtime's language: a runtime config's "language", else the code runtime's
+// own, else JavaScript, TS's default runtime.
+fn core_agent_runtime_language(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let language = match core_host_try(&runtime, "language", &[]) {
+        Some(result) => result?.text(),
+        None => {
+            let raw = core_get(&runtime, &CoreValue::from("language"), CoreValue::Null);
+            if raw.is_null() { String::new() } else { raw.text() }
+        }
+    };
+    let trimmed = language.trim();
+    Ok(CoreValue::from_string(if trimmed.is_empty() { "JavaScript".to_string() } else { trimmed.to_string() }))
+}
+
 fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let session = core_arg(args, 0);
     let closed = || core_agent_map(&[("closed", CoreValue::Bool(true))]);
@@ -26720,6 +27003,130 @@ mod stream_split_surrogate_tests {
         // Any other bad escape still fails the event's parse.
         assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
         assert_eq!(parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?, json!({"content": "\u{1f600}"}));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod agent_playbook_student_tests {
+    use super::*;
+
+    const RULE: &str = "Stop retrying a call that keeps failing the same way.";
+
+    // An actor that fails the same way twice before it responds: two failure
+    // signals, so the playbook config's run-end learning runs.
+    fn failing_run_script() -> Vec<Value> {
+        let error = json!({"error": "boom", "error_category": "runtime_error", "is_error": true, "kind": "error"});
+        vec![
+            json!({"expected_code": "raise Error('boom')", "result": error.clone()}),
+            json!({"expected_code": "raise Error('boom')", "result": error}),
+            json!({"expected_code": "respond('Ready', {})", "result": {"args": ["Ready", {}], "type": "respond"}}),
+        ]
+    }
+
+    fn playbook_agent() -> AxResult<AxAgent> {
+        agent_with_options(
+            "question:string -> answer:string",
+            json!({"playbook": {"now": "2026-09-26T00:00:00.000Z"}}),
+        )
+    }
+
+    fn scripted_runtime() -> Box<dyn AxCodeRuntime> {
+        Box::new(ScriptedCodeRuntime::new(failing_run_script(), "JavaScript".into(), String::new()))
+    }
+
+    fn run_responses() -> Vec<Value> {
+        vec![
+            json!({"content": "{\"javascriptCode\":\"raise Error('boom')\"}"}),
+            json!({"content": "{\"javascriptCode\":\"raise Error('boom')\"}"}),
+            json!({"content": "{\"javascriptCode\":\"respond('Ready', {})\"}"}),
+            json!({"content": "Answer: recovered"}),
+        ]
+    }
+
+    // The reflector's and the curator's answers.
+    fn learning_responses() -> Vec<Value> {
+        let reflection = [
+            "Reasoning: The actor retried a failing call.",
+            "Error Identification: The same runtime error repeated.",
+            "Root Cause Analysis: Nothing stopped the retry.",
+            "Correct Approach: Change the call after the first failure.",
+            "Key Insight: Do not repeat a failing call.",
+            "Bullet Tags: []",
+        ]
+        .join("\n");
+        let curation = format!(
+            "Reasoning: Add an avoidance rule.\nOperations: [{{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"{RULE}\"}}]"
+        );
+        vec![json!({"content": reflection}), json!({"content": curation})]
+    }
+
+    fn learned_rules(agent: &AxAgent) -> Vec<Value> {
+        let state = agent.get_playbook_state().unwrap_or(Value::Null);
+        state["playbook"]["sections"]["failures_to_avoid"]
+            .as_array()
+            .map(|bullets| bullets.iter().map(|bullet| bullet["content"].clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn question() -> Value {
+        json!({"question": "Recover from a repeated runtime error"})
+    }
+
+    // A named student runs the reflector and the curator; the forward's
+    // client serves only the run.
+    #[test]
+    fn named_student_runs_the_run_end_learning() -> AxResult<()> {
+        let student = Rc::new(RefCell::new(FixtureClient::scripted(learning_responses(), json!({}))));
+        let mut agent = playbook_agent()?.with_runtime(scripted_runtime())?.with_playbook_student(student.clone());
+        let mut client = FixtureClient::scripted(run_responses(), router_default_features());
+        assert_eq!(agent.forward(&mut client, question())?, json!({"answer": "recovered"}));
+        assert_eq!((client.requests.len(), student.borrow().requests.len()), (4, 2));
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+
+    // The builders that rebuild the agent keep the student.
+    #[test]
+    fn named_student_survives_rebuilds() -> AxResult<()> {
+        let student = Rc::new(RefCell::new(FixtureClient::scripted(learning_responses(), json!({}))));
+        let mut agent = playbook_agent()?
+            .with_playbook_student(student.clone())
+            .with_tool_module("notes", Vec::new())?
+            .with_runtime(scripted_runtime())?;
+        let mut client = FixtureClient::scripted(run_responses(), router_default_features());
+        assert_eq!(agent.forward(&mut client, question())?, json!({"answer": "recovered"}));
+        assert_eq!((client.requests.len(), student.borrow().requests.len()), (4, 2));
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+
+    // Without a student, the learning runs on the forward's client.
+    #[test]
+    fn without_a_student_the_forward_client_learns() -> AxResult<()> {
+        let mut agent = playbook_agent()?.with_runtime(scripted_runtime())?;
+        let mut responses = run_responses();
+        responses.extend(learning_responses());
+        let mut client = FixtureClient::scripted(responses, router_default_features());
+        assert_eq!(agent.forward(&mut client, question())?, json!({"answer": "recovered"}));
+        assert_eq!(client.requests.len(), 6);
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+
+    // A student that is also the forward's client is borrowed by the forward,
+    // so the learning runs on the forward's client (the same client) instead
+    // of borrowing it twice.
+    #[test]
+    fn student_that_is_the_forward_client_is_not_borrowed_twice() -> AxResult<()> {
+        let mut responses = run_responses();
+        responses.extend(learning_responses());
+        let shared = Rc::new(RefCell::new(FixtureClient::scripted(responses, router_default_features())));
+        let mut agent = playbook_agent()?.with_runtime(scripted_runtime())?.with_playbook_student(shared.clone());
+        let output = agent.forward(&mut *shared.borrow_mut(), question())?;
+        assert_eq!(output, json!({"answer": "recovered"}));
+        assert_eq!(shared.borrow().requests.len(), 6);
+        assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
         Ok(())
     }
 }

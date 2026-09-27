@@ -25,12 +25,9 @@ func main() {
 		model = "gpt-5.6-luna"
 	}
 
-	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
+	client := ax.NewAI("openai", map[string]ax.Value{
 		"api_key": apiKey,
 		"model":   model,
-		"model_config": ax.Object(
-			"temperature", 0,
-		),
 	})
 
 	program := ax.NewAx("question:string -> answer:string", nil)

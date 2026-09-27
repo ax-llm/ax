@@ -11,7 +11,7 @@ import json
 import os
 import uuid
 
-from axllm import OpenAICompatibleClient, set_usage_observer
+from axllm import ai, set_usage_observer
 
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
@@ -20,7 +20,8 @@ if not api_key:
 
 events = []
 set_usage_observer(events.append)
-client = OpenAICompatibleClient(
+client = ai(
+    "openai",
     api_key=api_key,
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     usage_context={
