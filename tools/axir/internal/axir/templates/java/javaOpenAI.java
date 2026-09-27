@@ -359,6 +359,16 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     }
   }
 
+  protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation) throws Exception {
+    return streamEvents(payload, modelName, cancellation, options);
+  }
+
+  protected AxChatStream streamEventsIncremental(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation) throws Exception {
+    return streamEventsIncremental(payload, modelName, cancellation, options);
+  }
+
+  // errorOptions are the call's merged options; their includeRequestBodyInErrors
+  // decides whether a provider error keeps the request body.
   protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions) throws Exception {
     List<Map<String, Object>> out = new ArrayList<>();
     try (AxChatStream stream = streamEventsIncremental(payload, modelName, cancellation, errorOptions)) {
@@ -626,23 +636,24 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     private final StringBuilder buffer = new StringBuilder();
     private final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
 
-    // A failed handshake keeps its response, and that response's request URI
-    // holds the Gemini Live ?key= credential, so report the failure without it.
+    // A failed handshake keeps its HTTP response, whose request URI holds the
+    // Gemini Live ?key= credential, so the failure is rethrown without it.
     private static java.net.http.WebSocket connected(java.util.concurrent.CompletableFuture<java.net.http.WebSocket> connecting) {
       try { return connecting.join(); }
       catch (java.util.concurrent.CompletionException failure) {
-        Throwable cause = failure.getCause() == null ? failure : failure.getCause();
-        String detail = cause instanceof java.net.http.WebSocketHandshakeException handshake && handshake.getResponse() != null
-          ? "handshake returned HTTP " + handshake.getResponse().statusCode()
-          : cause.getClass().getSimpleName() + (cause.getMessage() == null ? "" : ": " + cause.getMessage());
-        throw new AxAIServiceNetworkError("realtime WebSocket connection failed: " + detail);
+        if (!(failure.getCause() instanceof java.net.http.WebSocketHandshakeException handshake)) throw failure;
+        int status = handshake.getResponse() == null ? 0 : handshake.getResponse().statusCode();
+        throw new java.util.concurrent.CompletionException(new IOException("realtime WebSocket handshake returned HTTP " + status));
       }
     }
 
     WebSocketRealtimeTransport(String url, Map<String, String> headers) {
       java.net.http.WebSocket.Builder builder = HttpClient.newHttpClient().newWebSocketBuilder();
       for (Map.Entry<String, String> header : headers.entrySet()) builder.header(header.getKey(), header.getValue());
-      this.ws = connected(builder.buildAsync(URI.create(url), new java.net.http.WebSocket.Listener() {
+      URI uri;
+      try { uri = URI.create(url); }
+      catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("realtime WebSocket URL is invalid"); }
+      this.ws = connected(builder.buildAsync(uri, new java.net.http.WebSocket.Listener() {
         @Override public java.util.concurrent.CompletionStage<?> onText(java.net.http.WebSocket socket, CharSequence data, boolean last) {
           buffer.append(data);
           if (last) { queue.offer(buffer.toString()); buffer.setLength(0); }

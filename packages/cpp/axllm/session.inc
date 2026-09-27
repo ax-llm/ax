@@ -93,7 +93,7 @@ class ResponsesChatSession final:public AxChatSession {
         });
         transport->stream_cancellable(call,[&](Value chunk){
           if(queue->cancelled.load())return false;
-          if(Core::get(chunk,"status").is_number()){int status=static_cast<int>(num(Core::get(chunk,"status")));Value body=Core::get(chunk,"json",Core::get(chunk,"body",Core::get(chunk,"data")));if(status>=400)throw Core::as_error(Core::openai_normalize_error(status,body,call));chunk=body;}
+          if(Core::get(chunk,"status").is_number()){int status=static_cast<int>(num(Core::get(chunk,"status")));Value body=Core::get(chunk,"json",Core::get(chunk,"body",Core::get(chunk,"data")));if(status>=400)throw Core::as_error(Core::openai_normalize_error(status,body,Value()));chunk=body;}
           if(chunk.is_array()){for(const auto& event:array_ref(chunk))if(!decoder.feed("data: "+stringify(event)+"\n\n"))return false;return true;}
           return decoder.feed(chunk.is_object()?"data: "+stringify(chunk)+"\n\n":display(chunk));
         },std::shared_ptr<std::atomic<bool>>(queue,&queue->cancelled));

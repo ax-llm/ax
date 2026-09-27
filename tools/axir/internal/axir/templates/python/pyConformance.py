@@ -3368,9 +3368,36 @@ def _run_ai_error(fixture):
             raise FixtureError(f"expected error type {expected_type}, got {type(exc).__name__}")
         if "expected_status" in fixture and getattr(exc, "status", None) != fixture["expected_status"]:
             raise FixtureError(f"expected status {fixture['expected_status']}, got {getattr(exc, 'status', None)}")
+        _assert_error_attributes(exc, fixture)
         _assert_transport_request(fixture, transport)
         return
     raise FixtureError("expected AxAI call to fail")
+
+
+def _error_text(exc):
+    """Everything a logger, tracer or JSON dump could read off an error and its causes."""
+    parts, seen, current = [], set(), exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts += [type(current).__name__, str(current), repr(current), repr(current.args)]
+        parts.append(json.dumps(vars(current), default=repr, sort_keys=True))
+        current = current.__cause__ or current.__context__
+    return "\n".join(parts)
+
+
+def _assert_error_attributes(exc, fixture):
+    text = _error_text(exc)
+    for needle in fixture.get("expected_error_excludes") or []:
+        if needle in text:
+            raise FixtureError(f"error unexpectedly carries {needle!r}: {text}")
+    if "expected_error_request" in fixture:
+        # Exactly the expected keys, as TypeScript keeps the URL and, when
+        # includeRequestBodyInErrors allows it, the body; values subset-matched.
+        request = getattr(exc, "request", None)
+        expected = fixture["expected_error_request"]
+        if not isinstance(request, dict) or sorted(request) != sorted(expected):
+            raise FixtureError(f"expected error request keys {sorted(expected)}, got {request!r}")
+        _assert_subset(request, expected, "error request")
 
 
 def _run_ai_unsupported(fixture):
@@ -3776,7 +3803,7 @@ def _openai_fixture_client(fixture):
         provider,
         model=fixture.get("model", default_model),
         embed_model=fixture.get("embed_model", default_embed_model),
-        api_key="test-key",
+        api_key=fixture.get("api_key", "test-key"),
         transport=transport,
         model_config=fixture.get("model_config"),
         options=fixture.get("service_options") or fixture.get("options") or {},
