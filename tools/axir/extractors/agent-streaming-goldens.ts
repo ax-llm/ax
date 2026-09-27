@@ -245,6 +245,15 @@ type Case = {
   // Pin the first request of each stage (distiller, executor, responder)
   // in full: every message's role and content, as each port must send them.
   first_requests?: boolean;
+  // With first_requests, pin every request of these stages, not only the
+  // first (the context map's distiller and cartographer share one label).
+  pin_stage_requests?: string[];
+  // agent_forward only: run this many forwards, with the same input, on the
+  // one agent (the fixture's forward_runs); with first_requests, each run's
+  // first request of each stage is pinned.
+  forward_runs?: number;
+  // Pin the context map after the run(s): its text, scores and steps.
+  pin_context_map?: boolean;
   // Why the fixture leaves out expected_request_roles.
   no_request_roles?: string;
   // Port-only: TS passes a forward timeout (milliseconds) to every stage's
@@ -364,10 +373,28 @@ async function record(name: string, spec: Case): Promise<void> {
   }
 
   const deltas: JsonMap[] = [];
+  // The request count when each forward run starts.
+  const runStarts: number[] = [];
   let output: Json | undefined;
   let error: string | undefined;
   try {
-    if (kind === 'agent_forward') {
+    if (kind === 'agent_forward' && spec.forward_runs !== undefined) {
+      // Several forwards on the one agent; the output is each run's.
+      const outputs: Json[] = [];
+      for (let run = 0; run < spec.forward_runs; run++) {
+        runStarts.push(calls());
+        outputs.push(
+          clone(
+            (await ag.forward(
+              ai,
+              input as never,
+              forwardOptions as never
+            )) as Json
+          )
+        );
+      }
+      output = outputs;
+    } else if (kind === 'agent_forward') {
       output = clone(
         (await ag.forward(ai, input as never, forwardOptions as never)) as Json
       );
@@ -469,23 +496,51 @@ async function record(name: string, spec: Case): Promise<void> {
       prompt.map((message) => message.role as Json)
     );
   }
+  if (spec.forward_runs !== undefined) {
+    fixture.forward_runs = Array.from({ length: spec.forward_runs }, () => ({
+      input: clone(input),
+    }));
+  }
   if (spec.first_requests) {
     const firsts: JsonMap[] = [];
     const seen = new Set<string>();
+    // With several runs, the first request of each stage in every run.
+    const runOf = (index: number) =>
+      runStarts.filter((start) => start <= index).length;
     transcript.forEach((entry, position) => {
       if (!entry.startsWith('request:')) return;
-      const stage = entry.slice('request:'.length);
-      if (seen.has(stage)) return;
-      seen.add(stage);
       const index = transcript
         .slice(0, position)
         .filter((item) => item.startsWith('request:')).length;
+      const stage = entry.slice('request:'.length);
+      const key = `${runOf(index)}:${stage}`;
+      if (seen.has(key) && !spec.pin_stage_requests?.includes(stage)) return;
+      seen.add(key);
       const messages = (
         prompts()[index] as { role: string; content: Json }[]
       ).map((message) => ({ role: message.role, content: message.content }));
       firsts.push({ index, stage, messages });
     });
     fixture.expected_stage_first_requests = firsts;
+  }
+  if (spec.pin_context_map) {
+    const snapshot = (
+      ag as unknown as {
+        getContextMap: () =>
+          | { snapshot: () => { text: string; scores?: Json; steps?: number } }
+          | undefined;
+      }
+    )
+      .getContextMap()
+      ?.snapshot();
+    if (!snapshot) throw new Error(`${name}: the agent has no context map`);
+    fixture.expected_exported_state_subset = {
+      context_map: {
+        text: snapshot.text,
+        scores: snapshot.scores ?? {},
+        steps: snapshot.steps ?? 0,
+      },
+    };
   }
   if (error !== undefined) {
     fixture.expected_error_contains = error;
@@ -537,6 +592,25 @@ const citedStream = (citations: string): ResponseSpec =>
 const cited = (citations: string): ResponseSpec => ({
   content: `Answer: Refunds take 30 days.\nEvidence Citations: ${citations}`,
 });
+// The context-map distiller and cartographer answer in the text contract;
+// each takes a distiller answer and the cartographer's operations.
+const contextMapUpdate = (
+  distiller: string,
+  operations: JsonMap[]
+): ResponseSpec[] => [
+  { content: distiller },
+  { content: `Operations: ${JSON.stringify(operations)}` },
+];
+const contextMapRun = (update: ResponseSpec[]): ResponseSpec[] => [
+  ...baseActors(),
+  { content: 'Answer: Refunds take 30 days.' },
+  ...update,
+];
+// A map written by the ports before 25.0.0: every header, unpadded ids, no
+// blank lines and no trailing newline.
+const LEGACY_MAP =
+  '## CONTEXT ROADMAP\n## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly\n## DOMAIN CONSTANTS\n## PARSING SCHEMA\n## REUSABLE RESULTS\n[rr-2] Refund window = 30 days\n## ERROR PATTERNS';
+
 // The context-map distiller and cartographer answer as JSON objects.
 const contextMapTurns = (): ResponseSpec[] => [
   {
@@ -808,6 +882,217 @@ const cases: Record<string, Case> = {
           content: 'Refunds settle in 30 days; quote the policy.',
         },
       ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  // Two forwards with a context map: each run's distiller reads the map, and
+  // after each run its distiller and cartographer update it (an ADD, then a
+  // REPLACE and an ADD by section title).
+  'agent-first-requests-context-map': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: '## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly',
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      ...contextMapRun(
+        contextMapUpdate(
+          'Diagnosis: refund window is reusable\nItem Tags: {"cu-1": "helpful"}',
+          [
+            {
+              type: 'ADD',
+              section: 'reusable_results',
+              content: 'Refund window = 30 days',
+            },
+          ]
+        )
+      ),
+      ...contextMapRun(
+        contextMapUpdate(
+          'Diagnosis: shipping cadence refined\nItem Tags: {"cu-1": "stale", "rr-00002": "helpful"}',
+          [
+            {
+              type: 'replace',
+              item_id: 'cu-1',
+              content: 'Orders ship every Monday',
+            },
+            {
+              type: 'add',
+              section: 'Domain Constants',
+              content: 'Refund window: 30 days',
+            },
+          ]
+        )
+      ),
+    ],
+    runtime_script: [...baseRuntime(), ...baseRuntime()],
+    forward_runs: 2,
+    first_requests: true,
+    pin_stage_requests: ['context_map'],
+    pin_context_map: true,
+  },
+  // No map: TS starts from its template of every section.
+  'agent-first-requests-context-map-template': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', contextMap: {} },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Diagnosis: nothing reusable yet', [])
+    ),
+    runtime_script: baseRuntime(),
+    first_requests: true,
+    pin_stage_requests: ['context_map'],
+    pin_context_map: true,
+  },
+  // A map in the ports' pre-25.0.0 format loads, keeps its items, numbers new
+  // ids after them and is normalized by the update.
+  'agent-context-map-legacy-text': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', contextMap: { map: LEGACY_MAP } },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Item Tags: {"rr-2": "helpful"}', [
+        {
+          type: 'ADD',
+          section: 'reusable_results',
+          content: 'Store credit is instant',
+        },
+      ])
+    ),
+    runtime_script: baseRuntime(),
+    request_contains: ['[rr-2] Refund window = 30 days'],
+    pin_context_map: true,
+  },
+  // The map's budget: an item tagged harmful goes first.
+  'agent-context-map-evict': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: {
+          version: 1,
+          text: '## CONTEXT UNDERSTANDING\n[cu-1] stale low value note about nothing useful at all here\n[cu-2] France is in Europe',
+          maxChars: 70,
+          infiniteEvolve: true,
+          steps: 0,
+          scores: {},
+        },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Item Tags: {"cu-1": "harmful"}', [])
+    ),
+    runtime_script: baseRuntime(),
+    pin_context_map: true,
+  },
+  // A finite map past its evolve steps is read but not updated.
+  'agent-context-map-read': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: {
+          version: 1,
+          text: '## REUSABLE RESULTS\n[rr-1] France capital is Paris',
+          infiniteEvolve: false,
+          evolveSteps: 0,
+          steps: 5,
+          scores: {},
+        },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    request_contains: ['[rr-1] France capital is Paris'],
+    pin_context_map: true,
+  },
+  // A map given as text: the scores follow the tags and an ADD lands in its
+  // own new section.
+  'agent-context-map-config': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: '## DOMAIN CONSTANTS\n[dc-1] official capitals preferred',
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Item Tags: {"dc-1": "helpful"}', [
+        {
+          type: 'ADD',
+          section: 'context_understanding',
+          content: 'France resolves to Paris',
+        },
+      ])
+    ),
+    runtime_script: baseRuntime(),
+    pin_context_map: true,
+  },
+  // Two forwards on one agent: each stage of the second run restores its own
+  // earlier actions and says so.
+  'agent-first-requests-second-forward': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      ...baseActors(),
+      { content: 'Answer: Refunds take 30 days.' },
+      ...baseActors(),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: [...baseRuntime(), ...baseRuntime()],
+    forward_runs: 2,
+    first_requests: true,
+  },
+  // An oversized input that is not a context field: autoUpgrade keeps it in
+  // the runtime and gives the actors and the responder a truncated preview.
+  'agent-first-requests-auto-promotion': {
+    kind: 'agent_forward',
+    signature: 'document:string, question:string -> answer:string',
+    input: {
+      document: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+      question: 'How long do refunds take?',
+    },
+    options: {
+      directResponse: 'off',
+      autoUpgrade: {
+        contextFields: { promoteAboveChars: 20, previewChars: 8 },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  // The other promotion modes: an oversized json value previews as its JSON,
+  // an optional array is left out of the prompt, and a required array stays
+  // inline. Input names in sorted order: the fixture sync sorts input keys,
+  // and the context metadata lists the inputs in their order.
+  'agent-first-requests-auto-promotion-modes': {
+    kind: 'agent_forward',
+    signature:
+      'question:string, record:json, remarks?:string[], tags:string[] -> answer:string',
+    input: {
+      question: 'Refunds?',
+      // Keys in sorted order: the fixture sync sorts nested object keys.
+      record: { days: 30, id: 'order-1234', status: 'refunded' },
+      remarks: ['first long note here', 'second long note here'],
+      tags: ['billing-and-refunds', 'priority-customer'],
+    },
+    options: {
+      directResponse: 'off',
+      autoUpgrade: {
+        contextFields: { promoteAboveChars: 20, previewChars: 8 },
+      },
     },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],

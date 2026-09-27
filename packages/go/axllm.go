@@ -62203,7 +62203,6 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_citations Value
 	var v_cm_cfg_infinite Value
 	var v_cm_cfg_max Value
-	var v_cm_cfg_next Value
 	var v_cm_cfg_steps Value
 	var v_cm_empty_scores Value
 	var v_cm_evolve_steps Value
@@ -62213,7 +62212,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_cm_map_is_string Value
 	var v_cm_map_value Value
 	var v_cm_max Value
-	var v_cm_next Value
+	var v_cm_normalized_text Value
 	var v_cm_scores Value
 	var v_cm_steps Value
 	var v_cm_text Value
@@ -62312,7 +62311,6 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_citations
 	_ = v_cm_cfg_infinite
 	_ = v_cm_cfg_max
-	_ = v_cm_cfg_next
 	_ = v_cm_cfg_steps
 	_ = v_cm_empty_scores
 	_ = v_cm_evolve_steps
@@ -62322,7 +62320,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_cm_map_is_string
 	_ = v_cm_map_value
 	_ = v_cm_max
-	_ = v_cm_next
+	_ = v_cm_normalized_text
 	_ = v_cm_scores
 	_ = v_cm_steps
 	_ = v_cm_text
@@ -62545,8 +62543,9 @@ func _agent_factory(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
-		v_cm_text = coreGet(v_cm_initial, "text", "")
-		if err := coreSet(v_cm_initial, "text", v_cm_text); err != nil { return nil, err }
+		v_cm_text = coreGet(v_cm_initial, "text", nil)
+		{ v, err := _context_map_normalize_text(v_cm_text); if err != nil { return nil, err }; v_cm_normalized_text = v }
+		if err := coreSet(v_cm_initial, "text", v_cm_normalized_text); err != nil { return nil, err }
 		v_cm_steps = coreGet(v_cm_initial, "steps", 0)
 		if err := coreSet(v_cm_initial, "steps", v_cm_steps); err != nil { return nil, err }
 		v_cm_empty_scores = Object()
@@ -62561,9 +62560,7 @@ func _agent_factory(args ...Value) (Value, error) {
 		v_cm_cfg_steps = coreGet(v_context_map_config, "evolveSteps", 0)
 		v_cm_evolve_steps = coreGet(v_cm_initial, "evolveSteps", v_cm_cfg_steps)
 		if err := coreSet(v_cm_initial, "evolveSteps", v_cm_evolve_steps); err != nil { return nil, err }
-		v_cm_cfg_next = coreGet(v_context_map_config, "next_id", 1)
-		v_cm_next = coreGet(v_cm_initial, "next_id", v_cm_cfg_next)
-		if err := coreSet(v_cm_initial, "next_id", v_cm_next); err != nil { return nil, err }
+		_core_map_delete(v_cm_initial, "next_id")
 		if err := coreSet(v_state, "context_map", v_cm_initial); err != nil { return nil, err }
 	} else {
 	// empty
@@ -65994,17 +65991,23 @@ func _agent_eval_marks(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_eval_marks")
 	var v_state Value
 	var v_empty_list Value
+	var v_empty_map Value
+	var v_fresh_stage_logs Value
 	var v_log Value
 	var v_log_count Value
 	var v_marks Value
+	var v_stage_logs Value
 	var v_trace_count Value
 	var v_traces Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_fresh_stage_logs
 	_ = v_log
 	_ = v_log_count
 	_ = v_marks
+	_ = v_stage_logs
 	_ = v_trace_count
 	_ = v_traces
 	v_empty_list = MutableArray()
@@ -66015,100 +66018,12 @@ func _agent_eval_marks(args ...Value) (Value, error) {
 	v_marks = Object()
 	if err := coreSet(v_marks, "action_log", v_log_count); err != nil { return nil, err }
 	if err := coreSet(v_marks, "function_call_traces", v_trace_count); err != nil { return nil, err }
-	return v_marks, nil
-}
-
-func _agent_eval_function_calls(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_eval_function_calls")
-	var v_traces Value
-	var v_arguments Value
-	var v_call Value
-	var v_calls Value
-	var v_derive_name Value
-	var v_empty_map Value
-	var v_error Value
-	var v_error_text Value
-	var v_failed Value
-	var v_has_value Value
-	var v_name Value
-	var v_name_missing Value
-	var v_name_part Value
-	var v_name_parts Value
-	var v_name_qualified Value
-	var v_qualified Value
-	var v_result Value
-	var v_result_is_map Value
-	var v_status Value
-	var v_trace Value
-	var v_value Value
-	if len(args) > 0 { v_traces = args[0] }
-	_ = v_traces
-	_ = v_arguments
-	_ = v_call
-	_ = v_calls
-	_ = v_derive_name
-	_ = v_empty_map
-	_ = v_error
-	_ = v_error_text
-	_ = v_failed
-	_ = v_has_value
-	_ = v_name
-	_ = v_name_missing
-	_ = v_name_part
-	_ = v_name_parts
-	_ = v_name_qualified
-	_ = v_qualified
-	_ = v_result
-	_ = v_result_is_map
-	_ = v_status
-	_ = v_trace
-	_ = v_value
-	v_calls = MutableArray()
 	v_empty_map = Object()
-	for _, v_trace = range coreIter(v_traces) {
-		v_qualified = coreGet(v_trace, "qualified_name", "")
-		v_name = coreGet(v_trace, "name", "")
-		v_name_missing = _core_eq(v_name, "")
-		v_name_qualified = _core_eq(v_name, v_qualified)
-		v_derive_name = _core_or(v_name_missing, v_name_qualified)
-		if coreTruthy(v_derive_name) {
-			v_name_parts = _core_string_split(v_qualified, ".")
-			for _, v_name_part = range coreIter(v_name_parts) {
-				v_name = v_name_part
-			}
-		} else {
-		// empty
-		}
-		v_arguments = coreGet(v_trace, "arguments", nil)
-		v_result = coreGet(v_trace, "result", v_empty_map)
-		v_result_is_map = coreTypeIs(v_result, "object")
-		if coreTruthy(v_result_is_map) {
-		// empty
-		} else {
-			v_result = v_empty_map
-		}
-		v_status = coreGet(v_trace, "status", "ok")
-		v_call = Object()
-		if err := coreSet(v_call, "qualifiedName", v_qualified); err != nil { return nil, err }
-		if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_call, "arguments", v_arguments); err != nil { return nil, err }
-		v_failed = _core_eq(v_status, "error")
-		if coreTruthy(v_failed) {
-			v_error = coreGet(v_result, "error", "unknown error")
-			v_error_text = _core_string_str(v_error)
-			if err := coreSet(v_call, "error", v_error_text); err != nil { return nil, err }
-		} else {
-			v_value = coreGet(v_result, "value", nil)
-			v_has_value = _core_is_not_none(v_value)
-			if coreTruthy(v_has_value) {
-				if err := coreSet(v_call, "result", v_value); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-		}
-		v_calls = coreAppend(v_calls, v_call)
-	}
-	return v_calls, nil
+	v_stage_logs = coreGet(v_state, "stage_action_logs", v_empty_map)
+	if err := coreSet(v_marks, "stage_action_logs", v_stage_logs); err != nil { return nil, err }
+	v_fresh_stage_logs = Object()
+	if err := coreSet(v_state, "stage_action_logs", v_fresh_stage_logs); err != nil { return nil, err }
+	return v_marks, nil
 }
 
 func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
@@ -66353,6 +66268,99 @@ func _resolve_agent_executor_model_policy(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_eval_function_calls(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_eval_function_calls")
+	var v_traces Value
+	var v_arguments Value
+	var v_call Value
+	var v_calls Value
+	var v_derive_name Value
+	var v_empty_map Value
+	var v_error Value
+	var v_error_text Value
+	var v_failed Value
+	var v_has_value Value
+	var v_name Value
+	var v_name_missing Value
+	var v_name_part Value
+	var v_name_parts Value
+	var v_name_qualified Value
+	var v_qualified Value
+	var v_result Value
+	var v_result_is_map Value
+	var v_status Value
+	var v_trace Value
+	var v_value Value
+	if len(args) > 0 { v_traces = args[0] }
+	_ = v_traces
+	_ = v_arguments
+	_ = v_call
+	_ = v_calls
+	_ = v_derive_name
+	_ = v_empty_map
+	_ = v_error
+	_ = v_error_text
+	_ = v_failed
+	_ = v_has_value
+	_ = v_name
+	_ = v_name_missing
+	_ = v_name_part
+	_ = v_name_parts
+	_ = v_name_qualified
+	_ = v_qualified
+	_ = v_result
+	_ = v_result_is_map
+	_ = v_status
+	_ = v_trace
+	_ = v_value
+	v_calls = MutableArray()
+	v_empty_map = Object()
+	for _, v_trace = range coreIter(v_traces) {
+		v_qualified = coreGet(v_trace, "qualified_name", "")
+		v_name = coreGet(v_trace, "name", "")
+		v_name_missing = _core_eq(v_name, "")
+		v_name_qualified = _core_eq(v_name, v_qualified)
+		v_derive_name = _core_or(v_name_missing, v_name_qualified)
+		if coreTruthy(v_derive_name) {
+			v_name_parts = _core_string_split(v_qualified, ".")
+			for _, v_name_part = range coreIter(v_name_parts) {
+				v_name = v_name_part
+			}
+		} else {
+		// empty
+		}
+		v_arguments = coreGet(v_trace, "arguments", nil)
+		v_result = coreGet(v_trace, "result", v_empty_map)
+		v_result_is_map = coreTypeIs(v_result, "object")
+		if coreTruthy(v_result_is_map) {
+		// empty
+		} else {
+			v_result = v_empty_map
+		}
+		v_status = coreGet(v_trace, "status", "ok")
+		v_call = Object()
+		if err := coreSet(v_call, "qualifiedName", v_qualified); err != nil { return nil, err }
+		if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_call, "arguments", v_arguments); err != nil { return nil, err }
+		v_failed = _core_eq(v_status, "error")
+		if coreTruthy(v_failed) {
+			v_error = coreGet(v_result, "error", "unknown error")
+			v_error_text = _core_string_str(v_error)
+			if err := coreSet(v_call, "error", v_error_text); err != nil { return nil, err }
+		} else {
+			v_value = coreGet(v_result, "value", nil)
+			v_has_value = _core_is_not_none(v_value)
+			if coreTruthy(v_has_value) {
+				if err := coreSet(v_call, "result", v_value); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+		v_calls = coreAppend(v_calls, v_call)
+	}
+	return v_calls, nil
+}
+
 func _agent_eval_run(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_eval_run")
 	var v_state Value
@@ -66363,6 +66371,7 @@ func _agent_eval_run(args ...Value) (Value, error) {
 	var v_calls Value
 	var v_distiller_turns Value
 	var v_empty_list Value
+	var v_empty_map Value
 	var v_entry Value
 	var v_entry_in_run Value
 	var v_executor_ran Value
@@ -66382,6 +66391,7 @@ func _agent_eval_run(args ...Value) (Value, error) {
 	var v_run_log Value
 	var v_run_state Value
 	var v_run_traces Value
+	var v_saved_stage_logs Value
 	var v_signals Value
 	var v_stage Value
 	var v_tool_error Value
@@ -66403,6 +66413,7 @@ func _agent_eval_run(args ...Value) (Value, error) {
 	_ = v_calls
 	_ = v_distiller_turns
 	_ = v_empty_list
+	_ = v_empty_map
 	_ = v_entry
 	_ = v_entry_in_run
 	_ = v_executor_ran
@@ -66422,6 +66433,7 @@ func _agent_eval_run(args ...Value) (Value, error) {
 	_ = v_run_log
 	_ = v_run_state
 	_ = v_run_traces
+	_ = v_saved_stage_logs
 	_ = v_signals
 	_ = v_stage
 	_ = v_tool_error
@@ -66434,6 +66446,9 @@ func _agent_eval_run(args ...Value) (Value, error) {
 	_ = v_turn_count
 	_ = v_type
 	v_empty_list = MutableArray()
+	v_empty_map = Object()
+	v_saved_stage_logs = coreGet(v_marks, "stage_action_logs", v_empty_map)
+	if err := coreSet(v_state, "stage_action_logs", v_saved_stage_logs); err != nil { return nil, err }
 	v_log = coreGet(v_state, "action_log", v_empty_list)
 	v_traces = coreGet(v_state, "function_call_traces", v_empty_list)
 	v_log_start = coreGet(v_marks, "action_log", 0)
@@ -67426,11 +67441,12 @@ func _agent_render_full_action_entry(args ...Value) (Value, error) {
 	var v_full_is_error Value
 	var v_full_output_has Value
 	var v_has_tombstone Value
-	var v_is_final_action Value
 	var v_js_fence Value
-	var v_kind Value
+	var v_no_output Value
+	var v_not_error Value
 	var v_output Value
 	var v_runtime_contract Value
+	var v_show_no_output Value
 	var v_text Value
 	var v_tombstone Value
 	if len(args) > 0 { v_state = args[0] }
@@ -67444,11 +67460,12 @@ func _agent_render_full_action_entry(args ...Value) (Value, error) {
 	_ = v_full_is_error
 	_ = v_full_output_has
 	_ = v_has_tombstone
-	_ = v_is_final_action
 	_ = v_js_fence
-	_ = v_kind
+	_ = v_no_output
+	_ = v_not_error
 	_ = v_output
 	_ = v_runtime_contract
+	_ = v_show_no_output
 	_ = v_text
 	_ = v_tombstone
 	v_tombstone = coreGet(v_entry, "tombstone", "")
@@ -67468,14 +67485,15 @@ func _agent_render_full_action_entry(args ...Value) (Value, error) {
 	}
 	v_code = coreGet(v_entry, "code", "")
 	v_output = coreGet(v_entry, "output", "")
-	v_kind = coreGet(v_entry, "kind", "")
-	v_is_final_action = _core_eq(v_kind, "final")
-	if coreTruthy(v_is_final_action) {
-		v_code = "// final() completed; evidence omitted from actor prompt"
+	v_full_is_error = coreGet(v_entry, "is_error", false)
+	v_no_output = _core_eq(v_output, "")
+	v_not_error = _core_not(v_full_is_error)
+	v_show_no_output = _core_and(v_no_output, v_not_error)
+	if coreTruthy(v_show_no_output) {
+		v_output = "(no output)"
 	} else {
 	// empty
 	}
-	v_full_is_error = coreGet(v_entry, "is_error", false)
 	if coreTruthy(v_full_is_error) {
 		v_full_error = coreGet(v_entry, "error", "")
 		v_full_err_text = _core_string_format("[runtime error] {}", v_full_error)
@@ -73598,6 +73616,11 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	var v_policy_registry Value
 	var v_preset_skills Value
 	var v_provenance Value
+	var v_restored_map Value
+	var v_restored_map_empty Value
+	var v_restored_map_is_object Value
+	var v_restored_map_normalized Value
+	var v_restored_map_text Value
 	var v_run_trace Value
 	var v_runtime_globals Value
 	var v_runtime_session_state Value
@@ -73635,6 +73658,11 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	_ = v_policy_registry
 	_ = v_preset_skills
 	_ = v_provenance
+	_ = v_restored_map
+	_ = v_restored_map_empty
+	_ = v_restored_map_is_object
+	_ = v_restored_map_normalized
+	_ = v_restored_map_text
 	_ = v_run_trace
 	_ = v_runtime_globals
 	_ = v_runtime_session_state
@@ -73672,6 +73700,18 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	v_context_events = coreGet(v_snapshot, "context_events", v_empty_list)
 	v_checkpoint_state = coreGet(v_snapshot, "checkpoint_state", nil)
 	v_context_map = coreGet(v_snapshot, "context_map", nil)
+	v_restored_map_is_object = coreTypeIs(v_context_map, "object")
+	if coreTruthy(v_restored_map_is_object) {
+		v_restored_map_empty = Object()
+		v_restored_map = _core_map_merge(v_restored_map_empty, v_context_map)
+		v_restored_map_text = coreGet(v_restored_map, "text", nil)
+		{ v, err := _context_map_normalize_text(v_restored_map_text); if err != nil { return nil, err }; v_restored_map_normalized = v }
+		if err := coreSet(v_restored_map, "text", v_restored_map_normalized); err != nil { return nil, err }
+		_core_map_delete(v_restored_map, "next_id")
+		v_context_map = v_restored_map
+	} else {
+	// empty
+	}
 	v_runtime_state_summary = coreGet(v_snapshot, "runtime_state_summary", "")
 	v_actor_model_state = coreGet(v_snapshot, "actor_model_state", v_empty_map)
 	v_provenance = coreGet(v_snapshot, "provenance", v_empty_map)
@@ -76476,28 +76516,28 @@ func _split_context_values(args ...Value) (Value, error) {
 	var v_can_auto Value
 	var v_context_fields Value
 	var v_ctx_values Value
+	var v_decided Value
+	var v_decision Value
 	var v_empty_list Value
 	var v_event Value
 	var v_events Value
 	var v_is_context Value
 	var v_is_reserved Value
-	var v_is_string Value
 	var v_key Value
+	var v_mode Value
 	var v_non_ctx_values Value
 	var v_not_promoted Value
 	var v_not_reserved Value
+	var v_omitted Value
 	var v_out Value
-	var v_preview Value
 	var v_preview_chars Value
 	var v_preview_source Value
 	var v_preview_value Value
 	var v_promote_above Value
 	var v_promoted Value
 	var v_reserved Value
-	var v_too_large Value
+	var v_size Value
 	var v_value Value
-	var v_value_len Value
-	var v_value_text Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_values = args[1] }
@@ -76508,28 +76548,28 @@ func _split_context_values(args ...Value) (Value, error) {
 	_ = v_can_auto
 	_ = v_context_fields
 	_ = v_ctx_values
+	_ = v_decided
+	_ = v_decision
 	_ = v_empty_list
 	_ = v_event
 	_ = v_events
 	_ = v_is_context
 	_ = v_is_reserved
-	_ = v_is_string
 	_ = v_key
+	_ = v_mode
 	_ = v_non_ctx_values
 	_ = v_not_promoted
 	_ = v_not_reserved
+	_ = v_omitted
 	_ = v_out
-	_ = v_preview
 	_ = v_preview_chars
 	_ = v_preview_source
 	_ = v_preview_value
 	_ = v_promote_above
 	_ = v_promoted
 	_ = v_reserved
-	_ = v_too_large
+	_ = v_size
 	_ = v_value
-	_ = v_value_len
-	_ = v_value_text
 	v_empty_list = MutableArray()
 	v_context_fields = coreGet(v_state, "context_fields", v_empty_list)
 	v_auto_upgrade = coreGet(v_state, "auto_upgrade", nil)
@@ -76551,27 +76591,26 @@ func _split_context_values(args ...Value) (Value, error) {
 			v_not_reserved = _core_not(v_is_reserved)
 			v_can_auto = _core_and(v_auto_enabled, v_not_reserved)
 			if coreTruthy(v_can_auto) {
-				v_value_text = _core_json_stringify(v_value)
-				v_value_len = _core_len(v_value_text)
-				v_too_large = _core_gt(v_value_len, v_promote_above)
-				if coreTruthy(v_too_large) {
+				{ v, err := _agent_auto_promotion_decision(v_state, v_key, v_value); if err != nil { return nil, err }; v_decision = v }
+				v_mode = coreGet(v_decision, "mode", "")
+				v_decided = _core_ne(v_mode, "")
+				if coreTruthy(v_decided) {
 					v_promoted = true
 					if err := coreSet(v_ctx_values, v_key, v_value); err != nil { return nil, err }
-					v_is_string = coreTypeIs(v_value, "string")
-					v_preview_source = v_value_text
-					if coreTruthy(v_is_string) {
-						v_preview_source = v_value
-					} else {
-					// empty
-					}
-					v_preview = _core_string_slice(v_preview_source, 0, v_preview_chars)
-					v_preview_value = _core_string_format("[runtime-only context: {} chars available as inputs.{}; preview]\n{}", v_value_len, v_key, v_preview)
-					if err := coreSet(v_non_ctx_values, v_key, v_preview_value); err != nil { return nil, err }
+					v_size = coreGet(v_decision, "size", 0)
 					v_event = Object()
 					if err := coreSet(v_event, "kind", "field_auto_promoted"); err != nil { return nil, err }
 					if err := coreSet(v_event, "fieldName", v_key); err != nil { return nil, err }
-					if err := coreSet(v_event, "originalChars", v_value_len); err != nil { return nil, err }
-					if err := coreSet(v_event, "promptPreviewChars", v_preview_chars); err != nil { return nil, err }
+					if err := coreSet(v_event, "originalChars", v_size); err != nil { return nil, err }
+					v_omitted = _core_eq(v_mode, "omit")
+					if coreTruthy(v_omitted) {
+					// empty
+					} else {
+						v_preview_source = coreGet(v_decision, "source", "")
+						{ v, err := _agent_truncate_preview(v_preview_source, v_preview_chars); if err != nil { return nil, err }; v_preview_value = v }
+						if err := coreSet(v_non_ctx_values, v_key, v_preview_value); err != nil { return nil, err }
+						if err := coreSet(v_event, "promptPreviewChars", v_preview_chars); err != nil { return nil, err }
+					}
 					v_events = coreGet(v_state, "context_events", v_empty_list)
 					v_events = coreAppend(v_events, v_event)
 					if err := coreSet(v_state, "context_events", v_events); err != nil { return nil, err }
@@ -76609,6 +76648,7 @@ func _agent_render_context_metadata(args ...Value) (Value, error) {
 	var v_first Value
 	var v_fits Value
 	var v_has_shape Value
+	var v_inline_preview Value
 	var v_is_list Value
 	var v_is_object Value
 	var v_is_string Value
@@ -76618,9 +76658,13 @@ func _agent_render_context_metadata(args ...Value) (Value, error) {
 	var v_line Value
 	var v_lines Value
 	var v_mode Value
+	var v_not_declared Value
 	var v_object_keys Value
 	var v_out Value
 	var v_preview_chars Value
+	var v_previewed Value
+	var v_promotion Value
+	var v_promotion_mode Value
 	var v_shape_count Value
 	var v_shape_keys Value
 	var v_shape_label Value
@@ -76642,6 +76686,7 @@ func _agent_render_context_metadata(args ...Value) (Value, error) {
 	_ = v_first
 	_ = v_fits
 	_ = v_has_shape
+	_ = v_inline_preview
 	_ = v_is_list
 	_ = v_is_object
 	_ = v_is_string
@@ -76651,9 +76696,13 @@ func _agent_render_context_metadata(args ...Value) (Value, error) {
 	_ = v_line
 	_ = v_lines
 	_ = v_mode
+	_ = v_not_declared
 	_ = v_object_keys
 	_ = v_out
 	_ = v_preview_chars
+	_ = v_previewed
+	_ = v_promotion
+	_ = v_promotion_mode
 	_ = v_shape_count
 	_ = v_shape_keys
 	_ = v_shape_label
@@ -76697,9 +76746,12 @@ func _agent_render_context_metadata(args ...Value) (Value, error) {
 		}
 		v_mode = "runtime-only"
 		v_declared = _core_contains(v_context_fields, v_ck)
-		if coreTruthy(v_declared) {
-		// empty
-		} else {
+		{ v, err := _agent_auto_promotion_decision(v_state, v_ck, v_cv); if err != nil { return nil, err }; v_promotion = v }
+		v_promotion_mode = coreGet(v_promotion, "mode", "omit")
+		v_previewed = _core_ne(v_promotion_mode, "omit")
+		v_not_declared = _core_not(v_declared)
+		v_inline_preview = _core_and(v_not_declared, v_previewed)
+		if coreTruthy(v_inline_preview) {
 			if coreTruthy(v_is_string) {
 				v_fits = _core_lte(v_length, v_preview_chars)
 				if coreTruthy(v_fits) {
@@ -76710,6 +76762,8 @@ func _agent_render_context_metadata(args ...Value) (Value, error) {
 			} else {
 				v_mode = _core_string_format("inline-truncated stringified(first {} chars)", v_preview_chars)
 			}
+		} else {
+		// empty
 		}
 		v_line = _core_string_format("- {}: type={}, size={}, prompt={}", v_ck, v_value_type, v_size, v_mode)
 		v_shape_keys = MutableArray()
@@ -76974,6 +77028,7 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	}
 	v_distilled_context = _core_list_get(v_args, 1, v_empty_map)
 	{ v, err := _agent_render_evidence_descriptor(v_distilled_context); if err != nil { return nil, err }; v_distilled_context_summary = v }
+	if err := coreSet(v_state, "executor_request", v_executor_request); err != nil { return nil, err }
 	v_executor_runtime_enabled = coreGet(v_state, "runtime_enabled", false)
 	if coreTruthy(v_executor_runtime_enabled) {
 		{ v, err := _agent_rlm_executor_values(v_state, v_non_ctx, v_context, v_executor_request, v_distilled_context_summary); if err != nil { return nil, err }; v_rlm_values = v }
@@ -77059,6 +77114,7 @@ func _build_responder_inputs(args ...Value) (Value, error) {
 	var v_has_evidence_arg Value
 	var v_key Value
 	var v_non_ctx Value
+	var v_ordered_payload Value
 	var v_out Value
 	var v_split Value
 	var v_task Value
@@ -77081,6 +77137,7 @@ func _build_responder_inputs(args ...Value) (Value, error) {
 	_ = v_has_evidence_arg
 	_ = v_key
 	_ = v_non_ctx
+	_ = v_ordered_payload
 	_ = v_out
 	_ = v_split
 	_ = v_task
@@ -77090,6 +77147,9 @@ func _build_responder_inputs(args ...Value) (Value, error) {
 	v_non_ctx = coreGet(v_split, "values", v_empty_map)
 	v_empty = Object()
 	v_out = _core_map_merge(v_values, v_empty)
+	if _, err := _agent_truncate_responder_values(v_state, v_out); err != nil { return nil, err }
+	{ v, err := _agent_ordered_completion_payload(v_executor_payload); if err != nil { return nil, err }; v_ordered_payload = v }
+	if err := coreSet(v_state, "executor_result", v_ordered_payload); err != nil { return nil, err }
 	v_args = coreGet(v_executor_payload, "args", v_empty_list)
 	v_task = _core_list_get(v_args, 0, "")
 	v_context = _core_list_get(v_args, 1, v_empty_map)
@@ -79784,31 +79844,37 @@ func _context_map_sections(args ...Value) (Value, error) {
 	if err := coreSet(v_s1, "name", "context_roadmap"); err != nil { return nil, err }
 	if err := coreSet(v_s1, "title", "CONTEXT ROADMAP"); err != nil { return nil, err }
 	if err := coreSet(v_s1, "slug", "cr"); err != nil { return nil, err }
+	if err := coreSet(v_s1, "description", "Index of what the context contains and where to find it."); err != nil { return nil, err }
 	v_sections = coreAppend(v_sections, v_s1)
 	v_s2 = Object()
 	if err := coreSet(v_s2, "name", "context_understanding"); err != nil { return nil, err }
 	if err := coreSet(v_s2, "title", "CONTEXT UNDERSTANDING"); err != nil { return nil, err }
 	if err := coreSet(v_s2, "slug", "cu"); err != nil { return nil, err }
+	if err := coreSet(v_s2, "description", "High-level understanding of the context: what it is, how it's organized, and what matters."); err != nil { return nil, err }
 	v_sections = coreAppend(v_sections, v_s2)
 	v_s3 = Object()
 	if err := coreSet(v_s3, "name", "domain_constants"); err != nil { return nil, err }
 	if err := coreSet(v_s3, "title", "DOMAIN CONSTANTS"); err != nil { return nil, err }
 	if err := coreSet(v_s3, "slug", "dc"); err != nil { return nil, err }
+	if err := coreSet(v_s3, "description", "Exact parameters, formulas, thresholds, reference values, enum sets, and output field requirements defined by the context."); err != nil { return nil, err }
 	v_sections = coreAppend(v_sections, v_s3)
 	v_s4 = Object()
 	if err := coreSet(v_s4, "name", "parsing_schema"); err != nil { return nil, err }
 	if err := coreSet(v_s4, "title", "PARSING SCHEMA"); err != nil { return nil, err }
 	if err := coreSet(v_s4, "slug", "ps"); err != nil { return nil, err }
+	if err := coreSet(v_s4, "description", "How to parse and navigate the context's format."); err != nil { return nil, err }
 	v_sections = coreAppend(v_sections, v_s4)
 	v_s5 = Object()
 	if err := coreSet(v_s5, "name", "reusable_results"); err != nil { return nil, err }
 	if err := coreSet(v_s5, "title", "REUSABLE RESULTS"); err != nil { return nil, err }
 	if err := coreSet(v_s5, "slug", "rr"); err != nil { return nil, err }
+	if err := coreSet(v_s5, "description", "Reusable knowledge about the context."); err != nil { return nil, err }
 	v_sections = coreAppend(v_sections, v_s5)
 	v_s6 = Object()
 	if err := coreSet(v_s6, "name", "error_patterns"); err != nil { return nil, err }
 	if err := coreSet(v_s6, "title", "ERROR PATTERNS"); err != nil { return nil, err }
 	if err := coreSet(v_s6, "slug", "ep"); err != nil { return nil, err }
+	if err := coreSet(v_s6, "description", "Concrete failure modes observed while processing this context."); err != nil { return nil, err }
 	v_sections = coreAppend(v_sections, v_s6)
 	return v_sections, nil
 }
@@ -79817,88 +79883,80 @@ func _context_map_parse_items(args ...Value) (Value, error) {
 	axirCoverageMark("_context_map_parse_items")
 	var v_text Value
 	var v_content Value
-	var v_content_ok Value
-	var v_current Value
+	var v_has_content Value
+	var v_has_id Value
+	var v_header Value
+	var v_header_raw Value
 	var v_id Value
-	var v_id_ok Value
-	var v_id_raw Value
 	var v_is_header Value
 	var v_is_item Value
+	var v_is_text Value
 	var v_item Value
 	var v_items Value
-	var v_left Value
+	var v_known Value
 	var v_line Value
 	var v_lines Value
 	var v_match Value
-	var v_parts Value
-	var v_right Value
-	var v_sec Value
-	var v_sec_name Value
-	var v_sec_title Value
-	var v_sections Value
-	var v_title Value
-	var v_title_raw Value
+	var v_matched Value
+	var v_section Value
+	var v_stripped Value
 	var v_valid Value
 	if len(args) > 0 { v_text = args[0] }
 	_ = v_text
 	_ = v_content
-	_ = v_content_ok
-	_ = v_current
+	_ = v_has_content
+	_ = v_has_id
+	_ = v_header
+	_ = v_header_raw
 	_ = v_id
-	_ = v_id_ok
-	_ = v_id_raw
 	_ = v_is_header
 	_ = v_is_item
+	_ = v_is_text
 	_ = v_item
 	_ = v_items
-	_ = v_left
+	_ = v_known
 	_ = v_line
 	_ = v_lines
 	_ = v_match
-	_ = v_parts
-	_ = v_right
-	_ = v_sec
-	_ = v_sec_name
-	_ = v_sec_title
-	_ = v_sections
-	_ = v_title
-	_ = v_title_raw
+	_ = v_matched
+	_ = v_section
+	_ = v_stripped
 	_ = v_valid
-	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
 	v_items = MutableArray()
-	v_lines = _core_string_split_trim_nonempty(v_text, "\n")
-	v_current = "context_understanding"
+	v_is_text = coreTypeIs(v_text, "string")
+	if coreTruthy(v_is_text) {
+	// empty
+	} else {
+		return v_items, nil
+	}
+	v_section = "context_understanding"
+	v_lines = _core_string_split(v_text, "\n")
 	for _, v_line = range coreIter(v_lines) {
-		v_is_header = _core_string_starts_with(v_line, "##")
+		v_stripped = coreStringTrim(v_line)
+		v_is_header = _core_string_starts_with(v_stripped, "##")
 		if coreTruthy(v_is_header) {
-			v_title_raw = _core_string_replace(v_line, "#", "")
-			v_title = coreStringTrim(v_title_raw)
-			for _, v_sec = range coreIter(v_sections) {
-				v_sec_title = coreGet(v_sec, "title", nil)
-				v_match = _core_eq(v_sec_title, v_title)
-				if coreTruthy(v_match) {
-					v_sec_name = coreGet(v_sec, "name", nil)
-					v_current = v_sec_name
-				} else {
-				// empty
-				}
+			v_header_raw = _core_regex_replace("^#+", "", v_stripped)
+			v_header = coreStringTrim(v_header_raw)
+			{ v, err := _context_map_section_for_name(v_header); if err != nil { return nil, err }; v_matched = v }
+			v_known = _core_is_not_none(v_matched)
+			if coreTruthy(v_known) {
+				v_section = coreGet(v_matched, "name", v_section)
+			} else {
+			// empty
 			}
 		} else {
-			v_is_item = _core_string_starts_with(v_line, "[")
+			{ v, err := _context_map_item_match(v_line); if err != nil { return nil, err }; v_match = v }
+			v_is_item = _core_is_not_none(v_match)
 			if coreTruthy(v_is_item) {
-				v_parts = _core_string_split_once(v_line, "]")
-				v_left = coreGet(v_parts, "left", "")
-				v_right = coreGet(v_parts, "right", "")
-				v_id_raw = _core_string_replace(v_left, "[", "")
-				v_id = coreStringTrim(v_id_raw)
-				v_content = coreStringTrim(v_right)
-				v_id_ok = _core_ne(v_id, "")
-				v_content_ok = _core_ne(v_content, "")
-				v_valid = _core_and(v_id_ok, v_content_ok)
+				v_id = coreGet(v_match, "id", "")
+				v_content = coreGet(v_match, "content", "")
+				v_has_id = _core_ne(v_id, "")
+				v_has_content = _core_ne(v_content, "")
+				v_valid = _core_and(v_has_id, v_has_content)
 				if coreTruthy(v_valid) {
 					v_item = Object()
 					if err := coreSet(v_item, "id", v_id); err != nil { return nil, err }
-					if err := coreSet(v_item, "section", v_current); err != nil { return nil, err }
+					if err := coreSet(v_item, "section", v_section); err != nil { return nil, err }
 					if err := coreSet(v_item, "content", v_content); err != nil { return nil, err }
 					v_items = coreAppend(v_items, v_item)
 				} else {
@@ -79912,443 +79970,595 @@ func _context_map_parse_items(args ...Value) (Value, error) {
 	return v_items, nil
 }
 
-func _context_map_render_items(args ...Value) (Value, error) {
-	axirCoverageMark("_context_map_render_items")
-	var v_items Value
-	var v_content Value
-	var v_header Value
-	var v_id Value
-	var v_in_sec Value
-	var v_item Value
-	var v_item_sec Value
-	var v_line Value
-	var v_parts Value
-	var v_sec Value
-	var v_sec_name Value
-	var v_sec_title Value
-	var v_sections Value
-	var v_text Value
-	if len(args) > 0 { v_items = args[0] }
-	_ = v_items
-	_ = v_content
-	_ = v_header
-	_ = v_id
-	_ = v_in_sec
-	_ = v_item
-	_ = v_item_sec
-	_ = v_line
-	_ = v_parts
-	_ = v_sec
-	_ = v_sec_name
-	_ = v_sec_title
-	_ = v_sections
-	_ = v_text
-	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
-	v_parts = MutableArray()
-	for _, v_sec = range coreIter(v_sections) {
-		v_sec_name = coreGet(v_sec, "name", nil)
-		v_sec_title = coreGet(v_sec, "title", nil)
-		v_header = _core_string_format("## {}", v_sec_title)
-		v_parts = coreAppend(v_parts, v_header)
-		for _, v_item = range coreIter(v_items) {
-			v_item_sec = coreGet(v_item, "section", nil)
-			v_in_sec = _core_eq(v_item_sec, v_sec_name)
-			if coreTruthy(v_in_sec) {
-				v_id = coreGet(v_item, "id", nil)
-				v_content = coreGet(v_item, "content", nil)
-				v_line = _core_string_format("[{}] {}", v_id, v_content)
-				v_parts = coreAppend(v_parts, v_line)
-			} else {
-			// empty
-			}
-		}
-	}
-	v_text = _core_string_join("\n", v_parts)
-	return v_text, nil
-}
-
 func _context_map_update_scores(args ...Value) (Value, error) {
 	axirCoverageMark("_context_map_update_scores")
 	var v_scores Value
-	var v_item_tags Value
-	var v_cur Value
-	var v_down Value
-	var v_down2 Value
+	var v_tags Value
+	var v_item_ids Value
+	var v_applies Value
+	var v_current Value
 	var v_empty_map Value
-	var v_id Value
-	var v_is_harmful Value
-	var v_is_helpful Value
-	var v_is_obj Value
-	var v_is_stale Value
-	var v_out Value
+	var v_existing Value
+	var v_harmful Value
+	var v_has_tags Value
+	var v_helpful Value
+	var v_is_text Value
+	var v_item_id Value
+	var v_lowered Value
+	var v_lowered_score Value
+	var v_neutral Value
+	var v_next Value
+	var v_normalized Value
+	var v_raised_score Value
+	var v_stale Value
 	var v_tag Value
-	var v_up Value
+	var v_tag_trimmed Value
 	if len(args) > 0 { v_scores = args[0] }
 	_ = v_scores
-	if len(args) > 1 { v_item_tags = args[1] }
-	_ = v_item_tags
-	_ = v_cur
-	_ = v_down
-	_ = v_down2
+	if len(args) > 1 { v_tags = args[1] }
+	_ = v_tags
+	if len(args) > 2 { v_item_ids = args[2] }
+	_ = v_item_ids
+	_ = v_applies
+	_ = v_current
 	_ = v_empty_map
-	_ = v_id
-	_ = v_is_harmful
-	_ = v_is_helpful
-	_ = v_is_obj
-	_ = v_is_stale
-	_ = v_out
+	_ = v_existing
+	_ = v_harmful
+	_ = v_has_tags
+	_ = v_helpful
+	_ = v_is_text
+	_ = v_item_id
+	_ = v_lowered
+	_ = v_lowered_score
+	_ = v_neutral
+	_ = v_next
+	_ = v_normalized
+	_ = v_raised_score
+	_ = v_stale
 	_ = v_tag
-	_ = v_up
+	_ = v_tag_trimmed
 	v_empty_map = Object()
-	v_out = _core_map_merge(v_empty_map, v_scores)
-	v_is_obj = coreTypeIs(v_item_tags, "object")
-	if coreTruthy(v_is_obj) {
-		for _, v_id = range coreIter(v_item_tags) {
-			v_tag = coreGet(v_item_tags, v_id, nil)
-			v_cur = coreGet(v_out, v_id, 0)
-			v_is_helpful = _core_eq(v_tag, "helpful")
-			if coreTruthy(v_is_helpful) {
-				v_up = _core_add(v_cur, 1)
-				if err := coreSet(v_out, v_id, v_up); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_is_harmful = _core_eq(v_tag, "harmful")
-			if coreTruthy(v_is_harmful) {
-				v_down = _core_add(v_cur, -1)
-				if err := coreSet(v_out, v_id, v_down); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_is_stale = _core_eq(v_tag, "stale")
-			if coreTruthy(v_is_stale) {
-				v_down2 = _core_add(v_cur, -1)
-				if err := coreSet(v_out, v_id, v_down2); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-		}
-	} else {
+	v_next = _core_map_merge(v_empty_map, v_scores)
+	v_has_tags = coreTypeIs(v_tags, "object")
+	if coreTruthy(v_has_tags) {
 	// empty
+	} else {
+		return v_next, nil
 	}
-	return v_out, nil
+	for _, v_item_id = range coreIter(v_tags) {
+		v_existing = _core_contains(v_item_ids, v_item_id)
+		v_tag = coreGet(v_tags, v_item_id, nil)
+		v_is_text = coreTypeIs(v_tag, "string")
+		v_applies = _core_and(v_existing, v_is_text)
+		if coreTruthy(v_applies) {
+			v_tag_trimmed = coreStringTrim(v_tag)
+			v_normalized = _core_string_lower(v_tag_trimmed)
+			v_current = coreGet(v_next, v_item_id, 0)
+			v_helpful = _core_eq(v_normalized, "helpful")
+			v_harmful = _core_eq(v_normalized, "harmful")
+			v_stale = _core_eq(v_normalized, "stale")
+			v_neutral = _core_eq(v_normalized, "neutral")
+			v_lowered = _core_or(v_harmful, v_stale)
+			if coreTruthy(v_helpful) {
+				v_raised_score = _core_add(v_current, 1)
+				if err := coreSet(v_next, v_item_id, v_raised_score); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if coreTruthy(v_lowered) {
+				v_lowered_score = _core_add(v_current, -1)
+				if err := coreSet(v_next, v_item_id, v_lowered_score); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if coreTruthy(v_neutral) {
+				if err := coreSet(v_next, v_item_id, v_current); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_next, nil
 }
 
 func _context_map_apply_operations(args ...Value) (Value, error) {
 	axirCoverageMark("_context_map_apply_operations")
-	var v_items Value
+	var v_text Value
 	var v_operations Value
-	var v_next_id Value
+	var v_add Value
 	var v_add_content Value
 	var v_add_item Value
+	var v_add_item_section Value
+	var v_add_line Value
 	var v_add_section Value
-	var v_content_ok Value
-	var v_counter Value
-	var v_del_a Value
-	var v_del_id Value
+	var v_add_section_name Value
+	var v_applied Value
+	var v_collapsed Value
+	var v_current Value
 	var v_deleted Value
 	var v_deletes Value
-	var v_has_replace Value
-	var v_id Value
-	var v_inc Value
+	var v_existing Value
+	var v_existing_id Value
+	var v_existing_ids Value
+	var v_existing_item Value
+	var v_flushed Value
+	var v_flushed_last Value
+	var v_handled Value
+	var v_has_out Value
+	var v_has_remaining Value
+	var v_has_tail Value
+	var v_header Value
+	var v_header_known Value
+	var v_header_raw Value
+	var v_header_section Value
+	var v_in_section Value
 	var v_is_add Value
 	var v_is_delete Value
-	var v_is_list Value
+	var v_is_header Value
+	var v_is_item Value
 	var v_is_replace Value
-	var v_item Value
-	var v_keep Value
-	var v_kept Value
-	var v_new_content Value
+	var v_item_id Value
+	var v_joined Value
+	var v_last_blank Value
+	var v_last_index Value
+	var v_last_line Value
+	var v_line Value
+	var v_lines Value
+	var v_match Value
 	var v_new_id Value
-	var v_old_content Value
-	var v_op Value
+	var v_next Value
+	var v_no_ops Value
+	var v_op_count Value
+	var v_op_item_id Value
+	var v_op_known Value
+	var v_op_section Value
+	var v_op_type Value
+	var v_operation Value
 	var v_out Value
-	var v_radd Value
-	var v_radd_content Value
-	var v_radd_section Value
-	var v_raw Value
-	var v_raw_adds Value
-	var v_rep_a Value
-	var v_rep_content Value
-	var v_rep_id Value
+	var v_out_count Value
+	var v_out_result Value
+	var v_padded Value
+	var v_pending Value
+	var v_remaining Value
+	var v_remaining_count Value
+	var v_remaining_item Value
+	var v_remaining_line Value
+	var v_replaced Value
+	var v_replaced_line Value
+	var v_replacement Value
+	var v_replacement_text Value
 	var v_replaces Value
-	var v_result_items Value
-	var v_sec Value
+	var v_section Value
+	var v_section_header Value
+	var v_section_known Value
+	var v_section_name Value
+	var v_section_title Value
 	var v_sections Value
 	var v_slug Value
-	var v_smatch Value
-	var v_sname Value
-	var v_sslug Value
-	var v_type Value
-	if len(args) > 0 { v_items = args[0] }
-	_ = v_items
+	var v_stripped Value
+	var v_tail_blank Value
+	var v_tail_count Value
+	var v_tail_index Value
+	var v_tail_line Value
+	var v_unhandled Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
 	if len(args) > 1 { v_operations = args[1] }
 	_ = v_operations
-	if len(args) > 2 { v_next_id = args[2] }
-	_ = v_next_id
+	_ = v_add
 	_ = v_add_content
 	_ = v_add_item
+	_ = v_add_item_section
+	_ = v_add_line
 	_ = v_add_section
-	_ = v_content_ok
-	_ = v_counter
-	_ = v_del_a
-	_ = v_del_id
+	_ = v_add_section_name
+	_ = v_applied
+	_ = v_collapsed
+	_ = v_current
 	_ = v_deleted
 	_ = v_deletes
-	_ = v_has_replace
-	_ = v_id
-	_ = v_inc
+	_ = v_existing
+	_ = v_existing_id
+	_ = v_existing_ids
+	_ = v_existing_item
+	_ = v_flushed
+	_ = v_flushed_last
+	_ = v_handled
+	_ = v_has_out
+	_ = v_has_remaining
+	_ = v_has_tail
+	_ = v_header
+	_ = v_header_known
+	_ = v_header_raw
+	_ = v_header_section
+	_ = v_in_section
 	_ = v_is_add
 	_ = v_is_delete
-	_ = v_is_list
+	_ = v_is_header
+	_ = v_is_item
 	_ = v_is_replace
-	_ = v_item
-	_ = v_keep
-	_ = v_kept
-	_ = v_new_content
+	_ = v_item_id
+	_ = v_joined
+	_ = v_last_blank
+	_ = v_last_index
+	_ = v_last_line
+	_ = v_line
+	_ = v_lines
+	_ = v_match
 	_ = v_new_id
-	_ = v_old_content
-	_ = v_op
+	_ = v_next
+	_ = v_no_ops
+	_ = v_op_count
+	_ = v_op_item_id
+	_ = v_op_known
+	_ = v_op_section
+	_ = v_op_type
+	_ = v_operation
 	_ = v_out
-	_ = v_radd
-	_ = v_radd_content
-	_ = v_radd_section
-	_ = v_raw
-	_ = v_raw_adds
-	_ = v_rep_a
-	_ = v_rep_content
-	_ = v_rep_id
+	_ = v_out_count
+	_ = v_out_result
+	_ = v_padded
+	_ = v_pending
+	_ = v_remaining
+	_ = v_remaining_count
+	_ = v_remaining_item
+	_ = v_remaining_line
+	_ = v_replaced
+	_ = v_replaced_line
+	_ = v_replacement
+	_ = v_replacement_text
 	_ = v_replaces
-	_ = v_result_items
-	_ = v_sec
+	_ = v_section
+	_ = v_section_header
+	_ = v_section_known
+	_ = v_section_name
+	_ = v_section_title
 	_ = v_sections
 	_ = v_slug
-	_ = v_smatch
-	_ = v_sname
-	_ = v_sslug
-	_ = v_type
-	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
-	v_deletes = Object()
+	_ = v_stripped
+	_ = v_tail_blank
+	_ = v_tail_count
+	_ = v_tail_index
+	_ = v_tail_line
+	_ = v_unhandled
+	v_applied = MutableArray()
+	v_out_result = Object()
+	v_op_count = _core_len(v_operations)
+	v_no_ops = _core_eq(v_op_count, 0)
+	if coreTruthy(v_no_ops) {
+		if err := coreSet(v_out_result, "text", v_text); err != nil { return nil, err }
+		if err := coreSet(v_out_result, "applied", v_applied); err != nil { return nil, err }
+		return v_out_result, nil
+	} else {
+	// empty
+	}
+	{ v, err := _context_map_parse_items(v_text); if err != nil { return nil, err }; v_existing = v }
+	v_existing_ids = MutableArray()
+	for _, v_existing_item = range coreIter(v_existing) {
+		v_existing_id = coreGet(v_existing_item, "id", nil)
+		v_existing_ids = coreAppend(v_existing_ids, v_existing_id)
+	}
+	v_deletes = MutableArray()
 	v_replaces = Object()
-	v_raw_adds = MutableArray()
-	v_is_list = coreTypeIs(v_operations, "list")
-	if coreTruthy(v_is_list) {
-		for _, v_op = range coreIter(v_operations) {
-			v_type = coreGet(v_op, "type", "")
-			v_is_delete = _core_eq(v_type, "DELETE")
-			if coreTruthy(v_is_delete) {
-				v_del_a = coreGet(v_op, "item_id", "")
-				v_del_id = coreGet(v_op, "itemId", v_del_a)
-				if err := coreSet(v_deletes, v_del_id, true); err != nil { return nil, err }
+	v_pending = MutableArray()
+	{ v, err := _context_map_next_item_number(v_existing); if err != nil { return nil, err }; v_next = v }
+	for _, v_operation = range coreIter(v_operations) {
+		v_op_type = coreGet(v_operation, "type", "")
+		v_is_delete = _core_eq(v_op_type, "DELETE")
+		v_is_replace = _core_eq(v_op_type, "REPLACE")
+		v_is_add = _core_eq(v_op_type, "ADD")
+		v_op_item_id = coreGet(v_operation, "itemId", "")
+		v_op_known = _core_contains(v_existing_ids, v_op_item_id)
+		if coreTruthy(v_is_delete) {
+			if coreTruthy(v_op_known) {
+				v_deletes = coreAppend(v_deletes, v_op_item_id)
+				v_applied = coreAppend(v_applied, v_operation)
 			} else {
 			// empty
 			}
-			v_is_replace = _core_eq(v_type, "REPLACE")
-			if coreTruthy(v_is_replace) {
-				v_rep_a = coreGet(v_op, "item_id", "")
-				v_rep_id = coreGet(v_op, "itemId", v_rep_a)
-				v_rep_content = coreGet(v_op, "content", "")
-				if err := coreSet(v_replaces, v_rep_id, v_rep_content); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_replace) {
+			if coreTruthy(v_op_known) {
+				v_replacement = coreGet(v_operation, "content", "")
+				if err := coreSet(v_replaces, v_op_item_id, v_replacement); err != nil { return nil, err }
+				v_applied = coreAppend(v_applied, v_operation)
 			} else {
 			// empty
 			}
-			v_is_add = _core_eq(v_type, "ADD")
-			if coreTruthy(v_is_add) {
-				v_add_section = coreGet(v_op, "section", "context_understanding")
-				v_add_content = coreGet(v_op, "content", "")
-				v_content_ok = _core_ne(v_add_content, "")
-				if coreTruthy(v_content_ok) {
-					v_raw = Object()
-					if err := coreSet(v_raw, "section", v_add_section); err != nil { return nil, err }
-					if err := coreSet(v_raw, "content", v_add_content); err != nil { return nil, err }
-					v_raw_adds = coreAppend(v_raw_adds, v_raw)
-				} else {
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_add) {
+			v_op_section = coreGet(v_operation, "section", "")
+			{ v, err := _context_map_section_for_name(v_op_section); if err != nil { return nil, err }; v_add_section = v }
+			v_section_known = _core_is_not_none(v_add_section)
+			if coreTruthy(v_section_known) {
+				v_slug = coreGet(v_add_section, "slug", "")
+				{ v, err := _context_map_pad_number(v_next); if err != nil { return nil, err }; v_padded = v }
+				v_new_id = _core_string_format("{}-{}", v_slug, v_padded)
+				v_next = _core_add(v_next, 1)
+				v_add_content = coreGet(v_operation, "content", "")
+				v_add_line = _core_string_format("[{}] {}", v_new_id, v_add_content)
+				v_add_section_name = coreGet(v_add_section, "name", "")
+				v_add = Object()
+				if err := coreSet(v_add, "section", v_add_section_name); err != nil { return nil, err }
+				if err := coreSet(v_add, "line", v_add_line); err != nil { return nil, err }
+				v_pending = coreAppend(v_pending, v_add)
+				v_applied = coreAppend(v_applied, v_operation)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_lines = _core_string_split(v_text, "\n")
+	v_out = MutableArray()
+	v_current = ""
+	for _, v_line = range coreIter(v_lines) {
+		v_stripped = coreStringTrim(v_line)
+		v_is_header = _core_string_starts_with(v_stripped, "##")
+		if coreTruthy(v_is_header) {
+			{ v, err := _context_map_flush_adds(v_out, v_pending, v_current); if err != nil { return nil, err }; v_flushed = v }
+			v_out = coreGet(v_flushed, "out", nil)
+			v_pending = coreGet(v_flushed, "pending", nil)
+			v_out_count = _core_len(v_out)
+			v_has_out = _core_gt(v_out_count, 0)
+			if coreTruthy(v_has_out) {
+				v_last_index = _core_add(v_out_count, -1)
+				v_last_line = _core_list_get(v_out, v_last_index, "")
+				v_last_blank = _core_eq(v_last_line, "")
+				if coreTruthy(v_last_blank) {
 				// empty
+				} else {
+					v_out = coreAppend(v_out, "")
 				}
 			} else {
 			// empty
 			}
-		}
-	} else {
-	// empty
-	}
-	v_result_items = MutableArray()
-	for _, v_item = range coreIter(v_items) {
-		v_id = coreGet(v_item, "id", nil)
-		v_deleted = coreGet(v_deletes, v_id, false)
-		v_keep = _core_not(v_deleted)
-		if coreTruthy(v_keep) {
-			v_kept = Object()
-			if err := coreSet(v_kept, "id", v_id); err != nil { return nil, err }
-			v_sec = coreGet(v_item, "section", nil)
-			if err := coreSet(v_kept, "section", v_sec); err != nil { return nil, err }
-			v_new_content = coreGet(v_replaces, v_id, nil)
-			v_has_replace = _core_is_not_none(v_new_content)
-			if coreTruthy(v_has_replace) {
-				if err := coreSet(v_kept, "content", v_new_content); err != nil { return nil, err }
+			v_header_raw = _core_regex_replace("^#+", "", v_stripped)
+			v_header = coreStringTrim(v_header_raw)
+			{ v, err := _context_map_section_for_name(v_header); if err != nil { return nil, err }; v_header_section = v }
+			v_header_known = _core_is_not_none(v_header_section)
+			v_current = ""
+			if coreTruthy(v_header_known) {
+				v_current = coreGet(v_header_section, "name", "")
 			} else {
-				v_old_content = coreGet(v_item, "content", nil)
-				if err := coreSet(v_kept, "content", v_old_content); err != nil { return nil, err }
+			// empty
 			}
-			v_result_items = coreAppend(v_result_items, v_kept)
+			v_out = coreAppend(v_out, v_line)
 		} else {
-		// empty
-		}
-	}
-	v_counter = v_next_id
-	for _, v_radd = range coreIter(v_raw_adds) {
-		v_radd_section = coreGet(v_radd, "section", nil)
-		v_radd_content = coreGet(v_radd, "content", nil)
-		v_slug = "cu"
-		for _, v_sec = range coreIter(v_sections) {
-			v_sname = coreGet(v_sec, "name", nil)
-			v_smatch = _core_eq(v_sname, v_radd_section)
-			if coreTruthy(v_smatch) {
-				v_sslug = coreGet(v_sec, "slug", nil)
-				v_slug = v_sslug
+			v_handled = false
+			{ v, err := _context_map_item_match(v_line); if err != nil { return nil, err }; v_match = v }
+			v_is_item = _core_is_not_none(v_match)
+			if coreTruthy(v_is_item) {
+				v_item_id = coreGet(v_match, "id", "")
+				v_deleted = _core_contains(v_deletes, v_item_id)
+				if coreTruthy(v_deleted) {
+					v_handled = true
+				} else {
+					v_replaced = _core_map_contains(v_replaces, v_item_id)
+					if coreTruthy(v_replaced) {
+						v_replacement_text = coreGet(v_replaces, v_item_id, nil)
+						v_replaced_line = _core_string_format("[{}] {}", v_item_id, v_replacement_text)
+						v_out = coreAppend(v_out, v_replaced_line)
+						v_handled = true
+					} else {
+					// empty
+					}
+				}
+			} else {
+			// empty
+			}
+			v_unhandled = _core_not(v_handled)
+			if coreTruthy(v_unhandled) {
+				v_out = coreAppend(v_out, v_line)
 			} else {
 			// empty
 			}
 		}
-		v_new_id = _core_string_format("{}-{}", v_slug, v_counter)
-		v_inc = _core_add(v_counter, 1)
-		v_counter = v_inc
-		v_add_item = Object()
-		if err := coreSet(v_add_item, "id", v_new_id); err != nil { return nil, err }
-		if err := coreSet(v_add_item, "section", v_radd_section); err != nil { return nil, err }
-		if err := coreSet(v_add_item, "content", v_radd_content); err != nil { return nil, err }
-		v_result_items = coreAppend(v_result_items, v_add_item)
 	}
-	v_out = Object()
-	if err := coreSet(v_out, "items", v_result_items); err != nil { return nil, err }
-	if err := coreSet(v_out, "next_id", v_counter); err != nil { return nil, err }
-	return v_out, nil
+	{ v, err := _context_map_flush_adds(v_out, v_pending, v_current); if err != nil { return nil, err }; v_flushed_last = v }
+	v_out = coreGet(v_flushed_last, "out", nil)
+	v_pending = coreGet(v_flushed_last, "pending", nil)
+	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
+	for _, v_section = range coreIter(v_sections) {
+		v_section_name = coreGet(v_section, "name", nil)
+		v_remaining = MutableArray()
+		for _, v_add_item = range coreIter(v_pending) {
+			v_add_item_section = coreGet(v_add_item, "section", nil)
+			v_in_section = _core_eq(v_add_item_section, v_section_name)
+			if coreTruthy(v_in_section) {
+				v_remaining = coreAppend(v_remaining, v_add_item)
+			} else {
+			// empty
+			}
+		}
+		v_remaining_count = _core_len(v_remaining)
+		v_has_remaining = _core_gt(v_remaining_count, 0)
+		if coreTruthy(v_has_remaining) {
+			v_tail_count = _core_len(v_out)
+			v_has_tail = _core_gt(v_tail_count, 0)
+			if coreTruthy(v_has_tail) {
+				v_tail_index = _core_add(v_tail_count, -1)
+				v_tail_line = _core_list_get(v_out, v_tail_index, "")
+				v_tail_blank = _core_eq(v_tail_line, "")
+				if coreTruthy(v_tail_blank) {
+				// empty
+				} else {
+					v_out = coreAppend(v_out, "")
+				}
+			} else {
+			// empty
+			}
+			v_section_title = coreGet(v_section, "title", nil)
+			v_section_header = _core_string_format("## {}", v_section_title)
+			v_out = coreAppend(v_out, v_section_header)
+			for _, v_remaining_item = range coreIter(v_remaining) {
+				v_remaining_line = coreGet(v_remaining_item, "line", nil)
+				v_out = coreAppend(v_out, v_remaining_line)
+			}
+		} else {
+		// empty
+		}
+	}
+	v_joined = _core_string_join("\n", v_out)
+	{ v, err := _context_map_collapse_blank_lines(v_joined); if err != nil { return nil, err }; v_collapsed = v }
+	if err := coreSet(v_out_result, "text", v_collapsed); err != nil { return nil, err }
+	if err := coreSet(v_out_result, "applied", v_applied); err != nil { return nil, err }
+	return v_out_result, nil
 }
 
 func _context_map_evict_to_budget(args ...Value) (Value, error) {
 	axirCoverageMark("_context_map_evict_to_budget")
-	var v_items Value
+	var v_text Value
 	var v_scores Value
 	var v_max_chars Value
-	var v_count Value
-	var v_current Value
-	var v_empty Value
-	var v_first Value
-	var v_have_min Value
-	var v_iid Value
-	var v_is_min Value
-	var v_iscore Value
+	var v_age_before Value
+	var v_empty_map Value
+	var v_fits Value
+	var v_goes_before Value
+	var v_has_scores Value
+	var v_insert_here Value
+	var v_inserted Value
 	var v_item Value
-	var v_keep Value
-	var v_len Value
-	var v_lower Value
-	var v_min_id Value
-	var v_min_score Value
-	var v_next_items Value
-	var v_not_over Value
-	var v_over Value
-	var v_take Value
-	var v_text Value
-	if len(args) > 0 { v_items = args[0] }
-	_ = v_items
+	var v_item_age Value
+	var v_item_id Value
+	var v_item_score Value
+	var v_items Value
+	var v_last Value
+	var v_length Value
+	var v_not_inserted Value
+	var v_ordered Value
+	var v_other Value
+	var v_other_age Value
+	var v_other_id Value
+	var v_other_score Value
+	var v_placed Value
+	var v_removed Value
+	var v_same_score Value
+	var v_score_before Value
+	var v_score_map Value
+	var v_still_out Value
+	var v_tie_before Value
+	var v_trial Value
+	var v_trial_fits Value
+	var v_trial_length Value
+	var v_trial_units Value
+	var v_units Value
+	var v_victim Value
+	var v_victim_id Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
 	if len(args) > 1 { v_scores = args[1] }
 	_ = v_scores
 	if len(args) > 2 { v_max_chars = args[2] }
 	_ = v_max_chars
-	_ = v_count
-	_ = v_current
-	_ = v_empty
-	_ = v_first
-	_ = v_have_min
-	_ = v_iid
-	_ = v_is_min
-	_ = v_iscore
+	_ = v_age_before
+	_ = v_empty_map
+	_ = v_fits
+	_ = v_goes_before
+	_ = v_has_scores
+	_ = v_insert_here
+	_ = v_inserted
 	_ = v_item
-	_ = v_keep
-	_ = v_len
-	_ = v_lower
-	_ = v_min_id
-	_ = v_min_score
-	_ = v_next_items
-	_ = v_not_over
-	_ = v_over
-	_ = v_take
-	_ = v_text
-	v_current = v_items
-	for {
-		{ v, err := _context_map_render_items(v_current); if err != nil { return nil, err }; v_text = v }
-		v_len = _core_len(v_text)
-		v_over = _core_gt(v_len, v_max_chars)
-		v_not_over = _core_not(v_over)
-		if coreTruthy(v_not_over) {
-			break
-		} else {
-		// empty
-		}
-		v_count = _core_len(v_current)
-		v_empty = _core_eq(v_count, 0)
-		if coreTruthy(v_empty) {
-			break
-		} else {
-		// empty
-		}
-		v_min_id = ""
-		v_min_score = 0
-		v_have_min = false
-		for _, v_item = range coreIter(v_current) {
-			v_iid = coreGet(v_item, "id", nil)
-			v_iscore = coreGet(v_scores, v_iid, 0)
-			v_first = _core_not(v_have_min)
-			v_lower = _core_lt(v_iscore, v_min_score)
-			v_take = _core_or(v_first, v_lower)
-			if coreTruthy(v_take) {
-				v_min_id = v_iid
-				v_min_score = v_iscore
-				v_have_min = true
-			} else {
-			// empty
-			}
-		}
-		v_next_items = MutableArray()
-		for _, v_item = range coreIter(v_current) {
-			v_iid = coreGet(v_item, "id", nil)
-			v_is_min = _core_eq(v_iid, v_min_id)
-			v_keep = _core_not(v_is_min)
-			if coreTruthy(v_keep) {
-				v_next_items = coreAppend(v_next_items, v_item)
-			} else {
-			// empty
-			}
-		}
-		v_current = v_next_items
+	_ = v_item_age
+	_ = v_item_id
+	_ = v_item_score
+	_ = v_items
+	_ = v_last
+	_ = v_length
+	_ = v_not_inserted
+	_ = v_ordered
+	_ = v_other
+	_ = v_other_age
+	_ = v_other_id
+	_ = v_other_score
+	_ = v_placed
+	_ = v_removed
+	_ = v_same_score
+	_ = v_score_before
+	_ = v_score_map
+	_ = v_still_out
+	_ = v_tie_before
+	_ = v_trial
+	_ = v_trial_fits
+	_ = v_trial_length
+	_ = v_trial_units
+	_ = v_units
+	_ = v_victim
+	_ = v_victim_id
+	v_empty_map = Object()
+	v_units = _core_string_utf16_units(v_text)
+	v_length = _core_len(v_units)
+	v_fits = _core_lte(v_length, v_max_chars)
+	if coreTruthy(v_fits) {
+		return v_text, nil
+	} else {
+	// empty
 	}
-	return v_current, nil
-}
-
-func _format_context_map_trajectory(args ...Value) (Value, error) {
-	axirCoverageMark("_format_context_map_trajectory")
-	var v_state Value
-	var v_action_log Value
-	var v_action_text Value
-	var v_empty_list Value
-	var v_out Value
-	var v_status_log Value
-	var v_status_text Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_action_log
-	_ = v_action_text
-	_ = v_empty_list
-	_ = v_out
-	_ = v_status_log
-	_ = v_status_text
-	v_empty_list = MutableArray()
-	v_action_log = coreGet(v_state, "action_log", v_empty_list)
-	v_action_text = _core_json_stable_stringify(v_action_log)
-	v_status_log = coreGet(v_state, "status_log", v_empty_list)
-	v_status_text = _core_json_stable_stringify(v_status_log)
-	v_out = _core_string_format("## Executor Action Log\n{}\n\n## Status Log\n{}", v_action_text, v_status_text)
-	return v_out, nil
+	{ v, err := _context_map_parse_items(v_text); if err != nil { return nil, err }; v_items = v }
+	v_score_map = v_scores
+	v_has_scores = coreTypeIs(v_scores, "object")
+	if coreTruthy(v_has_scores) {
+	// empty
+	} else {
+		v_score_map = v_empty_map
+	}
+	v_ordered = MutableArray()
+	for _, v_item = range coreIter(v_items) {
+		v_item_id = coreGet(v_item, "id", nil)
+		v_item_score = coreGet(v_score_map, v_item_id, 0)
+		{ v, err := _context_map_item_age(v_item_id); if err != nil { return nil, err }; v_item_age = v }
+		v_placed = MutableArray()
+		v_inserted = false
+		for _, v_other = range coreIter(v_ordered) {
+			v_other_id = coreGet(v_other, "id", nil)
+			v_other_score = coreGet(v_score_map, v_other_id, 0)
+			{ v, err := _context_map_item_age(v_other_id); if err != nil { return nil, err }; v_other_age = v }
+			v_score_before = _core_lt(v_item_score, v_other_score)
+			v_same_score = _core_eq(v_item_score, v_other_score)
+			v_age_before = _core_lt(v_item_age, v_other_age)
+			v_tie_before = _core_and(v_same_score, v_age_before)
+			v_goes_before = _core_or(v_score_before, v_tie_before)
+			v_not_inserted = _core_not(v_inserted)
+			v_insert_here = _core_and(v_goes_before, v_not_inserted)
+			if coreTruthy(v_insert_here) {
+				v_placed = coreAppend(v_placed, v_item)
+				v_inserted = true
+			} else {
+			// empty
+			}
+			v_placed = coreAppend(v_placed, v_other)
+		}
+		v_still_out = _core_not(v_inserted)
+		if coreTruthy(v_still_out) {
+			v_placed = coreAppend(v_placed, v_item)
+		} else {
+		// empty
+		}
+		v_ordered = v_placed
+	}
+	v_removed = MutableArray()
+	for _, v_victim = range coreIter(v_ordered) {
+		v_victim_id = coreGet(v_victim, "id", nil)
+		v_removed = coreAppend(v_removed, v_victim_id)
+		{ v, err := _context_map_remove_items(v_text, v_removed); if err != nil { return nil, err }; v_trial = v }
+		v_trial_units = _core_string_utf16_units(v_trial)
+		v_trial_length = _core_len(v_trial_units)
+		v_trial_fits = _core_lte(v_trial_length, v_max_chars)
+		if coreTruthy(v_trial_fits) {
+			return v_trial, nil
+		} else {
+		// empty
+		}
+	}
+	{ v, err := _context_map_remove_items(v_text, v_removed); if err != nil { return nil, err }; v_last = v }
+	return v_last, nil
 }
 
 func _context_map_complete(args ...Value) (Value, error) {
@@ -80393,48 +80603,66 @@ func _context_map_complete(args ...Value) (Value, error) {
 	return v_content, nil
 }
 
-func _context_map_parse_json(args ...Value) (Value, error) {
-	axirCoverageMark("_context_map_parse_json")
-	var v_content Value
+func _format_context_map_trajectory(args ...Value) (Value, error) {
+	axirCoverageMark("_format_context_map_trajectory")
+	var v_state Value
+	var v_distiller_log Value
 	var v_empty_map Value
-	var v_is_empty Value
-	var v_is_obj Value
-	var v_looks_object Value
-	var v_not_object Value
-	var v_parsed Value
-	var v_trimmed Value
-	if len(args) > 0 { v_content = args[0] }
-	_ = v_content
+	var v_executor_log Value
+	var v_executor_result Value
+	var v_executor_text Value
+	var v_final_output Value
+	var v_final_text Value
+	var v_has_result Value
+	var v_out Value
+	var v_parts Value
+	var v_summarized Value
+	var v_summary Value
+	var v_values Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_distiller_log
 	_ = v_empty_map
-	_ = v_is_empty
-	_ = v_is_obj
-	_ = v_looks_object
-	_ = v_not_object
-	_ = v_parsed
-	_ = v_trimmed
+	_ = v_executor_log
+	_ = v_executor_result
+	_ = v_executor_text
+	_ = v_final_output
+	_ = v_final_text
+	_ = v_has_result
+	_ = v_out
+	_ = v_parts
+	_ = v_summarized
+	_ = v_summary
+	_ = v_values
 	v_empty_map = Object()
-	v_trimmed = coreStringTrim(v_content)
-	v_is_empty = _core_eq(v_trimmed, "")
-	if coreTruthy(v_is_empty) {
-		return v_empty_map, nil
+	v_values = coreGet(v_state, "run_input_values", v_empty_map)
+	{ v, err := _context_map_summarize_value(v_values, 0); if err != nil { return nil, err }; v_summarized = v }
+	v_summary = _core_json_pretty(v_summarized)
+	{ v, err := _context_map_stage_log_text(v_state, "distiller"); if err != nil { return nil, err }; v_distiller_log = v }
+	{ v, err := _context_map_stage_log_text(v_state, "executor"); if err != nil { return nil, err }; v_executor_log = v }
+	v_executor_result = coreGet(v_state, "executor_result", nil)
+	v_executor_text = ""
+	v_has_result = _core_is_not_none(v_executor_result)
+	if coreTruthy(v_has_result) {
+		v_executor_text = _core_json_pretty(v_executor_result)
 	} else {
 	// empty
 	}
-	v_looks_object = _core_string_starts_with(v_trimmed, "{")
-	v_not_object = _core_not(v_looks_object)
-	if coreTruthy(v_not_object) {
-		return v_empty_map, nil
-	} else {
-	// empty
-	}
-	{ v, err := _core_json_parse(v_trimmed); if err != nil { return nil, err }; v_parsed = v }
-	v_is_obj = coreTypeIs(v_parsed, "object")
-	if coreTruthy(v_is_obj) {
-		return v_parsed, nil
-	} else {
-	// empty
-	}
-	return v_empty_map, nil
+	v_final_output = coreGet(v_state, "last_output", nil)
+	v_final_text = _core_json_pretty(v_final_output)
+	v_parts = MutableArray()
+	v_parts = coreAppend(v_parts, "## Input Summary")
+	v_parts = coreAppend(v_parts, v_summary)
+	v_parts = coreAppend(v_parts, "## Distiller Action Log")
+	v_parts = coreAppend(v_parts, v_distiller_log)
+	v_parts = coreAppend(v_parts, "## Executor Action Log")
+	v_parts = coreAppend(v_parts, v_executor_log)
+	v_parts = coreAppend(v_parts, "## Executor Result")
+	v_parts = coreAppend(v_parts, v_executor_text)
+	v_parts = coreAppend(v_parts, "## Final Output")
+	v_parts = coreAppend(v_parts, v_final_text)
+	v_out = _core_string_join("\n\n", v_parts)
+	return v_out, nil
 }
 
 func _agent_evolve_context_map(args ...Value) (Value, error) {
@@ -80443,40 +80671,47 @@ func _agent_evolve_context_map(args ...Value) (Value, error) {
 	var v_client Value
 	var v_options Value
 	var v_applied Value
-	var v_carto_parsed Value
-	var v_carto_resp Value
-	var v_carto_sys Value
-	var v_carto_user Value
-	var v_carto_user_head Value
+	var v_applied_text Value
+	var v_cartographer_forward_options Value
+	var v_cartographer_options Value
+	var v_cartographer_output Value
+	var v_cartographer_program Value
+	var v_cartographer_signature Value
+	var v_cartographer_values Value
 	var v_cm Value
 	var v_current_chars Value
-	var v_current_text Value
-	var v_distiller_parsed Value
-	var v_distiller_resp Value
-	var v_distiller_sys Value
-	var v_distiller_user Value
+	var v_distiller_options Value
+	var v_distiller_output Value
+	var v_distiller_program Value
+	var v_distiller_signature Value
+	var v_distiller_values Value
 	var v_empty_list Value
 	var v_empty_map Value
-	var v_evicted Value
-	var v_evolve_ok Value
 	var v_evolve_steps Value
+	var v_forward_options Value
 	var v_has_cm Value
 	var v_infinite Value
+	var v_item_before Value
+	var v_item_before_id Value
+	var v_item_ids Value
 	var v_item_tags Value
-	var v_items Value
+	var v_items_before Value
 	var v_max_chars Value
-	var v_new_items Value
-	var v_new_next_id Value
-	var v_new_scores Value
-	var v_new_steps Value
-	var v_new_text Value
-	var v_next_id Value
+	var v_next_scores Value
+	var v_next_steps Value
+	var v_next_text Value
 	var v_operations Value
+	var v_raw_operations Value
+	var v_raw_text Value
 	var v_reflection Value
+	var v_run_values Value
 	var v_scores Value
 	var v_should_evolve Value
 	var v_steps Value
 	var v_task Value
+	var v_task_is_text Value
+	var v_text Value
+	var v_text_units Value
 	var v_trajectory Value
 	var v_under_budget Value
 	var v_updated Value
@@ -80487,90 +80722,125 @@ func _agent_evolve_context_map(args ...Value) (Value, error) {
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
 	_ = v_applied
-	_ = v_carto_parsed
-	_ = v_carto_resp
-	_ = v_carto_sys
-	_ = v_carto_user
-	_ = v_carto_user_head
+	_ = v_applied_text
+	_ = v_cartographer_forward_options
+	_ = v_cartographer_options
+	_ = v_cartographer_output
+	_ = v_cartographer_program
+	_ = v_cartographer_signature
+	_ = v_cartographer_values
 	_ = v_cm
 	_ = v_current_chars
-	_ = v_current_text
-	_ = v_distiller_parsed
-	_ = v_distiller_resp
-	_ = v_distiller_sys
-	_ = v_distiller_user
+	_ = v_distiller_options
+	_ = v_distiller_output
+	_ = v_distiller_program
+	_ = v_distiller_signature
+	_ = v_distiller_values
 	_ = v_empty_list
 	_ = v_empty_map
-	_ = v_evicted
-	_ = v_evolve_ok
 	_ = v_evolve_steps
+	_ = v_forward_options
 	_ = v_has_cm
 	_ = v_infinite
+	_ = v_item_before
+	_ = v_item_before_id
+	_ = v_item_ids
 	_ = v_item_tags
-	_ = v_items
+	_ = v_items_before
 	_ = v_max_chars
-	_ = v_new_items
-	_ = v_new_next_id
-	_ = v_new_scores
-	_ = v_new_steps
-	_ = v_new_text
-	_ = v_next_id
+	_ = v_next_scores
+	_ = v_next_steps
+	_ = v_next_text
 	_ = v_operations
+	_ = v_raw_operations
+	_ = v_raw_text
 	_ = v_reflection
+	_ = v_run_values
 	_ = v_scores
 	_ = v_should_evolve
 	_ = v_steps
 	_ = v_task
+	_ = v_task_is_text
+	_ = v_text
+	_ = v_text_units
 	_ = v_trajectory
 	_ = v_under_budget
 	_ = v_updated
 	v_empty_map = Object()
 	v_empty_list = MutableArray()
 	v_cm = coreGet(v_state, "context_map", nil)
-	v_has_cm = _core_is_not_none(v_cm)
-	v_infinite = coreGet(v_cm, "infiniteEvolve", false)
+	v_has_cm = coreTypeIs(v_cm, "object")
+	if coreTruthy(v_has_cm) {
+	// empty
+	} else {
+		return v_state, nil
+	}
+	v_infinite = coreGet(v_cm, "infiniteEvolve", true)
 	v_steps = coreGet(v_cm, "steps", 0)
 	v_evolve_steps = coreGet(v_cm, "evolveSteps", 0)
 	v_under_budget = _core_lt(v_steps, v_evolve_steps)
-	v_evolve_ok = _core_or(v_infinite, v_under_budget)
-	v_should_evolve = _core_and(v_has_cm, v_evolve_ok)
+	v_should_evolve = _core_or(v_infinite, v_under_budget)
 	if coreTruthy(v_should_evolve) {
-		v_current_text = coreGet(v_cm, "text", "")
-		v_scores = coreGet(v_cm, "scores", v_empty_map)
-		v_max_chars = coreGet(v_cm, "maxChars", 4000)
-		v_next_id = coreGet(v_cm, "next_id", 1)
-		v_task = coreGet(v_state, "task_description", "")
-		{ v, err := _format_context_map_trajectory(v_state); if err != nil { return nil, err }; v_trajectory = v }
-		v_distiller_sys = "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale."
-		v_distiller_user = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}", v_task, v_current_text, v_trajectory)
-		{ v, err := _context_map_complete(v_client, v_distiller_sys, v_distiller_user, v_options); if err != nil { return nil, err }; v_distiller_resp = v }
-		{ v, err := _context_map_parse_json(v_distiller_resp); if err != nil { return nil, err }; v_distiller_parsed = v }
-		v_item_tags = coreGet(v_distiller_parsed, "itemTags", v_empty_map)
-		v_reflection = _core_json_stringify(v_distiller_parsed)
-		v_current_chars = _core_len(v_current_text)
-		v_carto_sys = "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}"
-		v_carto_user_head = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}", v_task, v_current_text, v_reflection)
-		v_carto_user = _core_string_format("{}\n\ncurrentChars: {}\nmaxChars: {}", v_carto_user_head, v_current_chars, v_max_chars)
-		{ v, err := _context_map_complete(v_client, v_carto_sys, v_carto_user, v_options); if err != nil { return nil, err }; v_carto_resp = v }
-		{ v, err := _context_map_parse_json(v_carto_resp); if err != nil { return nil, err }; v_carto_parsed = v }
-		v_operations = coreGet(v_carto_parsed, "operations", v_empty_list)
-		{ v, err := _context_map_parse_items(v_current_text); if err != nil { return nil, err }; v_items = v }
-		{ v, err := _context_map_update_scores(v_scores, v_item_tags); if err != nil { return nil, err }; v_new_scores = v }
-		{ v, err := _context_map_apply_operations(v_items, v_operations, v_next_id); if err != nil { return nil, err }; v_applied = v }
-		v_new_items = coreGet(v_applied, "items", v_empty_list)
-		v_new_next_id = coreGet(v_applied, "next_id", v_next_id)
-		{ v, err := _context_map_evict_to_budget(v_new_items, v_new_scores, v_max_chars); if err != nil { return nil, err }; v_evicted = v }
-		{ v, err := _context_map_render_items(v_evicted); if err != nil { return nil, err }; v_new_text = v }
-		v_new_steps = _core_add(v_steps, 1)
-		v_updated = _core_map_merge(v_empty_map, v_cm)
-		if err := coreSet(v_updated, "text", v_new_text); err != nil { return nil, err }
-		if err := coreSet(v_updated, "scores", v_new_scores); err != nil { return nil, err }
-		if err := coreSet(v_updated, "steps", v_new_steps); err != nil { return nil, err }
-		if err := coreSet(v_updated, "next_id", v_new_next_id); err != nil { return nil, err }
-		if err := coreSet(v_state, "context_map", v_updated); err != nil { return nil, err }
-	} else {
 	// empty
+	} else {
+		return v_state, nil
 	}
+	v_raw_text = coreGet(v_cm, "text", nil)
+	{ v, err := _context_map_normalize_text(v_raw_text); if err != nil { return nil, err }; v_text = v }
+	v_max_chars = coreGet(v_cm, "maxChars", 4000)
+	v_task = coreGet(v_state, "executor_request", nil)
+	v_task_is_text = coreTypeIs(v_task, "string")
+	if coreTruthy(v_task_is_text) {
+	// empty
+	} else {
+		v_run_values = coreGet(v_state, "run_input_values", v_empty_map)
+		v_task = _core_json_stringify(v_run_values)
+	}
+	{ v, err := _format_context_map_trajectory(v_state); if err != nil { return nil, err }; v_trajectory = v }
+	{ v, err := _context_map_distiller_program(); if err != nil { return nil, err }; v_distiller_program = v }
+	v_distiller_signature = coreGet(v_distiller_program, "signature", nil)
+	v_distiller_options = coreGet(v_distiller_program, "options", nil)
+	v_distiller_values = Object()
+	if err := coreSet(v_distiller_values, "task", v_task); err != nil { return nil, err }
+	if err := coreSet(v_distiller_values, "contextMap", v_text); err != nil { return nil, err }
+	if err := coreSet(v_distiller_values, "trajectory", v_trajectory); err != nil { return nil, err }
+	v_forward_options = Object()
+	{ v, err := _core_agent_program_forward(v_distiller_signature, v_distiller_options, v_client, v_distiller_values, v_forward_options); if err != nil { return nil, err }; v_distiller_output = v }
+	v_reflection = _core_json_pretty(v_distiller_output)
+	v_text_units = _core_string_utf16_units(v_text)
+	v_current_chars = _core_len(v_text_units)
+	{ v, err := _context_map_cartographer_program(); if err != nil { return nil, err }; v_cartographer_program = v }
+	v_cartographer_signature = coreGet(v_cartographer_program, "signature", nil)
+	v_cartographer_options = coreGet(v_cartographer_program, "options", nil)
+	v_cartographer_values = Object()
+	if err := coreSet(v_cartographer_values, "task", v_task); err != nil { return nil, err }
+	if err := coreSet(v_cartographer_values, "contextMap", v_text); err != nil { return nil, err }
+	if err := coreSet(v_cartographer_values, "distillerReflection", v_reflection); err != nil { return nil, err }
+	if err := coreSet(v_cartographer_values, "currentChars", v_current_chars); err != nil { return nil, err }
+	if err := coreSet(v_cartographer_values, "maxChars", v_max_chars); err != nil { return nil, err }
+	v_cartographer_forward_options = Object()
+	{ v, err := _core_agent_program_forward(v_cartographer_signature, v_cartographer_options, v_client, v_cartographer_values, v_cartographer_forward_options); if err != nil { return nil, err }; v_cartographer_output = v }
+	{ v, err := _context_map_parse_items(v_text); if err != nil { return nil, err }; v_items_before = v }
+	v_item_ids = MutableArray()
+	for _, v_item_before = range coreIter(v_items_before) {
+		v_item_before_id = coreGet(v_item_before, "id", nil)
+		v_item_ids = coreAppend(v_item_ids, v_item_before_id)
+	}
+	v_scores = coreGet(v_cm, "scores", v_empty_map)
+	v_item_tags = coreGet(v_distiller_output, "itemTags", nil)
+	{ v, err := _context_map_update_scores(v_scores, v_item_tags, v_item_ids); if err != nil { return nil, err }; v_next_scores = v }
+	v_raw_operations = coreGet(v_cartographer_output, "operations", nil)
+	{ v, err := _context_map_normalize_operations(v_raw_operations); if err != nil { return nil, err }; v_operations = v }
+	{ v, err := _context_map_apply_operations(v_text, v_operations); if err != nil { return nil, err }; v_applied = v }
+	v_applied_text = coreGet(v_applied, "text", v_text)
+	{ v, err := _context_map_evict_to_budget(v_applied_text, v_next_scores, v_max_chars); if err != nil { return nil, err }; v_next_text = v }
+	v_next_steps = _core_add(v_steps, 1)
+	v_updated = _core_map_merge(v_empty_map, v_cm)
+	if err := coreSet(v_updated, "text", v_next_text); err != nil { return nil, err }
+	if err := coreSet(v_updated, "scores", v_next_scores); err != nil { return nil, err }
+	if err := coreSet(v_updated, "steps", v_next_steps); err != nil { return nil, err }
+	_core_map_delete(v_updated, "next_id")
+	if err := coreSet(v_state, "context_map", v_updated); err != nil { return nil, err }
 	return v_state, nil
 }
 
@@ -81658,6 +81928,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	var v_loaded_skills Value
 	var v_max_steps Value
 	var v_no_pending_notice Value
+	var v_no_run_fact Value
 	var v_non_runtime_executor Value
 	var v_patch_snapshot Value
 	var v_pending_notice Value
@@ -81795,6 +82066,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	_ = v_loaded_skills
 	_ = v_max_steps
 	_ = v_no_pending_notice
+	_ = v_no_run_fact
 	_ = v_non_runtime_executor
 	_ = v_patch_snapshot
 	_ = v_pending_notice
@@ -81882,6 +82154,10 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	}
 	if err := coreSet(v_state, "active_stage", "distiller"); err != nil { return nil, err }
 	if _, err := _agent_mark_stage_action_log_start(v_state); err != nil { return nil, err }
+	if err := coreSet(v_state, "run_input_values", v_values); err != nil { return nil, err }
+	v_no_run_fact = _core_none()
+	if err := coreSet(v_state, "executor_request", v_no_run_fact); err != nil { return nil, err }
+	if err := coreSet(v_state, "executor_result", v_no_run_fact); err != nil { return nil, err }
 	{ v, err := _agent_transcribe_audio_inputs(v_state, v_client, v_values, v_options); if err != nil { return nil, err }; v_transcribed_values = v }
 	v_values = v_transcribed_values
 	v_runtime_input_names = MutableArray()
@@ -81919,6 +82195,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	if coreTruthy(v_runtime_enabled) {
 		v_distiller_empty_log = MutableArray()
 		v_distiller_saved_action_log = coreGet(v_state, "action_log", v_distiller_empty_log)
+		if _, err := _agent_restore_stage_actions(v_state, "distiller"); err != nil { return nil, err }
 		{ v, err := _agent_runtime_build_globals(v_state, v_values); if err != nil { return nil, err }; v_distiller_globals = v }
 		v_distiller_session = _core_none()
 		v_distiller_max_steps = coreGet(v_options, "max_actor_steps", 4)
@@ -81943,6 +82220,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 			if err := coreSet(v_distiller_request_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_request", v_distiller_request_event); err != nil { return nil, err }
 			{ v, err := _agent_controlled_stage_forward(v_distiller, v_client, v_distiller_values, v_distiller_options); if err != nil { return nil, err }; v_distiller_output = v }
+			if err := coreSet(v_state, "restore_notice", ""); err != nil { return nil, err }
 			v_distiller_response_event = Object()
 			if err := coreSet(v_distiller_response_event, "stage", "distiller"); err != nil { return nil, err }
 			if err := coreSet(v_distiller_response_event, "step", v_distiller_step); err != nil { return nil, err }
@@ -81988,6 +82266,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 			v_distiller_state_reset = Object()
 			if err := coreSet(v_state, "runtime_session_state", v_distiller_state_reset); err != nil { return nil, err }
 		}
+		if _, err := _agent_save_stage_actions(v_state, "distiller"); err != nil { return nil, err }
 		if err := coreSet(v_state, "action_log", v_distiller_saved_action_log); err != nil { return nil, err }
 	} else {
 		{ v, err := _build_distiller_inputs(v_state, v_values); if err != nil { return nil, err }; v_distiller_values = v }
@@ -82044,6 +82323,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 	if coreTruthy(v_runtime_executor_enabled) {
 		v_exec_empty_map = Object()
 		v_exec_empty_list = MutableArray()
+		if _, err := _agent_restore_stage_actions(v_state, "executor"); err != nil { return nil, err }
 		v_exec_args = coreGet(v_distiller_payload, "args", v_exec_empty_list)
 		{ v, err := _split_context_values(v_state, v_values); if err != nil { return nil, err }; v_exec_non_ctx_split = v }
 		v_exec_non_ctx = coreGet(v_exec_non_ctx_split, "values", v_exec_empty_map)
@@ -82103,12 +82383,8 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 			if err := coreSet(v_executor_request_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_request", v_executor_request_event); err != nil { return nil, err }
 			{ v, err := _agent_executor_stage_forward(v_state, v_executor, v_client, v_executor_values, v_executor_options); if err != nil { return nil, err }; v_executor_output = v }
-			if coreTruthy(v_shared_notice_set) {
-				if err := coreSet(v_state, "restore_notice", ""); err != nil { return nil, err }
-				v_shared_notice_set = false
-			} else {
-			// empty
-			}
+			if err := coreSet(v_state, "restore_notice", ""); err != nil { return nil, err }
+			v_shared_notice_set = false
 			v_executor_response_event = Object()
 			if err := coreSet(v_executor_response_event, "stage", "executor"); err != nil { return nil, err }
 			if err := coreSet(v_executor_response_event, "step", v_step); err != nil { return nil, err }
@@ -82152,6 +82428,7 @@ func _agent_run_actor_stages(args ...Value) (Value, error) {
 			}
 			v_step = _core_add(v_step, 1)
 		}
+		if _, err := _agent_save_stage_actions(v_state, "executor"); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -84620,6 +84897,1559 @@ func _agent_check_flat_function_namespace(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func _agent_auto_promotion_decision(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_auto_promotion_decision")
+	var v_state Value
+	var v_key Value
+	var v_value Value
+	var v_accepts Value
+	var v_auto_context Value
+	var v_auto_upgrade Value
+	var v_decision Value
+	var v_empty_map Value
+	var v_enabled Value
+	var v_field Value
+	var v_is_reserved Value
+	var v_is_string Value
+	var v_json_preview Value
+	var v_known Value
+	var v_missing Value
+	var v_not_string Value
+	var v_omit Value
+	var v_optional Value
+	var v_promote_above Value
+	var v_reserved Value
+	var v_size Value
+	var v_source Value
+	var v_string_preview Value
+	var v_stringified Value
+	var v_stringified_units Value
+	var v_too_large Value
+	var v_units Value
+	var v_unknown Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_key = args[1] }
+	_ = v_key
+	if len(args) > 2 { v_value = args[2] }
+	_ = v_value
+	_ = v_accepts
+	_ = v_auto_context
+	_ = v_auto_upgrade
+	_ = v_decision
+	_ = v_empty_map
+	_ = v_enabled
+	_ = v_field
+	_ = v_is_reserved
+	_ = v_is_string
+	_ = v_json_preview
+	_ = v_known
+	_ = v_missing
+	_ = v_not_string
+	_ = v_omit
+	_ = v_optional
+	_ = v_promote_above
+	_ = v_reserved
+	_ = v_size
+	_ = v_source
+	_ = v_string_preview
+	_ = v_stringified
+	_ = v_stringified_units
+	_ = v_too_large
+	_ = v_units
+	_ = v_unknown
+	v_empty_map = Object()
+	v_auto_upgrade = coreGet(v_state, "auto_upgrade", nil)
+	v_auto_context = coreGet(v_auto_upgrade, "contextFields", nil)
+	v_enabled = coreGet(v_auto_context, "enabled", false)
+	if coreTruthy(v_enabled) {
+	// empty
+	} else {
+		return v_empty_map, nil
+	}
+	{ v, err := _agent_reserved_auto_promotion_fields(); if err != nil { return nil, err }; v_reserved = v }
+	v_is_reserved = _core_contains(v_reserved, v_key)
+	if coreTruthy(v_is_reserved) {
+		return v_empty_map, nil
+	} else {
+	// empty
+	}
+	v_missing = _core_is_none(v_value)
+	if coreTruthy(v_missing) {
+		return v_empty_map, nil
+	} else {
+	// empty
+	}
+	v_promote_above = coreGet(v_auto_context, "promoteAboveChars", 8000)
+	v_is_string = coreTypeIs(v_value, "string")
+	v_source = ""
+	v_size = 0
+	if coreTruthy(v_is_string) {
+		v_units = _core_string_utf16_units(v_value)
+		v_size = _core_len(v_units)
+		v_source = v_value
+	} else {
+		v_stringified = _core_json_stringify(v_value)
+		v_stringified_units = _core_string_utf16_units(v_stringified)
+		v_size = _core_len(v_stringified_units)
+		v_source = v_stringified
+	}
+	v_too_large = _core_gt(v_size, v_promote_above)
+	if coreTruthy(v_too_large) {
+	// empty
+	} else {
+		return v_empty_map, nil
+	}
+	{ v, err := _agent_signature_input_field(v_state, v_key); if err != nil { return nil, err }; v_field = v }
+	v_known = _core_is_not_none(v_field)
+	{ v, err := _agent_field_accepts_string_preview(v_field); if err != nil { return nil, err }; v_accepts = v }
+	v_decision = Object()
+	if err := coreSet(v_decision, "size", v_size); err != nil { return nil, err }
+	if err := coreSet(v_decision, "source", v_source); err != nil { return nil, err }
+	v_string_preview = _core_and(v_is_string, v_accepts)
+	if coreTruthy(v_string_preview) {
+		if err := coreSet(v_decision, "mode", "preview"); err != nil { return nil, err }
+		return v_decision, nil
+	} else {
+	// empty
+	}
+	v_not_string = _core_not(v_is_string)
+	v_json_preview = _core_and(v_not_string, v_known)
+	v_json_preview = _core_and(v_json_preview, v_accepts)
+	if coreTruthy(v_json_preview) {
+		if err := coreSet(v_decision, "mode", "stringifiedPreview"); err != nil { return nil, err }
+		return v_decision, nil
+	} else {
+	// empty
+	}
+	v_optional = coreGet(v_field, "is_optional", false)
+	v_unknown = _core_not(v_known)
+	v_omit = _core_or(v_unknown, v_optional)
+	if coreTruthy(v_omit) {
+		if err := coreSet(v_decision, "mode", "omit"); err != nil { return nil, err }
+		return v_decision, nil
+	} else {
+	// empty
+	}
+	return v_empty_map, nil
+}
+
+func _agent_signature_input_field(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_signature_input_field")
+	var v_state Value
+	var v_name Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_field Value
+	var v_field_name Value
+	var v_inputs Value
+	var v_matches Value
+	var v_signature Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_name = args[1] }
+	_ = v_name
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_field
+	_ = v_field_name
+	_ = v_inputs
+	_ = v_matches
+	_ = v_signature
+	v_empty_list = MutableArray()
+	v_empty_map = Object()
+	v_signature = coreGet(v_state, "signature", v_empty_map)
+	v_inputs = coreGet(v_signature, "input_fields", v_empty_list)
+	for _, v_field = range coreIter(v_inputs) {
+		v_field_name = coreGet(v_field, "name", "")
+		v_matches = _core_eq(v_field_name, v_name)
+		if coreTruthy(v_matches) {
+			return v_field, nil
+		} else {
+		// empty
+		}
+	}
+	return nil, nil
+}
+
+func _agent_field_accepts_string_preview(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_field_accepts_string_preview")
+	var v_field Value
+	var v_accepted Value
+	var v_accepts Value
+	var v_field_type Value
+	var v_is_array Value
+	var v_known Value
+	var v_name Value
+	var v_typed Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	_ = v_accepted
+	_ = v_accepts
+	_ = v_field_type
+	_ = v_is_array
+	_ = v_known
+	_ = v_name
+	_ = v_typed
+	v_known = _core_is_not_none(v_field)
+	if coreTruthy(v_known) {
+	// empty
+	} else {
+		return false, nil
+	}
+	v_field_type = coreGet(v_field, "type", nil)
+	v_typed = _core_is_not_none(v_field_type)
+	if coreTruthy(v_typed) {
+	// empty
+	} else {
+		return true, nil
+	}
+	v_is_array = coreGet(v_field_type, "is_array", false)
+	if coreTruthy(v_is_array) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_name = coreGet(v_field_type, "name", "")
+	v_accepted = MutableArray()
+	v_accepted = coreAppend(v_accepted, "string")
+	v_accepted = coreAppend(v_accepted, "code")
+	v_accepted = coreAppend(v_accepted, "class")
+	v_accepted = coreAppend(v_accepted, "json")
+	v_accepted = coreAppend(v_accepted, "date")
+	v_accepted = coreAppend(v_accepted, "datetime")
+	v_accepts = _core_contains(v_accepted, v_name)
+	return v_accepts, nil
+}
+
+func _agent_truncate_preview(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_truncate_preview")
+	var v_text Value
+	var v_keep Value
+	var v_dropped Value
+	var v_fits Value
+	var v_negative_keep Value
+	var v_out Value
+	var v_prefix Value
+	var v_total Value
+	var v_units Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_keep = args[1] }
+	_ = v_keep
+	_ = v_dropped
+	_ = v_fits
+	_ = v_negative_keep
+	_ = v_out
+	_ = v_prefix
+	_ = v_total
+	_ = v_units
+	v_units = _core_string_utf16_units(v_text)
+	v_total = _core_len(v_units)
+	v_fits = _core_lte(v_total, v_keep)
+	if coreTruthy(v_fits) {
+		return v_text, nil
+	} else {
+	// empty
+	}
+	{ v, err := _agent_utf16_prefix(v_text, v_keep); if err != nil { return nil, err }; v_prefix = v }
+	v_negative_keep = _core_mul(v_keep, -1)
+	v_dropped = _core_add(v_total, v_negative_keep)
+	v_out = _core_string_format("{}...[truncated {} chars]", v_prefix, v_dropped)
+	return v_out, nil
+}
+
+func _agent_utf16_prefix(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_utf16_prefix")
+	var v_text Value
+	var v_keep Value
+	var v_after Value
+	var v_at_end Value
+	var v_ch Value
+	var v_ch_count Value
+	var v_ch_units Value
+	var v_cursor Value
+	var v_fast Value
+	var v_host_length Value
+	var v_next Value
+	var v_one_unit_each Value
+	var v_over Value
+	var v_prefix Value
+	var v_unit_count Value
+	var v_units Value
+	var v_used Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_keep = args[1] }
+	_ = v_keep
+	_ = v_after
+	_ = v_at_end
+	_ = v_ch
+	_ = v_ch_count
+	_ = v_ch_units
+	_ = v_cursor
+	_ = v_fast
+	_ = v_host_length
+	_ = v_next
+	_ = v_one_unit_each
+	_ = v_over
+	_ = v_prefix
+	_ = v_unit_count
+	_ = v_units
+	_ = v_used
+	v_host_length = _core_len(v_text)
+	v_units = _core_string_utf16_units(v_text)
+	v_unit_count = _core_len(v_units)
+	v_one_unit_each = _core_eq(v_host_length, v_unit_count)
+	if coreTruthy(v_one_unit_each) {
+		v_fast = _core_string_slice(v_text, 0, v_keep)
+		return v_fast, nil
+	} else {
+	// empty
+	}
+	v_cursor = 0
+	v_used = 0
+	for {
+		v_at_end = _core_gte(v_cursor, v_host_length)
+		if coreTruthy(v_at_end) {
+			break
+		} else {
+		// empty
+		}
+		v_next = _core_add(v_cursor, 1)
+		v_ch = _core_string_slice(v_text, v_cursor, v_next)
+		v_ch_units = _core_string_utf16_units(v_ch)
+		v_ch_count = _core_len(v_ch_units)
+		v_after = _core_add(v_used, v_ch_count)
+		v_over = _core_gt(v_after, v_keep)
+		if coreTruthy(v_over) {
+			break
+		} else {
+		// empty
+		}
+		v_used = v_after
+		v_cursor = v_next
+	}
+	v_prefix = _core_string_slice(v_text, 0, v_cursor)
+	return v_prefix, nil
+}
+
+func _agent_truncate_responder_values(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_truncate_responder_values")
+	var v_state Value
+	var v_values Value
+	var v_accepts Value
+	var v_auto_context Value
+	var v_auto_upgrade Value
+	var v_context_fields Value
+	var v_declared Value
+	var v_eligible Value
+	var v_empty_list Value
+	var v_enabled Value
+	var v_field Value
+	var v_is_reserved Value
+	var v_is_string Value
+	var v_key Value
+	var v_keys Value
+	var v_length Value
+	var v_preview Value
+	var v_preview_chars Value
+	var v_promote_above Value
+	var v_reserved Value
+	var v_skip Value
+	var v_too_long Value
+	var v_truncate Value
+	var v_units Value
+	var v_value Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_accepts
+	_ = v_auto_context
+	_ = v_auto_upgrade
+	_ = v_context_fields
+	_ = v_declared
+	_ = v_eligible
+	_ = v_empty_list
+	_ = v_enabled
+	_ = v_field
+	_ = v_is_reserved
+	_ = v_is_string
+	_ = v_key
+	_ = v_keys
+	_ = v_length
+	_ = v_preview
+	_ = v_preview_chars
+	_ = v_promote_above
+	_ = v_reserved
+	_ = v_skip
+	_ = v_too_long
+	_ = v_truncate
+	_ = v_units
+	_ = v_value
+	v_empty_list = MutableArray()
+	v_auto_upgrade = coreGet(v_state, "auto_upgrade", nil)
+	v_auto_context = coreGet(v_auto_upgrade, "contextFields", nil)
+	v_enabled = coreGet(v_auto_context, "enabled", false)
+	if coreTruthy(v_enabled) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_promote_above = coreGet(v_auto_context, "promoteAboveChars", 8000)
+	v_preview_chars = coreGet(v_auto_context, "previewChars", 1200)
+	{ v, err := _agent_reserved_auto_promotion_fields(); if err != nil { return nil, err }; v_reserved = v }
+	v_context_fields = coreGet(v_state, "context_fields", v_empty_list)
+	v_keys = _core_map_keys(v_values)
+	for _, v_key = range coreIter(v_keys) {
+		v_value = coreGet(v_values, v_key, nil)
+		v_is_string = coreTypeIs(v_value, "string")
+		v_is_reserved = _core_contains(v_reserved, v_key)
+		v_declared = _core_contains(v_context_fields, v_key)
+		v_skip = _core_or(v_is_reserved, v_declared)
+		v_eligible = _core_not(v_skip)
+		v_eligible = _core_and(v_eligible, v_is_string)
+		if coreTruthy(v_eligible) {
+			v_units = _core_string_utf16_units(v_value)
+			v_length = _core_len(v_units)
+			v_too_long = _core_gt(v_length, v_promote_above)
+			{ v, err := _agent_signature_input_field(v_state, v_key); if err != nil { return nil, err }; v_field = v }
+			{ v, err := _agent_field_accepts_string_preview(v_field); if err != nil { return nil, err }; v_accepts = v }
+			v_truncate = _core_and(v_too_long, v_accepts)
+			if coreTruthy(v_truncate) {
+				{ v, err := _agent_truncate_preview(v_value, v_preview_chars); if err != nil { return nil, err }; v_preview = v }
+				if err := coreSet(v_values, v_key, v_preview); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return nil, nil
+}
+
+func _agent_restore_stage_actions(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_restore_stage_actions")
+	var v_state Value
+	var v_stage Value
+	var v_action_log Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_entry Value
+	var v_lines Value
+	var v_live_state Value
+	var v_logs Value
+	var v_notice Value
+	var v_policy Value
+	var v_restored Value
+	var v_saved Value
+	var v_state_summary Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_stage = args[1] }
+	_ = v_stage
+	_ = v_action_log
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_entry
+	_ = v_lines
+	_ = v_live_state
+	_ = v_logs
+	_ = v_notice
+	_ = v_policy
+	_ = v_restored
+	_ = v_saved
+	_ = v_state_summary
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_logs = coreGet(v_state, "stage_action_logs", v_empty_map)
+	v_saved = coreGet(v_logs, v_stage, nil)
+	v_restored = coreTypeIs(v_saved, "list")
+	if coreTruthy(v_restored) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_action_log = coreGet(v_state, "action_log", v_empty_list)
+	for _, v_entry = range coreIter(v_saved) {
+		v_action_log = coreAppend(v_action_log, v_entry)
+	}
+	if err := coreSet(v_state, "action_log", v_action_log); err != nil { return nil, err }
+	v_policy = coreGet(v_state, "context_policy", v_empty_map)
+	v_state_summary = coreGet(v_policy, "stateSummary", v_empty_map)
+	v_live_state = coreGet(v_state_summary, "enabled", false)
+	v_lines = MutableArray()
+	v_lines = coreAppend(v_lines, "Runtime Restore:")
+	v_lines = coreAppend(v_lines, "- Runtime state was restored from a previous call.")
+	if coreTruthy(v_live_state) {
+		v_lines = coreAppend(v_lines, "- The liveRuntimeState field reflects the restored bindings.")
+	} else {
+	// empty
+	}
+	v_lines = coreAppend(v_lines, "- Continue from restored values unless recomputation is actually needed.")
+	v_notice = _core_string_join("\n", v_lines)
+	if err := coreSet(v_state, "restore_notice", v_notice); err != nil { return nil, err }
+	return nil, nil
+}
+
+func _agent_save_stage_actions(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_save_stage_actions")
+	var v_state Value
+	var v_stage Value
+	var v_all_entries Value
+	var v_before_stage Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_entries Value
+	var v_entry Value
+	var v_entry_type Value
+	var v_hidden Value
+	var v_is_session_record Value
+	var v_logs Value
+	var v_position Value
+	var v_stage_start Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_stage = args[1] }
+	_ = v_stage
+	_ = v_all_entries
+	_ = v_before_stage
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_entries
+	_ = v_entry
+	_ = v_entry_type
+	_ = v_hidden
+	_ = v_is_session_record
+	_ = v_logs
+	_ = v_position
+	_ = v_stage_start
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_all_entries = coreGet(v_state, "action_log", v_empty_list)
+	v_stage_start = coreGet(v_state, "stage_action_log_start", 0)
+	v_entries = MutableArray()
+	v_position = 0
+	for _, v_entry = range coreIter(v_all_entries) {
+		v_entry_type = coreGet(v_entry, "type", "")
+		v_is_session_record = _core_eq(v_entry_type, "runtime_session")
+		v_before_stage = _core_lt(v_position, v_stage_start)
+		v_hidden = _core_or(v_is_session_record, v_before_stage)
+		if coreTruthy(v_hidden) {
+		// empty
+		} else {
+			v_entries = coreAppend(v_entries, v_entry)
+		}
+		v_position = _core_add(v_position, 1)
+	}
+	v_logs = coreGet(v_state, "stage_action_logs", v_empty_map)
+	if err := coreSet(v_logs, v_stage, v_entries); err != nil { return nil, err }
+	if err := coreSet(v_state, "stage_action_logs", v_logs); err != nil { return nil, err }
+	return nil, nil
+}
+
+func _context_map_initial_text(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_initial_text")
+	var v_block Value
+	var v_blocks Value
+	var v_description Value
+	var v_joined Value
+	var v_out Value
+	var v_section Value
+	var v_sections Value
+	var v_title Value
+	_ = v_block
+	_ = v_blocks
+	_ = v_description
+	_ = v_joined
+	_ = v_out
+	_ = v_section
+	_ = v_sections
+	_ = v_title
+	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
+	v_blocks = MutableArray()
+	for _, v_section = range coreIter(v_sections) {
+		v_title = coreGet(v_section, "title", nil)
+		v_description = coreGet(v_section, "description", nil)
+		v_block = _core_string_format("## {}\n({})", v_title, v_description)
+		v_blocks = coreAppend(v_blocks, v_block)
+	}
+	v_joined = _core_string_join("\n\n", v_blocks)
+	v_out = _core_string_format("{}\n", v_joined)
+	return v_out, nil
+}
+
+func _context_map_normalize_text(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_normalize_text")
+	var v_text Value
+	var v_empty Value
+	var v_initial Value
+	var v_is_text Value
+	var v_out Value
+	var v_raw Value
+	var v_trimmed Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_empty
+	_ = v_initial
+	_ = v_is_text
+	_ = v_out
+	_ = v_raw
+	_ = v_trimmed
+	v_raw = ""
+	v_is_text = coreTypeIs(v_text, "string")
+	if coreTruthy(v_is_text) {
+		v_raw = v_text
+	} else {
+	// empty
+	}
+	v_trimmed = coreStringTrim(v_raw)
+	v_empty = _core_eq(v_trimmed, "")
+	if coreTruthy(v_empty) {
+		{ v, err := _context_map_initial_text(); if err != nil { return nil, err }; v_initial = v }
+		v_trimmed = coreStringTrim(v_initial)
+	} else {
+	// empty
+	}
+	v_out = _core_string_format("{}\n", v_trimmed)
+	return v_out, nil
+}
+
+func _context_map_section_for_name(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_section_for_name")
+	var v_name Value
+	var v_is_text Value
+	var v_lowered Value
+	var v_matches Value
+	var v_normalized Value
+	var v_section Value
+	var v_section_name Value
+	var v_sections Value
+	var v_trimmed Value
+	var v_underscored Value
+	if len(args) > 0 { v_name = args[0] }
+	_ = v_name
+	_ = v_is_text
+	_ = v_lowered
+	_ = v_matches
+	_ = v_normalized
+	_ = v_section
+	_ = v_section_name
+	_ = v_sections
+	_ = v_trimmed
+	_ = v_underscored
+	v_is_text = coreTypeIs(v_name, "string")
+	if coreTruthy(v_is_text) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_lowered = _core_string_lower(v_name)
+	v_trimmed = coreStringTrim(v_lowered)
+	v_underscored = _core_regex_replace("[\\s-]+", "_", v_trimmed)
+	v_normalized = _core_regex_replace(":$", "", v_underscored)
+	{ v, err := _context_map_sections(); if err != nil { return nil, err }; v_sections = v }
+	for _, v_section = range coreIter(v_sections) {
+		v_section_name = coreGet(v_section, "name", nil)
+		v_matches = _core_eq(v_section_name, v_normalized)
+		if coreTruthy(v_matches) {
+			return v_section, nil
+		} else {
+		// empty
+		}
+	}
+	return nil, nil
+}
+
+func _context_map_item_match(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_item_match")
+	var v_line Value
+	var v_after Value
+	var v_close Value
+	var v_content Value
+	var v_has_id Value
+	var v_id Value
+	var v_length Value
+	var v_opens Value
+	var v_out Value
+	var v_rest Value
+	var v_stripped Value
+	if len(args) > 0 { v_line = args[0] }
+	_ = v_line
+	_ = v_after
+	_ = v_close
+	_ = v_content
+	_ = v_has_id
+	_ = v_id
+	_ = v_length
+	_ = v_opens
+	_ = v_out
+	_ = v_rest
+	_ = v_stripped
+	v_stripped = coreStringTrim(v_line)
+	v_opens = _core_string_starts_with(v_stripped, "[")
+	if coreTruthy(v_opens) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_close = _core_string_index_of(v_stripped, "]", 0)
+	v_has_id = _core_gt(v_close, 1)
+	if coreTruthy(v_has_id) {
+	// empty
+	} else {
+		return nil, nil
+	}
+	v_id = _core_string_slice(v_stripped, 1, v_close)
+	v_after = _core_add(v_close, 1)
+	v_length = _core_len(v_stripped)
+	v_rest = _core_string_slice(v_stripped, v_after, v_length)
+	v_content = coreStringTrim(v_rest)
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _context_map_item_number(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_item_number")
+	var v_id Value
+	var v_all_digits Value
+	var v_cursor Value
+	var v_dash Value
+	var v_digit Value
+	var v_digit_char Value
+	var v_done Value
+	var v_has_dash Value
+	var v_has_tail Value
+	var v_length Value
+	var v_next_cursor Value
+	var v_non_digits Value
+	var v_numeric Value
+	var v_shifted Value
+	var v_tail Value
+	var v_value Value
+	if len(args) > 0 { v_id = args[0] }
+	_ = v_id
+	_ = v_all_digits
+	_ = v_cursor
+	_ = v_dash
+	_ = v_digit
+	_ = v_digit_char
+	_ = v_done
+	_ = v_has_dash
+	_ = v_has_tail
+	_ = v_length
+	_ = v_next_cursor
+	_ = v_non_digits
+	_ = v_numeric
+	_ = v_shifted
+	_ = v_tail
+	_ = v_value
+	v_dash = _core_string_index_of(v_id, "-", 0)
+	v_has_dash = _core_gte(v_dash, 0)
+	if coreTruthy(v_has_dash) {
+	// empty
+	} else {
+		return -1, nil
+	}
+	v_tail = _core_regex_replace("^.*-", "", v_id)
+	v_has_tail = _core_ne(v_tail, "")
+	v_non_digits = _core_regex_replace("^[0-9]+$", "", v_tail)
+	v_all_digits = _core_eq(v_non_digits, "")
+	v_numeric = _core_and(v_has_tail, v_all_digits)
+	if coreTruthy(v_numeric) {
+	// empty
+	} else {
+		return -1, nil
+	}
+	v_value = 0
+	v_length = _core_len(v_tail)
+	v_cursor = 0
+	for {
+		v_done = _core_gte(v_cursor, v_length)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_next_cursor = _core_add(v_cursor, 1)
+		v_digit_char = _core_string_slice(v_tail, v_cursor, v_next_cursor)
+		v_digit = _core_string_index_of("0123456789", v_digit_char, 0)
+		v_shifted = _core_mul(v_value, 10)
+		v_value = _core_add(v_shifted, v_digit)
+		v_cursor = v_next_cursor
+	}
+	return v_value, nil
+}
+
+func _context_map_item_age(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_item_age")
+	var v_id Value
+	var v_missing Value
+	var v_number Value
+	if len(args) > 0 { v_id = args[0] }
+	_ = v_id
+	_ = v_missing
+	_ = v_number
+	{ v, err := _context_map_item_number(v_id); if err != nil { return nil, err }; v_number = v }
+	v_missing = _core_lt(v_number, 0)
+	if coreTruthy(v_missing) {
+		return 0, nil
+	} else {
+	// empty
+	}
+	return v_number, nil
+}
+
+func _context_map_next_item_number(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_next_item_number")
+	var v_items Value
+	var v_higher Value
+	var v_id Value
+	var v_item Value
+	var v_max Value
+	var v_next Value
+	var v_number Value
+	if len(args) > 0 { v_items = args[0] }
+	_ = v_items
+	_ = v_higher
+	_ = v_id
+	_ = v_item
+	_ = v_max
+	_ = v_next
+	_ = v_number
+	v_max = 0
+	for _, v_item = range coreIter(v_items) {
+		v_id = coreGet(v_item, "id", "")
+		{ v, err := _context_map_item_number(v_id); if err != nil { return nil, err }; v_number = v }
+		v_higher = _core_gt(v_number, v_max)
+		if coreTruthy(v_higher) {
+			v_max = v_number
+		} else {
+		// empty
+		}
+	}
+	v_next = _core_add(v_max, 1)
+	return v_next, nil
+}
+
+func _context_map_pad_number(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_pad_number")
+	var v_number Value
+	var v_length Value
+	var v_text Value
+	var v_too_short Value
+	if len(args) > 0 { v_number = args[0] }
+	_ = v_number
+	_ = v_length
+	_ = v_text
+	_ = v_too_short
+	v_text = _core_string_str(v_number)
+	for {
+		v_length = _core_len(v_text)
+		v_too_short = _core_lt(v_length, 5)
+		if coreTruthy(v_too_short) {
+		// empty
+		} else {
+			break
+		}
+		v_text = _core_string_format("0{}", v_text)
+	}
+	return v_text, nil
+}
+
+func _context_map_flush_adds(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_flush_adds")
+	var v_out Value
+	var v_pending Value
+	var v_section Value
+	var v_add Value
+	var v_add_line Value
+	var v_add_section Value
+	var v_matches Value
+	var v_none Value
+	var v_rest Value
+	var v_result Value
+	if len(args) > 0 { v_out = args[0] }
+	_ = v_out
+	if len(args) > 1 { v_pending = args[1] }
+	_ = v_pending
+	if len(args) > 2 { v_section = args[2] }
+	_ = v_section
+	_ = v_add
+	_ = v_add_line
+	_ = v_add_section
+	_ = v_matches
+	_ = v_none
+	_ = v_rest
+	_ = v_result
+	v_rest = MutableArray()
+	v_result = Object()
+	v_none = _core_eq(v_section, "")
+	if coreTruthy(v_none) {
+		if err := coreSet(v_result, "out", v_out); err != nil { return nil, err }
+		if err := coreSet(v_result, "pending", v_pending); err != nil { return nil, err }
+		return v_result, nil
+	} else {
+	// empty
+	}
+	for _, v_add = range coreIter(v_pending) {
+		v_add_section = coreGet(v_add, "section", "")
+		v_matches = _core_eq(v_add_section, v_section)
+		if coreTruthy(v_matches) {
+			v_add_line = coreGet(v_add, "line", "")
+			v_out = coreAppend(v_out, v_add_line)
+		} else {
+			v_rest = coreAppend(v_rest, v_add)
+		}
+	}
+	if err := coreSet(v_result, "out", v_out); err != nil { return nil, err }
+	if err := coreSet(v_result, "pending", v_rest); err != nil { return nil, err }
+	return v_result, nil
+}
+
+func _context_map_collapse_blank_lines(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_collapse_blank_lines")
+	var v_text Value
+	var v_blank Value
+	var v_count Value
+	var v_has_prior Value
+	var v_joined Value
+	var v_last_index Value
+	var v_line Value
+	var v_lines Value
+	var v_out Value
+	var v_prior Value
+	var v_prior_empty Value
+	var v_result Value
+	var v_skip Value
+	var v_trimmed Value
+	var v_trimmed_line Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_blank
+	_ = v_count
+	_ = v_has_prior
+	_ = v_joined
+	_ = v_last_index
+	_ = v_line
+	_ = v_lines
+	_ = v_out
+	_ = v_prior
+	_ = v_prior_empty
+	_ = v_result
+	_ = v_skip
+	_ = v_trimmed
+	_ = v_trimmed_line
+	v_out = MutableArray()
+	v_lines = _core_string_split(v_text, "\n")
+	for _, v_line = range coreIter(v_lines) {
+		v_trimmed_line = coreStringTrim(v_line)
+		v_blank = _core_eq(v_trimmed_line, "")
+		v_count = _core_len(v_out)
+		v_has_prior = _core_gt(v_count, 0)
+		v_prior_empty = false
+		if coreTruthy(v_has_prior) {
+			v_last_index = _core_add(v_count, -1)
+			v_prior = _core_list_get(v_out, v_last_index, "")
+			v_prior_empty = _core_eq(v_prior, "")
+		} else {
+		// empty
+		}
+		v_skip = _core_and(v_blank, v_prior_empty)
+		if coreTruthy(v_skip) {
+		// empty
+		} else {
+			v_out = coreAppend(v_out, v_line)
+		}
+	}
+	v_joined = _core_string_join("\n", v_out)
+	v_trimmed = coreStringTrim(v_joined)
+	v_result = _core_string_format("{}\n", v_trimmed)
+	return v_result, nil
+}
+
+func _context_map_remove_items(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_remove_items")
+	var v_text Value
+	var v_item_ids Value
+	var v_id Value
+	var v_is_item Value
+	var v_joined Value
+	var v_keep Value
+	var v_kept Value
+	var v_line Value
+	var v_lines Value
+	var v_match Value
+	var v_out Value
+	var v_removed Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_item_ids = args[1] }
+	_ = v_item_ids
+	_ = v_id
+	_ = v_is_item
+	_ = v_joined
+	_ = v_keep
+	_ = v_kept
+	_ = v_line
+	_ = v_lines
+	_ = v_match
+	_ = v_out
+	_ = v_removed
+	v_kept = MutableArray()
+	v_lines = _core_string_split(v_text, "\n")
+	for _, v_line = range coreIter(v_lines) {
+		v_keep = true
+		{ v, err := _context_map_item_match(v_line); if err != nil { return nil, err }; v_match = v }
+		v_is_item = _core_is_not_none(v_match)
+		if coreTruthy(v_is_item) {
+			v_id = coreGet(v_match, "id", "")
+			v_removed = _core_contains(v_item_ids, v_id)
+			if coreTruthy(v_removed) {
+				v_keep = false
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		if coreTruthy(v_keep) {
+			v_kept = coreAppend(v_kept, v_line)
+		} else {
+		// empty
+		}
+	}
+	v_joined = _core_string_join("\n", v_kept)
+	{ v, err := _context_map_collapse_blank_lines(v_joined); if err != nil { return nil, err }; v_out = v }
+	return v_out, nil
+}
+
+func _context_map_normalize_operations(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_normalize_operations")
+	var v_input Value
+	var v_add Value
+	var v_add_ok Value
+	var v_camel_id Value
+	var v_camel_is_text Value
+	var v_content Value
+	var v_content_is_text Value
+	var v_delete_op Value
+	var v_has_content Value
+	var v_has_item_id Value
+	var v_is_add Value
+	var v_is_delete Value
+	var v_is_list Value
+	var v_is_object Value
+	var v_is_replace Value
+	var v_item_id Value
+	var v_known_section Value
+	var v_op_type Value
+	var v_out Value
+	var v_raw Value
+	var v_raw_content Value
+	var v_raw_section Value
+	var v_raw_type Value
+	var v_replace Value
+	var v_replace_ok Value
+	var v_section Value
+	var v_section_name Value
+	var v_snake_id Value
+	var v_snake_is_text Value
+	var v_type_is_text Value
+	var v_type_trimmed Value
+	if len(args) > 0 { v_input = args[0] }
+	_ = v_input
+	_ = v_add
+	_ = v_add_ok
+	_ = v_camel_id
+	_ = v_camel_is_text
+	_ = v_content
+	_ = v_content_is_text
+	_ = v_delete_op
+	_ = v_has_content
+	_ = v_has_item_id
+	_ = v_is_add
+	_ = v_is_delete
+	_ = v_is_list
+	_ = v_is_object
+	_ = v_is_replace
+	_ = v_item_id
+	_ = v_known_section
+	_ = v_op_type
+	_ = v_out
+	_ = v_raw
+	_ = v_raw_content
+	_ = v_raw_section
+	_ = v_raw_type
+	_ = v_replace
+	_ = v_replace_ok
+	_ = v_section
+	_ = v_section_name
+	_ = v_snake_id
+	_ = v_snake_is_text
+	_ = v_type_is_text
+	_ = v_type_trimmed
+	v_out = MutableArray()
+	v_is_list = coreTypeIs(v_input, "list")
+	if coreTruthy(v_is_list) {
+	// empty
+	} else {
+		return v_out, nil
+	}
+	for _, v_raw = range coreIter(v_input) {
+		v_is_object = coreTypeIs(v_raw, "object")
+		if coreTruthy(v_is_object) {
+			v_raw_type = coreGet(v_raw, "type", nil)
+			v_type_is_text = coreTypeIs(v_raw_type, "string")
+			v_op_type = ""
+			if coreTruthy(v_type_is_text) {
+				v_type_trimmed = coreStringTrim(v_raw_type)
+				v_op_type = _core_string_lower(v_type_trimmed)
+			} else {
+			// empty
+			}
+			v_raw_content = coreGet(v_raw, "content", nil)
+			v_content_is_text = coreTypeIs(v_raw_content, "string")
+			v_content = ""
+			if coreTruthy(v_content_is_text) {
+				v_content = coreStringTrim(v_raw_content)
+			} else {
+			// empty
+			}
+			v_has_content = _core_ne(v_content, "")
+			v_camel_id = coreGet(v_raw, "itemId", nil)
+			v_snake_id = coreGet(v_raw, "item_id", nil)
+			v_camel_is_text = coreTypeIs(v_camel_id, "string")
+			v_snake_is_text = coreTypeIs(v_snake_id, "string")
+			v_item_id = ""
+			if coreTruthy(v_snake_is_text) {
+				v_item_id = coreStringTrim(v_snake_id)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_camel_is_text) {
+				v_item_id = coreStringTrim(v_camel_id)
+			} else {
+			// empty
+			}
+			v_has_item_id = _core_ne(v_item_id, "")
+			v_is_add = _core_eq(v_op_type, "add")
+			v_is_delete = _core_eq(v_op_type, "delete")
+			v_is_replace = _core_eq(v_op_type, "replace")
+			if coreTruthy(v_is_add) {
+				v_raw_section = coreGet(v_raw, "section", "")
+				{ v, err := _context_map_section_for_name(v_raw_section); if err != nil { return nil, err }; v_section = v }
+				v_known_section = _core_is_not_none(v_section)
+				v_add_ok = _core_and(v_known_section, v_has_content)
+				if coreTruthy(v_add_ok) {
+					v_section_name = coreGet(v_section, "name", nil)
+					v_add = Object()
+					if err := coreSet(v_add, "type", "ADD"); err != nil { return nil, err }
+					if err := coreSet(v_add, "section", v_section_name); err != nil { return nil, err }
+					if err := coreSet(v_add, "content", v_content); err != nil { return nil, err }
+					v_out = coreAppend(v_out, v_add)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			if coreTruthy(v_is_delete) {
+				if coreTruthy(v_has_item_id) {
+					v_delete_op = Object()
+					if err := coreSet(v_delete_op, "type", "DELETE"); err != nil { return nil, err }
+					if err := coreSet(v_delete_op, "itemId", v_item_id); err != nil { return nil, err }
+					v_out = coreAppend(v_out, v_delete_op)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			if coreTruthy(v_is_replace) {
+				v_replace_ok = _core_and(v_has_item_id, v_has_content)
+				if coreTruthy(v_replace_ok) {
+					v_replace = Object()
+					if err := coreSet(v_replace, "type", "REPLACE"); err != nil { return nil, err }
+					if err := coreSet(v_replace, "itemId", v_item_id); err != nil { return nil, err }
+					if err := coreSet(v_replace, "content", v_content); err != nil { return nil, err }
+					v_out = coreAppend(v_out, v_replace)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
+}
+
+func _context_map_summarize_value(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_summarize_value")
+	var v_value Value
+	var v_depth Value
+	var v_array_label Value
+	var v_count Value
+	var v_deep Value
+	var v_entry Value
+	var v_extra Value
+	var v_fits_whole Value
+	var v_head Value
+	var v_head_items Value
+	var v_index Value
+	var v_is_list Value
+	var v_is_object Value
+	var v_is_text Value
+	var v_item Value
+	var v_key Value
+	var v_length Value
+	var v_more Value
+	var v_more_label Value
+	var v_next_depth Value
+	var v_omitted Value
+	var v_out Value
+	var v_summarized_entry Value
+	var v_summarized_item Value
+	var v_summary Value
+	var v_tail Value
+	var v_units Value
+	var v_within Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_depth = args[1] }
+	_ = v_depth
+	_ = v_array_label
+	_ = v_count
+	_ = v_deep
+	_ = v_entry
+	_ = v_extra
+	_ = v_fits_whole
+	_ = v_head
+	_ = v_head_items
+	_ = v_index
+	_ = v_is_list
+	_ = v_is_object
+	_ = v_is_text
+	_ = v_item
+	_ = v_key
+	_ = v_length
+	_ = v_more
+	_ = v_more_label
+	_ = v_next_depth
+	_ = v_omitted
+	_ = v_out
+	_ = v_summarized_entry
+	_ = v_summarized_item
+	_ = v_summary
+	_ = v_tail
+	_ = v_units
+	_ = v_within
+	v_is_text = coreTypeIs(v_value, "string")
+	if coreTruthy(v_is_text) {
+		v_units = _core_string_utf16_units(v_value)
+		v_length = _core_len(v_units)
+		v_fits_whole = _core_lte(v_length, 1000)
+		if coreTruthy(v_fits_whole) {
+			return v_value, nil
+		} else {
+		// empty
+		}
+		{ v, err := _agent_utf16_prefix(v_value, 700); if err != nil { return nil, err }; v_head = v }
+		{ v, err := _context_map_utf16_suffix(v_value, 200); if err != nil { return nil, err }; v_tail = v }
+		v_omitted = _core_add(v_length, -900)
+		v_summary = _core_string_format("{}\n...[{} chars omitted]...\n{}", v_head, v_omitted, v_tail)
+		return v_summary, nil
+	} else {
+	// empty
+	}
+	v_next_depth = _core_add(v_depth, 1)
+	v_deep = _core_gte(v_depth, 2)
+	v_is_list = coreTypeIs(v_value, "list")
+	if coreTruthy(v_is_list) {
+		v_count = _core_len(v_value)
+		if coreTruthy(v_deep) {
+			v_array_label = _core_string_format("[Array({})]", v_count)
+			return v_array_label, nil
+		} else {
+		// empty
+		}
+		v_head_items = MutableArray()
+		v_index = 0
+		for _, v_item = range coreIter(v_value) {
+			v_within = _core_lt(v_index, 5)
+			if coreTruthy(v_within) {
+				{ v, err := _context_map_summarize_value(v_item, v_next_depth); if err != nil { return nil, err }; v_summarized_item = v }
+				v_head_items = coreAppend(v_head_items, v_summarized_item)
+			} else {
+			// empty
+			}
+			v_index = _core_add(v_index, 1)
+		}
+		v_more = _core_gt(v_count, 5)
+		if coreTruthy(v_more) {
+			v_extra = _core_add(v_count, -5)
+			v_more_label = _core_string_format("[{} more items]", v_extra)
+			v_head_items = coreAppend(v_head_items, v_more_label)
+		} else {
+		// empty
+		}
+		return v_head_items, nil
+	} else {
+	// empty
+	}
+	v_is_object = coreTypeIs(v_value, "object")
+	if coreTruthy(v_is_object) {
+		if coreTruthy(v_deep) {
+			return "[Object]", nil
+		} else {
+		// empty
+		}
+		v_out = Object()
+		for _, v_key = range coreIter(v_value) {
+			v_entry = coreGet(v_value, v_key, nil)
+			{ v, err := _context_map_summarize_value(v_entry, v_next_depth); if err != nil { return nil, err }; v_summarized_entry = v }
+			if err := coreSet(v_out, v_key, v_summarized_entry); err != nil { return nil, err }
+		}
+		return v_out, nil
+	} else {
+	// empty
+	}
+	return v_value, nil
+}
+
+func _context_map_utf16_suffix(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_utf16_suffix")
+	var v_text Value
+	var v_keep Value
+	var v_after Value
+	var v_at_start Value
+	var v_before Value
+	var v_below Value
+	var v_ch Value
+	var v_ch_count Value
+	var v_ch_units Value
+	var v_clamped Value
+	var v_cursor Value
+	var v_fast Value
+	var v_host_length Value
+	var v_negative_keep Value
+	var v_one_unit_each Value
+	var v_over Value
+	var v_start Value
+	var v_suffix Value
+	var v_unit_count Value
+	var v_units Value
+	var v_used Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_keep = args[1] }
+	_ = v_keep
+	_ = v_after
+	_ = v_at_start
+	_ = v_before
+	_ = v_below
+	_ = v_ch
+	_ = v_ch_count
+	_ = v_ch_units
+	_ = v_clamped
+	_ = v_cursor
+	_ = v_fast
+	_ = v_host_length
+	_ = v_negative_keep
+	_ = v_one_unit_each
+	_ = v_over
+	_ = v_start
+	_ = v_suffix
+	_ = v_unit_count
+	_ = v_units
+	_ = v_used
+	v_host_length = _core_len(v_text)
+	v_units = _core_string_utf16_units(v_text)
+	v_unit_count = _core_len(v_units)
+	v_one_unit_each = _core_eq(v_host_length, v_unit_count)
+	if coreTruthy(v_one_unit_each) {
+		v_negative_keep = _core_mul(v_keep, -1)
+		v_start = _core_add(v_host_length, v_negative_keep)
+		v_clamped = v_start
+		v_below = _core_lt(v_start, 0)
+		if coreTruthy(v_below) {
+			v_clamped = 0
+		} else {
+		// empty
+		}
+		v_fast = _core_string_slice(v_text, v_clamped, v_host_length)
+		return v_fast, nil
+	} else {
+	// empty
+	}
+	v_cursor = v_host_length
+	v_used = 0
+	for {
+		v_at_start = _core_lte(v_cursor, 0)
+		if coreTruthy(v_at_start) {
+			break
+		} else {
+		// empty
+		}
+		v_before = _core_add(v_cursor, -1)
+		v_ch = _core_string_slice(v_text, v_before, v_cursor)
+		v_ch_units = _core_string_utf16_units(v_ch)
+		v_ch_count = _core_len(v_ch_units)
+		v_after = _core_add(v_used, v_ch_count)
+		v_over = _core_gt(v_after, v_keep)
+		if coreTruthy(v_over) {
+			break
+		} else {
+		// empty
+		}
+		v_used = v_after
+		v_cursor = v_before
+	}
+	v_suffix = _core_string_slice(v_text, v_cursor, v_host_length)
+	return v_suffix, nil
+}
+
+func _context_map_stage_log_text(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_stage_log_text")
+	var v_state Value
+	var v_stage Value
+	var v_empty Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_entries Value
+	var v_entry Value
+	var v_joined Value
+	var v_logs Value
+	var v_parts Value
+	var v_rendered Value
+	var v_trimmed Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_stage = args[1] }
+	_ = v_stage
+	_ = v_empty
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_entries
+	_ = v_entry
+	_ = v_joined
+	_ = v_logs
+	_ = v_parts
+	_ = v_rendered
+	_ = v_trimmed
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_logs = coreGet(v_state, "stage_action_logs", v_empty_map)
+	v_entries = coreGet(v_logs, v_stage, v_empty_list)
+	v_parts = MutableArray()
+	for _, v_entry = range coreIter(v_entries) {
+		{ v, err := _agent_render_full_action_entry(v_state, v_entry); if err != nil { return nil, err }; v_rendered = v }
+		v_parts = coreAppend(v_parts, v_rendered)
+	}
+	v_joined = _core_string_join("\n\n", v_parts)
+	v_trimmed = coreStringTrim(v_joined)
+	v_empty = _core_eq(v_trimmed, "")
+	if coreTruthy(v_empty) {
+		return "(none)", nil
+	} else {
+	// empty
+	}
+	return v_trimmed, nil
+}
+
+func _context_map_distiller_program(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_distiller_program")
+	var v_options Value
+	var v_program Value
+	_ = v_options
+	_ = v_program
+	v_program = Object()
+	if err := coreSet(v_program, "signature", "task:string \"The user task that was completed.\", contextMap:string \"The current context map.\", trajectory:string \"The agent trajectory and final result.\" -> diagnosis?:string \"Brief note about what reusable context was found.\", itemTags?:json \"Object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\", cacheCandidates?:json \"Array of compact candidate objects with section, value, transferability, and rationale.\""); err != nil { return nil, err }
+	v_options = Object()
+	if err := coreSet(v_options, "id", "agent.context_map.distiller"); err != nil { return nil, err }
+	if err := coreSet(v_options, "instruction", "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nSeparate the run into two kinds of work:\n- Orientation work: learning what the context contains, how it is organized, which entities or concepts matter, which schemas/constants govern the data, and which processing results transfer across future questions.\n- Question-specific work: locating the one passage, quote, record, or calculation needed only for this task.\n\nCache only orientation work. Use this litmus test for every candidate: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nPrefer compact abstractions over raw excerpts, but preserve exact constants when the context defines them: numeric thresholds, formulas, enum sets, field names, output requirements, reference values, and parsing rules.\n\nDo not cache advisory rules, behavioral instructions, raw dumps, verbose copied passages, naive one-off counts, or answers to the current task.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work, including what transferable understanding was gained or reused.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale. Each candidate must be compact and must explain why it is shared context understanding rather than a one-off answer."); err != nil { return nil, err }
+	if err := coreSet(v_program, "options", v_options); err != nil { return nil, err }
+	return v_program, nil
+}
+
+func _context_map_cartographer_program(args ...Value) (Value, error) {
+	axirCoverageMark("_context_map_cartographer_program")
+	var v_options Value
+	var v_program Value
+	_ = v_options
+	_ = v_program
+	v_program = Object()
+	if err := coreSet(v_program, "signature", "task:string \"The user task that was completed.\", contextMap:string \"The current context map.\", distillerReflection:string \"The Distiller diagnosis, item tags, and cache candidates.\", currentChars:number \"Current context-map character count.\", maxChars:number \"Maximum context-map character budget.\" -> operations?:json \"Array of ADD, DELETE, or REPLACE operations to apply to the context map. Use item_id for DELETE and REPLACE item IDs.\""); err != nil { return nil, err }
+	v_options = Object()
+	if err := coreSet(v_options, "id", "agent.context_map.cartographer"); err != nil { return nil, err }
+	if err := coreSet(v_options, "instruction", "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nUse this shared-understanding litmus test for every edit: would a future agent asking a completely different question about this same context benefit from this item?\n\nValue priority, highest to lowest:\n1. Context understanding: key entities, concepts, roles, relationships, data categories, and global summaries that orient the agent.\n2. Domain constants: exact thresholds, rates, formulas, conversion factors, enum sets, required field names, output schemas, and reference values. Keep these precise.\n3. Context roadmap: document, section, table, or repository layout and where different topics can be found.\n4. Reusable results: derived aggregates, classifications, inventories, or computations that multiple questions can reuse, with enough method detail to judge reliability.\n5. Parsing schema: delimiters, record boundaries, field formats, extraction patterns, and navigation conventions.\n6. Error patterns: concrete failure modes observed while processing the context.\n\nCharacter budget triage: when the map is near or over budget, remove or rewrite low-value entries first: one-off facts, error patterns, parsing schema, roadmap items, reusable results, then protect domain constants and context understanding as much as possible.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding.\n\nDo not add raw data dumps, long excerpts, behavioral instructions, policy reminders, one-off answers, or facts that only resolve the latest task. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-00001\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-00001\",\"content\":\"...\"}"); err != nil { return nil, err }
+	if err := coreSet(v_program, "options", v_options); err != nil { return nil, err }
+	return v_program, nil
+}
+
+func _agent_ordered_completion_payload(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_ordered_completion_payload")
+	var v_payload Value
+	var v_args Value
+	var v_has_args Value
+	var v_has_type Value
+	var v_is_object Value
+	var v_key Value
+	var v_out Value
+	var v_seen Value
+	var v_type Value
+	var v_value Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	_ = v_args
+	_ = v_has_args
+	_ = v_has_type
+	_ = v_is_object
+	_ = v_key
+	_ = v_out
+	_ = v_seen
+	_ = v_type
+	_ = v_value
+	v_is_object = coreTypeIs(v_payload, "object")
+	if coreTruthy(v_is_object) {
+	// empty
+	} else {
+		return v_payload, nil
+	}
+	v_out = Object()
+	v_has_type = _core_map_contains(v_payload, "type")
+	if coreTruthy(v_has_type) {
+		v_type = coreGet(v_payload, "type", nil)
+		if err := coreSet(v_out, "type", v_type); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_has_args = _core_map_contains(v_payload, "args")
+	if coreTruthy(v_has_args) {
+		v_args = coreGet(v_payload, "args", nil)
+		if err := coreSet(v_out, "args", v_args); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	for _, v_key = range coreIter(v_payload) {
+		v_seen = _core_map_contains(v_out, v_key)
+		if coreTruthy(v_seen) {
+		// empty
+		} else {
+			v_value = coreGet(v_payload, v_key, nil)
+			if err := coreSet(v_out, v_key, v_value); err != nil { return nil, err }
+		}
+	}
+	return v_out, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {
@@ -103577,6 +105407,17 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
 	}
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
+}
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+func _core_agent_program_forward(signature Value, programOptions Value, client Value, values Value, options Value) (Value, error) {
+	ai, ok := client.(AIClient)
+	if !ok {
+		return nil, fmt.Errorf("client does not implement AIClient")
+	}
+	ctx := contextForAIClient(ai, context.Background())
+	program := NewAx(fmt.Sprint(signature), asMap(programOptions))
+	return program.forward(ctx, ai, asMap(values), asMap(options))
 }
 func _core_agent_stage_chat_log(stage Value) Value { return coreGet(stage, "chat_log", Array()) }
 func _core_agent_stage_usage(stage Value) Value {

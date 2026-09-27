@@ -11708,6 +11708,17 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
 }
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+func _core_agent_program_forward(signature Value, programOptions Value, client Value, values Value, options Value) (Value, error) {
+	ai, ok := client.(AIClient)
+	if !ok {
+		return nil, fmt.Errorf("client does not implement AIClient")
+	}
+	ctx := contextForAIClient(ai, context.Background())
+	program := NewAx(fmt.Sprint(signature), asMap(programOptions))
+	return program.forward(ctx, ai, asMap(values), asMap(options))
+}
 func _core_agent_stage_chat_log(stage Value) Value { return coreGet(stage, "chat_log", Array()) }
 func _core_agent_stage_usage(stage Value) Value {
 	switch s := stage.(type) {

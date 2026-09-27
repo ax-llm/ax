@@ -217,30 +217,33 @@
     },
     {
       "capability": "agent.context.map_read_and_evolve",
-      "summary": "The cross-run context map is read (injected into the distiller's context + the distiller prompt's hasContextMap section) AND evolved by a full TS-parity two-stage pipeline: a context-map distiller (itemTags + cacheCandidates) then a cartographer (ADD/DELETE/REPLACE operations), both via intrinsic.ai.complete_once. Operations apply to parsed [id] items across 6 fixed sections; helpful/harmful/stale tags adjust per-item scores; score-based eviction trims the map to maxChars; evolution is gated by infiniteEvolve || steps<evolveSteps. The evolved map persists through export/restore. Distiller scores AND cartographer operations are both asserted from the model, not canned.",
+      "summary": "The cross-run context map is TypeScript's AxAgentContextMap in all five ports: the map text is normalized as TS does (trimmed, one trailing newline, TS's section template when empty) and injected into the distiller, and after each completed run TS's two AxGen programs (the context-map Distiller: task, contextMap, trajectory -> diagnosis, itemTags, cacheCandidates; the Cartographer: task, contextMap, distillerReflection, currentChars, maxChars -> operations) run with TS's descriptions on TS's trajectory (input summary, each stage's action log, executor result, final output). Operations edit the text in place as TS's applyOperations does (5-digit ids after the highest numbered one, new sections after the others, blank lines before headers); tags adjust scores; eviction drops the lowest score, then the oldest id, to maxChars; a finite map stops after evolveSteps updates. A 24.x map text or snapshot (every header, unpadded ids, next_id) loads with its items and is normalized.",
       "ir_ops": [
-        "@agent_factory",
         "@agent_evolve_context_map",
+        "@format_context_map_trajectory",
+        "@context_map_normalize_text",
+        "@context_map_initial_text",
         "@context_map_parse_items",
-        "@context_map_render_items",
         "@context_map_apply_operations",
+        "@context_map_normalize_operations",
         "@context_map_update_scores",
         "@context_map_evict_to_budget",
-        "@build_distiller_inputs",
-        "@render_rlm_distiller_description",
-        "@agent_export_runtime_state",
-        "@agent_restore_runtime_state"
+        "@context_map_distiller_program",
+        "@context_map_cartographer_program"
       ],
       "fixtures": [
+        "axagent/agent-first-requests-context-map.json",
+        "axagent/agent-first-requests-context-map-template.json",
         "axagent/agent-context-map-config.json",
         "axagent/agent-context-map-read.json",
-        "axagent/agent-context-map-evolve.json",
-        "axagent/agent-context-map-evict.json"
+        "axagent/agent-context-map-evict.json",
+        "axagent/agent-context-map-legacy-text.json",
+        "axagent/agent-context-map-legacy-restore.json"
       ],
       "gate": "G6 perturbation + cross-target coverage",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES (full TS parity). Create: @agent_factory builds state.context_map from options.contextMap (map string/snapshot + maxChars/infiniteEvolve/evolveSteps/scores/next_id) -- agent-context-map-config uses a FRESH agent (no restore), the cartographer ADDs an item, and the exported text+scores+steps are asserted. Read: agent-context-map-read restores a non-evolving map (infiniteEvolve:false, evolveSteps:0) and asserts the map text reaches the DISTILLER request, isolating read from evolve. Evolve: agent-context-map-evolve asserts the distiller itemTags update scores AND the cartographer ADD operation mints a new [id] item in the rendered text (mutating either model response fails the test). Evict: agent-context-map-evict tags an item harmful and asserts it is dropped under a tight maxChars while the neutral item survives (flipping the tag to helpful fails the test). next_id is a persisted counter (no numeric id parsing -- rust mul rejects string operands, so ids are minted from the counter and eviction tie-breaks on text order). context_map is part of the export/restore state contract."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens (tools/axir/extractors/agent-streaming-goldens.ts): agent-first-requests-context-map pins every request of two forwards, both context-map update calls of each included, and the map after them (an ADD, then a REPLACE by item_id and an ADD by section title, with the tag scores); agent-first-requests-context-map-template starts from TS's template; config, read (finite map past its steps: no update calls), evict (a harmful item evicted to maxChars) and legacy-text (a 24.x map text) pin the map TS leaves. The port-only agent-context-map-legacy-restore restores a 24.x snapshot and must leave the map TS leaves for the same text. The update programs run through the host intrinsic intrinsic.agent.program_forward (a one-off AxGen per port)."
     },
     {
       "capability": "agent.context.tombstone_llm",
@@ -843,6 +846,46 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES: the TypeScript golden agent-first-requests-flat-namespace (interleaved crm/web flat functions) pins each stage's first request, whose function listing TS sorts by namespace and name; the port-only real-engine fixture agent-runtime-real-flat-namespace-call runs the executor's crm.lookup call through each port's JavaScript engine, and only an executed call puts the engine-computed gold:42 in the responder's request. Port-only fixtures pin the default without a deprecation warning, 'tools' (also with a reserved namespace), TS's reserved-namespace error by default and with 'own', an invalid mode, and the namespace kept after a child agent is registered."
+    },
+    {
+      "capability": "agent.context.auto_promotion_previews",
+      "summary": "autoUpgrade.contextFields moves an oversized undeclared input into the runtime as TypeScript's decideAutoPromotion does: a string over promoteAboveChars (UTF-16 units) previews as its first previewChars followed by '...[truncated N chars]'; another value, sized by its JSON, previews as its JSON when its field takes a string preview; one that can't is left out of the prompt when its field is optional or unknown and stays inline when required. The Context Metadata line names the mode, and the responder gets the same truncated preview (TS finalizeResponderNonContextValues).",
+      "ir_ops": [
+        "@agent_auto_promotion_decision",
+        "@agent_field_accepts_string_preview",
+        "@agent_truncate_preview",
+        "@agent_truncate_responder_values",
+        "@split_context_values",
+        "@agent_render_context_metadata"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-auto-promotion.json",
+        "axagent/agent-first-requests-auto-promotion-modes.json",
+        "axagent/auto-upgrade-discovery-and-context-promotion.json"
+      ],
+      "gate": "G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens: agent-first-requests-auto-promotion (a 52-char document and a 25-char question over promoteAboveChars 20, previewChars 8) and agent-first-requests-auto-promotion-modes (a json record as its JSON preview, an optional string[] left out, a required string[] inline) pin every stage's first request. Before, the ports' preview turned the optional array into a string and the forward failed with 'input.notes must be an array'."
+    },
+    {
+      "capability": "agent.stages.cross_forward_restore",
+      "summary": "As TypeScript's actor loop restores each stage's own state, a stage that completed on an earlier forward of the same agent opens its next run with its earlier actions in the action log and TS's Runtime Restore notice as the summarized actor log (its own notice wins over the executor's shared-session one); the notice shows on the stage's first turn only. A finished final() turn renders as its code and '(no output)'. Evaluation runs (optimize, playbook evolve) start without the stages' earlier actions and restore them afterwards, as TS's forwardPipelineForEvaluation does.",
+      "ir_ops": [
+        "@agent_restore_stage_actions",
+        "@agent_save_stage_actions",
+        "@agent_render_full_action_entry",
+        "@agent_eval_marks",
+        "@agent_eval_run"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-second-forward.json",
+        "axagent/agent-playbook-evolve-miner-function-calls.json"
+      ],
+      "gate": "G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against the TypeScript golden agent-first-requests-second-forward (two forwards on one agent; each run's first request of each stage pinned), and the playbook evolve golden keeps each evaluated run's action log to that run."
     }
   ]
 }

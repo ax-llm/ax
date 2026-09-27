@@ -25154,6 +25154,23 @@ fn core_agent_stage_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
 }
 
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+fn core_agent_program_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let signature = s(&core_arg(args, 0).text())?;
+    let program_options = core_arg(args, 1);
+    let program_options = if program_options.is_null() { json!({}) } else { core_value_to_json(&program_options) };
+    let program = agent_stage_gen(signature, program_options);
+    let values = core_arg(args, 3);
+    let values = if values.is_null() { CoreValue::new_map() } else { values };
+    let options = core_arg(args, 4);
+    let options = if options.is_null() { CoreValue::new_map() } else { options };
+    match &program {
+        CoreValue::Host(host) => host.call_method("forward", &[core_arg(args, 2), values, options]),
+        _ => Err(AxError::runtime("context-map program is not a runnable program")),
+    }
+}
+
 fn core_json_stable_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let value = core_arg(args, 0);
     let json = if value.is_null() { json!({}) } else { core_value_to_json(&value) };

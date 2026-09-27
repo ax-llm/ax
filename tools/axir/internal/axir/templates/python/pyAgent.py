@@ -2623,6 +2623,13 @@ def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options)
 
 
+def _core_agent_program_forward(signature, program_options, client, values, options):
+    # A one-off AxGen (the context map's distiller and cartographer),
+    # forwarded like an agent stage.
+    program = AxGen(signature, dict(program_options or {}))
+    return program.forward(client, dict(values or {}), dict(options or {}))
+
+
 def _core_agent_stage_chat_log(stage):
     if hasattr(stage, "get_chat_log"):
         return stage.get_chat_log()

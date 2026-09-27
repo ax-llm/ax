@@ -2228,6 +2228,17 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   }
   return stage_ptr->forward(*registered, values, options);
 }
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+Value Core::agent_program_forward(Value signature, Value program_options, Value client, Value values, Value options) {
+  std::string client_id = str(get_key(client, "__client_id"));
+  AIClient* registered = registered_client(client_id);
+  if (registered == nullptr) {
+    throw AxError("runtime", "client does not implement AIClient");
+  }
+  AxGen program = ax(str(signature), program_options);
+  return program.forward(*registered, values, options);
+}
 Value Core::agent_stage_chat_log(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
   auto* stage_ptr = registered_stage(stage_id);
@@ -31233,8 +31244,9 @@ Value Core::_agent_factory(Value signature, Value options) {
     if (Core::truthy(cm_map_is_string)) {
       Core::set(cm_initial, Value("text"), cm_map_value);
     }
-    Value cm_text = Core::get(cm_initial, Value("text"), Value(""));
-    Core::set(cm_initial, Value("text"), cm_text);
+    Value cm_text = Core::get(cm_initial, Value("text"), Value());
+    Value cm_normalized_text = Core::_context_map_normalize_text(cm_text);
+    Core::set(cm_initial, Value("text"), cm_normalized_text);
     Value cm_steps = Core::get(cm_initial, Value("steps"), Value(0));
     Core::set(cm_initial, Value("steps"), cm_steps);
     Value cm_empty_scores = Value::object();
@@ -31249,9 +31261,7 @@ Value Core::_agent_factory(Value signature, Value options) {
     Value cm_cfg_steps = Core::get(context_map_config, Value("evolveSteps"), Value(0));
     Value cm_evolve_steps = Core::get(cm_initial, Value("evolveSteps"), cm_cfg_steps);
     Core::set(cm_initial, Value("evolveSteps"), cm_evolve_steps);
-    Value cm_cfg_next = Core::get(context_map_config, Value("next_id"), Value(1));
-    Value cm_next = Core::get(cm_initial, Value("next_id"), cm_cfg_next);
-    Core::set(cm_initial, Value("next_id"), cm_next);
+    Core::map_delete(cm_initial, Value("next_id"));
     Core::set(state, Value("context_map"), cm_initial);
   }
   Core::set(state, Value("executor_model_policy"), executor_model_policy);
@@ -32991,55 +33001,12 @@ Value Core::_agent_eval_marks(Value state) {
   Value marks = Value::object();
   Core::set(marks, Value("action_log"), log_count);
   Core::set(marks, Value("function_call_traces"), trace_count);
-  return marks;
-}
-
-Value Core::_agent_eval_function_calls(Value traces) {
-  axir_coverage_mark("_agent_eval_function_calls");
-  Value calls = Value::array();
   Value empty_map = Value::object();
-  for (auto trace : Core::iter(traces)) {
-    Value qualified = Core::get(trace, Value("qualified_name"), Value(""));
-    Value name = Core::get(trace, Value("name"), Value(""));
-    Value name_missing = Core::eq(name, Value(""));
-    Value name_qualified = Core::eq(name, qualified);
-    Value derive_name = Core::or_(name_missing, name_qualified);
-    if (Core::truthy(derive_name)) {
-      Value name_parts = Core::string_split(qualified, Value("."));
-      for (auto name_part : Core::iter(name_parts)) {
-        name = name_part;
-      }
-    }
-    Value arguments = Core::get(trace, Value("arguments"), Value());
-    Value result = Core::get(trace, Value("result"), empty_map);
-    Value result_is_map = Core::type_is(result, Value("object"));
-    if (Core::truthy(result_is_map)) {
-      // empty
-    }
-    if (!Core::truthy(result_is_map)) {
-      result = empty_map;
-    }
-    Value status = Core::get(trace, Value("status"), Value("ok"));
-    Value call = Value::object();
-    Core::set(call, Value("qualifiedName"), qualified);
-    Core::set(call, Value("name"), name);
-    Core::set(call, Value("arguments"), arguments);
-    Value failed = Core::eq(status, Value("error"));
-    if (Core::truthy(failed)) {
-      Value error = Core::get(result, Value("error"), Value("unknown error"));
-      Value error_text = Core::string_str(error);
-      Core::set(call, Value("error"), error_text);
-    }
-    if (!Core::truthy(failed)) {
-      Value value = Core::get(result, Value("value"), Value());
-      Value has_value = Core::is_not_none(value);
-      if (Core::truthy(has_value)) {
-        Core::set(call, Value("result"), value);
-      }
-    }
-    Core::append(calls, call);
-  }
-  return calls;
+  Value stage_logs = Core::get(state, Value("stage_action_logs"), empty_map);
+  Core::set(marks, Value("stage_action_logs"), stage_logs);
+  Value fresh_stage_logs = Value::object();
+  Core::set(state, Value("stage_action_logs"), fresh_stage_logs);
+  return marks;
 }
 
 Value Core::_resolve_agent_executor_model_policy(Value options) {
@@ -33158,9 +33125,60 @@ Value Core::_resolve_agent_executor_model_policy(Value options) {
   return out;
 }
 
+Value Core::_agent_eval_function_calls(Value traces) {
+  axir_coverage_mark("_agent_eval_function_calls");
+  Value calls = Value::array();
+  Value empty_map = Value::object();
+  for (auto trace : Core::iter(traces)) {
+    Value qualified = Core::get(trace, Value("qualified_name"), Value(""));
+    Value name = Core::get(trace, Value("name"), Value(""));
+    Value name_missing = Core::eq(name, Value(""));
+    Value name_qualified = Core::eq(name, qualified);
+    Value derive_name = Core::or_(name_missing, name_qualified);
+    if (Core::truthy(derive_name)) {
+      Value name_parts = Core::string_split(qualified, Value("."));
+      for (auto name_part : Core::iter(name_parts)) {
+        name = name_part;
+      }
+    }
+    Value arguments = Core::get(trace, Value("arguments"), Value());
+    Value result = Core::get(trace, Value("result"), empty_map);
+    Value result_is_map = Core::type_is(result, Value("object"));
+    if (Core::truthy(result_is_map)) {
+      // empty
+    }
+    if (!Core::truthy(result_is_map)) {
+      result = empty_map;
+    }
+    Value status = Core::get(trace, Value("status"), Value("ok"));
+    Value call = Value::object();
+    Core::set(call, Value("qualifiedName"), qualified);
+    Core::set(call, Value("name"), name);
+    Core::set(call, Value("arguments"), arguments);
+    Value failed = Core::eq(status, Value("error"));
+    if (Core::truthy(failed)) {
+      Value error = Core::get(result, Value("error"), Value("unknown error"));
+      Value error_text = Core::string_str(error);
+      Core::set(call, Value("error"), error_text);
+    }
+    if (!Core::truthy(failed)) {
+      Value value = Core::get(result, Value("value"), Value());
+      Value has_value = Core::is_not_none(value);
+      if (Core::truthy(has_value)) {
+        Core::set(call, Value("result"), value);
+      }
+    }
+    Core::append(calls, call);
+  }
+  return calls;
+}
+
 Value Core::_agent_eval_run(Value state, Value marks) {
   axir_coverage_mark("_agent_eval_run");
   Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value saved_stage_logs = Core::get(marks, Value("stage_action_logs"), empty_map);
+  Core::set(state, Value("stage_action_logs"), saved_stage_logs);
   Value log = Core::get(state, Value("action_log"), empty_list);
   Value traces = Core::get(state, Value("function_call_traces"), empty_list);
   Value log_start = Core::get(marks, Value("action_log"), Value(0));
@@ -33644,12 +33662,13 @@ Value Core::_agent_render_full_action_entry(Value state, Value entry) {
   }
   Value code = Core::get(entry, Value("code"), Value(""));
   Value output = Core::get(entry, Value("output"), Value(""));
-  Value kind = Core::get(entry, Value("kind"), Value(""));
-  Value is_final_action = Core::eq(kind, Value("final"));
-  if (Core::truthy(is_final_action)) {
-    code = Value("// final() completed; evidence omitted from actor prompt");
-  }
   Value full_is_error = Core::get(entry, Value("is_error"), Value(false));
+  Value no_output = Core::eq(output, Value(""));
+  Value not_error = Core::not_(full_is_error);
+  Value show_no_output = Core::and_(no_output, not_error);
+  if (Core::truthy(show_no_output)) {
+    output = Value("(no output)");
+  }
   if (Core::truthy(full_is_error)) {
     Value full_error = Core::get(entry, Value("error"), Value(""));
     Value full_err_text = Core::string_format(Value("[runtime error] {}"), full_error);
@@ -36635,6 +36654,16 @@ Value Core::_agent_restore_runtime_state(Value state, Value snapshot) {
   Value context_events = Core::get(snapshot, Value("context_events"), empty_list);
   Value checkpoint_state = Core::get(snapshot, Value("checkpoint_state"), Value());
   Value context_map = Core::get(snapshot, Value("context_map"), Value());
+  Value restored_map_is_object = Core::type_is(context_map, Value("object"));
+  if (Core::truthy(restored_map_is_object)) {
+    Value restored_map_empty = Value::object();
+    Value restored_map = Core::map_merge(restored_map_empty, context_map);
+    Value restored_map_text = Core::get(restored_map, Value("text"), Value());
+    Value restored_map_normalized = Core::_context_map_normalize_text(restored_map_text);
+    Core::set(restored_map, Value("text"), restored_map_normalized);
+    Core::map_delete(restored_map, Value("next_id"));
+    context_map = restored_map;
+  }
   Value runtime_state_summary = Core::get(snapshot, Value("runtime_state_summary"), Value(""));
   Value actor_model_state = Core::get(snapshot, Value("actor_model_state"), empty_map);
   Value provenance = Core::get(snapshot, Value("provenance"), empty_map);
@@ -38005,25 +38034,27 @@ Value Core::_split_context_values(Value state, Value values) {
       Value not_reserved = Core::not_(is_reserved);
       Value can_auto = Core::and_(auto_enabled, not_reserved);
       if (Core::truthy(can_auto)) {
-        Value value_text = Core::json_stringify(value);
-        Value value_len = Core::len(value_text);
-        Value too_large = Core::gt(value_len, promote_above);
-        if (Core::truthy(too_large)) {
+        Value decision = Core::_agent_auto_promotion_decision(state, key, value);
+        Value mode = Core::get(decision, Value("mode"), Value(""));
+        Value decided = Core::ne(mode, Value(""));
+        if (Core::truthy(decided)) {
           promoted = Value(true);
           Core::set(ctx_values, key, value);
-          Value is_string = Core::type_is(value, Value("string"));
-          Value preview_source = value_text;
-          if (Core::truthy(is_string)) {
-            preview_source = value;
-          }
-          Value preview = Core::string_slice(preview_source, Value(0), preview_chars);
-          Value preview_value = Core::string_format(Value("[runtime-only context: {} chars available as inputs.{}; preview]\n{}"), value_len, key, preview);
-          Core::set(non_ctx_values, key, preview_value);
+          Value size = Core::get(decision, Value("size"), Value(0));
           Value event = Value::object();
           Core::set(event, Value("kind"), Value("field_auto_promoted"));
           Core::set(event, Value("fieldName"), key);
-          Core::set(event, Value("originalChars"), value_len);
-          Core::set(event, Value("promptPreviewChars"), preview_chars);
+          Core::set(event, Value("originalChars"), size);
+          Value omitted = Core::eq(mode, Value("omit"));
+          if (Core::truthy(omitted)) {
+            // empty
+          }
+          if (!Core::truthy(omitted)) {
+            Value preview_source = Core::get(decision, Value("source"), Value(""));
+            Value preview_value = Core::_agent_truncate_preview(preview_source, preview_chars);
+            Core::set(non_ctx_values, key, preview_value);
+            Core::set(event, Value("promptPreviewChars"), preview_chars);
+          }
           Value events = Core::get(state, Value("context_events"), empty_list);
           Core::append(events, event);
           Core::set(state, Value("context_events"), events);
@@ -38073,10 +38104,12 @@ Value Core::_agent_render_context_metadata(Value state, Value context) {
     }
     Value mode = Value("runtime-only");
     Value declared = Core::contains(context_fields, ck);
-    if (Core::truthy(declared)) {
-      // empty
-    }
-    if (!Core::truthy(declared)) {
+    Value promotion = Core::_agent_auto_promotion_decision(state, ck, cv);
+    Value promotion_mode = Core::get(promotion, Value("mode"), Value("omit"));
+    Value previewed = Core::ne(promotion_mode, Value("omit"));
+    Value not_declared = Core::not_(declared);
+    Value inline_preview = Core::and_(not_declared, previewed);
+    if (Core::truthy(inline_preview)) {
       if (Core::truthy(is_string)) {
         Value fits = Core::lte(length, preview_chars);
         if (Core::truthy(fits)) {
@@ -38194,6 +38227,7 @@ Value Core::_build_executor_inputs(Value state, Value values, Value distiller_pa
   }
   Value distilled_context = Core::list_get(args, Value(1), empty_map);
   Value distilled_context_summary = Core::_agent_render_evidence_descriptor(distilled_context);
+  Core::set(state, Value("executor_request"), executor_request);
   Value executor_runtime_enabled = Core::get(state, Value("runtime_enabled"), Value(false));
   if (Core::truthy(executor_runtime_enabled)) {
     Value rlm_values = Core::_agent_rlm_executor_values(state, non_ctx, context, executor_request, distilled_context_summary);
@@ -38262,6 +38296,9 @@ Value Core::_build_responder_inputs(Value state, Value values, Value executor_pa
   Value non_ctx = Core::get(split, Value("values"), empty_map);
   Value empty = Value::object();
   Value out = Core::map_merge(values, empty);
+  Core::_agent_truncate_responder_values(state, out);
+  Value ordered_payload = Core::_agent_ordered_completion_payload(executor_payload);
+  Core::set(state, Value("executor_result"), ordered_payload);
   Value args = Core::get(executor_payload, Value("args"), empty_list);
   Value task = Core::list_get(args, Value(0), Value(""));
   Value context = Core::list_get(args, Value(1), empty_map);
@@ -39517,71 +39554,78 @@ Value Core::_context_map_sections() {
   Core::set(s1, Value("name"), Value("context_roadmap"));
   Core::set(s1, Value("title"), Value("CONTEXT ROADMAP"));
   Core::set(s1, Value("slug"), Value("cr"));
+  Core::set(s1, Value("description"), Value("Index of what the context contains and where to find it."));
   Core::append(sections, s1);
   Value s2 = Value::object();
   Core::set(s2, Value("name"), Value("context_understanding"));
   Core::set(s2, Value("title"), Value("CONTEXT UNDERSTANDING"));
   Core::set(s2, Value("slug"), Value("cu"));
+  Core::set(s2, Value("description"), Value("High-level understanding of the context: what it is, how it's organized, and what matters."));
   Core::append(sections, s2);
   Value s3 = Value::object();
   Core::set(s3, Value("name"), Value("domain_constants"));
   Core::set(s3, Value("title"), Value("DOMAIN CONSTANTS"));
   Core::set(s3, Value("slug"), Value("dc"));
+  Core::set(s3, Value("description"), Value("Exact parameters, formulas, thresholds, reference values, enum sets, and output field requirements defined by the context."));
   Core::append(sections, s3);
   Value s4 = Value::object();
   Core::set(s4, Value("name"), Value("parsing_schema"));
   Core::set(s4, Value("title"), Value("PARSING SCHEMA"));
   Core::set(s4, Value("slug"), Value("ps"));
+  Core::set(s4, Value("description"), Value("How to parse and navigate the context's format."));
   Core::append(sections, s4);
   Value s5 = Value::object();
   Core::set(s5, Value("name"), Value("reusable_results"));
   Core::set(s5, Value("title"), Value("REUSABLE RESULTS"));
   Core::set(s5, Value("slug"), Value("rr"));
+  Core::set(s5, Value("description"), Value("Reusable knowledge about the context."));
   Core::append(sections, s5);
   Value s6 = Value::object();
   Core::set(s6, Value("name"), Value("error_patterns"));
   Core::set(s6, Value("title"), Value("ERROR PATTERNS"));
   Core::set(s6, Value("slug"), Value("ep"));
+  Core::set(s6, Value("description"), Value("Concrete failure modes observed while processing this context."));
   Core::append(sections, s6);
   return sections;
 }
 
 Value Core::_context_map_parse_items(Value text) {
   axir_coverage_mark("_context_map_parse_items");
-  Value sections = Core::_context_map_sections();
   Value items = Value::array();
-  Value lines = Core::string_split_trim_nonempty(text, Value("\n"));
-  Value current = Value("context_understanding");
+  Value is_text = Core::type_is(text, Value("string"));
+  if (Core::truthy(is_text)) {
+    // empty
+  }
+  if (!Core::truthy(is_text)) {
+    return items;
+  }
+  Value section = Value("context_understanding");
+  Value lines = Core::string_split(text, Value("\n"));
   for (auto line : Core::iter(lines)) {
-    Value is_header = Core::string_starts_with(line, Value("##"));
+    Value stripped = Core::string_trim(line);
+    Value is_header = Core::string_starts_with(stripped, Value("##"));
     if (Core::truthy(is_header)) {
-      Value title_raw = Core::string_replace(line, Value("#"), Value(""));
-      Value title = Core::string_trim(title_raw);
-      for (auto sec : Core::iter(sections)) {
-        Value sec_title = Core::get(sec, Value("title"), Value());
-        Value match = Core::eq(sec_title, title);
-        if (Core::truthy(match)) {
-          Value sec_name = Core::get(sec, Value("name"), Value());
-          current = sec_name;
-        }
+      Value header_raw = Core::regex_replace(Value("^#+"), Value(""), stripped);
+      Value header = Core::string_trim(header_raw);
+      Value matched = Core::_context_map_section_for_name(header);
+      Value known = Core::is_not_none(matched);
+      if (Core::truthy(known)) {
+        section = Core::get(matched, Value("name"), section);
       }
     }
     if (!Core::truthy(is_header)) {
-      Value is_item = Core::string_starts_with(line, Value("["));
+      Value match = Core::_context_map_item_match(line);
+      Value is_item = Core::is_not_none(match);
       if (Core::truthy(is_item)) {
-        Value parts = Core::string_split_once(line, Value("]"));
-        Value left = Core::get(parts, Value("left"), Value(""));
-        Value right = Core::get(parts, Value("right"), Value(""));
-        Value id_raw = Core::string_replace(left, Value("["), Value(""));
-        Value id = Core::string_trim(id_raw);
-        Value content = Core::string_trim(right);
-        Value id_ok = Core::ne(id, Value(""));
-        Value content_ok = Core::ne(content, Value(""));
-        Value valid = Core::and_(id_ok, content_ok);
+        Value id = Core::get(match, Value("id"), Value(""));
+        Value content = Core::get(match, Value("content"), Value(""));
+        Value has_id = Core::ne(id, Value(""));
+        Value has_content = Core::ne(content, Value(""));
+        Value valid = Core::and_(has_id, has_content);
         if (Core::truthy(valid)) {
           Value item = Value::object();
           Core::set(item, Value("id"), id);
-          Core::set(item, Value("section"), current);
+          Core::set(item, Value("section"), section);
           Core::set(item, Value("content"), content);
           Core::append(items, item);
         }
@@ -39591,200 +39635,275 @@ Value Core::_context_map_parse_items(Value text) {
   return items;
 }
 
-Value Core::_context_map_render_items(Value items) {
-  axir_coverage_mark("_context_map_render_items");
-  Value sections = Core::_context_map_sections();
-  Value parts = Value::array();
-  for (auto sec : Core::iter(sections)) {
-    Value sec_name = Core::get(sec, Value("name"), Value());
-    Value sec_title = Core::get(sec, Value("title"), Value());
-    Value header = Core::string_format(Value("## {}"), sec_title);
-    Core::append(parts, header);
-    for (auto item : Core::iter(items)) {
-      Value item_sec = Core::get(item, Value("section"), Value());
-      Value in_sec = Core::eq(item_sec, sec_name);
-      if (Core::truthy(in_sec)) {
-        Value id = Core::get(item, Value("id"), Value());
-        Value content = Core::get(item, Value("content"), Value());
-        Value line = Core::string_format(Value("[{}] {}"), id, content);
-        Core::append(parts, line);
-      }
-    }
-  }
-  Value text = Core::string_join(Value("\n"), parts);
-  return text;
-}
-
-Value Core::_context_map_update_scores(Value scores, Value item_tags) {
+Value Core::_context_map_update_scores(Value scores, Value tags, Value item_ids) {
   axir_coverage_mark("_context_map_update_scores");
   Value empty_map = Value::object();
-  Value out = Core::map_merge(empty_map, scores);
-  Value is_obj = Core::type_is(item_tags, Value("object"));
-  if (Core::truthy(is_obj)) {
-    for (auto id : Core::iter(item_tags)) {
-      Value tag = Core::get(item_tags, id, Value());
-      Value cur = Core::get(out, id, Value(0));
-      Value is_helpful = Core::eq(tag, Value("helpful"));
-      if (Core::truthy(is_helpful)) {
-        Value up = Core::add(cur, Value(1));
-        Core::set(out, id, up);
+  Value next = Core::map_merge(empty_map, scores);
+  Value has_tags = Core::type_is(tags, Value("object"));
+  if (Core::truthy(has_tags)) {
+    // empty
+  }
+  if (!Core::truthy(has_tags)) {
+    return next;
+  }
+  for (auto item_id : Core::iter(tags)) {
+    Value existing = Core::contains(item_ids, item_id);
+    Value tag = Core::get(tags, item_id, Value());
+    Value is_text = Core::type_is(tag, Value("string"));
+    Value applies = Core::and_(existing, is_text);
+    if (Core::truthy(applies)) {
+      Value tag_trimmed = Core::string_trim(tag);
+      Value normalized = Core::string_lower(tag_trimmed);
+      Value current = Core::get(next, item_id, Value(0));
+      Value helpful = Core::eq(normalized, Value("helpful"));
+      Value harmful = Core::eq(normalized, Value("harmful"));
+      Value stale = Core::eq(normalized, Value("stale"));
+      Value neutral = Core::eq(normalized, Value("neutral"));
+      Value lowered = Core::or_(harmful, stale);
+      if (Core::truthy(helpful)) {
+        Value raised_score = Core::add(current, Value(1));
+        Core::set(next, item_id, raised_score);
       }
-      Value is_harmful = Core::eq(tag, Value("harmful"));
-      if (Core::truthy(is_harmful)) {
-        Value down = Core::add(cur, Value(-1));
-        Core::set(out, id, down);
+      if (Core::truthy(lowered)) {
+        Value lowered_score = Core::add(current, Value(-1));
+        Core::set(next, item_id, lowered_score);
       }
-      Value is_stale = Core::eq(tag, Value("stale"));
-      if (Core::truthy(is_stale)) {
-        Value down2 = Core::add(cur, Value(-1));
-        Core::set(out, id, down2);
+      if (Core::truthy(neutral)) {
+        Core::set(next, item_id, current);
       }
     }
   }
-  return out;
+  return next;
 }
 
-Value Core::_context_map_apply_operations(Value items, Value operations, Value next_id) {
+Value Core::_context_map_apply_operations(Value text, Value operations) {
   axir_coverage_mark("_context_map_apply_operations");
-  Value sections = Core::_context_map_sections();
-  Value deletes = Value::object();
+  Value applied = Value::array();
+  Value out_result = Value::object();
+  Value op_count = Core::len(operations);
+  Value no_ops = Core::eq(op_count, Value(0));
+  if (Core::truthy(no_ops)) {
+    Core::set(out_result, Value("text"), text);
+    Core::set(out_result, Value("applied"), applied);
+    return out_result;
+  }
+  Value existing = Core::_context_map_parse_items(text);
+  Value existing_ids = Value::array();
+  for (auto existing_item : Core::iter(existing)) {
+    Value existing_id = Core::get(existing_item, Value("id"), Value());
+    Core::append(existing_ids, existing_id);
+  }
+  Value deletes = Value::array();
   Value replaces = Value::object();
-  Value raw_adds = Value::array();
-  Value is_list = Core::type_is(operations, Value("list"));
-  if (Core::truthy(is_list)) {
-    for (auto op : Core::iter(operations)) {
-      Value type = Core::get(op, Value("type"), Value(""));
-      Value is_delete = Core::eq(type, Value("DELETE"));
-      if (Core::truthy(is_delete)) {
-        Value del_a = Core::get(op, Value("item_id"), Value(""));
-        Value del_id = Core::get(op, Value("itemId"), del_a);
-        Core::set(deletes, del_id, Value(true));
+  Value pending = Value::array();
+  Value next = Core::_context_map_next_item_number(existing);
+  for (auto operation : Core::iter(operations)) {
+    Value op_type = Core::get(operation, Value("type"), Value(""));
+    Value is_delete = Core::eq(op_type, Value("DELETE"));
+    Value is_replace = Core::eq(op_type, Value("REPLACE"));
+    Value is_add = Core::eq(op_type, Value("ADD"));
+    Value op_item_id = Core::get(operation, Value("itemId"), Value(""));
+    Value op_known = Core::contains(existing_ids, op_item_id);
+    if (Core::truthy(is_delete)) {
+      if (Core::truthy(op_known)) {
+        Core::append(deletes, op_item_id);
+        Core::append(applied, operation);
       }
-      Value is_replace = Core::eq(type, Value("REPLACE"));
-      if (Core::truthy(is_replace)) {
-        Value rep_a = Core::get(op, Value("item_id"), Value(""));
-        Value rep_id = Core::get(op, Value("itemId"), rep_a);
-        Value rep_content = Core::get(op, Value("content"), Value(""));
-        Core::set(replaces, rep_id, rep_content);
+    }
+    if (Core::truthy(is_replace)) {
+      if (Core::truthy(op_known)) {
+        Value replacement = Core::get(operation, Value("content"), Value(""));
+        Core::set(replaces, op_item_id, replacement);
+        Core::append(applied, operation);
       }
-      Value is_add = Core::eq(type, Value("ADD"));
-      if (Core::truthy(is_add)) {
-        Value add_section = Core::get(op, Value("section"), Value("context_understanding"));
-        Value add_content = Core::get(op, Value("content"), Value(""));
-        Value content_ok = Core::ne(add_content, Value(""));
-        if (Core::truthy(content_ok)) {
-          Value raw = Value::object();
-          Core::set(raw, Value("section"), add_section);
-          Core::set(raw, Value("content"), add_content);
-          Core::append(raw_adds, raw);
+    }
+    if (Core::truthy(is_add)) {
+      Value op_section = Core::get(operation, Value("section"), Value(""));
+      Value add_section = Core::_context_map_section_for_name(op_section);
+      Value section_known = Core::is_not_none(add_section);
+      if (Core::truthy(section_known)) {
+        Value slug = Core::get(add_section, Value("slug"), Value(""));
+        Value padded = Core::_context_map_pad_number(next);
+        Value new_id = Core::string_format(Value("{}-{}"), slug, padded);
+        next = Core::add(next, Value(1));
+        Value add_content = Core::get(operation, Value("content"), Value(""));
+        Value add_line = Core::string_format(Value("[{}] {}"), new_id, add_content);
+        Value add_section_name = Core::get(add_section, Value("name"), Value(""));
+        Value add = Value::object();
+        Core::set(add, Value("section"), add_section_name);
+        Core::set(add, Value("line"), add_line);
+        Core::append(pending, add);
+        Core::append(applied, operation);
+      }
+    }
+  }
+  Value lines = Core::string_split(text, Value("\n"));
+  Value out = Value::array();
+  Value current = Value("");
+  for (auto line : Core::iter(lines)) {
+    Value stripped = Core::string_trim(line);
+    Value is_header = Core::string_starts_with(stripped, Value("##"));
+    if (Core::truthy(is_header)) {
+      Value flushed = Core::_context_map_flush_adds(out, pending, current);
+      out = Core::get(flushed, Value("out"), Value());
+      pending = Core::get(flushed, Value("pending"), Value());
+      Value out_count = Core::len(out);
+      Value has_out = Core::gt(out_count, Value(0));
+      if (Core::truthy(has_out)) {
+        Value last_index = Core::add(out_count, Value(-1));
+        Value last_line = Core::list_get(out, last_index, Value(""));
+        Value last_blank = Core::eq(last_line, Value(""));
+        if (Core::truthy(last_blank)) {
+          // empty
+        }
+        if (!Core::truthy(last_blank)) {
+          Core::append(out, Value(""));
         }
       }
-    }
-  }
-  Value result_items = Value::array();
-  for (auto item : Core::iter(items)) {
-    Value id = Core::get(item, Value("id"), Value());
-    Value deleted = Core::get(deletes, id, Value(false));
-    Value keep = Core::not_(deleted);
-    if (Core::truthy(keep)) {
-      Value kept = Value::object();
-      Core::set(kept, Value("id"), id);
-      Value sec = Core::get(item, Value("section"), Value());
-      Core::set(kept, Value("section"), sec);
-      Value new_content = Core::get(replaces, id, Value());
-      Value has_replace = Core::is_not_none(new_content);
-      if (Core::truthy(has_replace)) {
-        Core::set(kept, Value("content"), new_content);
+      Value header_raw = Core::regex_replace(Value("^#+"), Value(""), stripped);
+      Value header = Core::string_trim(header_raw);
+      Value header_section = Core::_context_map_section_for_name(header);
+      Value header_known = Core::is_not_none(header_section);
+      current = Value("");
+      if (Core::truthy(header_known)) {
+        current = Core::get(header_section, Value("name"), Value(""));
       }
-      if (!Core::truthy(has_replace)) {
-        Value old_content = Core::get(item, Value("content"), Value());
-        Core::set(kept, Value("content"), old_content);
-      }
-      Core::append(result_items, kept);
+      Core::append(out, line);
     }
-  }
-  Value counter = next_id;
-  for (auto radd : Core::iter(raw_adds)) {
-    Value radd_section = Core::get(radd, Value("section"), Value());
-    Value radd_content = Core::get(radd, Value("content"), Value());
-    Value slug = Value("cu");
-    for (auto sec : Core::iter(sections)) {
-      Value sname = Core::get(sec, Value("name"), Value());
-      Value smatch = Core::eq(sname, radd_section);
-      if (Core::truthy(smatch)) {
-        Value sslug = Core::get(sec, Value("slug"), Value());
-        slug = sslug;
+    if (!Core::truthy(is_header)) {
+      Value handled = Value(false);
+      Value match = Core::_context_map_item_match(line);
+      Value is_item = Core::is_not_none(match);
+      if (Core::truthy(is_item)) {
+        Value item_id = Core::get(match, Value("id"), Value(""));
+        Value deleted = Core::contains(deletes, item_id);
+        if (Core::truthy(deleted)) {
+          handled = Value(true);
+        }
+        if (!Core::truthy(deleted)) {
+          Value replaced = Core::map_contains(replaces, item_id);
+          if (Core::truthy(replaced)) {
+            Value replacement_text = Core::get(replaces, item_id, Value());
+            Value replaced_line = Core::string_format(Value("[{}] {}"), item_id, replacement_text);
+            Core::append(out, replaced_line);
+            handled = Value(true);
+          }
+        }
+      }
+      Value unhandled = Core::not_(handled);
+      if (Core::truthy(unhandled)) {
+        Core::append(out, line);
       }
     }
-    Value new_id = Core::string_format(Value("{}-{}"), slug, counter);
-    Value inc = Core::add(counter, Value(1));
-    counter = inc;
-    Value add_item = Value::object();
-    Core::set(add_item, Value("id"), new_id);
-    Core::set(add_item, Value("section"), radd_section);
-    Core::set(add_item, Value("content"), radd_content);
-    Core::append(result_items, add_item);
   }
-  Value out = Value::object();
-  Core::set(out, Value("items"), result_items);
-  Core::set(out, Value("next_id"), counter);
-  return out;
+  Value flushed_last = Core::_context_map_flush_adds(out, pending, current);
+  out = Core::get(flushed_last, Value("out"), Value());
+  pending = Core::get(flushed_last, Value("pending"), Value());
+  Value sections = Core::_context_map_sections();
+  for (auto section : Core::iter(sections)) {
+    Value section_name = Core::get(section, Value("name"), Value());
+    Value remaining = Value::array();
+    for (auto add_item : Core::iter(pending)) {
+      Value add_item_section = Core::get(add_item, Value("section"), Value());
+      Value in_section = Core::eq(add_item_section, section_name);
+      if (Core::truthy(in_section)) {
+        Core::append(remaining, add_item);
+      }
+    }
+    Value remaining_count = Core::len(remaining);
+    Value has_remaining = Core::gt(remaining_count, Value(0));
+    if (Core::truthy(has_remaining)) {
+      Value tail_count = Core::len(out);
+      Value has_tail = Core::gt(tail_count, Value(0));
+      if (Core::truthy(has_tail)) {
+        Value tail_index = Core::add(tail_count, Value(-1));
+        Value tail_line = Core::list_get(out, tail_index, Value(""));
+        Value tail_blank = Core::eq(tail_line, Value(""));
+        if (Core::truthy(tail_blank)) {
+          // empty
+        }
+        if (!Core::truthy(tail_blank)) {
+          Core::append(out, Value(""));
+        }
+      }
+      Value section_title = Core::get(section, Value("title"), Value());
+      Value section_header = Core::string_format(Value("## {}"), section_title);
+      Core::append(out, section_header);
+      for (auto remaining_item : Core::iter(remaining)) {
+        Value remaining_line = Core::get(remaining_item, Value("line"), Value());
+        Core::append(out, remaining_line);
+      }
+    }
+  }
+  Value joined = Core::string_join(Value("\n"), out);
+  Value collapsed = Core::_context_map_collapse_blank_lines(joined);
+  Core::set(out_result, Value("text"), collapsed);
+  Core::set(out_result, Value("applied"), applied);
+  return out_result;
 }
 
-Value Core::_context_map_evict_to_budget(Value items, Value scores, Value max_chars) {
+Value Core::_context_map_evict_to_budget(Value text, Value scores, Value max_chars) {
   axir_coverage_mark("_context_map_evict_to_budget");
-  Value current = items;
-  while (true) {
-    Value text = Core::_context_map_render_items(current);
-    Value len = Core::len(text);
-    Value over = Core::gt(len, max_chars);
-    Value not_over = Core::not_(over);
-    if (Core::truthy(not_over)) {
-      break;
-    }
-    Value count = Core::len(current);
-    Value empty = Core::eq(count, Value(0));
-    if (Core::truthy(empty)) {
-      break;
-    }
-    Value min_id = Value("");
-    Value min_score = Value(0);
-    Value have_min = Value(false);
-    for (auto item : Core::iter(current)) {
-      Value iid = Core::get(item, Value("id"), Value());
-      Value iscore = Core::get(scores, iid, Value(0));
-      Value first = Core::not_(have_min);
-      Value lower = Core::lt(iscore, min_score);
-      Value take = Core::or_(first, lower);
-      if (Core::truthy(take)) {
-        min_id = iid;
-        min_score = iscore;
-        have_min = Value(true);
-      }
-    }
-    Value next_items = Value::array();
-    for (auto item : Core::iter(current)) {
-      Value iid = Core::get(item, Value("id"), Value());
-      Value is_min = Core::eq(iid, min_id);
-      Value keep = Core::not_(is_min);
-      if (Core::truthy(keep)) {
-        Core::append(next_items, item);
-      }
-    }
-    current = next_items;
+  Value empty_map = Value::object();
+  Value units = Core::string_utf16_units(text);
+  Value length = Core::len(units);
+  Value fits = Core::lte(length, max_chars);
+  if (Core::truthy(fits)) {
+    return text;
   }
-  return current;
-}
-
-Value Core::_format_context_map_trajectory(Value state) {
-  axir_coverage_mark("_format_context_map_trajectory");
-  Value empty_list = Value::array();
-  Value action_log = Core::get(state, Value("action_log"), empty_list);
-  Value action_text = Core::json_stable_stringify(action_log);
-  Value status_log = Core::get(state, Value("status_log"), empty_list);
-  Value status_text = Core::json_stable_stringify(status_log);
-  Value out = Core::string_format(Value("## Executor Action Log\n{}\n\n## Status Log\n{}"), action_text, status_text);
-  return out;
+  Value items = Core::_context_map_parse_items(text);
+  Value score_map = scores;
+  Value has_scores = Core::type_is(scores, Value("object"));
+  if (Core::truthy(has_scores)) {
+    // empty
+  }
+  if (!Core::truthy(has_scores)) {
+    score_map = empty_map;
+  }
+  Value ordered = Value::array();
+  for (auto item : Core::iter(items)) {
+    Value item_id = Core::get(item, Value("id"), Value());
+    Value item_score = Core::get(score_map, item_id, Value(0));
+    Value item_age = Core::_context_map_item_age(item_id);
+    Value placed = Value::array();
+    Value inserted = Value(false);
+    for (auto other : Core::iter(ordered)) {
+      Value other_id = Core::get(other, Value("id"), Value());
+      Value other_score = Core::get(score_map, other_id, Value(0));
+      Value other_age = Core::_context_map_item_age(other_id);
+      Value score_before = Core::lt(item_score, other_score);
+      Value same_score = Core::eq(item_score, other_score);
+      Value age_before = Core::lt(item_age, other_age);
+      Value tie_before = Core::and_(same_score, age_before);
+      Value goes_before = Core::or_(score_before, tie_before);
+      Value not_inserted = Core::not_(inserted);
+      Value insert_here = Core::and_(goes_before, not_inserted);
+      if (Core::truthy(insert_here)) {
+        Core::append(placed, item);
+        inserted = Value(true);
+      }
+      Core::append(placed, other);
+    }
+    Value still_out = Core::not_(inserted);
+    if (Core::truthy(still_out)) {
+      Core::append(placed, item);
+    }
+    ordered = placed;
+  }
+  Value removed = Value::array();
+  for (auto victim : Core::iter(ordered)) {
+    Value victim_id = Core::get(victim, Value("id"), Value());
+    Core::append(removed, victim_id);
+    Value trial = Core::_context_map_remove_items(text, removed);
+    Value trial_units = Core::string_utf16_units(trial);
+    Value trial_length = Core::len(trial_units);
+    Value trial_fits = Core::lte(trial_length, max_chars);
+    if (Core::truthy(trial_fits)) {
+      return trial;
+    }
+  }
+  Value last = Core::_context_map_remove_items(text, removed);
+  return last;
 }
 
 Value Core::_context_map_complete(Value client, Value system, Value user, Value options) {
@@ -39805,25 +39924,35 @@ Value Core::_context_map_complete(Value client, Value system, Value user, Value 
   return content;
 }
 
-Value Core::_context_map_parse_json(Value content) {
-  axir_coverage_mark("_context_map_parse_json");
+Value Core::_format_context_map_trajectory(Value state) {
+  axir_coverage_mark("_format_context_map_trajectory");
   Value empty_map = Value::object();
-  Value trimmed = Core::string_trim(content);
-  Value is_empty = Core::eq(trimmed, Value(""));
-  if (Core::truthy(is_empty)) {
-    return empty_map;
+  Value values = Core::get(state, Value("run_input_values"), empty_map);
+  Value summarized = Core::_context_map_summarize_value(values, Value(0));
+  Value summary = Core::json_pretty(summarized);
+  Value distiller_log = Core::_context_map_stage_log_text(state, Value("distiller"));
+  Value executor_log = Core::_context_map_stage_log_text(state, Value("executor"));
+  Value executor_result = Core::get(state, Value("executor_result"), Value());
+  Value executor_text = Value("");
+  Value has_result = Core::is_not_none(executor_result);
+  if (Core::truthy(has_result)) {
+    executor_text = Core::json_pretty(executor_result);
   }
-  Value looks_object = Core::string_starts_with(trimmed, Value("{"));
-  Value not_object = Core::not_(looks_object);
-  if (Core::truthy(not_object)) {
-    return empty_map;
-  }
-  Value parsed = Core::json_parse(trimmed);
-  Value is_obj = Core::type_is(parsed, Value("object"));
-  if (Core::truthy(is_obj)) {
-    return parsed;
-  }
-  return empty_map;
+  Value final_output = Core::get(state, Value("last_output"), Value());
+  Value final_text = Core::json_pretty(final_output);
+  Value parts = Value::array();
+  Core::append(parts, Value("## Input Summary"));
+  Core::append(parts, summary);
+  Core::append(parts, Value("## Distiller Action Log"));
+  Core::append(parts, distiller_log);
+  Core::append(parts, Value("## Executor Action Log"));
+  Core::append(parts, executor_log);
+  Core::append(parts, Value("## Executor Result"));
+  Core::append(parts, executor_text);
+  Core::append(parts, Value("## Final Output"));
+  Core::append(parts, final_text);
+  Value out = Core::string_join(Value("\n\n"), parts);
+  return out;
 }
 
 Value Core::_agent_evolve_context_map(Value state, Value client, Value options) {
@@ -39831,48 +39960,81 @@ Value Core::_agent_evolve_context_map(Value state, Value client, Value options) 
   Value empty_map = Value::object();
   Value empty_list = Value::array();
   Value cm = Core::get(state, Value("context_map"), Value());
-  Value has_cm = Core::is_not_none(cm);
-  Value infinite = Core::get(cm, Value("infiniteEvolve"), Value(false));
+  Value has_cm = Core::type_is(cm, Value("object"));
+  if (Core::truthy(has_cm)) {
+    // empty
+  }
+  if (!Core::truthy(has_cm)) {
+    return state;
+  }
+  Value infinite = Core::get(cm, Value("infiniteEvolve"), Value(true));
   Value steps = Core::get(cm, Value("steps"), Value(0));
   Value evolve_steps = Core::get(cm, Value("evolveSteps"), Value(0));
   Value under_budget = Core::lt(steps, evolve_steps);
-  Value evolve_ok = Core::or_(infinite, under_budget);
-  Value should_evolve = Core::and_(has_cm, evolve_ok);
+  Value should_evolve = Core::or_(infinite, under_budget);
   if (Core::truthy(should_evolve)) {
-    Value current_text = Core::get(cm, Value("text"), Value(""));
-    Value scores = Core::get(cm, Value("scores"), empty_map);
-    Value max_chars = Core::get(cm, Value("maxChars"), Value(4000));
-    Value next_id = Core::get(cm, Value("next_id"), Value(1));
-    Value task = Core::get(state, Value("task_description"), Value(""));
-    Value trajectory = Core::_format_context_map_trajectory(state);
-    Value distiller_sys = Value("You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale.");
-    Value distiller_user = Core::string_format(Value("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}"), task, current_text, trajectory);
-    Value distiller_resp = Core::_context_map_complete(client, distiller_sys, distiller_user, options);
-    Value distiller_parsed = Core::_context_map_parse_json(distiller_resp);
-    Value item_tags = Core::get(distiller_parsed, Value("itemTags"), empty_map);
-    Value reflection = Core::json_stringify(distiller_parsed);
-    Value current_chars = Core::len(current_text);
-    Value carto_sys = Value("You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}");
-    Value carto_user_head = Core::string_format(Value("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}"), task, current_text, reflection);
-    Value carto_user = Core::string_format(Value("{}\n\ncurrentChars: {}\nmaxChars: {}"), carto_user_head, current_chars, max_chars);
-    Value carto_resp = Core::_context_map_complete(client, carto_sys, carto_user, options);
-    Value carto_parsed = Core::_context_map_parse_json(carto_resp);
-    Value operations = Core::get(carto_parsed, Value("operations"), empty_list);
-    Value items = Core::_context_map_parse_items(current_text);
-    Value new_scores = Core::_context_map_update_scores(scores, item_tags);
-    Value applied = Core::_context_map_apply_operations(items, operations, next_id);
-    Value new_items = Core::get(applied, Value("items"), empty_list);
-    Value new_next_id = Core::get(applied, Value("next_id"), next_id);
-    Value evicted = Core::_context_map_evict_to_budget(new_items, new_scores, max_chars);
-    Value new_text = Core::_context_map_render_items(evicted);
-    Value new_steps = Core::add(steps, Value(1));
-    Value updated = Core::map_merge(empty_map, cm);
-    Core::set(updated, Value("text"), new_text);
-    Core::set(updated, Value("scores"), new_scores);
-    Core::set(updated, Value("steps"), new_steps);
-    Core::set(updated, Value("next_id"), new_next_id);
-    Core::set(state, Value("context_map"), updated);
+    // empty
   }
+  if (!Core::truthy(should_evolve)) {
+    return state;
+  }
+  Value raw_text = Core::get(cm, Value("text"), Value());
+  Value text = Core::_context_map_normalize_text(raw_text);
+  Value max_chars = Core::get(cm, Value("maxChars"), Value(4000));
+  Value task = Core::get(state, Value("executor_request"), Value());
+  Value task_is_text = Core::type_is(task, Value("string"));
+  if (Core::truthy(task_is_text)) {
+    // empty
+  }
+  if (!Core::truthy(task_is_text)) {
+    Value run_values = Core::get(state, Value("run_input_values"), empty_map);
+    task = Core::json_stringify(run_values);
+  }
+  Value trajectory = Core::_format_context_map_trajectory(state);
+  Value distiller_program = Core::_context_map_distiller_program();
+  Value distiller_signature = Core::get(distiller_program, Value("signature"), Value());
+  Value distiller_options = Core::get(distiller_program, Value("options"), Value());
+  Value distiller_values = Value::object();
+  Core::set(distiller_values, Value("task"), task);
+  Core::set(distiller_values, Value("contextMap"), text);
+  Core::set(distiller_values, Value("trajectory"), trajectory);
+  Value forward_options = Value::object();
+  Value distiller_output = Core::agent_program_forward(distiller_signature, distiller_options, client, distiller_values, forward_options);
+  Value reflection = Core::json_pretty(distiller_output);
+  Value text_units = Core::string_utf16_units(text);
+  Value current_chars = Core::len(text_units);
+  Value cartographer_program = Core::_context_map_cartographer_program();
+  Value cartographer_signature = Core::get(cartographer_program, Value("signature"), Value());
+  Value cartographer_options = Core::get(cartographer_program, Value("options"), Value());
+  Value cartographer_values = Value::object();
+  Core::set(cartographer_values, Value("task"), task);
+  Core::set(cartographer_values, Value("contextMap"), text);
+  Core::set(cartographer_values, Value("distillerReflection"), reflection);
+  Core::set(cartographer_values, Value("currentChars"), current_chars);
+  Core::set(cartographer_values, Value("maxChars"), max_chars);
+  Value cartographer_forward_options = Value::object();
+  Value cartographer_output = Core::agent_program_forward(cartographer_signature, cartographer_options, client, cartographer_values, cartographer_forward_options);
+  Value items_before = Core::_context_map_parse_items(text);
+  Value item_ids = Value::array();
+  for (auto item_before : Core::iter(items_before)) {
+    Value item_before_id = Core::get(item_before, Value("id"), Value());
+    Core::append(item_ids, item_before_id);
+  }
+  Value scores = Core::get(cm, Value("scores"), empty_map);
+  Value item_tags = Core::get(distiller_output, Value("itemTags"), Value());
+  Value next_scores = Core::_context_map_update_scores(scores, item_tags, item_ids);
+  Value raw_operations = Core::get(cartographer_output, Value("operations"), Value());
+  Value operations = Core::_context_map_normalize_operations(raw_operations);
+  Value applied = Core::_context_map_apply_operations(text, operations);
+  Value applied_text = Core::get(applied, Value("text"), text);
+  Value next_text = Core::_context_map_evict_to_budget(applied_text, next_scores, max_chars);
+  Value next_steps = Core::add(steps, Value(1));
+  Value updated = Core::map_merge(empty_map, cm);
+  Core::set(updated, Value("text"), next_text);
+  Core::set(updated, Value("scores"), next_scores);
+  Core::set(updated, Value("steps"), next_steps);
+  Core::map_delete(updated, Value("next_id"));
+  Core::set(state, Value("context_map"), updated);
   return state;
 }
 
@@ -40379,6 +40541,10 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
   }
   Core::set(state, Value("active_stage"), Value("distiller"));
   Core::_agent_mark_stage_action_log_start(state);
+  Core::set(state, Value("run_input_values"), values);
+  Value no_run_fact = Core::none();
+  Core::set(state, Value("executor_request"), no_run_fact);
+  Core::set(state, Value("executor_result"), no_run_fact);
   Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
   values = transcribed_values;
   Value runtime_input_names = Value::array();
@@ -40412,6 +40578,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
   if (Core::truthy(runtime_enabled)) {
     Value distiller_empty_log = Value::array();
     Value distiller_saved_action_log = Core::get(state, Value("action_log"), distiller_empty_log);
+    Core::_agent_restore_stage_actions(state, Value("distiller"));
     Value distiller_globals = Core::_agent_runtime_build_globals(state, values);
     Value distiller_session = Core::none();
     Value distiller_max_steps = Core::get(options, Value("max_actor_steps"), Value(4));
@@ -40434,6 +40601,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
       Core::set(distiller_request_event, Value("component_id"), Value("agent.stage.distiller"));
       Core::_agent_record_trace_event(state, Value("stage_request"), distiller_request_event);
       Value distiller_output = Core::_agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options);
+      Core::set(state, Value("restore_notice"), Value(""));
       Value distiller_response_event = Value::object();
       Core::set(distiller_response_event, Value("stage"), Value("distiller"));
       Core::set(distiller_response_event, Value("step"), distiller_step);
@@ -40474,6 +40642,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
       Value distiller_state_reset = Value::object();
       Core::set(state, Value("runtime_session_state"), distiller_state_reset);
     }
+    Core::_agent_save_stage_actions(state, Value("distiller"));
     Core::set(state, Value("action_log"), distiller_saved_action_log);
   }
   if (!Core::truthy(runtime_enabled)) {
@@ -40527,6 +40696,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
   if (Core::truthy(runtime_executor_enabled)) {
     Value exec_empty_map = Value::object();
     Value exec_empty_list = Value::array();
+    Core::_agent_restore_stage_actions(state, Value("executor"));
     Value exec_args = Core::get(distiller_payload, Value("args"), exec_empty_list);
     Value exec_non_ctx_split = Core::_split_context_values(state, values);
     Value exec_non_ctx = Core::get(exec_non_ctx_split, Value("values"), exec_empty_map);
@@ -40581,10 +40751,8 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
       Core::set(executor_request_event, Value("component_id"), Value("agent.stage.executor"));
       Core::_agent_record_trace_event(state, Value("stage_request"), executor_request_event);
       Value executor_output = Core::_agent_executor_stage_forward(state, executor, client, executor_values, executor_options);
-      if (Core::truthy(shared_notice_set)) {
-        Core::set(state, Value("restore_notice"), Value(""));
-        shared_notice_set = Value(false);
-      }
+      Core::set(state, Value("restore_notice"), Value(""));
+      shared_notice_set = Value(false);
       Value executor_response_event = Value::object();
       Core::set(executor_response_event, Value("stage"), Value("executor"));
       Core::set(executor_response_event, Value("step"), step);
@@ -40620,6 +40788,7 @@ Value Core::_agent_run_actor_stages(Value state, Value distiller, Value executor
       }
       step = Core::add(step, Value(1));
     }
+    Core::_agent_save_stage_actions(state, Value("executor"));
   }
   Value runtime_disabled = Core::not_(runtime_enabled);
   Value non_runtime_executor = Core::and_(run_executor, runtime_disabled);
@@ -41767,6 +41936,773 @@ Value Core::_agent_check_flat_function_namespace(Value mode, Value namespace_) {
     }
   }
   return Value();
+}
+
+Value Core::_agent_auto_promotion_decision(Value state, Value key, Value value) {
+  axir_coverage_mark("_agent_auto_promotion_decision");
+  Value empty_map = Value::object();
+  Value auto_upgrade = Core::get(state, Value("auto_upgrade"), Value());
+  Value auto_context = Core::get(auto_upgrade, Value("contextFields"), Value());
+  Value enabled = Core::get(auto_context, Value("enabled"), Value(false));
+  if (Core::truthy(enabled)) {
+    // empty
+  }
+  if (!Core::truthy(enabled)) {
+    return empty_map;
+  }
+  Value reserved = Core::_agent_reserved_auto_promotion_fields();
+  Value is_reserved = Core::contains(reserved, key);
+  if (Core::truthy(is_reserved)) {
+    return empty_map;
+  }
+  Value missing = Core::is_none(value);
+  if (Core::truthy(missing)) {
+    return empty_map;
+  }
+  Value promote_above = Core::get(auto_context, Value("promoteAboveChars"), Value(8000));
+  Value is_string = Core::type_is(value, Value("string"));
+  Value source = Value("");
+  Value size = Value(0);
+  if (Core::truthy(is_string)) {
+    Value units = Core::string_utf16_units(value);
+    size = Core::len(units);
+    source = value;
+  }
+  if (!Core::truthy(is_string)) {
+    Value stringified = Core::json_stringify(value);
+    Value stringified_units = Core::string_utf16_units(stringified);
+    size = Core::len(stringified_units);
+    source = stringified;
+  }
+  Value too_large = Core::gt(size, promote_above);
+  if (Core::truthy(too_large)) {
+    // empty
+  }
+  if (!Core::truthy(too_large)) {
+    return empty_map;
+  }
+  Value field = Core::_agent_signature_input_field(state, key);
+  Value known = Core::is_not_none(field);
+  Value accepts = Core::_agent_field_accepts_string_preview(field);
+  Value decision = Value::object();
+  Core::set(decision, Value("size"), size);
+  Core::set(decision, Value("source"), source);
+  Value string_preview = Core::and_(is_string, accepts);
+  if (Core::truthy(string_preview)) {
+    Core::set(decision, Value("mode"), Value("preview"));
+    return decision;
+  }
+  Value not_string = Core::not_(is_string);
+  Value json_preview = Core::and_(not_string, known);
+  json_preview = Core::and_(json_preview, accepts);
+  if (Core::truthy(json_preview)) {
+    Core::set(decision, Value("mode"), Value("stringifiedPreview"));
+    return decision;
+  }
+  Value optional = Core::get(field, Value("is_optional"), Value(false));
+  Value unknown = Core::not_(known);
+  Value omit = Core::or_(unknown, optional);
+  if (Core::truthy(omit)) {
+    Core::set(decision, Value("mode"), Value("omit"));
+    return decision;
+  }
+  return empty_map;
+}
+
+Value Core::_agent_signature_input_field(Value state, Value name) {
+  axir_coverage_mark("_agent_signature_input_field");
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value signature = Core::get(state, Value("signature"), empty_map);
+  Value inputs = Core::get(signature, Value("input_fields"), empty_list);
+  for (auto field : Core::iter(inputs)) {
+    Value field_name = Core::get(field, Value("name"), Value(""));
+    Value matches = Core::eq(field_name, name);
+    if (Core::truthy(matches)) {
+      return field;
+    }
+  }
+  return Value();
+}
+
+Value Core::_agent_field_accepts_string_preview(Value field) {
+  axir_coverage_mark("_agent_field_accepts_string_preview");
+  Value known = Core::is_not_none(field);
+  if (Core::truthy(known)) {
+    // empty
+  }
+  if (!Core::truthy(known)) {
+    return Value(false);
+  }
+  Value field_type = Core::get(field, Value("type"), Value());
+  Value typed = Core::is_not_none(field_type);
+  if (Core::truthy(typed)) {
+    // empty
+  }
+  if (!Core::truthy(typed)) {
+    return Value(true);
+  }
+  Value is_array = Core::get(field_type, Value("is_array"), Value(false));
+  if (Core::truthy(is_array)) {
+    return Value(false);
+  }
+  Value name = Core::get(field_type, Value("name"), Value(""));
+  Value accepted = Value::array();
+  Core::append(accepted, Value("string"));
+  Core::append(accepted, Value("code"));
+  Core::append(accepted, Value("class"));
+  Core::append(accepted, Value("json"));
+  Core::append(accepted, Value("date"));
+  Core::append(accepted, Value("datetime"));
+  Value accepts = Core::contains(accepted, name);
+  return accepts;
+}
+
+Value Core::_agent_truncate_preview(Value text, Value keep) {
+  axir_coverage_mark("_agent_truncate_preview");
+  Value units = Core::string_utf16_units(text);
+  Value total = Core::len(units);
+  Value fits = Core::lte(total, keep);
+  if (Core::truthy(fits)) {
+    return text;
+  }
+  Value prefix = Core::_agent_utf16_prefix(text, keep);
+  Value negative_keep = Core::mul(keep, Value(-1));
+  Value dropped = Core::add(total, negative_keep);
+  Value out = Core::string_format(Value("{}...[truncated {} chars]"), prefix, dropped);
+  return out;
+}
+
+Value Core::_agent_utf16_prefix(Value text, Value keep) {
+  axir_coverage_mark("_agent_utf16_prefix");
+  Value host_length = Core::len(text);
+  Value units = Core::string_utf16_units(text);
+  Value unit_count = Core::len(units);
+  Value one_unit_each = Core::eq(host_length, unit_count);
+  if (Core::truthy(one_unit_each)) {
+    Value fast = Core::string_slice(text, Value(0), keep);
+    return fast;
+  }
+  Value cursor = Value(0);
+  Value used = Value(0);
+  while (true) {
+    Value at_end = Core::gte(cursor, host_length);
+    if (Core::truthy(at_end)) {
+      break;
+    }
+    Value next = Core::add(cursor, Value(1));
+    Value ch = Core::string_slice(text, cursor, next);
+    Value ch_units = Core::string_utf16_units(ch);
+    Value ch_count = Core::len(ch_units);
+    Value after = Core::add(used, ch_count);
+    Value over = Core::gt(after, keep);
+    if (Core::truthy(over)) {
+      break;
+    }
+    used = after;
+    cursor = next;
+  }
+  Value prefix = Core::string_slice(text, Value(0), cursor);
+  return prefix;
+}
+
+Value Core::_agent_truncate_responder_values(Value state, Value values) {
+  axir_coverage_mark("_agent_truncate_responder_values");
+  Value empty_list = Value::array();
+  Value auto_upgrade = Core::get(state, Value("auto_upgrade"), Value());
+  Value auto_context = Core::get(auto_upgrade, Value("contextFields"), Value());
+  Value enabled = Core::get(auto_context, Value("enabled"), Value(false));
+  if (Core::truthy(enabled)) {
+    // empty
+  }
+  if (!Core::truthy(enabled)) {
+    return Value();
+  }
+  Value promote_above = Core::get(auto_context, Value("promoteAboveChars"), Value(8000));
+  Value preview_chars = Core::get(auto_context, Value("previewChars"), Value(1200));
+  Value reserved = Core::_agent_reserved_auto_promotion_fields();
+  Value context_fields = Core::get(state, Value("context_fields"), empty_list);
+  Value keys = Core::map_keys(values);
+  for (auto key : Core::iter(keys)) {
+    Value value = Core::get(values, key, Value());
+    Value is_string = Core::type_is(value, Value("string"));
+    Value is_reserved = Core::contains(reserved, key);
+    Value declared = Core::contains(context_fields, key);
+    Value skip = Core::or_(is_reserved, declared);
+    Value eligible = Core::not_(skip);
+    eligible = Core::and_(eligible, is_string);
+    if (Core::truthy(eligible)) {
+      Value units = Core::string_utf16_units(value);
+      Value length = Core::len(units);
+      Value too_long = Core::gt(length, promote_above);
+      Value field = Core::_agent_signature_input_field(state, key);
+      Value accepts = Core::_agent_field_accepts_string_preview(field);
+      Value truncate = Core::and_(too_long, accepts);
+      if (Core::truthy(truncate)) {
+        Value preview = Core::_agent_truncate_preview(value, preview_chars);
+        Core::set(values, key, preview);
+      }
+    }
+  }
+  return Value();
+}
+
+Value Core::_agent_restore_stage_actions(Value state, Value stage) {
+  axir_coverage_mark("_agent_restore_stage_actions");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value logs = Core::get(state, Value("stage_action_logs"), empty_map);
+  Value saved = Core::get(logs, stage, Value());
+  Value restored = Core::type_is(saved, Value("list"));
+  if (Core::truthy(restored)) {
+    // empty
+  }
+  if (!Core::truthy(restored)) {
+    return Value();
+  }
+  Value action_log = Core::get(state, Value("action_log"), empty_list);
+  for (auto entry : Core::iter(saved)) {
+    Core::append(action_log, entry);
+  }
+  Core::set(state, Value("action_log"), action_log);
+  Value policy = Core::get(state, Value("context_policy"), empty_map);
+  Value state_summary = Core::get(policy, Value("stateSummary"), empty_map);
+  Value live_state = Core::get(state_summary, Value("enabled"), Value(false));
+  Value lines = Value::array();
+  Core::append(lines, Value("Runtime Restore:"));
+  Core::append(lines, Value("- Runtime state was restored from a previous call."));
+  if (Core::truthy(live_state)) {
+    Core::append(lines, Value("- The liveRuntimeState field reflects the restored bindings."));
+  }
+  Core::append(lines, Value("- Continue from restored values unless recomputation is actually needed."));
+  Value notice = Core::string_join(Value("\n"), lines);
+  Core::set(state, Value("restore_notice"), notice);
+  return Value();
+}
+
+Value Core::_agent_save_stage_actions(Value state, Value stage) {
+  axir_coverage_mark("_agent_save_stage_actions");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value all_entries = Core::get(state, Value("action_log"), empty_list);
+  Value stage_start = Core::get(state, Value("stage_action_log_start"), Value(0));
+  Value entries = Value::array();
+  Value position = Value(0);
+  for (auto entry : Core::iter(all_entries)) {
+    Value entry_type = Core::get(entry, Value("type"), Value(""));
+    Value is_session_record = Core::eq(entry_type, Value("runtime_session"));
+    Value before_stage = Core::lt(position, stage_start);
+    Value hidden = Core::or_(is_session_record, before_stage);
+    if (Core::truthy(hidden)) {
+      // empty
+    }
+    if (!Core::truthy(hidden)) {
+      Core::append(entries, entry);
+    }
+    position = Core::add(position, Value(1));
+  }
+  Value logs = Core::get(state, Value("stage_action_logs"), empty_map);
+  Core::set(logs, stage, entries);
+  Core::set(state, Value("stage_action_logs"), logs);
+  return Value();
+}
+
+Value Core::_context_map_initial_text() {
+  axir_coverage_mark("_context_map_initial_text");
+  Value sections = Core::_context_map_sections();
+  Value blocks = Value::array();
+  for (auto section : Core::iter(sections)) {
+    Value title = Core::get(section, Value("title"), Value());
+    Value description = Core::get(section, Value("description"), Value());
+    Value block = Core::string_format(Value("## {}\n({})"), title, description);
+    Core::append(blocks, block);
+  }
+  Value joined = Core::string_join(Value("\n\n"), blocks);
+  Value out = Core::string_format(Value("{}\n"), joined);
+  return out;
+}
+
+Value Core::_context_map_normalize_text(Value text) {
+  axir_coverage_mark("_context_map_normalize_text");
+  Value raw = Value("");
+  Value is_text = Core::type_is(text, Value("string"));
+  if (Core::truthy(is_text)) {
+    raw = text;
+  }
+  Value trimmed = Core::string_trim(raw);
+  Value empty = Core::eq(trimmed, Value(""));
+  if (Core::truthy(empty)) {
+    Value initial = Core::_context_map_initial_text();
+    trimmed = Core::string_trim(initial);
+  }
+  Value out = Core::string_format(Value("{}\n"), trimmed);
+  return out;
+}
+
+Value Core::_context_map_section_for_name(Value name) {
+  axir_coverage_mark("_context_map_section_for_name");
+  Value is_text = Core::type_is(name, Value("string"));
+  if (Core::truthy(is_text)) {
+    // empty
+  }
+  if (!Core::truthy(is_text)) {
+    return Value();
+  }
+  Value lowered = Core::string_lower(name);
+  Value trimmed = Core::string_trim(lowered);
+  Value underscored = Core::regex_replace(Value("[\\s-]+"), Value("_"), trimmed);
+  Value normalized = Core::regex_replace(Value(":$"), Value(""), underscored);
+  Value sections = Core::_context_map_sections();
+  for (auto section : Core::iter(sections)) {
+    Value section_name = Core::get(section, Value("name"), Value());
+    Value matches = Core::eq(section_name, normalized);
+    if (Core::truthy(matches)) {
+      return section;
+    }
+  }
+  return Value();
+}
+
+Value Core::_context_map_item_match(Value line) {
+  axir_coverage_mark("_context_map_item_match");
+  Value stripped = Core::string_trim(line);
+  Value opens = Core::string_starts_with(stripped, Value("["));
+  if (Core::truthy(opens)) {
+    // empty
+  }
+  if (!Core::truthy(opens)) {
+    return Value();
+  }
+  Value close = Core::string_index_of(stripped, Value("]"), Value(0));
+  Value has_id = Core::gt(close, Value(1));
+  if (Core::truthy(has_id)) {
+    // empty
+  }
+  if (!Core::truthy(has_id)) {
+    return Value();
+  }
+  Value id = Core::string_slice(stripped, Value(1), close);
+  Value after = Core::add(close, Value(1));
+  Value length = Core::len(stripped);
+  Value rest = Core::string_slice(stripped, after, length);
+  Value content = Core::string_trim(rest);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("content"), content);
+  return out;
+}
+
+Value Core::_context_map_item_number(Value id) {
+  axir_coverage_mark("_context_map_item_number");
+  Value dash = Core::string_index_of(id, Value("-"), Value(0));
+  Value has_dash = Core::gte(dash, Value(0));
+  if (Core::truthy(has_dash)) {
+    // empty
+  }
+  if (!Core::truthy(has_dash)) {
+    return Value(-1);
+  }
+  Value tail = Core::regex_replace(Value("^.*-"), Value(""), id);
+  Value has_tail = Core::ne(tail, Value(""));
+  Value non_digits = Core::regex_replace(Value("^[0-9]+$"), Value(""), tail);
+  Value all_digits = Core::eq(non_digits, Value(""));
+  Value numeric = Core::and_(has_tail, all_digits);
+  if (Core::truthy(numeric)) {
+    // empty
+  }
+  if (!Core::truthy(numeric)) {
+    return Value(-1);
+  }
+  Value value = Value(0);
+  Value length = Core::len(tail);
+  Value cursor = Value(0);
+  while (true) {
+    Value done = Core::gte(cursor, length);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value next_cursor = Core::add(cursor, Value(1));
+    Value digit_char = Core::string_slice(tail, cursor, next_cursor);
+    Value digit = Core::string_index_of(Value("0123456789"), digit_char, Value(0));
+    Value shifted = Core::mul(value, Value(10));
+    value = Core::add(shifted, digit);
+    cursor = next_cursor;
+  }
+  return value;
+}
+
+Value Core::_context_map_item_age(Value id) {
+  axir_coverage_mark("_context_map_item_age");
+  Value number = Core::_context_map_item_number(id);
+  Value missing = Core::lt(number, Value(0));
+  if (Core::truthy(missing)) {
+    return Value(0);
+  }
+  return number;
+}
+
+Value Core::_context_map_next_item_number(Value items) {
+  axir_coverage_mark("_context_map_next_item_number");
+  Value max = Value(0);
+  for (auto item : Core::iter(items)) {
+    Value id = Core::get(item, Value("id"), Value(""));
+    Value number = Core::_context_map_item_number(id);
+    Value higher = Core::gt(number, max);
+    if (Core::truthy(higher)) {
+      max = number;
+    }
+  }
+  Value next = Core::add(max, Value(1));
+  return next;
+}
+
+Value Core::_context_map_pad_number(Value number) {
+  axir_coverage_mark("_context_map_pad_number");
+  Value text = Core::string_str(number);
+  while (true) {
+    Value length = Core::len(text);
+    Value too_short = Core::lt(length, Value(5));
+    if (Core::truthy(too_short)) {
+      // empty
+    }
+    if (!Core::truthy(too_short)) {
+      break;
+    }
+    text = Core::string_format(Value("0{}"), text);
+  }
+  return text;
+}
+
+Value Core::_context_map_flush_adds(Value out, Value pending, Value section) {
+  axir_coverage_mark("_context_map_flush_adds");
+  Value rest = Value::array();
+  Value result = Value::object();
+  Value none = Core::eq(section, Value(""));
+  if (Core::truthy(none)) {
+    Core::set(result, Value("out"), out);
+    Core::set(result, Value("pending"), pending);
+    return result;
+  }
+  for (auto add : Core::iter(pending)) {
+    Value add_section = Core::get(add, Value("section"), Value(""));
+    Value matches = Core::eq(add_section, section);
+    if (Core::truthy(matches)) {
+      Value add_line = Core::get(add, Value("line"), Value(""));
+      Core::append(out, add_line);
+    }
+    if (!Core::truthy(matches)) {
+      Core::append(rest, add);
+    }
+  }
+  Core::set(result, Value("out"), out);
+  Core::set(result, Value("pending"), rest);
+  return result;
+}
+
+Value Core::_context_map_collapse_blank_lines(Value text) {
+  axir_coverage_mark("_context_map_collapse_blank_lines");
+  Value out = Value::array();
+  Value lines = Core::string_split(text, Value("\n"));
+  for (auto line : Core::iter(lines)) {
+    Value trimmed_line = Core::string_trim(line);
+    Value blank = Core::eq(trimmed_line, Value(""));
+    Value count = Core::len(out);
+    Value has_prior = Core::gt(count, Value(0));
+    Value prior_empty = Value(false);
+    if (Core::truthy(has_prior)) {
+      Value last_index = Core::add(count, Value(-1));
+      Value prior = Core::list_get(out, last_index, Value(""));
+      prior_empty = Core::eq(prior, Value(""));
+    }
+    Value skip = Core::and_(blank, prior_empty);
+    if (Core::truthy(skip)) {
+      // empty
+    }
+    if (!Core::truthy(skip)) {
+      Core::append(out, line);
+    }
+  }
+  Value joined = Core::string_join(Value("\n"), out);
+  Value trimmed = Core::string_trim(joined);
+  Value result = Core::string_format(Value("{}\n"), trimmed);
+  return result;
+}
+
+Value Core::_context_map_remove_items(Value text, Value item_ids) {
+  axir_coverage_mark("_context_map_remove_items");
+  Value kept = Value::array();
+  Value lines = Core::string_split(text, Value("\n"));
+  for (auto line : Core::iter(lines)) {
+    Value keep = Value(true);
+    Value match = Core::_context_map_item_match(line);
+    Value is_item = Core::is_not_none(match);
+    if (Core::truthy(is_item)) {
+      Value id = Core::get(match, Value("id"), Value(""));
+      Value removed = Core::contains(item_ids, id);
+      if (Core::truthy(removed)) {
+        keep = Value(false);
+      }
+    }
+    if (Core::truthy(keep)) {
+      Core::append(kept, line);
+    }
+  }
+  Value joined = Core::string_join(Value("\n"), kept);
+  Value out = Core::_context_map_collapse_blank_lines(joined);
+  return out;
+}
+
+Value Core::_context_map_normalize_operations(Value input) {
+  axir_coverage_mark("_context_map_normalize_operations");
+  Value out = Value::array();
+  Value is_list = Core::type_is(input, Value("list"));
+  if (Core::truthy(is_list)) {
+    // empty
+  }
+  if (!Core::truthy(is_list)) {
+    return out;
+  }
+  for (auto raw : Core::iter(input)) {
+    Value is_object = Core::type_is(raw, Value("object"));
+    if (Core::truthy(is_object)) {
+      Value raw_type = Core::get(raw, Value("type"), Value());
+      Value type_is_text = Core::type_is(raw_type, Value("string"));
+      Value op_type = Value("");
+      if (Core::truthy(type_is_text)) {
+        Value type_trimmed = Core::string_trim(raw_type);
+        op_type = Core::string_lower(type_trimmed);
+      }
+      Value raw_content = Core::get(raw, Value("content"), Value());
+      Value content_is_text = Core::type_is(raw_content, Value("string"));
+      Value content = Value("");
+      if (Core::truthy(content_is_text)) {
+        content = Core::string_trim(raw_content);
+      }
+      Value has_content = Core::ne(content, Value(""));
+      Value camel_id = Core::get(raw, Value("itemId"), Value());
+      Value snake_id = Core::get(raw, Value("item_id"), Value());
+      Value camel_is_text = Core::type_is(camel_id, Value("string"));
+      Value snake_is_text = Core::type_is(snake_id, Value("string"));
+      Value item_id = Value("");
+      if (Core::truthy(snake_is_text)) {
+        item_id = Core::string_trim(snake_id);
+      }
+      if (Core::truthy(camel_is_text)) {
+        item_id = Core::string_trim(camel_id);
+      }
+      Value has_item_id = Core::ne(item_id, Value(""));
+      Value is_add = Core::eq(op_type, Value("add"));
+      Value is_delete = Core::eq(op_type, Value("delete"));
+      Value is_replace = Core::eq(op_type, Value("replace"));
+      if (Core::truthy(is_add)) {
+        Value raw_section = Core::get(raw, Value("section"), Value(""));
+        Value section = Core::_context_map_section_for_name(raw_section);
+        Value known_section = Core::is_not_none(section);
+        Value add_ok = Core::and_(known_section, has_content);
+        if (Core::truthy(add_ok)) {
+          Value section_name = Core::get(section, Value("name"), Value());
+          Value add = Value::object();
+          Core::set(add, Value("type"), Value("ADD"));
+          Core::set(add, Value("section"), section_name);
+          Core::set(add, Value("content"), content);
+          Core::append(out, add);
+        }
+      }
+      if (Core::truthy(is_delete)) {
+        if (Core::truthy(has_item_id)) {
+          Value delete_op = Value::object();
+          Core::set(delete_op, Value("type"), Value("DELETE"));
+          Core::set(delete_op, Value("itemId"), item_id);
+          Core::append(out, delete_op);
+        }
+      }
+      if (Core::truthy(is_replace)) {
+        Value replace_ok = Core::and_(has_item_id, has_content);
+        if (Core::truthy(replace_ok)) {
+          Value replace = Value::object();
+          Core::set(replace, Value("type"), Value("REPLACE"));
+          Core::set(replace, Value("itemId"), item_id);
+          Core::set(replace, Value("content"), content);
+          Core::append(out, replace);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+Value Core::_context_map_summarize_value(Value value, Value depth) {
+  axir_coverage_mark("_context_map_summarize_value");
+  Value is_text = Core::type_is(value, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value units = Core::string_utf16_units(value);
+    Value length = Core::len(units);
+    Value fits_whole = Core::lte(length, Value(1000));
+    if (Core::truthy(fits_whole)) {
+      return value;
+    }
+    Value head = Core::_agent_utf16_prefix(value, Value(700));
+    Value tail = Core::_context_map_utf16_suffix(value, Value(200));
+    Value omitted = Core::add(length, Value(-900));
+    Value summary = Core::string_format(Value("{}\n...[{} chars omitted]...\n{}"), head, omitted, tail);
+    return summary;
+  }
+  Value next_depth = Core::add(depth, Value(1));
+  Value deep = Core::gte(depth, Value(2));
+  Value is_list = Core::type_is(value, Value("list"));
+  if (Core::truthy(is_list)) {
+    Value count = Core::len(value);
+    if (Core::truthy(deep)) {
+      Value array_label = Core::string_format(Value("[Array({})]"), count);
+      return array_label;
+    }
+    Value head_items = Value::array();
+    Value index = Value(0);
+    for (auto item : Core::iter(value)) {
+      Value within = Core::lt(index, Value(5));
+      if (Core::truthy(within)) {
+        Value summarized_item = Core::_context_map_summarize_value(item, next_depth);
+        Core::append(head_items, summarized_item);
+      }
+      index = Core::add(index, Value(1));
+    }
+    Value more = Core::gt(count, Value(5));
+    if (Core::truthy(more)) {
+      Value extra = Core::add(count, Value(-5));
+      Value more_label = Core::string_format(Value("[{} more items]"), extra);
+      Core::append(head_items, more_label);
+    }
+    return head_items;
+  }
+  Value is_object = Core::type_is(value, Value("object"));
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(deep)) {
+      return Value("[Object]");
+    }
+    Value out = Value::object();
+    for (auto key : Core::iter(value)) {
+      Value entry = Core::get(value, key, Value());
+      Value summarized_entry = Core::_context_map_summarize_value(entry, next_depth);
+      Core::set(out, key, summarized_entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+Value Core::_context_map_utf16_suffix(Value text, Value keep) {
+  axir_coverage_mark("_context_map_utf16_suffix");
+  Value host_length = Core::len(text);
+  Value units = Core::string_utf16_units(text);
+  Value unit_count = Core::len(units);
+  Value one_unit_each = Core::eq(host_length, unit_count);
+  if (Core::truthy(one_unit_each)) {
+    Value negative_keep = Core::mul(keep, Value(-1));
+    Value start = Core::add(host_length, negative_keep);
+    Value clamped = start;
+    Value below = Core::lt(start, Value(0));
+    if (Core::truthy(below)) {
+      clamped = Value(0);
+    }
+    Value fast = Core::string_slice(text, clamped, host_length);
+    return fast;
+  }
+  Value cursor = host_length;
+  Value used = Value(0);
+  while (true) {
+    Value at_start = Core::lte(cursor, Value(0));
+    if (Core::truthy(at_start)) {
+      break;
+    }
+    Value before = Core::add(cursor, Value(-1));
+    Value ch = Core::string_slice(text, before, cursor);
+    Value ch_units = Core::string_utf16_units(ch);
+    Value ch_count = Core::len(ch_units);
+    Value after = Core::add(used, ch_count);
+    Value over = Core::gt(after, keep);
+    if (Core::truthy(over)) {
+      break;
+    }
+    used = after;
+    cursor = before;
+  }
+  Value suffix = Core::string_slice(text, cursor, host_length);
+  return suffix;
+}
+
+Value Core::_context_map_stage_log_text(Value state, Value stage) {
+  axir_coverage_mark("_context_map_stage_log_text");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value logs = Core::get(state, Value("stage_action_logs"), empty_map);
+  Value entries = Core::get(logs, stage, empty_list);
+  Value parts = Value::array();
+  for (auto entry : Core::iter(entries)) {
+    Value rendered = Core::_agent_render_full_action_entry(state, entry);
+    Core::append(parts, rendered);
+  }
+  Value joined = Core::string_join(Value("\n\n"), parts);
+  Value trimmed = Core::string_trim(joined);
+  Value empty = Core::eq(trimmed, Value(""));
+  if (Core::truthy(empty)) {
+    return Value("(none)");
+  }
+  return trimmed;
+}
+
+Value Core::_context_map_distiller_program() {
+  axir_coverage_mark("_context_map_distiller_program");
+  Value program = Value::object();
+  Core::set(program, Value("signature"), Value("task:string \"The user task that was completed.\", contextMap:string \"The current context map.\", trajectory:string \"The agent trajectory and final result.\" -> diagnosis?:string \"Brief note about what reusable context was found.\", itemTags?:json \"Object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\", cacheCandidates?:json \"Array of compact candidate objects with section, value, transferability, and rationale.\""));
+  Value options = Value::object();
+  Core::set(options, Value("id"), Value("agent.context_map.distiller"));
+  Core::set(options, Value("instruction"), Value("You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nSeparate the run into two kinds of work:\n- Orientation work: learning what the context contains, how it is organized, which entities or concepts matter, which schemas/constants govern the data, and which processing results transfer across future questions.\n- Question-specific work: locating the one passage, quote, record, or calculation needed only for this task.\n\nCache only orientation work. Use this litmus test for every candidate: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nPrefer compact abstractions over raw excerpts, but preserve exact constants when the context defines them: numeric thresholds, formulas, enum sets, field names, output requirements, reference values, and parsing rules.\n\nDo not cache advisory rules, behavioral instructions, raw dumps, verbose copied passages, naive one-off counts, or answers to the current task.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work, including what transferable understanding was gained or reused.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale. Each candidate must be compact and must explain why it is shared context understanding rather than a one-off answer."));
+  Core::set(program, Value("options"), options);
+  return program;
+}
+
+Value Core::_context_map_cartographer_program() {
+  axir_coverage_mark("_context_map_cartographer_program");
+  Value program = Value::object();
+  Core::set(program, Value("signature"), Value("task:string \"The user task that was completed.\", contextMap:string \"The current context map.\", distillerReflection:string \"The Distiller diagnosis, item tags, and cache candidates.\", currentChars:number \"Current context-map character count.\", maxChars:number \"Maximum context-map character budget.\" -> operations?:json \"Array of ADD, DELETE, or REPLACE operations to apply to the context map. Use item_id for DELETE and REPLACE item IDs.\""));
+  Value options = Value::object();
+  Core::set(options, Value("id"), Value("agent.context_map.cartographer"));
+  Core::set(options, Value("instruction"), Value("You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nUse this shared-understanding litmus test for every edit: would a future agent asking a completely different question about this same context benefit from this item?\n\nValue priority, highest to lowest:\n1. Context understanding: key entities, concepts, roles, relationships, data categories, and global summaries that orient the agent.\n2. Domain constants: exact thresholds, rates, formulas, conversion factors, enum sets, required field names, output schemas, and reference values. Keep these precise.\n3. Context roadmap: document, section, table, or repository layout and where different topics can be found.\n4. Reusable results: derived aggregates, classifications, inventories, or computations that multiple questions can reuse, with enough method detail to judge reliability.\n5. Parsing schema: delimiters, record boundaries, field formats, extraction patterns, and navigation conventions.\n6. Error patterns: concrete failure modes observed while processing the context.\n\nCharacter budget triage: when the map is near or over budget, remove or rewrite low-value entries first: one-off facts, error patterns, parsing schema, roadmap items, reusable results, then protect domain constants and context understanding as much as possible.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding.\n\nDo not add raw data dumps, long excerpts, behavioral instructions, policy reminders, one-off answers, or facts that only resolve the latest task. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-00001\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-00001\",\"content\":\"...\"}"));
+  Core::set(program, Value("options"), options);
+  return program;
+}
+
+Value Core::_agent_ordered_completion_payload(Value payload) {
+  axir_coverage_mark("_agent_ordered_completion_payload");
+  Value is_object = Core::type_is(payload, Value("object"));
+  if (Core::truthy(is_object)) {
+    // empty
+  }
+  if (!Core::truthy(is_object)) {
+    return payload;
+  }
+  Value out = Value::object();
+  Value has_type = Core::map_contains(payload, Value("type"));
+  if (Core::truthy(has_type)) {
+    Value type = Core::get(payload, Value("type"), Value());
+    Core::set(out, Value("type"), type);
+  }
+  Value has_args = Core::map_contains(payload, Value("args"));
+  if (Core::truthy(has_args)) {
+    Value args = Core::get(payload, Value("args"), Value());
+    Core::set(out, Value("args"), args);
+  }
+  for (auto key : Core::iter(payload)) {
+    Value seen = Core::map_contains(out, key);
+    if (Core::truthy(seen)) {
+      // empty
+    }
+    if (!Core::truthy(seen)) {
+      Value value = Core::get(payload, key, Value());
+      Core::set(out, key, value);
+    }
+  }
+  return out;
 }
 
 Value Core::_flow_factory(Value options) {

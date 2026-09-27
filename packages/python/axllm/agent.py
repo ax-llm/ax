@@ -2634,6 +2634,13 @@ def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options)
 
 
+def _core_agent_program_forward(signature, program_options, client, values, options):
+    # A one-off AxGen (the context map's distiller and cartographer),
+    # forwarded like an agent stage.
+    program = AxGen(signature, dict(program_options or {}))
+    return program.forward(client, dict(values or {}), dict(options or {}))
+
+
 def _core_agent_stage_chat_log(stage):
     if hasattr(stage, "get_chat_log"):
         return stage.get_chat_log()
@@ -2989,8 +2996,9 @@ def _agent_factory(signature: Any, options: Any) -> Any:
             cm_initial["text"] = cm_map_value
         else:
             pass
-        cm_text = _core_get(cm_initial, "text", "")
-        cm_initial["text"] = cm_text
+        cm_text = _core_get(cm_initial, "text", None)
+        cm_normalized_text = _context_map_normalize_text(cm_text)
+        cm_initial["text"] = cm_normalized_text
         cm_steps = _core_get(cm_initial, "steps", 0)
         cm_initial["steps"] = cm_steps
         cm_empty_scores = {}
@@ -3005,9 +3013,7 @@ def _agent_factory(signature: Any, options: Any) -> Any:
         cm_cfg_steps = _core_get(context_map_config, "evolveSteps", 0)
         cm_evolve_steps = _core_get(cm_initial, "evolveSteps", cm_cfg_steps)
         cm_initial["evolveSteps"] = cm_evolve_steps
-        cm_cfg_next = _core_get(context_map_config, "next_id", 1)
-        cm_next = _core_get(cm_initial, "next_id", cm_cfg_next)
-        cm_initial["next_id"] = cm_next
+        _core_map_delete(cm_initial, "next_id")
         state["context_map"] = cm_initial
     else:
         pass
@@ -4724,51 +4730,12 @@ def _agent_eval_marks(state: Any) -> Any:
     marks = {}
     marks["action_log"] = log_count
     marks["function_call_traces"] = trace_count
-    return marks
-
-
-def _agent_eval_function_calls(traces: Any) -> Any:
-    _core_coverage_mark("_agent_eval_function_calls")
-    calls = []
     empty_map = {}
-    for trace in traces:
-        qualified = _core_get(trace, "qualified_name", "")
-        name = _core_get(trace, "name", "")
-        name_missing = _core_eq(name, "")
-        name_qualified = _core_eq(name, qualified)
-        derive_name = _core_or(name_missing, name_qualified)
-        if derive_name:
-            name_parts = _core_string_split(qualified, ".")
-            for name_part in name_parts:
-                name = name_part
-        else:
-            pass
-        arguments = _core_get(trace, "arguments", None)
-        result = _core_get(trace, "result", empty_map)
-        result_is_map = _core_type_is(result, "object")
-        if result_is_map:
-            pass
-        else:
-            result = empty_map
-        status = _core_get(trace, "status", "ok")
-        call = {}
-        call["qualifiedName"] = qualified
-        call["name"] = name
-        call["arguments"] = arguments
-        failed = _core_eq(status, "error")
-        if failed:
-            error = _core_get(result, "error", "unknown error")
-            error_text = _core_string_str(error)
-            call["error"] = error_text
-        else:
-            value = _core_get(result, "value", None)
-            has_value = _core_is_not_none(value)
-            if has_value:
-                call["result"] = value
-            else:
-                pass
-        calls.append(call)
-    return calls
+    stage_logs = _core_get(state, "stage_action_logs", empty_map)
+    marks["stage_action_logs"] = stage_logs
+    fresh_stage_logs = {}
+    state["stage_action_logs"] = fresh_stage_logs
+    return marks
 
 
 def _resolve_agent_executor_model_policy(options: Any) -> Any:
@@ -4891,9 +4858,56 @@ def _resolve_agent_executor_model_policy(options: Any) -> Any:
     return out
 
 
+def _agent_eval_function_calls(traces: Any) -> Any:
+    _core_coverage_mark("_agent_eval_function_calls")
+    calls = []
+    empty_map = {}
+    for trace in traces:
+        qualified = _core_get(trace, "qualified_name", "")
+        name = _core_get(trace, "name", "")
+        name_missing = _core_eq(name, "")
+        name_qualified = _core_eq(name, qualified)
+        derive_name = _core_or(name_missing, name_qualified)
+        if derive_name:
+            name_parts = _core_string_split(qualified, ".")
+            for name_part in name_parts:
+                name = name_part
+        else:
+            pass
+        arguments = _core_get(trace, "arguments", None)
+        result = _core_get(trace, "result", empty_map)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            pass
+        else:
+            result = empty_map
+        status = _core_get(trace, "status", "ok")
+        call = {}
+        call["qualifiedName"] = qualified
+        call["name"] = name
+        call["arguments"] = arguments
+        failed = _core_eq(status, "error")
+        if failed:
+            error = _core_get(result, "error", "unknown error")
+            error_text = _core_string_str(error)
+            call["error"] = error_text
+        else:
+            value = _core_get(result, "value", None)
+            has_value = _core_is_not_none(value)
+            if has_value:
+                call["result"] = value
+            else:
+                pass
+        calls.append(call)
+    return calls
+
+
 def _agent_eval_run(state: Any, marks: Any) -> Any:
     _core_coverage_mark("_agent_eval_run")
     empty_list = []
+    empty_map = {}
+    saved_stage_logs = _core_get(marks, "stage_action_logs", empty_map)
+    state["stage_action_logs"] = saved_stage_logs
     log = _core_get(state, "action_log", empty_list)
     traces = _core_get(state, "function_call_traces", empty_list)
     log_start = _core_get(marks, "action_log", 0)
@@ -5408,13 +5422,14 @@ def _agent_render_full_action_entry(state: Any, entry: Any) -> str:
         pass
     code = _core_get(entry, "code", "")
     output = _core_get(entry, "output", "")
-    kind = _core_get(entry, "kind", "")
-    is_final_action = _core_eq(kind, "final")
-    if is_final_action:
-        code = "// final() completed; evidence omitted from actor prompt"
+    full_is_error = _core_get(entry, "is_error", False)
+    no_output = _core_eq(output, "")
+    not_error = _core_not(full_is_error)
+    show_no_output = _core_and(no_output, not_error)
+    if show_no_output:
+        output = "(no output)"
     else:
         pass
-    full_is_error = _core_get(entry, "is_error", False)
     if full_is_error:
         full_error = _core_get(entry, "error", "")
         full_err_text = _core_string_format("[runtime error] {}", full_error)
@@ -8420,6 +8435,17 @@ def _agent_restore_runtime_state(state: Any, snapshot: Any) -> Any:
     context_events = _core_get(snapshot, "context_events", empty_list)
     checkpoint_state = _core_get(snapshot, "checkpoint_state", None)
     context_map = _core_get(snapshot, "context_map", None)
+    restored_map_is_object = _core_type_is(context_map, "object")
+    if restored_map_is_object:
+        restored_map_empty = {}
+        restored_map = _core_map_merge(restored_map_empty, context_map)
+        restored_map_text = _core_get(restored_map, "text", None)
+        restored_map_normalized = _context_map_normalize_text(restored_map_text)
+        restored_map["text"] = restored_map_normalized
+        _core_map_delete(restored_map, "next_id")
+        context_map = restored_map
+    else:
+        pass
     runtime_state_summary = _core_get(snapshot, "runtime_state_summary", "")
     actor_model_state = _core_get(snapshot, "actor_model_state", empty_map)
     provenance = _core_get(snapshot, "provenance", empty_map)
@@ -9786,26 +9812,25 @@ def _split_context_values(state: Any, values: Any) -> Any:
             not_reserved = _core_not(is_reserved)
             can_auto = _core_and(auto_enabled, not_reserved)
             if can_auto:
-                value_text = _core_json_stringify(value)
-                value_len = _core_len(value_text)
-                too_large = _core_gt(value_len, promote_above)
-                if too_large:
+                decision = _agent_auto_promotion_decision(state, key, value)
+                mode = _core_get(decision, "mode", "")
+                decided = _core_ne(mode, "")
+                if decided:
                     promoted = True
                     ctx_values[key] = value
-                    is_string = _core_type_is(value, "string")
-                    preview_source = value_text
-                    if is_string:
-                        preview_source = value
-                    else:
-                        pass
-                    preview = _core_string_slice(preview_source, 0, preview_chars)
-                    preview_value = _core_string_format("[runtime-only context: {} chars available as inputs.{}; preview]\n{}", value_len, key, preview)
-                    non_ctx_values[key] = preview_value
+                    size = _core_get(decision, "size", 0)
                     event = {}
                     event["kind"] = "field_auto_promoted"
                     event["fieldName"] = key
-                    event["originalChars"] = value_len
-                    event["promptPreviewChars"] = preview_chars
+                    event["originalChars"] = size
+                    omitted = _core_eq(mode, "omit")
+                    if omitted:
+                        pass
+                    else:
+                        preview_source = _core_get(decision, "source", "")
+                        preview_value = _agent_truncate_preview(preview_source, preview_chars)
+                        non_ctx_values[key] = preview_value
+                        event["promptPreviewChars"] = preview_chars
                     events = _core_get(state, "context_events", empty_list)
                     events.append(event)
                     state["context_events"] = events
@@ -9859,9 +9884,12 @@ def _agent_render_context_metadata(state: Any, context: Any) -> str:
             pass
         mode = "runtime-only"
         declared = _core_contains(context_fields, ck)
-        if declared:
-            pass
-        else:
+        promotion = _agent_auto_promotion_decision(state, ck, cv)
+        promotion_mode = _core_get(promotion, "mode", "omit")
+        previewed = _core_ne(promotion_mode, "omit")
+        not_declared = _core_not(declared)
+        inline_preview = _core_and(not_declared, previewed)
+        if inline_preview:
             if is_string:
                 fits = _core_lte(length, preview_chars)
                 if fits:
@@ -9870,6 +9898,8 @@ def _agent_render_context_metadata(state: Any, context: Any) -> str:
                     mode = _core_string_format("inline-truncated(first {} chars of {})", preview_chars, length)
             else:
                 mode = _core_string_format("inline-truncated stringified(first {} chars)", preview_chars)
+        else:
+            pass
         line = _core_string_format("- {}: type={}, size={}, prompt={}", ck, value_type, size, mode)
         shape_keys = []
         shape_label = ""
@@ -9973,6 +10003,7 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
         executor_request = executor_request_coerced
     distilled_context = _core_list_get(args, 1, empty_map)
     distilled_context_summary = _agent_render_evidence_descriptor(distilled_context)
+    state["executor_request"] = executor_request
     executor_runtime_enabled = _core_get(state, "runtime_enabled", False)
     if executor_runtime_enabled:
         rlm_values = _agent_rlm_executor_values(state, non_ctx, context, executor_request, distilled_context_summary)
@@ -10042,6 +10073,9 @@ def _build_responder_inputs(state: Any, values: Any, executor_payload: Any) -> A
     non_ctx = _core_get(split, "values", empty_map)
     empty = {}
     out = _core_map_merge(values, empty)
+    _agent_truncate_responder_values(state, out)
+    ordered_payload = _agent_ordered_completion_payload(executor_payload)
+    state["executor_result"] = ordered_payload
     args = _core_get(executor_payload, "args", empty_list)
     task = _core_list_get(args, 0, "")
     context = _core_list_get(args, 1, empty_map)
@@ -11341,70 +11375,76 @@ def _context_map_sections() -> Any:
     s1["name"] = "context_roadmap"
     s1["title"] = "CONTEXT ROADMAP"
     s1["slug"] = "cr"
+    s1["description"] = "Index of what the context contains and where to find it."
     sections.append(s1)
     s2 = {}
     s2["name"] = "context_understanding"
     s2["title"] = "CONTEXT UNDERSTANDING"
     s2["slug"] = "cu"
+    s2["description"] = "High-level understanding of the context: what it is, how it's organized, and what matters."
     sections.append(s2)
     s3 = {}
     s3["name"] = "domain_constants"
     s3["title"] = "DOMAIN CONSTANTS"
     s3["slug"] = "dc"
+    s3["description"] = "Exact parameters, formulas, thresholds, reference values, enum sets, and output field requirements defined by the context."
     sections.append(s3)
     s4 = {}
     s4["name"] = "parsing_schema"
     s4["title"] = "PARSING SCHEMA"
     s4["slug"] = "ps"
+    s4["description"] = "How to parse and navigate the context's format."
     sections.append(s4)
     s5 = {}
     s5["name"] = "reusable_results"
     s5["title"] = "REUSABLE RESULTS"
     s5["slug"] = "rr"
+    s5["description"] = "Reusable knowledge about the context."
     sections.append(s5)
     s6 = {}
     s6["name"] = "error_patterns"
     s6["title"] = "ERROR PATTERNS"
     s6["slug"] = "ep"
+    s6["description"] = "Concrete failure modes observed while processing this context."
     sections.append(s6)
     return sections
 
 
 def _context_map_parse_items(text: Any) -> Any:
     _core_coverage_mark("_context_map_parse_items")
-    sections = _context_map_sections()
     items = []
-    lines = _core_string_split_trim_nonempty(text, "\n")
-    current = "context_understanding"
+    is_text = _core_type_is(text, "string")
+    if is_text:
+        pass
+    else:
+        return items
+    section = "context_understanding"
+    lines = _core_string_split(text, "\n")
     for line in lines:
-        is_header = _core_string_starts_with(line, "##")
+        stripped = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        is_header = _core_string_starts_with(stripped, "##")
         if is_header:
-            title_raw = _core_string_replace(line, "#", "")
-            title = str(title_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-            for sec in sections:
-                sec_title = _core_get(sec, "title", None)
-                match = _core_eq(sec_title, title)
-                if match:
-                    sec_name = _core_get(sec, "name", None)
-                    current = sec_name
-                else:
-                    pass
+            header_raw = _core_regex_replace("^#+", "", stripped)
+            header = str(header_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            matched = _context_map_section_for_name(header)
+            known = _core_is_not_none(matched)
+            if known:
+                section = _core_get(matched, "name", section)
+            else:
+                pass
         else:
-            is_item = _core_string_starts_with(line, "[")
+            match = _context_map_item_match(line)
+            is_item = _core_is_not_none(match)
             if is_item:
-                parts = _core_string_split_once(line, "]")
-                left = _core_get(parts, "left", "")
-                right = _core_get(parts, "right", "")
-                id_raw = _core_string_replace(left, "[", "")
-                id = str(id_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                content = str(right).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                id_ok = _core_ne(id, "")
-                content_ok = _core_ne(content, "")
-                valid = _core_and(id_ok, content_ok)
+                id = _core_get(match, "id", "")
+                content = _core_get(match, "content", "")
+                has_id = _core_ne(id, "")
+                has_content = _core_ne(content, "")
+                valid = _core_and(has_id, has_content)
                 if valid:
                     item = {}
                     item["id"] = id
-                    item["section"] = current
+                    item["section"] = section
                     item["content"] = content
                     items.append(item)
                 else:
@@ -11414,204 +11454,276 @@ def _context_map_parse_items(text: Any) -> Any:
     return items
 
 
-def _context_map_render_items(items: Any) -> Any:
-    _core_coverage_mark("_context_map_render_items")
-    sections = _context_map_sections()
-    parts = []
-    for sec in sections:
-        sec_name = _core_get(sec, "name", None)
-        sec_title = _core_get(sec, "title", None)
-        header = _core_string_format("## {}", sec_title)
-        parts.append(header)
-        for item in items:
-            item_sec = _core_get(item, "section", None)
-            in_sec = _core_eq(item_sec, sec_name)
-            if in_sec:
-                id = _core_get(item, "id", None)
-                content = _core_get(item, "content", None)
-                line = _core_string_format("[{}] {}", id, content)
-                parts.append(line)
-            else:
-                pass
-    text = _core_string_join("\n", parts)
-    return text
-
-
-def _context_map_update_scores(scores: Any, item_tags: Any) -> Any:
+def _context_map_update_scores(scores: Any, tags: Any, item_ids: Any) -> Any:
     _core_coverage_mark("_context_map_update_scores")
     empty_map = {}
-    out = _core_map_merge(empty_map, scores)
-    is_obj = _core_type_is(item_tags, "object")
-    if is_obj:
-        for id in item_tags:
-            tag = _core_get(item_tags, id, None)
-            cur = _core_get(out, id, 0)
-            is_helpful = _core_eq(tag, "helpful")
-            if is_helpful:
-                up = _core_add(cur, 1)
-                out[id] = up
-            else:
-                pass
-            is_harmful = _core_eq(tag, "harmful")
-            if is_harmful:
-                down = _core_add(cur, -1)
-                out[id] = down
-            else:
-                pass
-            is_stale = _core_eq(tag, "stale")
-            if is_stale:
-                down2 = _core_add(cur, -1)
-                out[id] = down2
-            else:
-                pass
-    else:
+    next = _core_map_merge(empty_map, scores)
+    has_tags = _core_type_is(tags, "object")
+    if has_tags:
         pass
-    return out
+    else:
+        return next
+    for item_id in tags:
+        existing = _core_contains(item_ids, item_id)
+        tag = _core_get(tags, item_id, None)
+        is_text = _core_type_is(tag, "string")
+        applies = _core_and(existing, is_text)
+        if applies:
+            tag_trimmed = str(tag).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            normalized = _core_string_lower(tag_trimmed)
+            current = _core_get(next, item_id, 0)
+            helpful = _core_eq(normalized, "helpful")
+            harmful = _core_eq(normalized, "harmful")
+            stale = _core_eq(normalized, "stale")
+            neutral = _core_eq(normalized, "neutral")
+            lowered = _core_or(harmful, stale)
+            if helpful:
+                raised_score = _core_add(current, 1)
+                next[item_id] = raised_score
+            else:
+                pass
+            if lowered:
+                lowered_score = _core_add(current, -1)
+                next[item_id] = lowered_score
+            else:
+                pass
+            if neutral:
+                next[item_id] = current
+            else:
+                pass
+        else:
+            pass
+    return next
 
 
-def _context_map_apply_operations(items: Any, operations: Any, next_id: Any) -> Any:
+def _context_map_apply_operations(text: Any, operations: Any) -> Any:
     _core_coverage_mark("_context_map_apply_operations")
-    sections = _context_map_sections()
-    deletes = {}
-    replaces = {}
-    raw_adds = []
-    is_list = _core_type_is(operations, "list")
-    if is_list:
-        for op in operations:
-            type = _core_get(op, "type", "")
-            is_delete = _core_eq(type, "DELETE")
-            if is_delete:
-                del_a = _core_get(op, "item_id", "")
-                del_id = _core_get(op, "itemId", del_a)
-                deletes[del_id] = True
-            else:
-                pass
-            is_replace = _core_eq(type, "REPLACE")
-            if is_replace:
-                rep_a = _core_get(op, "item_id", "")
-                rep_id = _core_get(op, "itemId", rep_a)
-                rep_content = _core_get(op, "content", "")
-                replaces[rep_id] = rep_content
-            else:
-                pass
-            is_add = _core_eq(type, "ADD")
-            if is_add:
-                add_section = _core_get(op, "section", "context_understanding")
-                add_content = _core_get(op, "content", "")
-                content_ok = _core_ne(add_content, "")
-                if content_ok:
-                    raw = {}
-                    raw["section"] = add_section
-                    raw["content"] = add_content
-                    raw_adds.append(raw)
-                else:
-                    pass
-            else:
-                pass
+    applied = []
+    out_result = {}
+    op_count = _core_len(operations)
+    no_ops = _core_eq(op_count, 0)
+    if no_ops:
+        out_result["text"] = text
+        out_result["applied"] = applied
+        return out_result
     else:
         pass
-    result_items = []
-    for item in items:
-        id = _core_get(item, "id", None)
-        deleted = _core_get(deletes, id, False)
-        keep = _core_not(deleted)
-        if keep:
-            kept = {}
-            kept["id"] = id
-            sec = _core_get(item, "section", None)
-            kept["section"] = sec
-            new_content = _core_get(replaces, id, None)
-            has_replace = _core_is_not_none(new_content)
-            if has_replace:
-                kept["content"] = new_content
-            else:
-                old_content = _core_get(item, "content", None)
-                kept["content"] = old_content
-            result_items.append(kept)
-        else:
-            pass
-    counter = next_id
-    for radd in raw_adds:
-        radd_section = _core_get(radd, "section", None)
-        radd_content = _core_get(radd, "content", None)
-        slug = "cu"
-        for sec in sections:
-            sname = _core_get(sec, "name", None)
-            smatch = _core_eq(sname, radd_section)
-            if smatch:
-                sslug = _core_get(sec, "slug", None)
-                slug = sslug
+    existing = _context_map_parse_items(text)
+    existing_ids = []
+    for existing_item in existing:
+        existing_id = _core_get(existing_item, "id", None)
+        existing_ids.append(existing_id)
+    deletes = []
+    replaces = {}
+    pending = []
+    next = _context_map_next_item_number(existing)
+    for operation in operations:
+        op_type = _core_get(operation, "type", "")
+        is_delete = _core_eq(op_type, "DELETE")
+        is_replace = _core_eq(op_type, "REPLACE")
+        is_add = _core_eq(op_type, "ADD")
+        op_item_id = _core_get(operation, "itemId", "")
+        op_known = _core_contains(existing_ids, op_item_id)
+        if is_delete:
+            if op_known:
+                deletes.append(op_item_id)
+                applied.append(operation)
             else:
                 pass
-        new_id = _core_string_format("{}-{}", slug, counter)
-        inc = _core_add(counter, 1)
-        counter = inc
-        add_item = {}
-        add_item["id"] = new_id
-        add_item["section"] = radd_section
-        add_item["content"] = radd_content
-        result_items.append(add_item)
-    out = {}
-    out["items"] = result_items
-    out["next_id"] = counter
-    return out
+        else:
+            pass
+        if is_replace:
+            if op_known:
+                replacement = _core_get(operation, "content", "")
+                replaces[op_item_id] = replacement
+                applied.append(operation)
+            else:
+                pass
+        else:
+            pass
+        if is_add:
+            op_section = _core_get(operation, "section", "")
+            add_section = _context_map_section_for_name(op_section)
+            section_known = _core_is_not_none(add_section)
+            if section_known:
+                slug = _core_get(add_section, "slug", "")
+                padded = _context_map_pad_number(next)
+                new_id = _core_string_format("{}-{}", slug, padded)
+                next = _core_add(next, 1)
+                add_content = _core_get(operation, "content", "")
+                add_line = _core_string_format("[{}] {}", new_id, add_content)
+                add_section_name = _core_get(add_section, "name", "")
+                add = {}
+                add["section"] = add_section_name
+                add["line"] = add_line
+                pending.append(add)
+                applied.append(operation)
+            else:
+                pass
+        else:
+            pass
+    lines = _core_string_split(text, "\n")
+    out = []
+    current = ""
+    for line in lines:
+        stripped = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        is_header = _core_string_starts_with(stripped, "##")
+        if is_header:
+            flushed = _context_map_flush_adds(out, pending, current)
+            out = _core_get(flushed, "out", None)
+            pending = _core_get(flushed, "pending", None)
+            out_count = _core_len(out)
+            has_out = _core_gt(out_count, 0)
+            if has_out:
+                last_index = _core_add(out_count, -1)
+                last_line = _core_list_get(out, last_index, "")
+                last_blank = _core_eq(last_line, "")
+                if last_blank:
+                    pass
+                else:
+                    out.append("")
+            else:
+                pass
+            header_raw = _core_regex_replace("^#+", "", stripped)
+            header = str(header_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            header_section = _context_map_section_for_name(header)
+            header_known = _core_is_not_none(header_section)
+            current = ""
+            if header_known:
+                current = _core_get(header_section, "name", "")
+            else:
+                pass
+            out.append(line)
+        else:
+            handled = False
+            match = _context_map_item_match(line)
+            is_item = _core_is_not_none(match)
+            if is_item:
+                item_id = _core_get(match, "id", "")
+                deleted = _core_contains(deletes, item_id)
+                if deleted:
+                    handled = True
+                else:
+                    replaced = _core_map_contains(replaces, item_id)
+                    if replaced:
+                        replacement_text = _core_get(replaces, item_id, None)
+                        replaced_line = _core_string_format("[{}] {}", item_id, replacement_text)
+                        out.append(replaced_line)
+                        handled = True
+                    else:
+                        pass
+            else:
+                pass
+            unhandled = _core_not(handled)
+            if unhandled:
+                out.append(line)
+            else:
+                pass
+    flushed_last = _context_map_flush_adds(out, pending, current)
+    out = _core_get(flushed_last, "out", None)
+    pending = _core_get(flushed_last, "pending", None)
+    sections = _context_map_sections()
+    for section in sections:
+        section_name = _core_get(section, "name", None)
+        remaining = []
+        for add_item in pending:
+            add_item_section = _core_get(add_item, "section", None)
+            in_section = _core_eq(add_item_section, section_name)
+            if in_section:
+                remaining.append(add_item)
+            else:
+                pass
+        remaining_count = _core_len(remaining)
+        has_remaining = _core_gt(remaining_count, 0)
+        if has_remaining:
+            tail_count = _core_len(out)
+            has_tail = _core_gt(tail_count, 0)
+            if has_tail:
+                tail_index = _core_add(tail_count, -1)
+                tail_line = _core_list_get(out, tail_index, "")
+                tail_blank = _core_eq(tail_line, "")
+                if tail_blank:
+                    pass
+                else:
+                    out.append("")
+            else:
+                pass
+            section_title = _core_get(section, "title", None)
+            section_header = _core_string_format("## {}", section_title)
+            out.append(section_header)
+            for remaining_item in remaining:
+                remaining_line = _core_get(remaining_item, "line", None)
+                out.append(remaining_line)
+        else:
+            pass
+    joined = _core_string_join("\n", out)
+    collapsed = _context_map_collapse_blank_lines(joined)
+    out_result["text"] = collapsed
+    out_result["applied"] = applied
+    return out_result
 
 
-def _context_map_evict_to_budget(items: Any, scores: Any, max_chars: Any) -> Any:
+def _context_map_evict_to_budget(text: Any, scores: Any, max_chars: Any) -> Any:
     _core_coverage_mark("_context_map_evict_to_budget")
-    current = items
-    while True:
-        text = _context_map_render_items(current)
-        len = _core_len(text)
-        over = _core_gt(len, max_chars)
-        not_over = _core_not(over)
-        if not_over:
-            break
-        else:
-            pass
-        count = _core_len(current)
-        empty = _core_eq(count, 0)
-        if empty:
-            break
-        else:
-            pass
-        min_id = ""
-        min_score = 0
-        have_min = False
-        for item in current:
-            iid = _core_get(item, "id", None)
-            iscore = _core_get(scores, iid, 0)
-            first = _core_not(have_min)
-            lower = _core_lt(iscore, min_score)
-            take = _core_or(first, lower)
-            if take:
-                min_id = iid
-                min_score = iscore
-                have_min = True
+    empty_map = {}
+    units = _core_string_utf16_units(text)
+    length = _core_len(units)
+    fits = _core_lte(length, max_chars)
+    if fits:
+        return text
+    else:
+        pass
+    items = _context_map_parse_items(text)
+    score_map = scores
+    has_scores = _core_type_is(scores, "object")
+    if has_scores:
+        pass
+    else:
+        score_map = empty_map
+    ordered = []
+    for item in items:
+        item_id = _core_get(item, "id", None)
+        item_score = _core_get(score_map, item_id, 0)
+        item_age = _context_map_item_age(item_id)
+        placed = []
+        inserted = False
+        for other in ordered:
+            other_id = _core_get(other, "id", None)
+            other_score = _core_get(score_map, other_id, 0)
+            other_age = _context_map_item_age(other_id)
+            score_before = _core_lt(item_score, other_score)
+            same_score = _core_eq(item_score, other_score)
+            age_before = _core_lt(item_age, other_age)
+            tie_before = _core_and(same_score, age_before)
+            goes_before = _core_or(score_before, tie_before)
+            not_inserted = _core_not(inserted)
+            insert_here = _core_and(goes_before, not_inserted)
+            if insert_here:
+                placed.append(item)
+                inserted = True
             else:
                 pass
-        next_items = []
-        for item in current:
-            iid = _core_get(item, "id", None)
-            is_min = _core_eq(iid, min_id)
-            keep = _core_not(is_min)
-            if keep:
-                next_items.append(item)
-            else:
-                pass
-        current = next_items
-    return current
-
-
-def _format_context_map_trajectory(state: Any) -> Any:
-    _core_coverage_mark("_format_context_map_trajectory")
-    empty_list = []
-    action_log = _core_get(state, "action_log", empty_list)
-    action_text = _core_json_stable_stringify(action_log)
-    status_log = _core_get(state, "status_log", empty_list)
-    status_text = _core_json_stable_stringify(status_log)
-    out = _core_string_format("## Executor Action Log\n{}\n\n## Status Log\n{}", action_text, status_text)
-    return out
+            placed.append(other)
+        still_out = _core_not(inserted)
+        if still_out:
+            placed.append(item)
+        else:
+            pass
+        ordered = placed
+    removed = []
+    for victim in ordered:
+        victim_id = _core_get(victim, "id", None)
+        removed.append(victim_id)
+        trial = _context_map_remove_items(text, removed)
+        trial_units = _core_string_utf16_units(trial)
+        trial_length = _core_len(trial_units)
+        trial_fits = _core_lte(trial_length, max_chars)
+        if trial_fits:
+            return trial
+        else:
+            pass
+    last = _context_map_remove_items(text, removed)
+    return last
 
 
 def _context_map_complete(client: Any, system: Any, user: Any, options: Any) -> Any:
@@ -11632,28 +11744,36 @@ def _context_map_complete(client: Any, system: Any, user: Any, options: Any) -> 
     return content
 
 
-def _context_map_parse_json(content: Any) -> Any:
-    _core_coverage_mark("_context_map_parse_json")
+def _format_context_map_trajectory(state: Any) -> Any:
+    _core_coverage_mark("_format_context_map_trajectory")
     empty_map = {}
-    trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    is_empty = _core_eq(trimmed, "")
-    if is_empty:
-        return empty_map
+    values = _core_get(state, "run_input_values", empty_map)
+    summarized = _context_map_summarize_value(values, 0)
+    summary = _core_json_pretty(summarized)
+    distiller_log = _context_map_stage_log_text(state, "distiller")
+    executor_log = _context_map_stage_log_text(state, "executor")
+    executor_result = _core_get(state, "executor_result", None)
+    executor_text = ""
+    has_result = _core_is_not_none(executor_result)
+    if has_result:
+        executor_text = _core_json_pretty(executor_result)
     else:
         pass
-    looks_object = _core_string_starts_with(trimmed, "{")
-    not_object = _core_not(looks_object)
-    if not_object:
-        return empty_map
-    else:
-        pass
-    parsed = _core_json_parse(trimmed)
-    is_obj = _core_type_is(parsed, "object")
-    if is_obj:
-        return parsed
-    else:
-        pass
-    return empty_map
+    final_output = _core_get(state, "last_output", None)
+    final_text = _core_json_pretty(final_output)
+    parts = []
+    parts.append("## Input Summary")
+    parts.append(summary)
+    parts.append("## Distiller Action Log")
+    parts.append(distiller_log)
+    parts.append("## Executor Action Log")
+    parts.append(executor_log)
+    parts.append("## Executor Result")
+    parts.append(executor_text)
+    parts.append("## Final Output")
+    parts.append(final_text)
+    out = _core_string_join("\n\n", parts)
+    return out
 
 
 def _agent_evolve_context_map(state: Any, client: Any, options: Any) -> Any:
@@ -11661,49 +11781,74 @@ def _agent_evolve_context_map(state: Any, client: Any, options: Any) -> Any:
     empty_map = {}
     empty_list = []
     cm = _core_get(state, "context_map", None)
-    has_cm = _core_is_not_none(cm)
-    infinite = _core_get(cm, "infiniteEvolve", False)
+    has_cm = _core_type_is(cm, "object")
+    if has_cm:
+        pass
+    else:
+        return state
+    infinite = _core_get(cm, "infiniteEvolve", True)
     steps = _core_get(cm, "steps", 0)
     evolve_steps = _core_get(cm, "evolveSteps", 0)
     under_budget = _core_lt(steps, evolve_steps)
-    evolve_ok = _core_or(infinite, under_budget)
-    should_evolve = _core_and(has_cm, evolve_ok)
+    should_evolve = _core_or(infinite, under_budget)
     if should_evolve:
-        current_text = _core_get(cm, "text", "")
-        scores = _core_get(cm, "scores", empty_map)
-        max_chars = _core_get(cm, "maxChars", 4000)
-        next_id = _core_get(cm, "next_id", 1)
-        task = _core_get(state, "task_description", "")
-        trajectory = _format_context_map_trajectory(state)
-        distiller_sys = "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale."
-        distiller_user = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}", task, current_text, trajectory)
-        distiller_resp = _context_map_complete(client, distiller_sys, distiller_user, options)
-        distiller_parsed = _context_map_parse_json(distiller_resp)
-        item_tags = _core_get(distiller_parsed, "itemTags", empty_map)
-        reflection = _core_json_stringify(distiller_parsed)
-        current_chars = _core_len(current_text)
-        carto_sys = "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}"
-        carto_user_head = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}", task, current_text, reflection)
-        carto_user = _core_string_format("{}\n\ncurrentChars: {}\nmaxChars: {}", carto_user_head, current_chars, max_chars)
-        carto_resp = _context_map_complete(client, carto_sys, carto_user, options)
-        carto_parsed = _context_map_parse_json(carto_resp)
-        operations = _core_get(carto_parsed, "operations", empty_list)
-        items = _context_map_parse_items(current_text)
-        new_scores = _context_map_update_scores(scores, item_tags)
-        applied = _context_map_apply_operations(items, operations, next_id)
-        new_items = _core_get(applied, "items", empty_list)
-        new_next_id = _core_get(applied, "next_id", next_id)
-        evicted = _context_map_evict_to_budget(new_items, new_scores, max_chars)
-        new_text = _context_map_render_items(evicted)
-        new_steps = _core_add(steps, 1)
-        updated = _core_map_merge(empty_map, cm)
-        updated["text"] = new_text
-        updated["scores"] = new_scores
-        updated["steps"] = new_steps
-        updated["next_id"] = new_next_id
-        state["context_map"] = updated
-    else:
         pass
+    else:
+        return state
+    raw_text = _core_get(cm, "text", None)
+    text = _context_map_normalize_text(raw_text)
+    max_chars = _core_get(cm, "maxChars", 4000)
+    task = _core_get(state, "executor_request", None)
+    task_is_text = _core_type_is(task, "string")
+    if task_is_text:
+        pass
+    else:
+        run_values = _core_get(state, "run_input_values", empty_map)
+        task = _core_json_stringify(run_values)
+    trajectory = _format_context_map_trajectory(state)
+    distiller_program = _context_map_distiller_program()
+    distiller_signature = _core_get(distiller_program, "signature", None)
+    distiller_options = _core_get(distiller_program, "options", None)
+    distiller_values = {}
+    distiller_values["task"] = task
+    distiller_values["contextMap"] = text
+    distiller_values["trajectory"] = trajectory
+    forward_options = {}
+    distiller_output = _core_agent_program_forward(distiller_signature, distiller_options, client, distiller_values, forward_options)
+    reflection = _core_json_pretty(distiller_output)
+    text_units = _core_string_utf16_units(text)
+    current_chars = _core_len(text_units)
+    cartographer_program = _context_map_cartographer_program()
+    cartographer_signature = _core_get(cartographer_program, "signature", None)
+    cartographer_options = _core_get(cartographer_program, "options", None)
+    cartographer_values = {}
+    cartographer_values["task"] = task
+    cartographer_values["contextMap"] = text
+    cartographer_values["distillerReflection"] = reflection
+    cartographer_values["currentChars"] = current_chars
+    cartographer_values["maxChars"] = max_chars
+    cartographer_forward_options = {}
+    cartographer_output = _core_agent_program_forward(cartographer_signature, cartographer_options, client, cartographer_values, cartographer_forward_options)
+    items_before = _context_map_parse_items(text)
+    item_ids = []
+    for item_before in items_before:
+        item_before_id = _core_get(item_before, "id", None)
+        item_ids.append(item_before_id)
+    scores = _core_get(cm, "scores", empty_map)
+    item_tags = _core_get(distiller_output, "itemTags", None)
+    next_scores = _context_map_update_scores(scores, item_tags, item_ids)
+    raw_operations = _core_get(cartographer_output, "operations", None)
+    operations = _context_map_normalize_operations(raw_operations)
+    applied = _context_map_apply_operations(text, operations)
+    applied_text = _core_get(applied, "text", text)
+    next_text = _context_map_evict_to_budget(applied_text, next_scores, max_chars)
+    next_steps = _core_add(steps, 1)
+    updated = _core_map_merge(empty_map, cm)
+    updated["text"] = next_text
+    updated["scores"] = next_scores
+    updated["steps"] = next_steps
+    _core_map_delete(updated, "next_id")
+    state["context_map"] = updated
     return state
 
 
@@ -12181,6 +12326,10 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
         pass
     state["active_stage"] = "distiller"
     _agent_mark_stage_action_log_start(state)
+    state["run_input_values"] = values
+    no_run_fact = _core_none()
+    state["executor_request"] = no_run_fact
+    state["executor_result"] = no_run_fact
     transcribed_values = _agent_transcribe_audio_inputs(state, client, values, options)
     values = transcribed_values
     runtime_input_names = []
@@ -12215,6 +12364,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
     if runtime_enabled:
         distiller_empty_log = []
         distiller_saved_action_log = _core_get(state, "action_log", distiller_empty_log)
+        _agent_restore_stage_actions(state, "distiller")
         distiller_globals = _agent_runtime_build_globals(state, values)
         distiller_session = _core_none()
         distiller_max_steps = _core_get(options, "max_actor_steps", 4)
@@ -12238,6 +12388,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
             distiller_request_event["component_id"] = "agent.stage.distiller"
             _agent_record_trace_event(state, "stage_request", distiller_request_event)
             distiller_output = _agent_controlled_stage_forward(distiller, client, distiller_values, distiller_options)
+            state["restore_notice"] = ""
             distiller_response_event = {}
             distiller_response_event["stage"] = "distiller"
             distiller_response_event["step"] = distiller_step
@@ -12278,6 +12429,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
             state["runtime_session"] = distiller_session_reset
             distiller_state_reset = {}
             state["runtime_session_state"] = distiller_state_reset
+        _agent_save_stage_actions(state, "distiller")
         state["action_log"] = distiller_saved_action_log
     else:
         distiller_values = _build_distiller_inputs(state, values)
@@ -12331,6 +12483,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
     if runtime_executor_enabled:
         exec_empty_map = {}
         exec_empty_list = []
+        _agent_restore_stage_actions(state, "executor")
         exec_args = _core_get(distiller_payload, "args", exec_empty_list)
         exec_non_ctx_split = _split_context_values(state, values)
         exec_non_ctx = _core_get(exec_non_ctx_split, "values", exec_empty_map)
@@ -12386,11 +12539,8 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
             executor_request_event["component_id"] = "agent.stage.executor"
             _agent_record_trace_event(state, "stage_request", executor_request_event)
             executor_output = _agent_executor_stage_forward(state, executor, client, executor_values, executor_options)
-            if shared_notice_set:
-                state["restore_notice"] = ""
-                shared_notice_set = False
-            else:
-                pass
+            state["restore_notice"] = ""
+            shared_notice_set = False
             executor_response_event = {}
             executor_response_event["stage"] = "executor"
             executor_response_event["step"] = step
@@ -12429,6 +12579,7 @@ def _agent_run_actor_stages(state: Any, distiller: Any, executor: Any, client: A
             else:
                 pass
             step = _core_add(step, 1)
+        _agent_save_stage_actions(state, "executor")
     else:
         pass
     runtime_disabled = _core_not(runtime_enabled)
@@ -13608,5 +13759,766 @@ def _agent_check_flat_function_namespace(mode: str, namespace: str) -> None:
     else:
         pass
     return None
+
+
+def _agent_auto_promotion_decision(state: Any, key: Any, value: Any) -> Any:
+    _core_coverage_mark("_agent_auto_promotion_decision")
+    empty_map = {}
+    auto_upgrade = _core_get(state, "auto_upgrade", None)
+    auto_context = _core_get(auto_upgrade, "contextFields", None)
+    enabled = _core_get(auto_context, "enabled", False)
+    if enabled:
+        pass
+    else:
+        return empty_map
+    reserved = _agent_reserved_auto_promotion_fields()
+    is_reserved = _core_contains(reserved, key)
+    if is_reserved:
+        return empty_map
+    else:
+        pass
+    missing = _core_is_none(value)
+    if missing:
+        return empty_map
+    else:
+        pass
+    promote_above = _core_get(auto_context, "promoteAboveChars", 8000)
+    is_string = _core_type_is(value, "string")
+    source = ""
+    size = 0
+    if is_string:
+        units = _core_string_utf16_units(value)
+        size = _core_len(units)
+        source = value
+    else:
+        stringified = _core_json_stringify(value)
+        stringified_units = _core_string_utf16_units(stringified)
+        size = _core_len(stringified_units)
+        source = stringified
+    too_large = _core_gt(size, promote_above)
+    if too_large:
+        pass
+    else:
+        return empty_map
+    field = _agent_signature_input_field(state, key)
+    known = _core_is_not_none(field)
+    accepts = _agent_field_accepts_string_preview(field)
+    decision = {}
+    decision["size"] = size
+    decision["source"] = source
+    string_preview = _core_and(is_string, accepts)
+    if string_preview:
+        decision["mode"] = "preview"
+        return decision
+    else:
+        pass
+    not_string = _core_not(is_string)
+    json_preview = _core_and(not_string, known)
+    json_preview = _core_and(json_preview, accepts)
+    if json_preview:
+        decision["mode"] = "stringifiedPreview"
+        return decision
+    else:
+        pass
+    optional = _core_get(field, "is_optional", False)
+    unknown = _core_not(known)
+    omit = _core_or(unknown, optional)
+    if omit:
+        decision["mode"] = "omit"
+        return decision
+    else:
+        pass
+    return empty_map
+
+
+def _agent_signature_input_field(state: Any, name: Any) -> Any:
+    _core_coverage_mark("_agent_signature_input_field")
+    empty_list = []
+    empty_map = {}
+    signature = _core_get(state, "signature", empty_map)
+    inputs = _core_get(signature, "input_fields", empty_list)
+    for field in inputs:
+        field_name = _core_get(field, "name", "")
+        matches = _core_eq(field_name, name)
+        if matches:
+            return field
+        else:
+            pass
+    return None
+
+
+def _agent_field_accepts_string_preview(field: Any) -> bool:
+    _core_coverage_mark("_agent_field_accepts_string_preview")
+    known = _core_is_not_none(field)
+    if known:
+        pass
+    else:
+        return False
+    field_type = _core_get(field, "type", None)
+    typed = _core_is_not_none(field_type)
+    if typed:
+        pass
+    else:
+        return True
+    is_array = _core_get(field_type, "is_array", False)
+    if is_array:
+        return False
+    else:
+        pass
+    name = _core_get(field_type, "name", "")
+    accepted = []
+    accepted.append("string")
+    accepted.append("code")
+    accepted.append("class")
+    accepted.append("json")
+    accepted.append("date")
+    accepted.append("datetime")
+    accepts = _core_contains(accepted, name)
+    return accepts
+
+
+def _agent_truncate_preview(text: str, keep: Any) -> str:
+    _core_coverage_mark("_agent_truncate_preview")
+    units = _core_string_utf16_units(text)
+    total = _core_len(units)
+    fits = _core_lte(total, keep)
+    if fits:
+        return text
+    else:
+        pass
+    prefix = _agent_utf16_prefix(text, keep)
+    negative_keep = _core_mul(keep, -1)
+    dropped = _core_add(total, negative_keep)
+    out = _core_string_format("{}...[truncated {} chars]", prefix, dropped)
+    return out
+
+
+def _agent_utf16_prefix(text: str, keep: Any) -> str:
+    _core_coverage_mark("_agent_utf16_prefix")
+    host_length = _core_len(text)
+    units = _core_string_utf16_units(text)
+    unit_count = _core_len(units)
+    one_unit_each = _core_eq(host_length, unit_count)
+    if one_unit_each:
+        fast = _core_string_slice(text, 0, keep)
+        return fast
+    else:
+        pass
+    cursor = 0
+    used = 0
+    while True:
+        at_end = _core_gte(cursor, host_length)
+        if at_end:
+            break
+        else:
+            pass
+        next = _core_add(cursor, 1)
+        ch = _core_string_slice(text, cursor, next)
+        ch_units = _core_string_utf16_units(ch)
+        ch_count = _core_len(ch_units)
+        after = _core_add(used, ch_count)
+        over = _core_gt(after, keep)
+        if over:
+            break
+        else:
+            pass
+        used = after
+        cursor = next
+    prefix = _core_string_slice(text, 0, cursor)
+    return prefix
+
+
+def _agent_truncate_responder_values(state: Any, values: Any) -> None:
+    _core_coverage_mark("_agent_truncate_responder_values")
+    empty_list = []
+    auto_upgrade = _core_get(state, "auto_upgrade", None)
+    auto_context = _core_get(auto_upgrade, "contextFields", None)
+    enabled = _core_get(auto_context, "enabled", False)
+    if enabled:
+        pass
+    else:
+        return None
+    promote_above = _core_get(auto_context, "promoteAboveChars", 8000)
+    preview_chars = _core_get(auto_context, "previewChars", 1200)
+    reserved = _agent_reserved_auto_promotion_fields()
+    context_fields = _core_get(state, "context_fields", empty_list)
+    keys = _core_map_keys(values)
+    for key in keys:
+        value = _core_get(values, key, None)
+        is_string = _core_type_is(value, "string")
+        is_reserved = _core_contains(reserved, key)
+        declared = _core_contains(context_fields, key)
+        skip = _core_or(is_reserved, declared)
+        eligible = _core_not(skip)
+        eligible = _core_and(eligible, is_string)
+        if eligible:
+            units = _core_string_utf16_units(value)
+            length = _core_len(units)
+            too_long = _core_gt(length, promote_above)
+            field = _agent_signature_input_field(state, key)
+            accepts = _agent_field_accepts_string_preview(field)
+            truncate = _core_and(too_long, accepts)
+            if truncate:
+                preview = _agent_truncate_preview(value, preview_chars)
+                values[key] = preview
+            else:
+                pass
+        else:
+            pass
+    return None
+
+
+def _agent_restore_stage_actions(state: Any, stage: str) -> None:
+    _core_coverage_mark("_agent_restore_stage_actions")
+    empty_map = {}
+    empty_list = []
+    logs = _core_get(state, "stage_action_logs", empty_map)
+    saved = _core_get(logs, stage, None)
+    restored = _core_type_is(saved, "list")
+    if restored:
+        pass
+    else:
+        return None
+    action_log = _core_get(state, "action_log", empty_list)
+    for entry in saved:
+        action_log.append(entry)
+    state["action_log"] = action_log
+    policy = _core_get(state, "context_policy", empty_map)
+    state_summary = _core_get(policy, "stateSummary", empty_map)
+    live_state = _core_get(state_summary, "enabled", False)
+    lines = []
+    lines.append("Runtime Restore:")
+    lines.append("- Runtime state was restored from a previous call.")
+    if live_state:
+        lines.append("- The liveRuntimeState field reflects the restored bindings.")
+    else:
+        pass
+    lines.append("- Continue from restored values unless recomputation is actually needed.")
+    notice = _core_string_join("\n", lines)
+    state["restore_notice"] = notice
+    return None
+
+
+def _agent_save_stage_actions(state: Any, stage: str) -> None:
+    _core_coverage_mark("_agent_save_stage_actions")
+    empty_map = {}
+    empty_list = []
+    all_entries = _core_get(state, "action_log", empty_list)
+    stage_start = _core_get(state, "stage_action_log_start", 0)
+    entries = []
+    position = 0
+    for entry in all_entries:
+        entry_type = _core_get(entry, "type", "")
+        is_session_record = _core_eq(entry_type, "runtime_session")
+        before_stage = _core_lt(position, stage_start)
+        hidden = _core_or(is_session_record, before_stage)
+        if hidden:
+            pass
+        else:
+            entries.append(entry)
+        position = _core_add(position, 1)
+    logs = _core_get(state, "stage_action_logs", empty_map)
+    logs[stage] = entries
+    state["stage_action_logs"] = logs
+    return None
+
+
+def _context_map_initial_text() -> str:
+    _core_coverage_mark("_context_map_initial_text")
+    sections = _context_map_sections()
+    blocks = []
+    for section in sections:
+        title = _core_get(section, "title", None)
+        description = _core_get(section, "description", None)
+        block = _core_string_format("## {}\n({})", title, description)
+        blocks.append(block)
+    joined = _core_string_join("\n\n", blocks)
+    out = _core_string_format("{}\n", joined)
+    return out
+
+
+def _context_map_normalize_text(text: Any) -> str:
+    _core_coverage_mark("_context_map_normalize_text")
+    raw = ""
+    is_text = _core_type_is(text, "string")
+    if is_text:
+        raw = text
+    else:
+        pass
+    trimmed = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    empty = _core_eq(trimmed, "")
+    if empty:
+        initial = _context_map_initial_text()
+        trimmed = str(initial).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    else:
+        pass
+    out = _core_string_format("{}\n", trimmed)
+    return out
+
+
+def _context_map_section_for_name(name: Any) -> Any:
+    _core_coverage_mark("_context_map_section_for_name")
+    is_text = _core_type_is(name, "string")
+    if is_text:
+        pass
+    else:
+        return None
+    lowered = _core_string_lower(name)
+    trimmed = str(lowered).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    underscored = _core_regex_replace("[\\s-]+", "_", trimmed)
+    normalized = _core_regex_replace(":$", "", underscored)
+    sections = _context_map_sections()
+    for section in sections:
+        section_name = _core_get(section, "name", None)
+        matches = _core_eq(section_name, normalized)
+        if matches:
+            return section
+        else:
+            pass
+    return None
+
+
+def _context_map_item_match(line: Any) -> Any:
+    _core_coverage_mark("_context_map_item_match")
+    stripped = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    opens = _core_string_starts_with(stripped, "[")
+    if opens:
+        pass
+    else:
+        return None
+    close = _core_string_index_of(stripped, "]", 0)
+    has_id = _core_gt(close, 1)
+    if has_id:
+        pass
+    else:
+        return None
+    id = _core_string_slice(stripped, 1, close)
+    after = _core_add(close, 1)
+    length = _core_len(stripped)
+    rest = _core_string_slice(stripped, after, length)
+    content = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    out = {}
+    out["id"] = id
+    out["content"] = content
+    return out
+
+
+def _context_map_item_number(id: Any) -> Any:
+    _core_coverage_mark("_context_map_item_number")
+    dash = _core_string_index_of(id, "-", 0)
+    has_dash = _core_gte(dash, 0)
+    if has_dash:
+        pass
+    else:
+        return -1
+    tail = _core_regex_replace("^.*-", "", id)
+    has_tail = _core_ne(tail, "")
+    non_digits = _core_regex_replace("^[0-9]+$", "", tail)
+    all_digits = _core_eq(non_digits, "")
+    numeric = _core_and(has_tail, all_digits)
+    if numeric:
+        pass
+    else:
+        return -1
+    value = 0
+    length = _core_len(tail)
+    cursor = 0
+    while True:
+        done = _core_gte(cursor, length)
+        if done:
+            break
+        else:
+            pass
+        next_cursor = _core_add(cursor, 1)
+        digit_char = _core_string_slice(tail, cursor, next_cursor)
+        digit = _core_string_index_of("0123456789", digit_char, 0)
+        shifted = _core_mul(value, 10)
+        value = _core_add(shifted, digit)
+        cursor = next_cursor
+    return value
+
+
+def _context_map_item_age(id: Any) -> Any:
+    _core_coverage_mark("_context_map_item_age")
+    number = _context_map_item_number(id)
+    missing = _core_lt(number, 0)
+    if missing:
+        return 0
+    else:
+        pass
+    return number
+
+
+def _context_map_next_item_number(items: Any) -> Any:
+    _core_coverage_mark("_context_map_next_item_number")
+    max = 0
+    for item in items:
+        id = _core_get(item, "id", "")
+        number = _context_map_item_number(id)
+        higher = _core_gt(number, max)
+        if higher:
+            max = number
+        else:
+            pass
+    next = _core_add(max, 1)
+    return next
+
+
+def _context_map_pad_number(number: Any) -> str:
+    _core_coverage_mark("_context_map_pad_number")
+    text = _core_string_str(number)
+    while True:
+        length = _core_len(text)
+        too_short = _core_lt(length, 5)
+        if too_short:
+            pass
+        else:
+            break
+        text = _core_string_format("0{}", text)
+    return text
+
+
+def _context_map_flush_adds(out: Any, pending: Any, section: Any) -> Any:
+    _core_coverage_mark("_context_map_flush_adds")
+    rest = []
+    result = {}
+    none = _core_eq(section, "")
+    if none:
+        result["out"] = out
+        result["pending"] = pending
+        return result
+    else:
+        pass
+    for add in pending:
+        add_section = _core_get(add, "section", "")
+        matches = _core_eq(add_section, section)
+        if matches:
+            add_line = _core_get(add, "line", "")
+            out.append(add_line)
+        else:
+            rest.append(add)
+    result["out"] = out
+    result["pending"] = rest
+    return result
+
+
+def _context_map_collapse_blank_lines(text: Any) -> str:
+    _core_coverage_mark("_context_map_collapse_blank_lines")
+    out = []
+    lines = _core_string_split(text, "\n")
+    for line in lines:
+        trimmed_line = str(line).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        blank = _core_eq(trimmed_line, "")
+        count = _core_len(out)
+        has_prior = _core_gt(count, 0)
+        prior_empty = False
+        if has_prior:
+            last_index = _core_add(count, -1)
+            prior = _core_list_get(out, last_index, "")
+            prior_empty = _core_eq(prior, "")
+        else:
+            pass
+        skip = _core_and(blank, prior_empty)
+        if skip:
+            pass
+        else:
+            out.append(line)
+    joined = _core_string_join("\n", out)
+    trimmed = str(joined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    result = _core_string_format("{}\n", trimmed)
+    return result
+
+
+def _context_map_remove_items(text: Any, item_ids: Any) -> str:
+    _core_coverage_mark("_context_map_remove_items")
+    kept = []
+    lines = _core_string_split(text, "\n")
+    for line in lines:
+        keep = True
+        match = _context_map_item_match(line)
+        is_item = _core_is_not_none(match)
+        if is_item:
+            id = _core_get(match, "id", "")
+            removed = _core_contains(item_ids, id)
+            if removed:
+                keep = False
+            else:
+                pass
+        else:
+            pass
+        if keep:
+            kept.append(line)
+        else:
+            pass
+    joined = _core_string_join("\n", kept)
+    out = _context_map_collapse_blank_lines(joined)
+    return out
+
+
+def _context_map_normalize_operations(input: Any) -> Any:
+    _core_coverage_mark("_context_map_normalize_operations")
+    out = []
+    is_list = _core_type_is(input, "list")
+    if is_list:
+        pass
+    else:
+        return out
+    for raw in input:
+        is_object = _core_type_is(raw, "object")
+        if is_object:
+            raw_type = _core_get(raw, "type", None)
+            type_is_text = _core_type_is(raw_type, "string")
+            op_type = ""
+            if type_is_text:
+                type_trimmed = str(raw_type).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                op_type = _core_string_lower(type_trimmed)
+            else:
+                pass
+            raw_content = _core_get(raw, "content", None)
+            content_is_text = _core_type_is(raw_content, "string")
+            content = ""
+            if content_is_text:
+                content = str(raw_content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            else:
+                pass
+            has_content = _core_ne(content, "")
+            camel_id = _core_get(raw, "itemId", None)
+            snake_id = _core_get(raw, "item_id", None)
+            camel_is_text = _core_type_is(camel_id, "string")
+            snake_is_text = _core_type_is(snake_id, "string")
+            item_id = ""
+            if snake_is_text:
+                item_id = str(snake_id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            else:
+                pass
+            if camel_is_text:
+                item_id = str(camel_id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            else:
+                pass
+            has_item_id = _core_ne(item_id, "")
+            is_add = _core_eq(op_type, "add")
+            is_delete = _core_eq(op_type, "delete")
+            is_replace = _core_eq(op_type, "replace")
+            if is_add:
+                raw_section = _core_get(raw, "section", "")
+                section = _context_map_section_for_name(raw_section)
+                known_section = _core_is_not_none(section)
+                add_ok = _core_and(known_section, has_content)
+                if add_ok:
+                    section_name = _core_get(section, "name", None)
+                    add = {}
+                    add["type"] = "ADD"
+                    add["section"] = section_name
+                    add["content"] = content
+                    out.append(add)
+                else:
+                    pass
+            else:
+                pass
+            if is_delete:
+                if has_item_id:
+                    delete_op = {}
+                    delete_op["type"] = "DELETE"
+                    delete_op["itemId"] = item_id
+                    out.append(delete_op)
+                else:
+                    pass
+            else:
+                pass
+            if is_replace:
+                replace_ok = _core_and(has_item_id, has_content)
+                if replace_ok:
+                    replace = {}
+                    replace["type"] = "REPLACE"
+                    replace["itemId"] = item_id
+                    replace["content"] = content
+                    out.append(replace)
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    return out
+
+
+def _context_map_summarize_value(value: Any, depth: Any) -> Any:
+    _core_coverage_mark("_context_map_summarize_value")
+    is_text = _core_type_is(value, "string")
+    if is_text:
+        units = _core_string_utf16_units(value)
+        length = _core_len(units)
+        fits_whole = _core_lte(length, 1000)
+        if fits_whole:
+            return value
+        else:
+            pass
+        head = _agent_utf16_prefix(value, 700)
+        tail = _context_map_utf16_suffix(value, 200)
+        omitted = _core_add(length, -900)
+        summary = _core_string_format("{}\n...[{} chars omitted]...\n{}", head, omitted, tail)
+        return summary
+    else:
+        pass
+    next_depth = _core_add(depth, 1)
+    deep = _core_gte(depth, 2)
+    is_list = _core_type_is(value, "list")
+    if is_list:
+        count = _core_len(value)
+        if deep:
+            array_label = _core_string_format("[Array({})]", count)
+            return array_label
+        else:
+            pass
+        head_items = []
+        index = 0
+        for item in value:
+            within = _core_lt(index, 5)
+            if within:
+                summarized_item = _context_map_summarize_value(item, next_depth)
+                head_items.append(summarized_item)
+            else:
+                pass
+            index = _core_add(index, 1)
+        more = _core_gt(count, 5)
+        if more:
+            extra = _core_add(count, -5)
+            more_label = _core_string_format("[{} more items]", extra)
+            head_items.append(more_label)
+        else:
+            pass
+        return head_items
+    else:
+        pass
+    is_object = _core_type_is(value, "object")
+    if is_object:
+        if deep:
+            return "[Object]"
+        else:
+            pass
+        out = {}
+        for key in value:
+            entry = _core_get(value, key, None)
+            summarized_entry = _context_map_summarize_value(entry, next_depth)
+            out[key] = summarized_entry
+        return out
+    else:
+        pass
+    return value
+
+
+def _context_map_utf16_suffix(text: str, keep: Any) -> str:
+    _core_coverage_mark("_context_map_utf16_suffix")
+    host_length = _core_len(text)
+    units = _core_string_utf16_units(text)
+    unit_count = _core_len(units)
+    one_unit_each = _core_eq(host_length, unit_count)
+    if one_unit_each:
+        negative_keep = _core_mul(keep, -1)
+        start = _core_add(host_length, negative_keep)
+        clamped = start
+        below = _core_lt(start, 0)
+        if below:
+            clamped = 0
+        else:
+            pass
+        fast = _core_string_slice(text, clamped, host_length)
+        return fast
+    else:
+        pass
+    cursor = host_length
+    used = 0
+    while True:
+        at_start = _core_lte(cursor, 0)
+        if at_start:
+            break
+        else:
+            pass
+        before = _core_add(cursor, -1)
+        ch = _core_string_slice(text, before, cursor)
+        ch_units = _core_string_utf16_units(ch)
+        ch_count = _core_len(ch_units)
+        after = _core_add(used, ch_count)
+        over = _core_gt(after, keep)
+        if over:
+            break
+        else:
+            pass
+        used = after
+        cursor = before
+    suffix = _core_string_slice(text, cursor, host_length)
+    return suffix
+
+
+def _context_map_stage_log_text(state: Any, stage: str) -> str:
+    _core_coverage_mark("_context_map_stage_log_text")
+    empty_map = {}
+    empty_list = []
+    logs = _core_get(state, "stage_action_logs", empty_map)
+    entries = _core_get(logs, stage, empty_list)
+    parts = []
+    for entry in entries:
+        rendered = _agent_render_full_action_entry(state, entry)
+        parts.append(rendered)
+    joined = _core_string_join("\n\n", parts)
+    trimmed = str(joined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    empty = _core_eq(trimmed, "")
+    if empty:
+        return "(none)"
+    else:
+        pass
+    return trimmed
+
+
+def _context_map_distiller_program() -> Any:
+    _core_coverage_mark("_context_map_distiller_program")
+    program = {}
+    program["signature"] = "task:string \"The user task that was completed.\", contextMap:string \"The current context map.\", trajectory:string \"The agent trajectory and final result.\" -> diagnosis?:string \"Brief note about what reusable context was found.\", itemTags?:json \"Object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\", cacheCandidates?:json \"Array of compact candidate objects with section, value, transferability, and rationale.\""
+    options = {}
+    options["id"] = "agent.context_map.distiller"
+    options["instruction"] = "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nSeparate the run into two kinds of work:\n- Orientation work: learning what the context contains, how it is organized, which entities or concepts matter, which schemas/constants govern the data, and which processing results transfer across future questions.\n- Question-specific work: locating the one passage, quote, record, or calculation needed only for this task.\n\nCache only orientation work. Use this litmus test for every candidate: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nPrefer compact abstractions over raw excerpts, but preserve exact constants when the context defines them: numeric thresholds, formulas, enum sets, field names, output requirements, reference values, and parsing rules.\n\nDo not cache advisory rules, behavioral instructions, raw dumps, verbose copied passages, naive one-off counts, or answers to the current task.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work, including what transferable understanding was gained or reused.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale. Each candidate must be compact and must explain why it is shared context understanding rather than a one-off answer."
+    program["options"] = options
+    return program
+
+
+def _context_map_cartographer_program() -> Any:
+    _core_coverage_mark("_context_map_cartographer_program")
+    program = {}
+    program["signature"] = "task:string \"The user task that was completed.\", contextMap:string \"The current context map.\", distillerReflection:string \"The Distiller diagnosis, item tags, and cache candidates.\", currentChars:number \"Current context-map character count.\", maxChars:number \"Maximum context-map character budget.\" -> operations?:json \"Array of ADD, DELETE, or REPLACE operations to apply to the context map. Use item_id for DELETE and REPLACE item IDs.\""
+    options = {}
+    options["id"] = "agent.context_map.cartographer"
+    options["instruction"] = "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nUse this shared-understanding litmus test for every edit: would a future agent asking a completely different question about this same context benefit from this item?\n\nValue priority, highest to lowest:\n1. Context understanding: key entities, concepts, roles, relationships, data categories, and global summaries that orient the agent.\n2. Domain constants: exact thresholds, rates, formulas, conversion factors, enum sets, required field names, output schemas, and reference values. Keep these precise.\n3. Context roadmap: document, section, table, or repository layout and where different topics can be found.\n4. Reusable results: derived aggregates, classifications, inventories, or computations that multiple questions can reuse, with enough method detail to judge reliability.\n5. Parsing schema: delimiters, record boundaries, field formats, extraction patterns, and navigation conventions.\n6. Error patterns: concrete failure modes observed while processing the context.\n\nCharacter budget triage: when the map is near or over budget, remove or rewrite low-value entries first: one-off facts, error patterns, parsing schema, roadmap items, reusable results, then protect domain constants and context understanding as much as possible.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding.\n\nDo not add raw data dumps, long excerpts, behavioral instructions, policy reminders, one-off answers, or facts that only resolve the latest task. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-00001\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-00001\",\"content\":\"...\"}"
+    program["options"] = options
+    return program
+
+
+def _agent_ordered_completion_payload(payload: Any) -> Any:
+    _core_coverage_mark("_agent_ordered_completion_payload")
+    is_object = _core_type_is(payload, "object")
+    if is_object:
+        pass
+    else:
+        return payload
+    out = {}
+    has_type = _core_map_contains(payload, "type")
+    if has_type:
+        type = _core_get(payload, "type", None)
+        out["type"] = type
+    else:
+        pass
+    has_args = _core_map_contains(payload, "args")
+    if has_args:
+        args = _core_get(payload, "args", None)
+        out["args"] = args
+    else:
+        pass
+    for key in payload:
+        seen = _core_map_contains(out, key)
+        if seen:
+            pass
+        else:
+            value = _core_get(payload, key, None)
+            out[key] = value
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS

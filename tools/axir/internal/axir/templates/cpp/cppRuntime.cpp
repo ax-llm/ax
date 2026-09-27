@@ -2228,6 +2228,17 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
   }
   return stage_ptr->forward(*registered, values, options);
 }
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+Value Core::agent_program_forward(Value signature, Value program_options, Value client, Value values, Value options) {
+  std::string client_id = str(get_key(client, "__client_id"));
+  AIClient* registered = registered_client(client_id);
+  if (registered == nullptr) {
+    throw AxError("runtime", "client does not implement AIClient");
+  }
+  AxGen program = ax(str(signature), program_options);
+  return program.forward(*registered, values, options);
+}
 Value Core::agent_stage_chat_log(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
   auto* stage_ptr = registered_stage(stage_id);
