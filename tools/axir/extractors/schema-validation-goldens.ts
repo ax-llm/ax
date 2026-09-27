@@ -507,6 +507,28 @@ validateOutputErrorCase(
   },
   'at least 3 characters'
 );
+// TS measures string lengths in UTF-16 code units (String.prototype.length):
+// an emoji counts 2, a precomposed é counts 1.
+validateOutputCase('output-string-min-utf16-units', nestedSpec, nestedSig, {
+  user: { username: '\u{1F600}\u{1F600}', age: 36 },
+});
+validateOutputErrorCase(
+  'output-string-max-utf16-units',
+  nestedSpec,
+  nestedSig,
+  {
+    user: { username: '\u{1F600}'.repeat(11), age: 36 },
+  },
+  'String must be at most 20 characters long.'
+);
+validateOutputCase(
+  'output-string-max-counts-units-not-bytes',
+  nestedSpec,
+  nestedSig,
+  {
+    user: { username: '\u00e9'.repeat(15), age: 36 },
+  }
+);
 validateOutputErrorCase(
   'output-number-minimum',
   nestedSpec,

@@ -943,7 +943,10 @@ module @ax.stream version "0.1" {
       core.if %not_string {
         core.return
       }
-      %length = core.call intrinsic.len(%value)
+      // As in TS (String.prototype.length), a string's length counts UTF-16
+      // code units: an emoji counts two.
+      %units = core.call intrinsic.string.utf16_units(%value)
+      %length = core.call intrinsic.len(%units)
       %min_snake = core.get %typ["min_length"]
       %min_length = core.get %typ["minLength"] default %min_snake
       %has_min = core.call intrinsic.is_not_none(%min_length)
