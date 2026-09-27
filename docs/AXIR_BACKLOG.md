@@ -18,12 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
-  - Status: open
-  - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
-  - TS paths: `src/ax/agent/agentInternal/pipelineForward.ts`
-  - Impact: TypeScript AxAgent.streamingForward now runs its stages under root/distiller, root/executor and root/responder and reports the run at root, as forward does (a steer targeted at a stage used to be ignored while streaming); the ports gain AxAgent streaming forward and the same run-control events
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -911,3 +906,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `4d3de802f2d630154427b72cc5579830d9dbb337`
   - Verification: `All five ports build the ACE reflector and curator signatures with their field builders and TS descriptions; the TS golden axoptimize/playbook-evolve-teacher-inputs pins every teacher system prompt byte for byte (expected_teacher_system_prompts). Eight TS goldens (axgen forward/streaming-forward required-input cases) pin TS's required-input errors and renders; prompt/field-titles-snake-and-camel-case pins Rust titles; prompt/json-and-array-outputs-text-contract pins Go's text contract for json and array outputs; axagent/playbook-config-empty-seed-clock pins the agent seed snapshot under an injected clock (expected_playbook_state). Every new or changed fixture passes in all five ports; each one that differs on main fails there in the ports named in the PR (the whitespace and optional-empty input cases pass on main and pin the inputs TS accepts); mutated copies fail in all five. verify --mode release passes in python, go, java, rust and cpp (1099 fixtures each); Go and Python perturbation gates pass (239 response mutations across 99 fixtures).`
+- `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
+  - Status: done
+  - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
+  - TS paths: `src/ax/agent/agentInternal/pipelineForward.ts`
+  - Impact: TypeScript AxAgent.streamingForward now runs its stages under root/distiller, root/executor and root/responder and reports the run at root, as forward does (a steer targeted at a stage used to be ignored while streaming); the ports gain AxAgent streaming forward and the same run-control events
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `9b1f64a9a`
+  - Verification: `TS streamingForward runs its stages at root/distiller, root/executor and root/responder and reports the run at root (src/ax/agent/agent.streamingControl.test.ts: 3 tests fail on main, pass here). All five ports stream the responder through @agent_streaming_forward and intrinsic.agent.stage_streaming_forward, sharing @agent_run_actor_stages and @agent_complete_run with forward. 20 TS goldens from tools/axir/extractors/agent-streaming-goldens.ts (axagent/agent-streaming-forward-* and agent-forward-*) pin the deltas, the output, the request count, the order of model requests and observer callbacks (used memories and skills, citations, playbook onUpdate), run-control events with paths (completed, failed, aborted), the chat-log shape and TS's citation messages and errors; the axagent suite (167 fixtures) passes in python, go, java, rust and cpp, and mutated copies of the control and playbook goldens fail in all five. verify --mode release passes in python, go, java, rust and cpp (1131 fixtures each).`
