@@ -561,6 +561,11 @@ def run_fixture_path(path):
     return run_fixture(data, source=str(path))
 
 
+# Python strings hold code points, so a lone surrogate (half of a pair a
+# provider split across stream events) is representable here.
+SUPPORTS_LONE_SURROGATES = True
+
+
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
     # expected_deprecations pins the one-time deprecation warnings the run
     # gives (the ones already shown are forgotten first).
@@ -579,6 +584,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
 def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
+    if fixture.get("requires_lone_surrogates") and not SUPPORTS_LONE_SURROGATES:
+        return {"name": name, "ok": True, "skipped": "requires lone surrogates (utf-8 runner)"}
     try:
         if kind == "signature_error":
             _run_signature_error(fixture)
@@ -1285,6 +1292,7 @@ def _run_forward(fixture):
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
+    _assert_last_request_tail(fixture, client)
     _assert_speak_requests(fixture, client)
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
@@ -1391,6 +1399,17 @@ def _fixture_processor(spec, calls):
         return result
 
     return processor
+
+
+def _assert_last_request_tail(fixture, client):
+    # The last messages of the last request's prompt, compared by role and
+    # content.
+    expected = fixture.get("expected_last_request_tail")
+    if expected is None:
+        return
+    prompt = (client.requests[-1] if client.requests else {}).get("chat_prompt") or []
+    tail = [{key: message[key] for key in ("role", "content") if key in message} for message in prompt[-len(expected):]]
+    _assert_equal(tail, expected, "last request tail")
 
 
 def _attach_fixture_control(fixture, client, run_options):
@@ -1641,6 +1660,7 @@ def _run_streaming_forward(fixture):
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
+    _assert_last_request_tail(fixture, client)
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:
@@ -1777,7 +1797,8 @@ def _run_flow_mermaid(fixture):
     if operation == "builder_render":
         fl = flow()
         for step in fixture.get("builder_steps") or []:
-            options = {"reads": step.get("reads") or []}
+            # A builder step without "reads" declares none.
+            options = {"reads": step["reads"]} if "reads" in step else {}
             fl.execute(step["name"], ax(step["signature"]), options)
         _assert_equal(str(fl), fixture["expected_rendered"], "flow mermaid builder render")
         return
@@ -1910,6 +1931,12 @@ def _run_optimize(fixture):
             return ax(sig, options)
         if fixture.get("program") == "flow":
             return _build_flow(fixture)
+        # An agent's runtime_script runs its actor code, as in the agent fixtures.
+        if fixture.get("runtime_script") is not None:
+            options["runtime"] = ScriptedCodeRuntime(
+                copy.deepcopy(fixture.get("runtime_script") or []),
+                language=fixture.get("runtime_language", "JavaScript"),
+            )
         return agent(sig, options)
 
     program = build_program()
@@ -2092,6 +2119,9 @@ def _run_optimize(fixture):
             prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
             if "expected_prediction_subset" in fixture:
                 _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
+            # Fields that must match exactly: a list compares in full.
+            for key, value in (fixture.get("expected_prediction_fields") or {}).items():
+                _assert_equal(prediction.get(key), value, f"eval prediction {key}")
             return
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
@@ -2828,7 +2858,10 @@ def _run_agent_playbook_evolve(fixture):
             language=fixture.get("runtime_language", "Python"),
         )
         agent_options = copy.deepcopy(fixture.get("options") or {})
-        agent_options["runtime"] = runtime
+        # runtime_on_evolve: the agent gets only a runtime descriptor and the
+        # runtime goes on the evolve call, as the examples pass it.
+        runtime_on_evolve = bool(fixture.get("runtime_on_evolve"))
+        agent_options["runtime"] = {"language": fixture.get("runtime_language", "Python")} if runtime_on_evolve else runtime
         ag = agent(fixture.get("signature", "question:string -> answer:string"), agent_options)
         playbook = ag.playbook({
             "target": "responder",
@@ -2844,6 +2877,8 @@ def _run_agent_playbook_evolve(fixture):
         evolve_options = copy.deepcopy(case.get("options") or {})
         if teacher_spec is not None:
             evolve_options["teacherAI"] = teacher
+        if runtime_on_evolve:
+            evolve_options["runtime"] = runtime
         actual = playbook.evolve(copy.deepcopy(fixture.get("dataset") or {}), evolve_options)
         outcomes = actual.get("outcomes") or []
         expected = case.get("expected") or {}
@@ -4205,7 +4240,10 @@ def main(argv=None):
     if not argv:
         raise SystemExit("usage: python -m axllm.conformance <fixture-or-dir>...")
     for result in run_fixtures(argv):
-        print("ok", result["name"])
+        if result.get("skipped"):
+            print(f"skip {result['name']}: {result['skipped']}")
+        else:
+            print("ok", result["name"])
 
 
 

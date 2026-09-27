@@ -1,0 +1,54 @@
+{
+  "expected_transport_json_absent": ["top_p", "top_k", "thinking.type"],
+  "expected_transport_request": {
+    "json": {
+      "max_tokens": 123,
+      "temperature": 0.7
+    }
+  },
+  "expected_warnings": [
+    "Ax dropped topP for claude-opus-4-6: the model accepts temperature or topP, not both."
+  ],
+  "kind": "ai_chat",
+  "model": "claude-opus-4-6",
+  "model_config": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9
+  },
+  "name": "sampling-anthropic-claude-opus-4-6-ai-config",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sampling",
+        "model": "claude-opus-4-6",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

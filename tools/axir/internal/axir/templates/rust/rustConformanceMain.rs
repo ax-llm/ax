@@ -1,4 +1,4 @@
-use axllm::{parse_json, run_conformance_fixture, runtime_protocol_fixture_server_main, AxResult};
+use axllm::{conformance_fixture_skip, parse_json, run_conformance_fixture, runtime_protocol_fixture_server_main, AxResult};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -37,6 +37,11 @@ fn visit(path: &Path) -> AxResult<()> {
         return Ok(());
     }
     let text = fs::read_to_string(path)?;
+    // A fixture this runner can't represent is skipped, not failed.
+    if let Some((name, reason)) = conformance_fixture_skip(&text) {
+        println!("skip {name}: {reason}");
+        return Ok(());
+    }
     let fixture = parse_json(&text)?;
     run_conformance_fixture(fixture)?;
     println!("ok {}", path.file_stem().and_then(|value| value.to_str()).unwrap_or("fixture"));

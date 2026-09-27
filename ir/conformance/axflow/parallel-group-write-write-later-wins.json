@@ -1,0 +1,47 @@
+{
+  "kind": "flow",
+  "name": "parallel-group-write-write-later-wins",
+  "description": "Port-only. Steps left and right share a parallel group and both spread answer. The later step's answer wins, as running them one after another would leave it.",
+  "input": {
+    "question": "q"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["leftResult"],
+        "isBarrier": false
+      }
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["rightResult"],
+        "isBarrier": false
+      }
+    }
+  ],
+  "returns": {
+    "answer": "answer",
+    "left": "leftResult.answer"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"from left\"}"
+    },
+    {
+      "content": "{\"answer\":\"from right\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "from right",
+    "left": "from left"
+  },
+  "expected_request_count": 2
+}

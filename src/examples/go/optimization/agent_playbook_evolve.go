@@ -103,8 +103,22 @@ func main() {
 		panic(err)
 	}
 
+	// Each train task replays on the runtime. A replay that fails scores 0 and
+	// would be mined as the weakness, so stop instead.
+	replays := []ax.Value{}
+	records, _ := evolution.(map[string]ax.Value)["records"].([]ax.Value)
+	for _, raw := range records {
+		record, _ := raw.(map[string]ax.Value)
+		prediction, _ := record["prediction"].(map[string]ax.Value)
+		if record["error"] != nil || prediction["completionType"] == "error" {
+			panic(fmt.Sprintf("evolve replay failed: %v %v", record["error"], prediction["error"]))
+		}
+		replays = append(replays, prediction["completionType"])
+	}
+
 	encoded, _ := json.MarshalIndent(answer, "", "  ")
 	fmt.Println(string(encoded))
+	fmt.Println("replays:", replays)
 	fmt.Println("citations:", observedCitations)
 	fmt.Println("run-end updates:", len(playbookUpdates))
 	fmt.Println("outcomes:", evolution.(map[string]ax.Value)["outcomes"])

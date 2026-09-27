@@ -168,6 +168,21 @@ function logStepComplete(
   } as any);
 }
 
+// A parallel group's steps all start from the same state, so each step's
+// returned state still holds the group's starting value of every key another
+// step changed. Merging whole states let a later step undo an earlier one's
+// update; merging each step's changes (a new key, or a value that is no longer
+// the same one) in step order ends as running the steps one after another.
+function changedEntries(start: AxFlowState, result: AxFlowState): AxFlowState {
+  const changes: AxFlowState = {};
+  for (const [key, value] of Object.entries(result)) {
+    if (!(key in start) || !Object.is(start[key], value)) {
+      changes[key] = value;
+    }
+  }
+  return changes;
+}
+
 export async function executeFlowSteps(
   steps: readonly AxFlowStep[],
   initialState: AxFlowState,
@@ -299,7 +314,7 @@ export async function executeFlowSteps(
     }
 
     for (const result of results) {
-      state = { ...state, ...result };
+      state = { ...state, ...changedEntries(groupStartState, result) };
       stepsExecuted++;
     }
   }

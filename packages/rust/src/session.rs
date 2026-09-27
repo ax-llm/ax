@@ -779,6 +779,24 @@ fn pinned_run_client<'a>(
     }
 }
 
+// A steer is text: a message's string content, or the text of its text parts
+// joined by newlines (a field processor's feedback is [{type: "text", text}]).
+fn steer_text(content: &Value) -> Value {
+    let Value::Array(parts) = content else {
+        return content.clone();
+    };
+    let texts = parts
+        .iter()
+        .filter(|part| part["type"] == "text")
+        .map(|part| match &part["text"] {
+            Value::String(text) => text.clone(),
+            Value::Null => String::new(),
+            other => other.to_string(),
+        })
+        .collect::<Vec<_>>();
+    Value::String(texts.join("\n"))
+}
+
 pub(crate) struct SessionRun {
     routes: Vec<String>,
     route_selected: bool,
@@ -1181,7 +1199,7 @@ impl SessionRun {
                 self.session
                     .as_mut()
                     .unwrap()
-                    .update(&json!({"type":"steer","text":message["content"]}))?;
+                    .update(&json!({"type":"steer","text":steer_text(&message["content"])}))?;
             }
             self.submit(Vec::new())?;
         }
@@ -1804,6 +1822,52 @@ mod tests {
                 json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
             ))
         }
+    }
+    // Answers "Answer: first", then, once the feedback has steered the open
+    // session with its text, "Answer: second".
+    struct FeedbackSteerTransport(Arc<AtomicUsize>);
+    impl AxTransport for FeedbackSteerTransport {
+        fn send(&mut self, _: Value) -> AxResult<Value> {
+            Err(AxError::runtime("Expected streaming"))
+        }
+        fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
+            let n = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+            let event = if n == 1 {
+                completed("first", "Answer: first")
+            } else {
+                let body = &request["json"];
+                assert_eq!(body["previous_response_id"], "first");
+                assert_eq!(
+                    body["input"],
+                    json!([{"role":"user","content":[{"type":"input_text","text":"Check it."}]}])
+                );
+                completed("second", "Answer: second")
+            };
+            Ok(AxTransportStream::Buffered(
+                json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
+            ))
+        }
+    }
+    #[test]
+    fn list_content_feedback_steers_an_open_session_as_text() -> AxResult<()> {
+        // A field processor's feedback is a user message with a text part,
+        // [{type: "text", text}]. The next step steers the open native
+        // session with that text, not the list.
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut client = ai("openai", json!({"api_key":"test","model":"gpt-6-astra"}))?
+            .with_transport(FeedbackSteerTransport(requests.clone()));
+        let mut program = ax("question -> answer")?;
+        let given = Arc::new(AtomicUsize::new(0));
+        program.add_field_processor("answer", move |_, _| {
+            Ok((given.fetch_add(1, Ordering::SeqCst) == 0).then(|| json!("Check it.")))
+        })?;
+        let options = AxForwardOptions::from(json!({})).with_control(run_control());
+        assert_eq!(
+            program.forward_with_options(&mut client, json!({"question":"Status?"}), options)?,
+            json!({"answer":"second"})
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        Ok(())
     }
     #[test]
     fn invalid_arguments_correction_and_step_exhaustion() -> AxResult<()> {

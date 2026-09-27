@@ -8,6 +8,8 @@ import {
   AxBaseAI,
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
+  warnDroppedSampling,
+  warnSamplingOnce,
 } from '../base.js';
 import { resolveVertexAIHost } from '../vertex.js';
 
@@ -33,6 +35,113 @@ const usesStrictFlashParameters = (model: string): boolean =>
   model === 'gemini-3.8-flash' ||
   model === 'gemini-3.7-flash' ||
   model === 'gemini-3.6-flash';
+
+/**
+ * Models the Gemini API answers with "Penalty is not enabled for this model"
+ * for presencePenalty and frequencyPenalty (probed 2026-09-27 with an AI Studio
+ * key; Vertex was not probed).
+ */
+const geminiApiRejectsPenalties = (model: string): boolean =>
+  [
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-pro-preview',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+  ].includes(model);
+
+/**
+ * The sampling fields of a generationConfig. Explicit values are sent as
+ * before, except that a value Gemini rejects or Ax changes is warned about once:
+ * - Server-managed models ignore temperature, topP and topK (their model info
+ *   marks them, so the base layer already warned about explicit ones).
+ * - Gemini 3 takes no temperature below 1: Ax raises it, as Google
+ *   recommends 1.0 (warned for an explicit value).
+ * - The Gemini API rejects the penalties on the probed models, and Gemini 3
+ *   returns one candidate; Vertex (not probed) keeps its historical wire.
+ */
+const geminiSamplingConfig = ({
+  model,
+  modelConfig,
+  config,
+  isVertex,
+  explicit,
+}: Readonly<{
+  model: string;
+  modelConfig: Readonly<AxModelConfig> | undefined;
+  config: Readonly<AxAIGoogleGeminiConfig>;
+  isVertex: boolean;
+  explicit: ReadonlySet<string>;
+}>): Pick<
+  AxAIGoogleGeminiGenerationConfig,
+  'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'candidateCount'
+> => {
+  const serverManagedSampling = usesServerManagedSampling(model);
+  const strictFlashParameters = usesStrictFlashParameters(model);
+  const rejectsPenalties = !isVertex && geminiApiRejectsPenalties(model);
+  const out: Pick<
+    AxAIGoogleGeminiGenerationConfig,
+    'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'candidateCount'
+  > = {};
+  if (!serverManagedSampling) {
+    let temperature = modelConfig?.temperature ?? config.temperature;
+    // Gemini 3+ models require a minimum temperature of 1.0
+    if (
+      isGemini3Model(model) &&
+      (temperature === undefined || temperature < 1)
+    ) {
+      if (temperature !== undefined && explicit.has('temperature')) {
+        warnSamplingOnce(
+          `${model}\u0000temperature-raised`,
+          `Ax raised temperature ${temperature} to 1 for ${model}: Google recommends 1.0 for Gemini 3 models.`
+        );
+      }
+      temperature = 1;
+    }
+    out.temperature = temperature;
+    if (modelConfig?.topP !== undefined) out.topP = modelConfig.topP;
+    out.topK = modelConfig?.topK;
+  }
+
+  const presencePenalty = modelConfig?.presencePenalty;
+  if (presencePenalty !== undefined) {
+    warnDroppedSampling(
+      model,
+      'presencePenalty',
+      rejectsPenalties
+        ? 'the model does not accept it'
+        : 'Ax does not send it to Gemini'
+    );
+  }
+  const frequencyPenalty =
+    modelConfig?.frequencyPenalty ?? config.frequencyPenalty;
+  if (frequencyPenalty !== undefined) {
+    if (strictFlashParameters || rejectsPenalties) {
+      warnDroppedSampling(
+        model,
+        'frequencyPenalty',
+        'the model does not accept it'
+      );
+    } else {
+      out.frequencyPenalty = frequencyPenalty;
+    }
+  }
+
+  const n = modelConfig?.n ?? config.n;
+  const oneCandidate =
+    strictFlashParameters || (!isVertex && isGemini3Model(model));
+  if (n !== undefined && n > 1 && oneCandidate) {
+    warnDroppedSampling(model, 'n', 'the model returns one candidate');
+  }
+  if (!strictFlashParameters) {
+    out.candidateCount = oneCandidate ? 1 : (n ?? 1);
+  }
+  return out;
+};
 
 import {
   axNormalizeRequestedServiceTier,
@@ -1303,45 +1412,21 @@ class AxAIGoogleGeminiImpl
       );
     }
 
-    const serverManagedSampling = usesServerManagedSampling(model as string);
-    const strictFlashParameters = usesStrictFlashParameters(model as string);
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      ...(!serverManagedSampling
-        ? {
-            temperature:
-              req.modelConfig?.temperature ?? this.config.temperature,
-          }
-        : {}),
-      ...(!serverManagedSampling && req.modelConfig?.topP !== undefined
-        ? { topP: req.modelConfig.topP }
-        : {}),
-      ...(!serverManagedSampling
-        ? { topK: req.modelConfig?.topK ?? this.config.topK }
-        : {}),
-      ...(!strictFlashParameters
-        ? {
-            frequencyPenalty:
-              req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-            candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
-          }
-        : {}),
+      ...geminiSamplingConfig({
+        model: model as string,
+        modelConfig: req.modelConfig,
+        config: this.config,
+        isVertex: this.isVertex,
+        explicit: new Set(req.explicitSamplingKeys ?? []),
+      }),
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
 
       ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     };
-
-    // Gemini 3+ models require a minimum temperature of 1.0
-    if (
-      !serverManagedSampling &&
-      isGemini3Model(model as string) &&
-      (generationConfig.temperature === undefined ||
-        generationConfig.temperature < 1)
-    ) {
-      generationConfig.temperature = 1;
-    }
 
     if (useLiveAudio && (req.responseFormat || this.config.responseFormat)) {
       throw new Error(
@@ -2016,8 +2101,6 @@ class AxAIGoogleGeminiImpl
     }
 
     // Build the generation config using existing logic
-    const serverManagedSampling = usesServerManagedSampling(model as string);
-    const strictFlashParameters = usesStrictFlashParameters(model as string);
     const effectiveMappings = this.getEffectiveMappings(model);
     const thinkingConfig = resolveGeminiThinkingConfig({
       model,
@@ -2028,40 +2111,18 @@ class AxAIGoogleGeminiImpl
     });
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      ...(!serverManagedSampling
-        ? {
-            temperature:
-              req.modelConfig?.temperature ?? this.config.temperature,
-          }
-        : {}),
-      ...(!serverManagedSampling && req.modelConfig?.topP !== undefined
-        ? { topP: req.modelConfig.topP }
-        : {}),
-      ...(!serverManagedSampling
-        ? { topK: req.modelConfig?.topK ?? this.config.topK }
-        : {}),
-      ...(!strictFlashParameters
-        ? {
-            frequencyPenalty:
-              req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
-            candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
-          }
-        : {}),
+      ...geminiSamplingConfig({
+        model: model as string,
+        modelConfig: req.modelConfig,
+        config: this.config,
+        isVertex: this.isVertex,
+        explicit: new Set(req.explicitSamplingKeys ?? []),
+      }),
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
       ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     };
-
-    // Gemini 3+ models require a minimum temperature of 1.0
-    if (
-      !serverManagedSampling &&
-      isGemini3Model(model as string) &&
-      (generationConfig.temperature === undefined ||
-        generationConfig.temperature < 1)
-    ) {
-      generationConfig.temperature = 1;
-    }
 
     const safetySettings = this.config.safetySettings;
 

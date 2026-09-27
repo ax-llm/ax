@@ -1,9 +1,6 @@
 import { axRunChatSession } from './chatSession.js';
-import { extractValues } from './extract.js';
-import {
-  createStructuredDelta,
-  parseStructuredPartial,
-} from './response/structuredDelta.js';
+import { processSessionPartialResult } from './response/streaming.js';
+import { createStructuredDelta } from './response/structuredDelta.js';
 import { axValidateToolArguments } from './toolArguments.js';
 import type { DeltaOut } from './types.js';
 import { outputValueDescriptions } from './valueDescriptions.js';
@@ -60,7 +57,6 @@ import {
   type AxStreamingAssertion,
   AxStreamingAssertionError,
   assertAssertions,
-  assertStreamingAssertions,
 } from './asserts.js';
 import { renderAudioOutputArtifacts } from './audioArtifacts.js';
 import {
@@ -329,6 +325,23 @@ type AxChatResponseLogMetadata = Pick<
   | 'remoteSessionId'
   | 'providerMetadata'
 >;
+
+// Merges a delta into values as a consumer does: text and arrays append, any
+// other value replaces.
+function mergeDeltaValues(
+  values: Record<string, unknown>,
+  delta: Readonly<Record<string, unknown>>
+): void {
+  for (const [key, value] of Object.entries(delta)) {
+    const previous = values[key];
+    values[key] =
+      typeof value === 'string'
+        ? String(previous ?? '') + value
+        : Array.isArray(value)
+          ? [...(Array.isArray(previous) ? previous : []), ...value]
+          : value;
+  }
+}
 
 export class AxGen<IN = any, OUT extends AxGenOut = any>
   extends AxProgram<IN, OUT>
@@ -1538,9 +1551,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         : fn
     );
 
+    // A chat session's response streams through the same extraction as a
+    // plain stream, on its own state, so a delta never has to take back text
+    // it already sent (a label split across partial events, say). A new
+    // response starts a new version; the final pass below adds what the
+    // partials did not cover.
     let sessionVersion = -1;
     let sessionResponseId: string | undefined;
-    let partialContent = '';
+    let sessionState: InternalAxGenState | undefined;
     let provisionalValues: Record<string, unknown> = {};
     const provisional: (DeltaOut<OUT> & {
       [axSessionOutputVersion]: number;
@@ -1551,7 +1569,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       if (responseId === sessionResponseId) return;
       sessionResponseId = responseId;
       sessionVersion++;
-      partialContent = '';
+      sessionState = this.createStates(1)[0];
       provisionalValues = {};
     };
     const onSessionDelta = async (
@@ -1559,55 +1577,53 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       response: AxChatResponse
     ) => {
       selectResponse(responseId);
-      if (!options.stream) return;
-      partialContent += response.results
-        .map((result) => result.content ?? '')
-        .join('');
-      let parsed = false;
-      try {
-        const values: Record<string, unknown> = {};
-        let partialMarker = null;
-        if (this.signature.hasComplexFields()) {
-          const parsed = parseStructuredPartial(partialContent);
-          if (!parsed) return;
-          Object.assign(values, parsed.values);
-          partialMarker = parsed.partialMarker;
-        } else
-          extractValues(this.signature, values, partialContent, {
-            treatAllFieldsOptional: true,
-          });
-        const { delta, fullValues } = createStructuredDelta<OUT>({
-          signature: this.signature,
-          parsedValues: values,
-          previousValues: provisionalValues,
-          partialMarker,
-        });
-        parsed = true;
-        for (const field of this.signature.getOutputFields()) {
-          const value = fullValues[field.name];
-          if (typeof value !== 'string' || !(field.name in delta)) continue;
-          await assertStreamingAssertions(
-            this.streamingAsserts,
-            {
-              ...this.createStates(1)[0]!.xstate,
-              currField: field,
-              s: 0,
-            },
-            value
-          );
+      const state = sessionState;
+      if (!options.stream || !state) return;
+      for (const result of response.results) {
+        if (result.index !== 0) continue;
+        try {
+          for await (const { delta } of processSessionPartialResult<OUT>({
+            result,
+            state,
+            sessionId,
+            signature: this.signature,
+            strictMode,
+            skipEarlyFail:
+              (ai.getFeatures().functionCot ?? false) && functions.length > 0,
+            thoughtFieldName: this.thoughtFieldName,
+            streamingAsserts: this.streamingAsserts,
+            parseJsonStringFields:
+              this.signature.hasComplexFields() &&
+              !this.structuredOutputFunctionFallback,
+            strictStructuredJson:
+              this.structuredOutputRung === 'json_object' ||
+              (this.structuredOutputRung === 'native' &&
+                !this.signature.hasComplexFields()),
+          })) {
+            mergeDeltaValues(provisionalValues, delta);
+            provisional.push({
+              index: 0,
+              delta,
+              [axSessionOutputVersion]: sessionVersion,
+            });
+            wakeProvisional?.();
+          }
+        } catch (error) {
+          if (!(error instanceof ValidationError)) {
+            // As in a plain stream, the retry's prompt keeps the answer its
+            // correction refers to.
+            if (error instanceof AxStreamingAssertionError)
+              mem.addResponse(
+                [{ index: 0, content: state.content }],
+                sessionId
+              );
+            throw error;
+          }
+          // Incomplete field values are validated when the response
+          // finishes; until then this response streams no more.
+          sessionState = undefined;
+          return;
         }
-        provisionalValues = fullValues;
-        if (Object.keys(delta).length) {
-          provisional.push({
-            index: 0,
-            delta,
-            [axSessionOutputVersion]: sessionVersion,
-          });
-          wakeProvisional?.();
-        }
-      } catch (error) {
-        if (parsed) throw error;
-        /* Incomplete field values are validated when the response finishes. */
       }
     };
     const requestPromise = this.forwardSendRequest({
@@ -1748,6 +1764,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
     const { res, debugPromptMetrics, responseMetadata } = await requestPromise;
     const signature = this.signature;
+    const thoughtFieldName = this.thoughtFieldName;
     const finalValues: Record<string, unknown> = {};
     const versioned = async function* (
       outputs: AsyncGenDeltaOut<OUT>
@@ -1757,15 +1774,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           yield output;
           continue;
         }
-        for (const [key, value] of Object.entries(output.delta)) {
-          const previous = finalValues[key];
-          finalValues[key] =
-            typeof value === 'string'
-              ? String(previous ?? '') + value
-              : Array.isArray(value)
-                ? [...(Array.isArray(previous) ? previous : []), ...value]
-                : value;
-        }
+        mergeDeltaValues(finalValues, output.delta);
         if (
           Object.entries(finalValues).some(
             ([key, value]) =>
@@ -1783,7 +1792,19 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           previousValues: provisionalValues,
           partialMarker: null,
         });
-        provisionalValues = fullValues;
+        // As in a plain stream, the thought comes through too: whatever the
+        // partials did not already send.
+        const thought = finalValues[thoughtFieldName];
+        if (typeof thought === 'string') {
+          const sent = provisionalValues[thoughtFieldName];
+          const rest = thought.slice(
+            typeof sent === 'string' ? sent.length : 0
+          );
+          if (rest) (delta as Record<string, unknown>)[thoughtFieldName] = rest;
+          fullValues[thoughtFieldName] = thought;
+        }
+        // The consumer keeps the fields this pass has not reached yet.
+        provisionalValues = { ...provisionalValues, ...fullValues };
         if (Object.keys(delta).length)
           yield Object.assign(
             { ...output, delta },

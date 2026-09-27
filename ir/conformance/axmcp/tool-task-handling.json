@@ -1,0 +1,1211 @@
+{
+  "kind": "mcp",
+  "operation": "tool_task_handling",
+  "name": "tool-task-handling",
+  "description": "callTool awaits a modern task, callTool with taskHandling expose returns the flattened CreateTaskResult, and callToolOutcome returns {kind: complete, result} or {kind: task, task}. A legacy server task-shaped result is a plain result under all three. expected_methods lists the requests each call sends after init.",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/mcp-task-handling-goldens.ts",
+    "reference": ["src/ax/mcp/client.ts"]
+  },
+  "client_options": {
+    "namespace": "inventory"
+  },
+  "arguments": {
+    "scope": "all"
+  },
+  "tool": "start_reindex",
+  "cases": [
+    {
+      "name": "modern task: call_tool",
+      "era": "modern",
+      "api": "call_tool",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        },
+        {
+          "method": "tasks/get",
+          "result": {
+            "taskId": "task-7",
+            "status": "completed",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:02Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0,
+            "result": {
+              "resultType": "complete",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reindexed 42 inventory records"
+                }
+              ],
+              "structuredContent": {
+                "indexed": 42
+              }
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call", "tasks/get"],
+      "expected": {
+        "resultType": "complete",
+        "content": [
+          {
+            "type": "text",
+            "text": "Reindexed 42 inventory records"
+          }
+        ],
+        "structuredContent": {
+          "indexed": 42
+        }
+      }
+    },
+    {
+      "name": "modern task: call_tool_expose",
+      "era": "modern",
+      "api": "call_tool_expose",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        },
+        {
+          "method": "tasks/get",
+          "result": {
+            "taskId": "task-7",
+            "status": "completed",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:02Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0,
+            "result": {
+              "resultType": "complete",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reindexed 42 inventory records"
+                }
+              ],
+              "structuredContent": {
+                "indexed": 42
+              }
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "resultType": "task",
+        "taskId": "task-7",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0
+      }
+    },
+    {
+      "name": "modern task: call_tool_outcome",
+      "era": "modern",
+      "api": "call_tool_outcome",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        },
+        {
+          "method": "tasks/get",
+          "result": {
+            "taskId": "task-7",
+            "status": "completed",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:02Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0,
+            "result": {
+              "resultType": "complete",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reindexed 42 inventory records"
+                }
+              ],
+              "structuredContent": {
+                "indexed": 42
+              }
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "kind": "task",
+        "task": {
+          "resultType": "task",
+          "taskId": "task-7",
+          "status": "working",
+          "createdAt": "2026-07-28T00:00:00Z",
+          "lastUpdatedAt": "2026-07-28T00:00:01Z",
+          "ttlMs": 60000,
+          "pollIntervalMs": 0
+        }
+      }
+    },
+    {
+      "name": "modern complete: call_tool",
+      "era": "modern",
+      "api": "call_tool",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "complete",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reindexed 7 records"
+              }
+            ],
+            "structuredContent": {
+              "indexed": 7
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "resultType": "complete",
+        "content": [
+          {
+            "type": "text",
+            "text": "Reindexed 7 records"
+          }
+        ],
+        "structuredContent": {
+          "indexed": 7
+        }
+      }
+    },
+    {
+      "name": "modern complete: call_tool_expose",
+      "era": "modern",
+      "api": "call_tool_expose",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "complete",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reindexed 7 records"
+              }
+            ],
+            "structuredContent": {
+              "indexed": 7
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "resultType": "complete",
+        "content": [
+          {
+            "type": "text",
+            "text": "Reindexed 7 records"
+          }
+        ],
+        "structuredContent": {
+          "indexed": 7
+        }
+      }
+    },
+    {
+      "name": "modern complete: call_tool_outcome",
+      "era": "modern",
+      "api": "call_tool_outcome",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "complete",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reindexed 7 records"
+              }
+            ],
+            "structuredContent": {
+              "indexed": 7
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "kind": "complete",
+        "result": {
+          "resultType": "complete",
+          "content": [
+            {
+              "type": "text",
+              "text": "Reindexed 7 records"
+            }
+          ],
+          "structuredContent": {
+            "indexed": 7
+          }
+        }
+      }
+    },
+    {
+      "name": "modern task without the tasks extension: call_tool",
+      "era": "modern",
+      "api": "call_tool",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected_error": "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"
+    },
+    {
+      "name": "modern task without the tasks extension: call_tool_expose",
+      "era": "modern",
+      "api": "call_tool_expose",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected_error": "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"
+    },
+    {
+      "name": "modern task without the tasks extension: call_tool_outcome",
+      "era": "modern",
+      "api": "call_tool_outcome",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {}
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected_error": "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"
+    },
+    {
+      "name": "modern invalid task: call_tool",
+      "era": "modern",
+      "api": "call_tool",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "queued",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected_error": "MCP protocol violation: invalid CreateTaskResult"
+    },
+    {
+      "name": "modern invalid task: call_tool_expose",
+      "era": "modern",
+      "api": "call_tool_expose",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "queued",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected_error": "MCP protocol violation: invalid CreateTaskResult"
+    },
+    {
+      "name": "modern invalid task: call_tool_outcome",
+      "era": "modern",
+      "api": "call_tool_outcome",
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "ttlMs": 60000,
+            "cacheScope": "private",
+            "capabilities": {
+              "tools": {},
+              "extensions": {
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-7",
+            "status": "queued",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000,
+            "pollIntervalMs": 0
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected_error": "MCP protocol violation: invalid CreateTaskResult"
+    },
+    {
+      "name": "legacy task-shaped result: call_tool",
+      "era": "legacy",
+      "api": "call_tool",
+      "responses": [
+        {
+          "method": "initialize",
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {},
+              "tasks": {}
+            },
+            "serverInfo": {
+              "name": "fixture",
+              "version": "1.0.0"
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "task": {
+              "taskId": "legacy-3",
+              "status": "working",
+              "createdAt": "2025-11-25T00:00:00Z",
+              "lastUpdatedAt": "2025-11-25T00:00:00Z",
+              "ttl": null,
+              "pollInterval": 250
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "task": {
+          "taskId": "legacy-3",
+          "status": "working",
+          "createdAt": "2025-11-25T00:00:00Z",
+          "lastUpdatedAt": "2025-11-25T00:00:00Z",
+          "ttl": null,
+          "pollInterval": 250
+        }
+      }
+    },
+    {
+      "name": "legacy task-shaped result: call_tool_expose",
+      "era": "legacy",
+      "api": "call_tool_expose",
+      "responses": [
+        {
+          "method": "initialize",
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {},
+              "tasks": {}
+            },
+            "serverInfo": {
+              "name": "fixture",
+              "version": "1.0.0"
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "task": {
+              "taskId": "legacy-3",
+              "status": "working",
+              "createdAt": "2025-11-25T00:00:00Z",
+              "lastUpdatedAt": "2025-11-25T00:00:00Z",
+              "ttl": null,
+              "pollInterval": 250
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "task": {
+          "taskId": "legacy-3",
+          "status": "working",
+          "createdAt": "2025-11-25T00:00:00Z",
+          "lastUpdatedAt": "2025-11-25T00:00:00Z",
+          "ttl": null,
+          "pollInterval": 250
+        }
+      }
+    },
+    {
+      "name": "legacy task-shaped result: call_tool_outcome",
+      "era": "legacy",
+      "api": "call_tool_outcome",
+      "responses": [
+        {
+          "method": "initialize",
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {},
+              "tasks": {}
+            },
+            "serverInfo": {
+              "name": "fixture",
+              "version": "1.0.0"
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "task": {
+              "taskId": "legacy-3",
+              "status": "working",
+              "createdAt": "2025-11-25T00:00:00Z",
+              "lastUpdatedAt": "2025-11-25T00:00:00Z",
+              "ttl": null,
+              "pollInterval": 250
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "kind": "complete",
+        "result": {
+          "task": {
+            "taskId": "legacy-3",
+            "status": "working",
+            "createdAt": "2025-11-25T00:00:00Z",
+            "lastUpdatedAt": "2025-11-25T00:00:00Z",
+            "ttl": null,
+            "pollInterval": 250
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy complete: call_tool",
+      "era": "legacy",
+      "api": "call_tool",
+      "responses": [
+        {
+          "method": "initialize",
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {},
+              "tasks": {}
+            },
+            "serverInfo": {
+              "name": "fixture",
+              "version": "1.0.0"
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Reindexed 5 records"
+              }
+            ],
+            "structuredContent": {
+              "indexed": 5
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Reindexed 5 records"
+          }
+        ],
+        "structuredContent": {
+          "indexed": 5
+        }
+      }
+    },
+    {
+      "name": "legacy complete: call_tool_expose",
+      "era": "legacy",
+      "api": "call_tool_expose",
+      "responses": [
+        {
+          "method": "initialize",
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {},
+              "tasks": {}
+            },
+            "serverInfo": {
+              "name": "fixture",
+              "version": "1.0.0"
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Reindexed 5 records"
+              }
+            ],
+            "structuredContent": {
+              "indexed": 5
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Reindexed 5 records"
+          }
+        ],
+        "structuredContent": {
+          "indexed": 5
+        }
+      }
+    },
+    {
+      "name": "legacy complete: call_tool_outcome",
+      "era": "legacy",
+      "api": "call_tool_outcome",
+      "responses": [
+        {
+          "method": "initialize",
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {},
+              "tasks": {}
+            },
+            "serverInfo": {
+              "name": "fixture",
+              "version": "1.0.0"
+            }
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": {
+            "tools": [
+              {
+                "name": "start_reindex",
+                "description": "Start an inventory reindex",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Reindexed 5 records"
+              }
+            ],
+            "structuredContent": {
+              "indexed": 5
+            }
+          }
+        }
+      ],
+      "expected_methods": ["tools/call"],
+      "expected": {
+        "kind": "complete",
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Reindexed 5 records"
+            }
+          ],
+          "structuredContent": {
+            "indexed": 5
+          }
+        }
+      }
+    }
+  ]
+}

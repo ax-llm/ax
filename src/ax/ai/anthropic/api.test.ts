@@ -859,7 +859,10 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(body.top_k).toBeUndefined();
   });
 
-  it('Opus 4.6 omits sampling params', async () => {
+  // Opus 4.6 is adaptive but did not deprecate sampling: with thinking off the
+  // live API takes every value (probed 2026-09-27), so explicit ones are sent.
+  // Its default temperature keeps the historical rule and is not sent.
+  it('Opus 4.6 sends explicit sampling params with thinking off, temperature over top_p', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
       config: { model: AxAIAnthropicModel.Claude46Opus },
@@ -878,14 +881,21 @@ describe('AxAIAnthropic thinking configuration', () => {
 
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
-    expect(body.temperature).toBeUndefined();
+    // The Messages API rejects temperature and top_p together on Opus 4.6.
+    expect(body.temperature).toBe(0.2);
     expect(body.top_p).toBeUndefined();
-    expect(body.top_k).toBeUndefined();
+    expect(body.top_k).toBe(40);
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+    expect(capture.lastBody.temperature).toBeUndefined();
   });
 
   // Non-adaptive models still accept sampling params — the guard must not
   // suppress them everywhere.
-  it('Sonnet 4.6 still sends sampling params', async () => {
+  it('Sonnet 4.6 still sends sampling params, temperature or top_p', async () => {
     const ai = new AxAIAnthropic({
       apiKey: 'key',
       config: { model: AxAIAnthropicModel.Claude46Sonnet },
@@ -905,7 +915,17 @@ describe('AxAIAnthropic thinking configuration', () => {
     expect(fetch).toHaveBeenCalled();
     const body = capture.lastBody;
     expect(body.temperature).toBe(0.2);
-    expect(body.top_p).toBe(0.9);
+    expect(body.top_p).toBeUndefined();
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { topP: 0.9 },
+      },
+      { stream: false }
+    );
+    expect(capture.lastBody.top_p).toBe(0.9);
+    expect(capture.lastBody.temperature).toBeUndefined();
   });
 
   it('Opus 4.8 accepts provider config xhigh effort', async () => {

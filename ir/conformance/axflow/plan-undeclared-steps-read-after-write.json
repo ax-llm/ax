@@ -1,0 +1,73 @@
+{
+  "kind": "flow",
+  "name": "plan-undeclared-steps-read-after-write",
+  "operation": "plan",
+  "description": "Port-only. A step added with a program and no reads or writes reads the program's input fields and writes {name}Result plus its output fields, listed as outputs. polish reads outline, which the outline step spreads into the state, so it runs in a later group (the runtime-hooks examples' flow).",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "outline",
+      "signature": "topic:string -> outline:string"
+    },
+    {
+      "kind": "execute",
+      "name": "polish",
+      "signature": "outline:string -> answer:string"
+    }
+  ],
+  "expected_plan": {
+    "totalSteps": 2,
+    "parallelGroups": 2,
+    "maxParallelism": 1,
+    "steps": [
+      {
+        "name": "outline",
+        "kind": "execute",
+        "reads": ["topic"],
+        "writes": ["outlineResult", "outline"],
+        "outputs": ["outline"],
+        "barrier": false,
+        "stepIndex": 0
+      },
+      {
+        "name": "polish",
+        "kind": "execute",
+        "reads": ["outline"],
+        "writes": ["polishResult", "answer"],
+        "outputs": ["answer"],
+        "barrier": false,
+        "stepIndex": 1
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "outline",
+            "kind": "execute",
+            "reads": ["topic"],
+            "writes": ["outlineResult", "outline"],
+            "outputs": ["outline"],
+            "barrier": false,
+            "stepIndex": 0
+          }
+        ]
+      },
+      {
+        "level": 1,
+        "steps": [
+          {
+            "name": "polish",
+            "kind": "execute",
+            "reads": ["outline"],
+            "writes": ["polishResult", "answer"],
+            "outputs": ["answer"],
+            "barrier": false,
+            "stepIndex": 1
+          }
+        ]
+      }
+    ]
+  }
+}

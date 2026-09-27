@@ -111,6 +111,14 @@ final class SessionRun implements AiClient,AutoCloseable {
   @Override public Iterable<Map<String,Object>> stream(Map<String,Object> request) { return AxChatStream.lazy(()->openStream(request,options,null)); }
   // The audio output renderer's speech goes to the wrapped client.
   @Override public Map<String,Object> speak(Map<String,Object> request,Map<String,Object> callOptions) throws Exception { return client.speak(request,callOptions); }
+  // A steer is text: a message's string content, or the text of its text
+  // parts (a field processor's feedback is [{type: text, text}]).
+  static Object steerText(Object content) {
+    if(!(content instanceof List<?> parts)) return content;
+    List<String> texts=new ArrayList<>();
+    for(Object part:parts) if("text".equals(Core.get(part,"type",null))) texts.add(String.valueOf(Core.get(part,"text","")));
+    return String.join("\n",texts);
+  }
   public Map<String,Object> complete(Map<String,Object> request) throws Exception {
     select(request);
     if(provider==null) return Core.asMap(Core.aiCompleteOnce(client,boundary(request),options));
@@ -122,7 +130,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       workers.execute(()->{try{while(!closed)queue.put(new Delivery("provider",session.next(),null,null));}catch(Throwable error){if(!closed)queue.offer(new Delivery("failure",null,null,error));}});
     } else {
       var messages=Core.asList(request.get("chat_prompt"));
-      if(!messages.isEmpty()) session.update(Map.of("type","steer","text",Core.get(messages.get(messages.size()-1),"content","")));
+      if(!messages.isEmpty()) session.update(Map.of("type","steer","text",steerText(Core.get(messages.get(messages.size()-1),"content",""))));
       submit(List.of());
     }
     while(!closed) {

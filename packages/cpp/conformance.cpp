@@ -57,6 +57,8 @@ struct ConformanceScriptedAI : AxBaseAI {
   std::vector<Value> speak_requests;
   // The chat_prompt message roles of each chat request as it was sent.
   Value request_roles = Value::array();
+  // The last chat request's chat_prompt as it was sent.
+  Value last_chat_prompt = Value::array();
   // Called with each chat request's 1-based number while it is in flight,
   // before the scripted answer (a fixture's control_steer).
   std::function<void(int)> on_request;
@@ -72,6 +74,7 @@ struct ConformanceScriptedAI : AxBaseAI {
     Value roles = Value::array();
     for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) Core::append(roles, Core::get(message, "role"));
     Core::append(request_roles, roles);
+    last_chat_prompt = parse_json(stringify(Core::get(request, "chat_prompt", Value::array())));
     if (on_request) on_request(chat_calls);
   }
 
@@ -895,6 +898,26 @@ static void assert_request_roles(Value fixture, const ConformanceScriptedAI& cli
   if (!expected.is_null()) assert_equal(client.request_roles, expected, "request roles");
 }
 
+// The last messages of the last chat request's prompt, compared by role and
+// content (a string or a list of parts).
+static void assert_last_request_tail(Value fixture, const ConformanceScriptedAI& client) {
+  Value expected = Core::get(fixture, "expected_last_request_tail");
+  if (expected.is_null()) return;
+  Array prompt = Core::iter(client.last_chat_prompt);
+  std::size_t count = Core::iter(expected).size();
+  Value tail = Value::array();
+  for (std::size_t index = prompt.size() > count ? prompt.size() - count : 0; index < prompt.size(); ++index) {
+    Object message = as_object(prompt[index]);
+    Value kept = Value::object();
+    for (const char* key : {"role", "content"}) {
+      auto found = message.find(key);
+      if (found != message.end()) Core::set(kept, key, found->second);
+    }
+    Core::append(tail, kept);
+  }
+  assert_equal(tail, expected, "last request tail");
+}
+
 static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
@@ -944,6 +967,7 @@ static void run_forward(Value fixture) {
   }
   assert_control_events(fixture, control_events);
   assert_request_roles(fixture, client);
+  assert_last_request_tail(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));
@@ -1079,6 +1103,7 @@ static void run_streaming_forward(Value fixture) {
   }
   assert_control_events(fixture, control_events);
   assert_request_roles(fixture, client);
+  assert_last_request_tail(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));
@@ -1700,6 +1725,15 @@ static void run_optimize(Value fixture) {
         return;
       }
     }
+    // An agent's runtime_script runs its actor code, as in the agent fixtures.
+    std::unique_ptr<ScriptedCodeRuntime> scripted_runtime;
+    if (!Core::get(fixture, "runtime_script").is_null()) {
+      scripted_runtime = std::make_unique<ScriptedCodeRuntime>(
+          Core::get(fixture, "runtime_script", Value::array()),
+          display(Core::get(fixture, "runtime_language", "JavaScript")),
+          "");
+      Core::set(options, "runtime", Core::code_runtime_ref(*scripted_runtime));
+    }
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), options);
     if (op == "components") {
       Value components = ag.get_optimizable_components();
@@ -1773,6 +1807,11 @@ static void run_optimize(Value fixture) {
       ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
       Value prediction = ag.evaluate_optimization_task(client, Core::get(fixture, "task", object({{"input", Core::get(fixture, "input", Value::object())}})), Core::get(fixture, "eval_options", Value::object()));
       if (!Core::get(fixture, "expected_prediction_subset").is_null()) assert_subset(prediction, Core::get(fixture, "expected_prediction_subset"), "eval prediction");
+      // Fields that must match exactly: a list compares in full.
+      for (const auto& kv : as_object(Core::get(fixture, "expected_prediction_fields", Value::object()))) {
+        if (kv.first == "__order") continue;
+        assert_equal(Core::get(prediction, kv.first), kv.second, "eval prediction " + kv.first);
+      }
       return;
     }
   } catch (const AxError& error) {
@@ -1932,7 +1971,12 @@ static void run_agent_playbook_evolve(Value fixture) {
         display(Core::get(fixture, "runtime_language", "Python")),
         "");
     Value agent_options = Core::get(fixture, "options", Value::object());
-    Core::set(agent_options, "runtime", Core::code_runtime_ref(runtime));
+    // runtime_on_evolve: the agent gets only a runtime descriptor and the
+    // runtime goes on the evolve call, as the examples pass it.
+    bool runtime_on_evolve = Core::truthy(Core::get(fixture, "runtime_on_evolve", false));
+    Core::set(agent_options, "runtime", runtime_on_evolve
+        ? object({{"language", display(Core::get(fixture, "runtime_language", "Python"))}})
+        : Core::code_runtime_ref(runtime));
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), agent_options);
     Value playbook_options = Core::map_merge(object({{"target", "responder"}, {"maxEpochs", 1}}), parse_json(stringify(Core::get(test_case, "playbook_options", Value::object()))));
     AxPlaybook& playbook = ag.playbook(client, playbook_options, &teacher);
@@ -1942,9 +1986,11 @@ static void run_agent_playbook_evolve(Value fixture) {
     // The C++ evolve runs its miner on the playbook's teacher (no evolve-level
     // teacherAI option: a Value cannot hold a client), so the teacher is only
     // passed to playbook() above.
+    Value evolve_options = parse_json(stringify(Core::get(test_case, "options", Value::object())));
+    if (runtime_on_evolve) Core::set(evolve_options, "runtime", Core::code_runtime_ref(runtime));
     Value actual = playbook.evolve(
         Core::get(fixture, "dataset", Value::object()),
-        Core::get(test_case, "options", Value::object()));
+        evolve_options);
     Array outcomes = Core::iter(Core::get(actual, "outcomes", Value::array()));
     std::string label = "playbook evolve " + display(Core::get(test_case, "name", "case"));
     Value expected = Core::get(test_case, "expected", Value::object());
@@ -3982,7 +4028,9 @@ static void run_flow_mermaid(Value fixture) {
     AxFlow built;
     std::vector<std::unique_ptr<AxGen>> programs;
     for (const auto& raw : Core::iter(Core::get(fixture, "builder_steps", Value::array()))) {
-      Value options = object({{"reads", Core::get(raw, "reads", Value::array())}});
+      // A builder step without "reads" declares none.
+      Value reads = Core::get(raw, "reads");
+      Value options = reads.is_null() ? Value::object() : object({{"reads", reads}});
       auto program = std::make_unique<AxGen>(s(display(Core::get(raw, "signature"))));
       built.execute(display(Core::get(raw, "name")), *program, options);
       programs.push_back(std::move(program));
@@ -4264,6 +4312,12 @@ static void run_kind(Value fixture) {
   }
 }
 
+// C++ strings are UTF-8, but parse_json keeps a lone surrogate escape as its
+// 3-byte WTF-8 form, and streamed text joins a pair split across stream events
+// (Core::string_concat_stream_text), so requires_lone_surrogates fixtures run
+// here. A runner without that support would skip them.
+static constexpr bool kSupportsLoneSurrogates = true;
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "usage: axir-cpp-conformance <fixture-or-dir>...\n";
@@ -4273,6 +4327,10 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
       for (const auto& path : expand(argv[i])) {
         Value fixture = parse_json(read_file(path));
+        if (!kSupportsLoneSurrogates && Core::truthy(Core::get(fixture, "requires_lone_surrogates", false))) {
+          std::cout << "skip " << display(Core::get(fixture, "name", path.filename().string())) << ": requires lone surrogates (utf-8 runner)\n";
+          continue;
+        }
         run(fixture);
         std::cout << "ok " << display(Core::get(fixture, "name", path.filename().string())) << "\n";
       }
