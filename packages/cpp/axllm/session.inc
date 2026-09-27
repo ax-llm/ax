@@ -93,7 +93,7 @@ class ResponsesChatSession final:public AxChatSession {
         });
         transport->stream_cancellable(call,[&](Value chunk){
           if(queue->cancelled.load())return false;
-          if(Core::get(chunk,"status").is_number()){int status=static_cast<int>(num(Core::get(chunk,"status")));Value body=Core::get(chunk,"json",Core::get(chunk,"body",Core::get(chunk,"data")));if(status>=400)throw Core::as_error(Core::openai_normalize_error(status,body,call));chunk=body;}
+          if(Core::get(chunk,"status").is_number()){int status=static_cast<int>(num(Core::get(chunk,"status")));Value body=Core::get(chunk,"json",Core::get(chunk,"body",Core::get(chunk,"data")));if(status>=400)throw Core::as_error(Core::openai_normalize_error(status,body,Value()));chunk=body;}
           if(chunk.is_array()){for(const auto& event:array_ref(chunk))if(!decoder.feed("data: "+stringify(event)+"\n\n"))return false;return true;}
           return decoder.feed(chunk.is_object()?"data: "+stringify(chunk)+"\n\n":display(chunk));
         },std::shared_ptr<std::atomic<bool>>(queue,&queue->cancelled));
@@ -200,6 +200,8 @@ class SessionRun final:public AIClient {
   ~SessionRun() override{results_->close();if(session_)session_->close();std::lock_guard<std::mutex> lock(client_registry_mutex());client_registry().erase(pointer_id(this));}
   Value complete(Value request) override{Value response=chat(request,options_);return session_?Core::chat_session_completion(response,Core::get(state_,"response_id")):Core::chat_response_to_completion(response);}
   Value features_for_run(Value model) override{if(auto* service=dynamic_cast<AxAIService*>(client_))return service->get_features(model);return client_->features_for_run(model);}
+  // The audio output renderer's speech goes to the wrapped client.
+  Value speak(Value request,Value options) override{return client_->speak(std::move(request),std::move(options));}
   Value chat(Value request,Value options) override {
     try{return chat_impl(std::move(request),std::move(options));}
     catch(const AxError& error){

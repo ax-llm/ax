@@ -1,0 +1,76 @@
+{
+  "expected_output": {
+    "summary": "A greeting"
+  },
+  "expected_request_contains": ["Speech: Hello there"],
+  "expected_request_count": 2,
+  "expected_speak_requests": [
+    {
+      "text": "Hello there"
+    }
+  ],
+  "flow_options": {
+    "autoParallel": false
+  },
+  "forward_options": {
+    "renderAudio": true
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "flow",
+  "name": "audio-output-flow-speaker-to-summarizer",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Speech: Hello there",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Summary: A greeting",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "returns": {
+    "summary": "summary"
+  },
+  "speak_responses": [
+    {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg",
+      "transcript": "Hello there"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "speaker",
+      "options": {
+        "isBarrier": false,
+        "reads": ["question"],
+        "writes": ["speakerResult"]
+      },
+      "signature": "question:string -> speech:audio"
+    },
+    {
+      "kind": "execute",
+      "name": "summarizer",
+      "options": {
+        "isBarrier": false,
+        "reads": ["speakerResult"],
+        "writes": ["summarizerResult"]
+      },
+      "signature": "speech:audio -> summary:string"
+    }
+  ]
+}

@@ -562,7 +562,8 @@ class AxGen:
         run_options = _strip_runtime_hooks(options) or {}
         lookup = _cache_lookup_impl(self, values, run_options, False)
         if lookup.get("hit"):
-            return lookup.get("value")
+            # A stored output's audio outputs are rendered, as TS does.
+            return _render_audio_outputs_impl(self, client, lookup.get("value"), run_options)
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -716,8 +717,10 @@ class AxGen:
         run_options = _strip_runtime_hooks(options) or {}
         lookup = _cache_lookup_impl(self, values, run_options, True)
         if lookup.get("hit"):
-            sink({"version": 0, "index": 0, "delta": lookup.get("value")})
-            return lookup.get("value")
+            # A stored output's audio outputs are rendered, as TS does.
+            cached = _render_audio_outputs_impl(self, client, lookup.get("value"), run_options)
+            sink({"version": 0, "index": 0, "delta": cached})
+            return cached
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
         with _runtime_hook_scope(
             call_hooks,
@@ -1205,6 +1208,15 @@ def _core_axgen_deprecation(key, message):
 def _core_axgen_emit_delta(sink, envelope):
     sink(envelope)
     return None
+
+
+def _core_axgen_speak(client, request, options):
+    # Backs intrinsic.axgen.speak: the AxGen audio output renderer calls the
+    # client's speak(), as TS calls ai.speak().
+    speak = getattr(client, "speak", None)
+    if not callable(speak):
+        raise RuntimeError("Audio speech not supported by this AI client")
+    return speak(request, options or {})
 
 
 def _core_axgen_call_processor(spec, value, context):

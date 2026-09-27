@@ -1,0 +1,63 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "summary": "A greeting"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "speech": "Hello there"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "speech": "Hello there",
+    "summary": "A greeting"
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [],
+  "forward_options": {
+    "renderAudio": true
+  },
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "streaming_forward",
+  "name": "audio-output-streaming-no-picker-streams-text",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Speech: Hello ",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "there\nSummary: A greeting",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> speech:audio, summary:string"
+}

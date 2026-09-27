@@ -1,5 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { inspect } from 'node:util';
+import { AxAIAnthropic } from '../../../src/ax/ai/anthropic/api.js';
+import { AxAIAnthropicModel } from '../../../src/ax/ai/anthropic/types.js';
 import { AxBalancer } from '../../../src/ax/ai/balance.js';
 import {
   AxInMemoryBalancerStatsStore,
@@ -9,8 +12,14 @@ import {
 } from '../../../src/ax/ai/balance_adaptive.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
-import { axAIGoogleGeminiLiveAudioDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
-import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
+import {
+  AxAIGoogleGemini,
+  axAIGoogleGeminiLiveAudioDefaultConfig,
+} from '../../../src/ax/ai/google-gemini/api.js';
+import {
+  AxAIGoogleGeminiEmbedModel,
+  AxAIGoogleGeminiModel,
+} from '../../../src/ax/ai/google-gemini/types.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAI } from '../../../src/ax/ai/openai/api.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
@@ -28,6 +37,7 @@ import {
 import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
+  AxAIServiceError,
   AxAIServiceNetworkError,
   AxAIServiceResponseError,
   AxAIServiceStatusError,
@@ -3910,12 +3920,72 @@ writeFixture('responses-transcribe', {
   },
 });
 
+// TypeScript's AxSpeechResponse for one speak response, from the provider's
+// real speak() against a fetch stub.
+async function tsSpeechResponse(
+  provider: 'openai' | 'google-gemini',
+  request: Record<string, unknown>,
+  response: () => Response
+): Promise<{ output: Record<string, Json>; body: Json }> {
+  let body: Json = null;
+  const fetch = async (_url: unknown, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body ?? 'null')) as Json;
+    return response();
+  };
+  const client =
+    provider === 'openai'
+      ? new AxAIOpenAI({ apiKey: 'test-key', options: { fetch } })
+      : new AxAIGoogleGemini({ apiKey: 'test-key', options: { fetch } });
+  const output = await client.speak(request as never);
+  return {
+    output: JSON.parse(JSON.stringify(output)) as Record<string, Json>,
+    body,
+  };
+}
+
+// A port's speak() output: its older keys (audio, mime_type, sample_rate),
+// kept until the next major version, next to TypeScript's AxSpeechResponse
+// keys. Where both name the same thing they must agree.
+function portSpeechOutput(
+  older: Record<string, Json>,
+  ts: Record<string, Json>
+): Record<string, Json> {
+  const pairs: [string, string][] = [
+    ['audio', 'data'],
+    ['format', 'format'],
+    ['mime_type', 'mimeType'],
+    ['sample_rate', 'sampleRate'],
+    ['channels', 'channels'],
+  ];
+  for (const [olderKey, tsKey] of pairs) {
+    if (
+      olderKey in older &&
+      JSON.stringify(older[olderKey]) !== JSON.stringify(ts[tsKey])
+    ) {
+      throw new Error(
+        `speak ${olderKey} ${JSON.stringify(older[olderKey])} disagrees with TS ${tsKey} ${JSON.stringify(ts[tsKey])}`
+      );
+    }
+  }
+  return { ...older, ...ts };
+}
+
+// The older JSON speak path: TS's axFetchJsonSpeech rejects a JSON body
+// without audio_data, data or audio.data ("Speech response JSON did not
+// include audio data"), but the ports still read its `audio`. They add TS's
+// keys from it: data, the mime type of the format, and the spoken text.
 writeFixture('responses-speak', {
   kind: 'ai_speak',
   provider: 'openai-responses',
   request: { text: 'hello', voice: 'alloy', format: 'mp3' },
   transport_responses: [{ status: 200, json: { audio: 'base64-speech' } }],
-  expected_output: { audio: 'base64-speech', format: 'mp3' },
+  expected_output: {
+    audio: 'base64-speech',
+    format: 'mp3',
+    data: 'base64-speech',
+    mimeType: 'audio/mpeg',
+    transcript: 'hello',
+  },
   expected_transport_request: {
     url: 'https://api.openai.com/v1/audio/speech',
     json: {
@@ -3926,6 +3996,45 @@ writeFixture('responses-speak', {
     },
   },
 });
+
+// OpenAI's /audio/speech answers with the audio bytes. A port's HTTP
+// transport hands binary speak bodies on as base64 without the Content-Type,
+// so the scripted body is that base64 text; TS reads the same bytes with
+// Content-Type audio/mpeg, and the mime type of mp3 is the same.
+{
+  const bytes = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
+  const request = {
+    text: 'Hello there',
+    model: 'gpt-4o-mini-tts',
+    voice: 'alloy',
+    format: 'mp3',
+  };
+  const ts = await tsSpeechResponse(
+    'openai',
+    request,
+    () =>
+      new Response(bytes, {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      })
+  );
+  writeFixture('openai-speak-binary-body', {
+    kind: 'ai_speak',
+    provider: 'openai',
+    request,
+    transport_responses: [
+      { status: 200, body: Buffer.from(bytes).toString('base64') },
+    ],
+    expected_output: portSpeechOutput(
+      { audio: Buffer.from(bytes).toString('base64'), format: 'mp3' },
+      ts.output
+    ),
+    expected_transport_request: {
+      url: 'https://api.openai.com/v1/audio/speech',
+      json: ts.body,
+    },
+  });
+}
 
 writeFixture('responses-realtime-event', {
   kind: 'ai_realtime',
@@ -11918,124 +12027,117 @@ for (const [fixtureName, model] of [
 }
 
 // Gemini audio defaults: `speak()` uses 3.8 Flash TTS and `transcribe()` the
-// dedicated 3.5 Transcribe model; both are JSON generateContent calls.
-writeFixture('gemini-38-flash-tts-speak-default-model', {
-  kind: 'ai_speak',
-  provider: 'google-gemini',
-  request: { text: 'Hello from Ax.' },
-  transport_responses: [
+// dedicated 3.5 Transcribe model; both are JSON generateContent calls. The
+// speak outputs carry TS's AxSpeechResponse keys, from TS's real speak(),
+// next to the ports' older ones.
+const geminiSpeechBody = (mimeType: string, data: string) => ({
+  candidates: [
     {
-      status: 200,
-      json: {
-        candidates: [
-          {
-            content: {
-              role: 'model',
-              parts: [
-                { inlineData: { mimeType: 'audio/wav', data: 'UklGRg==' } },
-              ],
-            },
-          },
-        ],
+      content: {
+        role: 'model',
+        parts: [{ inlineData: { mimeType, data } }],
       },
     },
   ],
-  expected_output: {
-    audio: 'UklGRg==',
-    format: 'wav',
-    mime_type: 'audio/wav',
-  },
-  expected_transport_request: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent',
-    json: {
-      contents: [{ role: 'user', parts: [{ text: 'Hello from Ax.' }] }],
-      generationConfig: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+});
+
+{
+  const request = { text: 'Hello from Ax.' };
+  const json = geminiSpeechBody('audio/wav', 'UklGRg==');
+  const ts = await tsSpeechResponse('google-gemini', request, () =>
+    Response.json(json)
+  );
+  writeFixture('gemini-38-flash-tts-speak-default-model', {
+    kind: 'ai_speak',
+    provider: 'google-gemini',
+    request,
+    transport_responses: [{ status: 200, json }],
+    expected_output: portSpeechOutput(
+      { audio: 'UklGRg==', format: 'wav', mime_type: 'audio/wav' },
+      ts.output
+    ),
+    expected_transport_request: {
+      url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent',
+      json: {
+        contents: [{ role: 'user', parts: [{ text: 'Hello from Ax.' }] }],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+          },
         },
       },
     },
-  },
-});
+  });
+}
 
-writeFixture('gemini-31-flash-tts-raw-pcm-is-labelled-pcm16', {
-  kind: 'ai_speak',
-  provider: 'google-gemini',
-  request: { text: 'Hello from Ax.', model: 'gemini-3.1-flash-tts-preview' },
-  transport_responses: [
-    {
-      status: 200,
-      json: {
-        candidates: [
-          {
-            content: {
-              role: 'model',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: 'audio/l16; rate=24000; channels=1',
-                    data: 'AAAAAA==',
-                  },
-                },
-              ],
-            },
-          },
-        ],
+{
+  const request = {
+    text: 'Hello from Ax.',
+    model: 'gemini-3.1-flash-tts-preview',
+  };
+  const json = geminiSpeechBody(
+    'audio/l16; rate=24000; channels=1',
+    'AAAAAA=='
+  );
+  const ts = await tsSpeechResponse('google-gemini', request, () =>
+    Response.json(json)
+  );
+  writeFixture('gemini-31-flash-tts-raw-pcm-is-labelled-pcm16', {
+    kind: 'ai_speak',
+    provider: 'google-gemini',
+    request,
+    transport_responses: [{ status: 200, json }],
+    expected_output: portSpeechOutput(
+      {
+        audio: 'AAAAAA==',
+        format: 'pcm16',
+        mime_type: 'audio/l16; rate=24000; channels=1',
+        sample_rate: 24000,
+        channels: 1,
       },
+      ts.output
+    ),
+    expected_transport_request: {
+      url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',
     },
-  ],
-  expected_output: {
-    audio: 'AAAAAA==',
-    format: 'pcm16',
-    mime_type: 'audio/l16; rate=24000; channels=1',
-    sample_rate: 24000,
-    channels: 1,
-  },
-  expected_transport_request: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',
-  },
-});
+  });
+}
 
 // Headerless PCM carries its sample rate and channel count only in the mime
 // parameters: keys are case-insensitive and non-numeric parameters are skipped.
-writeFixture('gemini-tts-raw-pcm-mime-parameters-are-parsed', {
-  kind: 'ai_speak',
-  provider: 'google-gemini',
-  request: { text: 'Hello from Ax.', model: 'gemini-3.1-flash-tts-preview' },
-  transport_responses: [
-    {
-      status: 200,
-      json: {
-        candidates: [
-          {
-            content: {
-              role: 'model',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: 'audio/L16;codec=pcm;RATE=16000;Channels=2',
-                    data: 'AAAAAA==',
-                  },
-                },
-              ],
-            },
-          },
-        ],
+{
+  const request = {
+    text: 'Hello from Ax.',
+    model: 'gemini-3.1-flash-tts-preview',
+  };
+  const json = geminiSpeechBody(
+    'audio/L16;codec=pcm;RATE=16000;Channels=2',
+    'AAAAAA=='
+  );
+  const ts = await tsSpeechResponse('google-gemini', request, () =>
+    Response.json(json)
+  );
+  writeFixture('gemini-tts-raw-pcm-mime-parameters-are-parsed', {
+    kind: 'ai_speak',
+    provider: 'google-gemini',
+    request,
+    transport_responses: [{ status: 200, json }],
+    expected_output: portSpeechOutput(
+      {
+        audio: 'AAAAAA==',
+        format: 'pcm16',
+        mime_type: 'audio/L16;codec=pcm;RATE=16000;Channels=2',
+        sample_rate: 16000,
+        channels: 2,
       },
+      ts.output
+    ),
+    expected_transport_request: {
+      url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',
     },
-  ],
-  expected_output: {
-    audio: 'AAAAAA==',
-    format: 'pcm16',
-    mime_type: 'audio/L16;codec=pcm;RATE=16000;Channels=2',
-    sample_rate: 16000,
-    channels: 2,
-  },
-  expected_transport_request: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent',
-  },
-});
+  });
+}
 
 writeFixture('gemini-35-transcribe-default-model', {
   kind: 'ai_transcribe',
@@ -12514,3 +12616,240 @@ writeFixture('openai-wire-json-numbers', {
   ),
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
+
+// Provider errors never carry credentials. TypeScript's AxAIServiceError keeps
+// the URL and the request body, and never the request headers, which hold the
+// API key or the credential provider's tokens. includeRequestBodyInErrors
+// (default true; the call option overrides the client option) takes the body
+// out of the error TypeScript prints. The ports' errors have no printed form
+// with a body, so their error request is that printed view: the URL, plus the
+// body unless includeRequestBodyInErrors is false. Go, Rust and C++ errors keep
+// no request at all; every port checks the secret appears nowhere in the error.
+const errorApiKey = 'sk-fixture-secret-key-7b41';
+const errorCredentialToken = 'fixture-credential-token-5d08';
+const errorBodyMarker = 'fixture-body-marker-2c9e';
+const errorPrompt = [{ role: 'user', content: errorBodyMarker }];
+const errorResponse = (status: number) => ({
+  status,
+  json: { error: { message: `scripted ${status}`, code: 'invalid_request' } },
+});
+type ErrorClient = {
+  chat: (request: any, options?: any) => Promise<unknown>;
+};
+
+async function tsProviderError(
+  make: (fetch: typeof globalThis.fetch) => ErrorClient,
+  status: number,
+  callOptions?: Record<string, unknown>,
+  stream = false
+) {
+  let fetchCount = 0;
+  let sentHeaders = '';
+  const fetch = (async (_url: unknown, init?: RequestInit) => {
+    fetchCount++;
+    sentHeaders = JSON.stringify(init?.headers ?? {});
+    return Response.json(errorResponse(status).json, { status });
+  }) as typeof globalThis.fetch;
+  try {
+    await make(fetch).chat(
+      { chatPrompt: errorPrompt, modelConfig: { stream } },
+      callOptions
+    );
+  } catch (error) {
+    if (!(error instanceof AxAIServiceError)) throw error;
+    return { error, fetchCount, sentHeaders };
+  }
+  throw new Error('TS provider call did not fail');
+}
+
+function providerErrorFixture(
+  name: string,
+  result: Awaited<ReturnType<typeof tsProviderError>>,
+  secret: string,
+  bodyKey: 'messages' | 'contents',
+  fixture: Fixture
+) {
+  const { error, fetchCount, sentHeaders } = result;
+  if (!sentHeaders.includes(secret)) {
+    throw new Error(`${name}: TS did not send ${secret}`);
+  }
+  // What a logger, tracer or error reporter prints or serializes.
+  const printed = [
+    String(error),
+    error.stack ?? '',
+    inspect(error, { depth: 20 }),
+  ].join('\n');
+  if (printed.includes(secret) || JSON.stringify(error).includes(secret)) {
+    throw new Error(`${name}: the TS error carries ${secret}`);
+  }
+  const printsBody = printed.includes(errorBodyMarker);
+  if (printsBody !== error.includeRequestBodyInErrors) {
+    throw new Error(`${name}: the TS error prints its body against the flag`);
+  }
+  const requestBody = error.requestBody as Record<string, Json>;
+  writeFixture(name, {
+    kind: 'ai_error',
+    ...fixture,
+    request: {
+      chat_prompt: errorPrompt,
+      model_config: { stream: fixture.method === 'stream' },
+    },
+    expected_error_type: error.name,
+    ...(error instanceof AxAIServiceStatusError
+      ? { expected_status: error.status }
+      : {}),
+    expected_error_excludes: printsBody ? [secret] : [secret, errorBodyMarker],
+    expected_error_request: {
+      url: error.url,
+      ...(printsBody ? { json: { [bodyKey]: requestBody[bodyKey] } } : {}),
+    },
+    expected_transport_request_count: fetchCount,
+  });
+}
+
+const openAIErrorClient =
+  (options: Record<string, unknown> = {}, credentials = false) =>
+  (fetch: typeof globalThis.fetch): ErrorClient =>
+    new AxAIOpenAI({
+      name: 'openai',
+      ...(credentials
+        ? {
+            credentialProvider: async () => ({
+              Authorization: `Bearer ${errorCredentialToken}`,
+            }),
+          }
+        : { apiKey: errorApiKey }),
+      config: { model: AxAIOpenAIModel.GPT54Mini },
+      options: { fetch, ...options },
+    } as any);
+
+providerErrorFixture(
+  'provider-error-omits-credentials',
+  await tsProviderError(openAIErrorClient(), 400),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+providerErrorFixture(
+  'provider-error-client-option-omits-body',
+  await tsProviderError(
+    openAIErrorClient({ includeRequestBodyInErrors: false }),
+    400
+  ),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    service_options: { includeRequestBodyInErrors: false },
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+// The call option wins over the client option.
+providerErrorFixture(
+  'provider-error-call-option-omits-body',
+  await tsProviderError(
+    openAIErrorClient({ includeRequestBodyInErrors: true }),
+    400,
+    { includeRequestBodyInErrors: false }
+  ),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    service_options: { includeRequestBodyInErrors: true },
+    options: { includeRequestBodyInErrors: false },
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+providerErrorFixture(
+  'provider-error-omits-credential-provider-token',
+  await tsProviderError(openAIErrorClient({}, true), 401),
+  errorCredentialToken,
+  'messages',
+  {
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    credential_provider_fixture: {
+      headers: [{ Authorization: `Bearer ${errorCredentialToken}` }],
+    },
+    transport_responses: [errorResponse(401)],
+    expected_status: 401,
+  }
+);
+
+providerErrorFixture(
+  'provider-error-anthropic-omits-api-key',
+  await tsProviderError(
+    (fetch) =>
+      new AxAIAnthropic({
+        apiKey: errorApiKey,
+        config: { model: AxAIAnthropicModel.Claude5Sonnet },
+        options: { fetch },
+      } as any),
+    401
+  ),
+  errorApiKey,
+  'messages',
+  {
+    provider: 'anthropic',
+    model: AxAIAnthropicModel.Claude5Sonnet,
+    api_key: errorApiKey,
+    transport_responses: [errorResponse(401)],
+    expected_status: 401,
+  }
+);
+
+providerErrorFixture(
+  'provider-error-gemini-omits-api-key',
+  await tsProviderError(
+    (fetch) =>
+      new AxAIGoogleGemini({
+        apiKey: errorApiKey,
+        config: { model: AxAIGoogleGeminiModel.Gemini36Flash },
+        options: { fetch },
+      } as any),
+    400
+  ),
+  errorApiKey,
+  'contents',
+  {
+    provider: 'google-gemini',
+    model: AxAIGoogleGeminiModel.Gemini36Flash,
+    api_key: errorApiKey,
+    transport_responses: [errorResponse(400)],
+  }
+);
+
+// The error left once the stream's retries run out.
+const errorRetry = { maxRetries: 1, initialDelayMs: 0, maxDelayMs: 0 };
+providerErrorFixture(
+  'provider-error-stream-retries-omit-credentials',
+  await tsProviderError(
+    openAIErrorClient({ retry: errorRetry, includeRequestBodyInErrors: false }),
+    500,
+    undefined,
+    true
+  ),
+  errorApiKey,
+  'messages',
+  {
+    method: 'stream',
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT54Mini,
+    api_key: errorApiKey,
+    service_options: { retry: errorRetry, includeRequestBodyInErrors: false },
+    transport_responses: [errorResponse(500), errorResponse(500)],
+  }
+);

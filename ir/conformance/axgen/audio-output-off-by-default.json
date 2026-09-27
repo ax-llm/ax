@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "speech": "Hello there",
+    "summary": "A greeting"
+  },
+  "expected_request_count": 1,
+  "expected_speak_requests": [],
+  "forward_options": {},
+  "input": {
+    "question": "Say hi"
+  },
+  "kind": "forward",
+  "name": "audio-output-off-by-default",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Speech: Hello there\nSummary: A greeting",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> speech:audio, summary:string",
+  "speak_responses": [
+    {
+      "data": "SUQzBAA=",
+      "format": "mp3",
+      "mimeType": "audio/mpeg"
+    }
+  ]
+}

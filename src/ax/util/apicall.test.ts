@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AxAIServiceAbortedError,
+  AxAIServiceAuthenticationError,
   type AxAIServiceError,
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
@@ -424,6 +425,87 @@ describe('apiCall', () => {
         expect(errorString).not.toContain('Request Body:');
         expect(errorString).not.toContain('largeBase64');
       }
+    });
+  });
+
+  describe('credentials in errors', () => {
+    const secret = 'sk-secret-header-value';
+    const credentialHeaders = {
+      Authorization: `Bearer ${secret}`,
+      'x-api-key': secret,
+      'x-goog-api-key': secret,
+    };
+    const rejectingFetch = (status: number) =>
+      vi.fn(
+        async (_url: unknown, _init?: RequestInit) =>
+          new Response(JSON.stringify({ error: { message: 'rejected' } }), {
+            status,
+            statusText: 'Rejected',
+            headers: { 'content-type': 'application/json' },
+          })
+      );
+    // Everything a logger, tracer or error reporter prints or serializes.
+    const errorText = (error: AxAIServiceError) =>
+      [
+        String(error),
+        error.stack ?? '',
+        JSON.stringify(error),
+        JSON.stringify(Object.values(error)),
+      ].join('\n');
+
+    it.each([
+      [400, AxAIServiceStatusError],
+      [401, AxAIServiceAuthenticationError],
+      [500, AxAIServiceStatusError],
+    ] as const)(
+      'keeps request headers out of a %s error, retries included',
+      async (status, errorClass) => {
+        const mockFetch = rejectingFetch(status);
+        const error = await apiCall(
+          {
+            url: 'https://api.example.com/v1/chat',
+            fetch: mockFetch,
+            headers: credentialHeaders,
+            retry: { maxRetries: 1, initialDelayMs: 0, maxDelayMs: 0 },
+          },
+          { prompt: 'hello' }
+        ).catch((e: AxAIServiceError) => e);
+
+        expect(error).toBeInstanceOf(errorClass);
+        expect(JSON.stringify(mockFetch.mock.calls[0]?.[1]?.headers)).toContain(
+          secret
+        );
+        expect(errorText(error as AxAIServiceError)).not.toContain(secret);
+      }
+    );
+
+    it('keeps resolved credential headers out of errors', async () => {
+      const error = await apiCall(
+        {
+          url: 'https://api.example.com/v1/chat',
+          fetch: rejectingFetch(401),
+          resolveHeaders: async () => credentialHeaders,
+        },
+        { prompt: 'hello' }
+      ).catch((e: AxAIServiceError) => e);
+
+      expect(error).toBeInstanceOf(AxAIServiceAuthenticationError);
+      expect(errorText(error as AxAIServiceError)).not.toContain(secret);
+    });
+
+    it('keeps request headers out of network errors', async () => {
+      const error = await apiCall(
+        {
+          url: 'https://api.example.com/v1/chat',
+          fetch: vi.fn().mockRejectedValue(new TypeError('fetch failed')),
+          headers: credentialHeaders,
+          retry: { maxRetries: 0 },
+        },
+        { prompt: 'hello' }
+      ).catch((e: AxAIServiceError) => e);
+
+      expect(error).toBeInstanceOf(AxAIServiceNetworkError);
+      expect(errorText(error as AxAIServiceError)).not.toContain(secret);
     });
   });
 

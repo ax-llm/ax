@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "audio": "SUQzBAA=",
+    "data": "SUQzBAA=",
+    "format": "mp3",
+    "mimeType": "audio/mpeg",
+    "transcript": "Hello there"
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": "Hello there",
+      "model": "gpt-4o-mini-tts",
+      "response_format": "mp3",
+      "voice": "alloy"
+    },
+    "url": "https://api.openai.com/v1/audio/speech"
+  },
+  "kind": "ai_speak",
+  "name": "openai-speak-binary-body",
+  "provider": "openai",
+  "request": {
+    "format": "mp3",
+    "model": "gpt-4o-mini-tts",
+    "text": "Hello there",
+    "voice": "alloy"
+  },
+  "transport_responses": [
+    {
+      "body": "SUQzBAA=",
+      "status": 200
+    }
+  ]
+}

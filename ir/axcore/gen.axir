@@ -773,8 +773,10 @@ module @ax.gen version "0.1" {
         %read = core.call @cache_lookup_impl(%gen, %values, %options, false)
         %read_hit = core.get %read["hit"] default false
         core.if %read_hit {
+          // As in TS, a stored output's audio outputs are rendered.
           %cached = core.get %read["value"]
-          core.return %cached
+          %rendered_cached = core.call @render_audio_outputs_impl(%gen, %client, %cached, %options)
+          core.return %rendered_cached
         }
         %cache_fn = core.get %read["fn"]
         %cache_key = core.get %read["key"] default ""
@@ -926,6 +928,7 @@ module @ax.gen version "0.1" {
           %has_structured_call = core.call intrinsic.is_not_none(%structured_call)
           core.if %has_structured_call {
             %structured_failure = core.call intrinsic.none()
+            %structured_done = core.call intrinsic.none()
             %structured_stage = core.let "validation"
             core.try {
               %structured_args = core.call @structured_output_call_args(%structured_call)
@@ -943,9 +946,7 @@ module @ax.gen version "0.1" {
                 %structured_thought = core.get %response["thought"] default ""
                 %structured_public = core.call @with_output_thought_impl(%structured_stripped, %thought_field, %thought_prefix, %structured_thought)
                 core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-                core.call @record_trace(%gen, %values, %structured_public, "ok")
-                core.call @cache_store_impl(%cache_fn, %cache_key, %structured_public)
-                core.return %structured_public
+                %structured_done = core.let %structured_public
               }
             } catch %structured_validation_error {
               %structured_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -962,8 +963,17 @@ module @ax.gen version "0.1" {
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
             }
+            // As in TS, the answer's audio outputs are rendered after the
+            // retries, where a speak() error surfaces as it is.
+            %structured_answered = core.call intrinsic.is_not_none(%structured_done)
+            core.if %structured_answered {
+              %structured_rendered = core.call @render_audio_outputs_impl(%gen, %client, %structured_done, %options)
+              core.call @record_trace(%gen, %values, %structured_rendered, "ok")
+              core.call @cache_store_impl(%cache_fn, %cache_key, %structured_rendered)
+              core.return %structured_rendered
+            }
             // Only a non-retryable assertion failure leaves the try without
-            // returning; it surfaces without a retry.
+            // an answer; it surfaces without a retry.
             %structured_fatal = core.call @generate_failed_impl(%structured_failure)
             core.raise %structured_fatal
           }
@@ -1002,9 +1012,10 @@ module @ax.gen version "0.1" {
             %stop_thought = core.get %response["thought"] default ""
             %stop_public = core.call @with_output_thought_impl(%stop_output, %thought_field, %thought_prefix, %stop_thought)
             core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-            core.call @record_trace(%gen, %values, %stop_public, "ok")
-            core.call @cache_store_impl(%cache_fn, %cache_key, %stop_public)
-            core.return %stop_public
+            %stop_rendered = core.call @render_audio_outputs_impl(%gen, %client, %stop_public, %options)
+            core.call @record_trace(%gen, %values, %stop_rendered, "ok")
+            core.call @cache_store_impl(%cache_fn, %cache_key, %stop_rendered)
+            core.return %stop_rendered
           }
         } else {
           %parsed_bundle = core.map
@@ -1099,9 +1110,12 @@ module @ax.gen version "0.1" {
           %empty_public = core.map
           %public_output = core.call intrinsic.list.get(%public_outputs, %selected_index, %empty_public)
           core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-          core.call @record_trace(%gen, %values, %public_output, "ok")
-          core.call @cache_store_impl(%cache_fn, %cache_key, %public_output)
-          core.return %public_output
+          // As in TS, the picked answer's audio outputs are rendered, and the
+          // trace and the cache get the rendered output.
+          %rendered_output = core.call @render_audio_outputs_impl(%gen, %client, %public_output, %options)
+          core.call @record_trace(%gen, %values, %rendered_output, "ok")
+          core.call @cache_store_impl(%cache_fn, %cache_key, %rendered_output)
+          core.return %rendered_output
         }
       }
       core.raise "unreachable AxGen forward loop exit"
@@ -2006,13 +2020,16 @@ module @ax.gen version "0.1" {
           %cache_key = core.get %read["key"] default ""
           %read_hit = core.get %read["hit"] default false
           core.if %read_hit {
+            // As in TS, a stored output's audio outputs are rendered before
+            // it goes out as one delta.
             %cached = core.get %read["value"]
+            %rendered_cached = core.call @render_audio_outputs_impl(%gen, %client, %cached, %options)
             %cached_envelope = core.map
             core.set %cached_envelope["version"] = 0
             core.set %cached_envelope["index"] = 0
-            core.set %cached_envelope["delta"] = %cached
+            core.set %cached_envelope["delta"] = %rendered_cached
             core.call intrinsic.axgen.emit_delta(%sink, %cached_envelope)
-            core.return %cached
+            core.return %rendered_cached
           }
         }
       }
@@ -2110,6 +2127,13 @@ module @ax.gen version "0.1" {
       %picker = core.get %runtime_options["resultPicker"] default %picker_snake
       %buffered = core.call intrinsic.is_not_none(%picker)
       %run = core.call @stream_run_state_impl(%sink, %buffered, %thought_field)
+      // The run's result renders its audio outputs where TS renders them
+      // (@render_stream_result_impl).
+      %render_audio = core.map
+      core.set %render_audio["gen"] = %gen
+      core.set %render_audio["client"] = %client
+      core.set %render_audio["options"] = %options
+      core.set %run["render_audio"] = %render_audio
       %committed = core.map
       %control_version = core.let 0
       %step = core.let 0
