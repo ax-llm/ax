@@ -7,9 +7,11 @@ import {
   streamingExtractFinalValue,
   streamingExtractValues,
 } from '../../../src/ax/dsp/extract.js';
+import { axGlobals } from '../../../src/ax/dsp/globals.js';
 import { createStructuredDelta } from '../../../src/ax/dsp/response/structuredDelta.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 import { ax } from '../../../src/ax/dsp/template.js';
+import { AxMemory } from '../../../src/ax/mem/memory.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -1816,9 +1818,11 @@ writeFixture('json-input-prompt-plain-json', {
 // Tool results reach the model as TS's functionResultFormatter writes them
 // (axGlobals' default): a string as it is, null or undefined as '', any other
 // value as JSON.stringify(result, null, 2); an empty text goes as 'done', as
-// processFunctions sends it. A program's formatter (or a forward call's)
-// writes them instead. The expected texts are the function results TS put in
-// the request after the tool step, run here through a mock client.
+// processFunctions sends it. A forward call's formatter comes first, then the
+// program's, then axGlobals.functionResultFormatter; a formatter that throws
+// fails the forward after the tool step's request. The expected texts are the
+// function results TS put in the request after the tool step, run here
+// through a mock client.
 const formatterResults: [string, Json][] = [
   ['lookupObject', { a: [2], b: 1, c: null }],
   ['lookupText', 'plain text'],
@@ -1827,7 +1831,8 @@ const formatterResults: [string, Json][] = [
 ];
 const formatterRun = async (
   programOptions: Record<string, unknown>,
-  forwardOptions: Record<string, unknown>
+  forwardOptions: Record<string, unknown>,
+  globalFormatter?: (result: unknown) => string
 ) => {
   const sent: string[] = [];
   let calls = 0;
@@ -1875,19 +1880,49 @@ const formatterRun = async (
       func: async () => value,
     })),
   } as never);
-  const output = await program.forward(
-    mock as never,
-    { query: 'q' },
-    forwardOptions as never
-  );
-  return { sent, output };
+  // The run's memory, whose function messages keep the texts the model got.
+  const mem = new AxMemory();
+  const memoryTexts = () =>
+    mem
+      .history(0)
+      .filter((message) => message.role === 'function')
+      .map((message) => String((message as { result?: unknown }).result));
+  const previousGlobal = axGlobals.functionResultFormatter;
+  if (globalFormatter) axGlobals.functionResultFormatter = globalFormatter;
+  try {
+    const output = await program.forward(mock as never, { query: 'q' }, {
+      ...forwardOptions,
+      mem,
+    } as never);
+    return { sent, output, calls, error: undefined, memory: memoryTexts() };
+  } catch (e) {
+    return {
+      sent,
+      output: undefined,
+      calls,
+      error: (e as Error).message.split('\n')[0],
+      memory: memoryTexts(),
+    };
+  } finally {
+    axGlobals.functionResultFormatter = previousGlobal;
+  }
 };
-for (const [name, programOptions, forwardOptions, fixtureExtra] of [
-  ['function-result-format-default', {}, {}, {}],
+const throwingFormatter = () => {
+  throw new Error('formatter broke');
+};
+for (const [
+  name,
+  programOptions,
+  forwardOptions,
+  globalFormatter,
+  fixtureExtra,
+] of [
+  ['function-result-format-default', {}, {}, undefined, {}],
   [
     'function-result-format-caller-formatter',
     { functionResultFormatter: () => 'formatted by the caller' },
     {},
+    undefined,
     { function_result_formatter: { text: 'formatted by the caller' } },
   ],
   // The forward call's formatter comes before the program's.
@@ -1895,27 +1930,50 @@ for (const [name, programOptions, forwardOptions, fixtureExtra] of [
     'function-result-format-call-formatter',
     { functionResultFormatter: () => 'from the program' },
     { functionResultFormatter: () => 'from the call' },
+    undefined,
     {
       function_result_formatter: { text: 'from the program' },
       call_function_result_formatter: { text: 'from the call' },
       expected_request_not_contains: ['from the program'],
     },
   ],
+  // axGlobals.functionResultFormatter writes results the call and the
+  // program leave to it.
+  [
+    'function-result-format-global-formatter',
+    {},
+    {},
+    () => 'from the globals',
+    { global_function_result_formatter: { text: 'from the globals' } },
+  ],
+  // The program's formatter comes before the process-wide one.
+  [
+    'function-result-format-program-over-global',
+    { functionResultFormatter: () => 'from the program' },
+    {},
+    () => 'from the globals',
+    {
+      function_result_formatter: { text: 'from the program' },
+      global_function_result_formatter: { text: 'from the globals' },
+      expected_request_not_contains: ['from the globals'],
+    },
+  ],
+  // A formatter that throws fails the forward: TS rethrows it from the tool
+  // step as "Generate failed: ...", without a retry or another request.
+  [
+    'function-result-format-formatter-throws',
+    { functionResultFormatter: throwingFormatter },
+    {},
+    undefined,
+    { function_result_formatter: { throws: 'formatter broke' } },
+  ],
 ] as const) {
-  const { sent, output } = await formatterRun(programOptions, forwardOptions);
-  if (sent.length !== formatterResults.length) {
-    throw new Error(`${name}: TS sent ${sent.length} function results`);
-  }
-  const notContains = (fixtureExtra as Fixture).expected_request_not_contains;
-  if (
-    Array.isArray(notContains) &&
-    sent.some((text) =>
-      notContains.some((needle) => text.includes(String(needle)))
-    )
-  ) {
-    throw new Error(`${name}: TS sent a text the fixture says it doesn't`);
-  }
-  writeFixture(name, {
+  const { sent, output, calls, error, memory } = await formatterRun(
+    programOptions,
+    forwardOptions,
+    globalFormatter
+  );
+  const base = {
     kind: 'forward',
     signature: 'query:string -> answer:string',
     input: { query: 'q' },
@@ -1936,8 +1994,32 @@ for (const [name, programOptions, forwardOptions, fixtureExtra] of [
       },
       { content: 'Answer: done' },
     ],
+    expected_request_count: calls,
+  } satisfies Fixture;
+  if (error !== undefined) {
+    if (memory.length > 0) {
+      throw new Error(`${name}: TS kept ${memory.length} function results`);
+    }
+    writeFixture(name, { ...base, expected_error_contains: error });
+    continue;
+  }
+  if (sent.length !== formatterResults.length) {
+    throw new Error(`${name}: TS sent ${sent.length} function results`);
+  }
+  const notContains = (fixtureExtra as Fixture).expected_request_not_contains;
+  if (
+    Array.isArray(notContains) &&
+    sent.some((text) =>
+      notContains.some((needle) => text.includes(String(needle)))
+    )
+  ) {
+    throw new Error(`${name}: TS sent a text the fixture says it doesn't`);
+  }
+  writeFixture(name, {
+    ...base,
     expected_output: output as Json,
-    expected_request_count: 2,
     expected_request_contains: sent.map((text) => JSON.stringify(text)),
+    // As in TS, the memory keeps the texts the model got.
+    expected_memory_function_results: memory,
   });
 }

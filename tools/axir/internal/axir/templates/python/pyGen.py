@@ -32,6 +32,7 @@ from .ai import (
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     _snapshot_global_caching_function,
+    _snapshot_global_function_result_formatter,
     chat_response_to_completion,
     ai_merge_replay_metadata,
     fold_chat_response_stream,
@@ -53,6 +54,12 @@ def _core_json_stable_stringify(value):
 
 def _core_crypto_sha256_hex(text):
     return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+
+
+def _core_axgen_function_result_formatter():
+    # The process-wide tool result formatter (set_function_result_formatter),
+    # or None.
+    return _snapshot_global_function_result_formatter()
 
 
 def _core_axgen_caching_function(gen, options):
@@ -293,7 +300,10 @@ class AxGen:
         """Write each tool result for the model as TS's functionResultFormatter
         option does: formatter(result) -> text. Without one, a string goes as it
         is, None as "done", and any other value as pretty JSON. A forward
-        call's function_result_formatter option wins over this one."""
+        call's function_result_formatter option wins over this one, and this
+        one over the process-wide axllm.set_function_result_formatter. A
+        formatter that raises fails the forward ("Generate failed: ..."), as
+        in TS."""
         self.options["function_result_formatter"] = formatter
         return self
 

@@ -1,28 +1,32 @@
 {
   "expected_memory_function_results": [
-    "formatted by the caller",
-    "formatted by the caller",
-    "formatted by the caller",
-    "formatted by the caller"
+    "from the program",
+    "from the program",
+    "from the program",
+    "from the program"
   ],
   "expected_output": {
     "answer": "done"
   },
   "expected_request_contains": [
-    "\"formatted by the caller\"",
-    "\"formatted by the caller\"",
-    "\"formatted by the caller\"",
-    "\"formatted by the caller\""
+    "\"from the program\"",
+    "\"from the program\"",
+    "\"from the program\"",
+    "\"from the program\""
   ],
   "expected_request_count": 2,
+  "expected_request_not_contains": ["from the globals"],
   "function_result_formatter": {
-    "text": "formatted by the caller"
+    "text": "from the program"
+  },
+  "global_function_result_formatter": {
+    "text": "from the globals"
   },
   "input": {
     "query": "q"
   },
   "kind": "forward",
-  "name": "function-result-format-caller-formatter",
+  "name": "function-result-format-program-over-global",
   "responses": [
     {
       "content": "",

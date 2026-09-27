@@ -1,28 +1,14 @@
 {
-  "expected_memory_function_results": [
-    "formatted by the caller",
-    "formatted by the caller",
-    "formatted by the caller",
-    "formatted by the caller"
-  ],
-  "expected_output": {
-    "answer": "done"
-  },
-  "expected_request_contains": [
-    "\"formatted by the caller\"",
-    "\"formatted by the caller\"",
-    "\"formatted by the caller\"",
-    "\"formatted by the caller\""
-  ],
-  "expected_request_count": 2,
+  "expected_error_contains": "Generate failed: formatter broke",
+  "expected_request_count": 1,
   "function_result_formatter": {
-    "text": "formatted by the caller"
+    "throws": "formatter broke"
   },
   "input": {
     "query": "q"
   },
   "kind": "forward",
-  "name": "function-result-format-caller-formatter",
+  "name": "function-result-format-formatter-throws",
   "responses": [
     {
       "content": "",

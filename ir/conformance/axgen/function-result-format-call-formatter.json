@@ -2,6 +2,12 @@
   "call_function_result_formatter": {
     "text": "from the call"
   },
+  "expected_memory_function_results": [
+    "from the call",
+    "from the call",
+    "from the call",
+    "from the call"
+  ],
   "expected_output": {
     "answer": "done"
   },

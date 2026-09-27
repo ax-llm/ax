@@ -1,4 +1,10 @@
 {
+  "expected_memory_function_results": [
+    "{\n  \"a\": [\n    2\n  ],\n  \"b\": 1,\n  \"c\": null\n}",
+    "plain text",
+    "done",
+    "42"
+  ],
   "expected_output": {
     "answer": "done"
   },

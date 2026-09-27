@@ -30,7 +30,10 @@ public final class AxGen implements AxProgram {
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }
   public interface ResultPickerCallback { int pick(List<Map<String, Object>> samples); }
-  /** Writes a tool result for the model, as TS's functionResultFormatter option does. */
+  /**
+   * Writes a tool result for the model, as TS's functionResultFormatter option does. A formatter that
+   * throws fails the forward ("Generate failed: ..."), as in TS.
+   */
   public interface FunctionResultFormatter { String format(Object result); }
 
   final AxSignature signature;

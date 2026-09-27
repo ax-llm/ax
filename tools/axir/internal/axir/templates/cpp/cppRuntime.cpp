@@ -301,6 +301,8 @@ struct FunctionResultFormatterRegistry {
   std::mutex mutex;
   std::uint64_t next_id = 0;
   std::map<std::string, std::weak_ptr<AxFunctionResultFormatterHandle::State>> handles;
+  // The process-wide formatter (set_function_result_formatter).
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> global;
 };
 
 static FunctionResultFormatterRegistry& function_result_formatter_registry() {
@@ -308,8 +310,23 @@ static FunctionResultFormatterRegistry& function_result_formatter_registry() {
   return registry;
 }
 
-// Calls the formatter a marker names, outside the registry lock.
+// Calls the formatter a marker names, outside the registry lock. The
+// process-wide marker calls the formatter set when the call runs, as TS reads
+// axGlobals at each call; if it was cleared meanwhile, the result gets the
+// default text.
 static Value call_function_result_formatter(const Value& marker, const Value& result) {
+  if (Core::truthy(get_key(marker, "__function_result_formatter_global"))) {
+    std::shared_ptr<AxFunctionResultFormatterHandle::State> global;
+    {
+      auto& registry = function_result_formatter_registry();
+      std::lock_guard<std::mutex> lock(registry.mutex);
+      global = registry.global;
+    }
+    if (global) return Value(global->fn(result));
+    if (result.is_string()) return result;
+    if (result.is_null()) return Value("");
+    return Core::json_pretty(result);
+  }
   std::string id = str(get_key(marker, "__function_result_formatter_id"));
   if (id.empty()) {
     throw AxError("validation", "The functionResultFormatter option must be an axllm::function_result_formatter() handle value");
@@ -342,6 +359,25 @@ Value AxFunctionResultFormatterHandle::value() const { return object({{"__functi
 
 AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn) {
   return AxFunctionResultFormatterHandle(std::move(fn));
+}
+
+void set_function_result_formatter(AxFunctionResultFormatter fn) {
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> next;
+  if (fn) {
+    next = std::make_shared<AxFunctionResultFormatterHandle::State>();
+    next->id = "__function_result_formatter_global";
+    next->fn = std::move(fn);
+  }
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  registry.global.swap(next);
+}
+
+Value Core::axgen_function_result_formatter() {
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  if (!registry.global) return Value();
+  return object({{"__function_result_formatter_global", true}});
 }
 
 static bool has_key(const Value& object, const std::string& key) {

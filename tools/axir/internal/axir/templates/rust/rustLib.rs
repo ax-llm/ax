@@ -4423,8 +4423,27 @@ pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize>
 
 /// Writes a tool result for the model, as TypeScript's
 /// `functionResultFormatter` option does. Without one, a string goes as it
-/// is, null as `"done"`, and any other value as pretty JSON.
-pub type AxFunctionResultFormatter = Arc<dyn Fn(&Value) -> String + Send + Sync>;
+/// is, null as `"done"`, and any other value as pretty JSON. An error fails
+/// the forward (`Generate failed: ...`), as a TS formatter that throws does.
+pub type AxFunctionResultFormatter = Arc<dyn Fn(&Value) -> AxResult<String> + Send + Sync>;
+
+static FUNCTION_RESULT_FORMATTER: Mutex<Option<AxFunctionResultFormatter>> = Mutex::new(None);
+
+/// Sets the process-wide [`AxFunctionResultFormatter`], as TypeScript's
+/// `axGlobals.functionResultFormatter`: an [`AxGen`] forward uses it when
+/// neither the call nor the program sets one. `None` restores the default.
+pub fn set_function_result_formatter(formatter: Option<AxFunctionResultFormatter>) {
+    *FUNCTION_RESULT_FORMATTER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = formatter;
+}
+
+// The process-wide formatter, or null.
+fn core_axgen_function_result_formatter(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let formatter = FUNCTION_RESULT_FORMATTER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    Ok(match formatter {
+        Some(formatter) => CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter })),
+        None => CoreValue::Null,
+    })
+}
 
 /// One update of [`AxGen::streaming_forward`], as TypeScript's
 /// `streamingForward` yields it. `delta` is an object of output fields: merge
@@ -4806,7 +4825,7 @@ impl AxGen {
     /// [`AxFunctionResultFormatter`]).
     pub fn with_function_result_formatter<F>(mut self, formatter: F) -> Self
     where
-        F: Fn(&Value) -> String + Send + Sync + 'static,
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
     {
         self.function_result_formatter = Some(Arc::new(formatter));
         self
@@ -4966,7 +4985,7 @@ impl AxGen {
         formatter: F,
     ) -> AxResult<Value>
     where
-        F: Fn(&Value) -> String + Send + Sync + 'static,
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
     {
         with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
             self.forward_with_options(client, input, options)
@@ -4985,7 +5004,7 @@ impl AxGen {
         on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
     ) -> AxResult<Value>
     where
-        F: Fn(&Value) -> String + Send + Sync + 'static,
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
     {
         with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
             self.streaming_forward(client, input, options, on_delta)
@@ -18095,9 +18114,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         program = program.with_sample_count(sample_count as usize);
     }
     if let Some(spec) = fixture.get("function_result_formatter") {
-        // The program's formatter writes this text for every tool result.
-        let text = spec.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-        program = program.with_function_result_formatter(move |_| text.clone());
+        // The program's formatter.
+        let formatter = fixture_function_result_formatter(spec);
+        program = program.with_function_result_formatter(move |result| formatter(result));
     }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         let expected_samples = fixture.get("expected_picker_samples").cloned();
@@ -18135,11 +18154,26 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     } else {
         None
     };
-    // The forward call's formatter writes this text for every tool result.
+    // The process-wide formatter; the guard restores the default after the
+    // forward.
+    struct GlobalFormatterReset(bool);
+    impl Drop for GlobalFormatterReset {
+        fn drop(&mut self) {
+            if self.0 {
+                set_function_result_formatter(None);
+            }
+        }
+    }
+    let mut global_formatter_reset = GlobalFormatterReset(false);
+    if let Some(spec) = fixture.get("global_function_result_formatter") {
+        set_function_result_formatter(Some(fixture_function_result_formatter(spec)));
+        global_formatter_reset.0 = true;
+    }
+    // The forward call's formatter.
     let result = match fixture.get("call_function_result_formatter") {
         Some(spec) => {
-            let text = spec.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
-            program.forward_with_function_result_formatter(&mut client, input, options, move |_| text.clone())
+            let formatter = fixture_function_result_formatter(spec);
+            program.forward_with_function_result_formatter(&mut client, input, options, move |result| formatter(result))
         }
         None => program.forward_with_options(&mut client, input, options),
     };
@@ -18286,6 +18320,17 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         .and_then(Value::as_array)
     {
         expect_json_list_subset("memory history", &Value::Array(program.memory.clone()), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_memory_function_results") {
+        // The texts the memory keeps for the tool results, in order.
+        let texts: Vec<Value> = program
+            .memory
+            .iter()
+            .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
+            .flat_map(|item| item.get("results").and_then(Value::as_array).cloned().unwrap_or_default())
+            .map(|entry| entry.get("result").cloned().unwrap_or(Value::Null))
+            .collect();
+        expect_json_equal("memory function results", &Value::Array(texts), expected)?;
     }
     if let Some(expected) = fixture
         .get("expected_chat_log_subset")
@@ -22599,6 +22644,17 @@ struct FunctionResultFormatterHost {
     formatter: AxFunctionResultFormatter,
 }
 
+// A fixture's formatter: {text} writes that text for every tool result, and
+// {throws} fails with that message.
+fn fixture_function_result_formatter(spec: &Value) -> AxFunctionResultFormatter {
+    let text = spec.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+    let failure = spec.get("throws").and_then(Value::as_str).map(str::to_string);
+    Arc::new(move |_: &Value| match &failure {
+        Some(message) => Err(AxError::runtime(message.clone())),
+        None => Ok(text.clone()),
+    })
+}
+
 impl CoreHost for FunctionResultFormatterHost {
     fn host_type(&self) -> &'static str {
         "AxFunctionResultFormatter"
@@ -22608,7 +22664,7 @@ impl CoreHost for FunctionResultFormatterHost {
         if name != "format_result" {
             return Err(AxError::runtime(format!("AxFunctionResultFormatter has no method '{name}'")));
         }
-        Ok(CoreValue::from_string((self.formatter)(&core_value_to_json(&core_arg(args, 0)))))
+        Ok(CoreValue::from_string((self.formatter)(&core_value_to_json(&core_arg(args, 0)))?))
     }
 }
 
