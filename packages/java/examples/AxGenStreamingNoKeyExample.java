@@ -121,7 +121,8 @@ public final class AxGenStreamingNoKeyExample {
     }
 
     // 3. An exception a streaming assertion throws ends the forward without a
-    //    retry and reaches the consumer as it was thrown.
+    //    retry. It reaches the consumer as "Generate failed: ...", with the
+    //    exception it wraps as its cause, as TypeScript's AxGenerateError.
     ScriptedStreamClient failing = new ScriptedStreamClient(List.of(List.of("Answer: fine", " then boom", "\nNote: n")));
     AxGen strict = Ax.ax("question:string -> answer:string, note:string")
         .addStreamingAssert("answer", (text, done) -> {
@@ -133,7 +134,8 @@ public final class AxGenStreamingNoKeyExample {
       for (AxGenDelta delta : stream) beforeError.add(delta);
       throw new RuntimeException("the assertion error was not rethrown");
     } catch (IllegalStateException expected) {
-      check("assertion exploded".equals(expected.getMessage()), "error message: " + expected.getMessage());
+      check("Generate failed: assertion exploded".equals(expected.getMessage()), "error message: " + expected.getMessage());
+      check(expected.getCause() != null && "assertion exploded".equals(expected.getCause().getMessage()), "error cause: " + expected.getCause());
     }
     check(!beforeError.isEmpty(), "deltas before the error were not delivered");
     check(failing.requests.size() == 1, "an assertion error was retried");
