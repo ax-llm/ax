@@ -79,7 +79,7 @@ def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
 def _core_none(): return None
-def _core_json_stringify(value): return _js_json_dumps(value, sort_keys=True)
+def _core_json_stringify(value): return _js_json_dumps(value)  # TS JSON.stringify: insertion order
 def _core_json_parse(value): return json.loads(value)
 def _core_math_abs(value): return abs(value)
 def _core_sorted_strings(values): return sorted(str(value) for value in (values or []))

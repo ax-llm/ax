@@ -1,0 +1,36 @@
+{
+  "expected_transport_wire_json_contains": [
+    "\"arguments\":\"{\\\"2\\\":\\\"two\\\",\\\"10\\\":\\\"ten\\\",\\\"zeta\\\":1,\\\"alpha\\\":\\\"x\\\",\\\"nested\\\":{\\\"y\\\":1,\\\"x\\\":2}}\""
+  ],
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "openai-tool-call-arguments-key-order",
+  "provider": "openai",
+  "request_json": "{\"chat_prompt\":[{\"role\":\"user\",\"content\":\"Look it up\"},{\"role\":\"assistant\",\"functionCalls\":[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"params\":{\"2\":\"two\",\"10\":\"ten\",\"zeta\":1,\"alpha\":\"x\",\"nested\":{\"y\":1,\"x\":2}}}}]},{\"role\":\"function\",\"functionId\":\"call-1\",\"result\":\"found\"}],\"functions\":[{\"name\":\"lookup\",\"description\":\"Look something up\",\"parameters\":{\"type\":\"object\",\"properties\":{\"zeta\":{\"type\":\"number\"},\"alpha\":{\"type\":\"string\"}}}}],\"model_config\":{\"stream\":false}}",
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_key_order",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1145,6 +1145,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `67b2e78e8`
   - Verification: `12 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback.`
+- `axir-2026-09-27-stable-stringify-locale-order` [axai] TS stableStringify sorts keys with localeCompare while the ports sort by code point (context-cache tool-state hash)
+  - Status: done
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/ai/base.ts`
+  - Impact: normalizeForStableStringify in src/ax/ai/base.ts orders object keys with localeCompare, which depends on the machine's locale; the ports' stable_stringify sorts by code point. For mixed-case keys the context-cache tool-state hash, and so the provider cache key, differs between TS and the ports and between TS machines. Measure where the hash is persisted before choosing code-point order in TS.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `730ca7b3f4eb0908928c248fde915dc37835fa00`
+  - Verification: `Fixed on the TS side by #764: stableStringify sorts keys by code point, as the ports do; src/ax/ai/base.test.ts pins the key and its locale independence`
 - `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
   - Status: done
   - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
