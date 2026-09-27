@@ -4422,6 +4422,50 @@ for (const { suffix, part, input, error } of [
   });
 }
 
+// As in TS (responses_api.ts), an OpenAI Responses request sends the call's
+// promptCacheRetention; GPT-6 Astra refuses it, so TS strips it there
+// (responses_client.ts).
+for (const [name, model, sent] of [
+  ['openai-responses-prompt-cache-retention', 'gpt-5.4-mini', true],
+  ['openai-responses-astra-drops-prompt-cache-retention', 'gpt-6-astra', false],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false },
+    },
+    options: { promptCacheRetention: '24h' },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: 'r1',
+          model,
+          output: [
+            {
+              type: 'message',
+              id: 'm1',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'ok' }],
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        },
+      },
+    ],
+    ...(sent
+      ? {
+          expected_transport_request: {
+            json: { prompt_cache_retention: '24h' },
+          },
+        }
+      : { expected_transport_json_absent: ['prompt_cache_retention'] }),
+  });
+}
+
 writeFixture('meta-responses-encrypted-replay', {
   kind: 'ai_chat',
   provider: 'meta',
