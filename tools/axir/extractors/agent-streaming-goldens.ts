@@ -255,11 +255,13 @@ type Case = {
   call_timeout_ms?: number;
 };
 
-// TS forward drops a failed answer and its correction once the next answer
-// arrives (response/nonStreaming.ts), so each retry sends one failed attempt;
-// the ports' AxGen keeps them all. Two or more responder retries show it.
+// For a failure thrown after the answer parses (an assertion, as the citations
+// check is), TS forward drops the failed answer and its correction once the
+// next answer parses (response/nonStreaming.ts), so each retry sends one
+// failed attempt; the ports' AxGen keeps them all. Two or more responder
+// retries show it.
 const RETRY_MEMORY_GAP =
-  "the ports' non-streaming AxGen keeps every failed attempt and correction, where TS keeps the latest";
+  "the ports' non-streaming AxGen keeps every failed attempt and correction, where TS keeps the latest after an assertion failure";
 
 const DATE_TYPES = /:(datetimeRange|dateRange|datetime|date)\b/g;
 
