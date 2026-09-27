@@ -88202,7 +88202,9 @@ func event_normalize_mcp(args ...Value) (Value, error) {
 	var v_method Value
 	var v_params Value
 	var v_correlation Value
+	var v_legacy_task Value
 	var v_logging Value
+	var v_modern_task Value
 	var v_out Value
 	var v_progress Value
 	var v_prompts Value
@@ -88221,7 +88223,9 @@ func event_normalize_mcp(args ...Value) (Value, error) {
 	if len(args) > 2 { v_params = args[2] }
 	_ = v_params
 	_ = v_correlation
+	_ = v_legacy_task
 	_ = v_logging
+	_ = v_modern_task
 	_ = v_out
 	_ = v_progress
 	_ = v_prompts
@@ -88244,7 +88248,9 @@ func event_normalize_mcp(args ...Value) (Value, error) {
 	v_resources = _core_eq(v_method, "notifications/resources/list_changed")
 	v_progress = _core_eq(v_method, "notifications/progress")
 	v_logging = _core_eq(v_method, "notifications/message")
-	v_task = _core_eq(v_method, "notifications/tasks/status")
+	v_legacy_task = _core_eq(v_method, "notifications/tasks/status")
+	v_modern_task = _core_eq(v_method, "notifications/tasks")
+	v_task = _core_or(v_legacy_task, v_modern_task)
 	if coreTruthy(v_resource) {
 		if err := coreSet(v_out, "type", "mcp.resource.updated"); err != nil { return nil, err }
 	} else {
@@ -89530,34 +89536,86 @@ func mcp_listen_interests(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_listen_interests")
 	var v_subscribed_uris Value
 	var v_filters Value
+	var v_task_ids Value
 	var v_count Value
 	var v_duplicate Value
 	var v_empty Value
 	var v_filters_object Value
 	var v_has_subscriptions Value
+	var v_has_tasks Value
 	var v_out Value
 	var v_skip Value
+	var v_sorted_tasks Value
 	var v_subscriptions Value
+	var v_task_count Value
+	var v_task_id Value
+	var v_task_id_duplicate Value
+	var v_task_id_empty Value
+	var v_task_id_skip Value
+	var v_task_id_string Value
+	var v_task_ids_list Value
+	var v_tasks Value
 	var v_uri Value
 	var v_uri_string Value
 	if len(args) > 0 { v_subscribed_uris = args[0] }
 	_ = v_subscribed_uris
 	if len(args) > 1 { v_filters = args[1] }
 	_ = v_filters
+	if len(args) > 2 { v_task_ids = args[2] }
+	_ = v_task_ids
 	_ = v_count
 	_ = v_duplicate
 	_ = v_empty
 	_ = v_filters_object
 	_ = v_has_subscriptions
+	_ = v_has_tasks
 	_ = v_out
 	_ = v_skip
+	_ = v_sorted_tasks
 	_ = v_subscriptions
+	_ = v_task_count
+	_ = v_task_id
+	_ = v_task_id_duplicate
+	_ = v_task_id_empty
+	_ = v_task_id_skip
+	_ = v_task_id_string
+	_ = v_task_ids_list
+	_ = v_tasks
 	_ = v_uri
 	_ = v_uri_string
 	v_out = Object()
 	v_filters_object = coreTypeIs(v_filters, "object")
 	if coreTruthy(v_filters_object) {
 		v_out = _core_map_merge(v_out, v_filters)
+	} else {
+	// empty
+	}
+	v_tasks = MutableArray()
+	v_task_ids_list = coreTypeIs(v_task_ids, "list")
+	if coreTruthy(v_task_ids_list) {
+		for _, v_task_id = range coreIter(v_task_ids) {
+			v_task_id_string = coreTypeIs(v_task_id, "string")
+			if coreTruthy(v_task_id_string) {
+				v_task_id_empty = _core_eq(v_task_id, "")
+				v_task_id_duplicate = _core_contains(v_tasks, v_task_id)
+				v_task_id_skip = _core_or(v_task_id_empty, v_task_id_duplicate)
+				if coreTruthy(v_task_id_skip) {
+				// empty
+				} else {
+					v_tasks = coreAppend(v_tasks, v_task_id)
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_task_count = _core_len(v_tasks)
+	v_has_tasks = _core_gt(v_task_count, 0)
+	if coreTruthy(v_has_tasks) {
+		v_sorted_tasks = _core_sorted_strings(v_tasks)
+		if err := coreSet(v_out, "taskIds", v_sorted_tasks); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -91011,6 +91069,61 @@ func mcp_websocket_request_ids(args ...Value) (Value, error) {
 		v_ids = coreAppend(v_ids, v_key)
 	}
 	return v_ids, nil
+}
+
+func mcp_tool_call_outcome(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_tool_call_outcome")
+	var v_result Value
+	var v_tasks_negotiated Value
+	var v_invalid Value
+	var v_is_task Value
+	var v_no_tasks Value
+	var v_not_task Value
+	var v_out Value
+	var v_result_type Value
+	var v_valid Value
+	if len(args) > 0 { v_result = args[0] }
+	_ = v_result
+	if len(args) > 1 { v_tasks_negotiated = args[1] }
+	_ = v_tasks_negotiated
+	_ = v_invalid
+	_ = v_is_task
+	_ = v_no_tasks
+	_ = v_not_task
+	_ = v_out
+	_ = v_result_type
+	_ = v_valid
+	v_out = Object()
+	v_result_type = coreGet(v_result, "resultType", nil)
+	v_is_task = _core_eq(v_result_type, "task")
+	v_not_task = _core_not(v_is_task)
+	if coreTruthy(v_not_task) {
+		if err := coreSet(v_out, "kind", "complete"); err != nil { return nil, err }
+		if err := coreSet(v_out, "result", v_result); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_no_tasks = _core_not(v_tasks_negotiated)
+	if coreTruthy(v_no_tasks) {
+		if err := coreSet(v_out, "kind", "violation"); err != nil { return nil, err }
+		if err := coreSet(v_out, "message", "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	{ v, err := mcp_validate_modern_task(v_result); if err != nil { return nil, err }; v_valid = v }
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		if err := coreSet(v_out, "kind", "violation"); err != nil { return nil, err }
+		if err := coreSet(v_out, "message", "MCP protocol violation: invalid CreateTaskResult"); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	if err := coreSet(v_out, "kind", "task"); err != nil { return nil, err }
+	if err := coreSet(v_out, "task", v_result); err != nil { return nil, err }
+	return v_out, nil
 }
 
 // END AXIR CORE EMITTED FUNCTIONS

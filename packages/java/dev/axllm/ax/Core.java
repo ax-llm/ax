@@ -41915,7 +41915,9 @@ final class Core {
     Object resources = Core.eq(method, "notifications/resources/list_changed");
     Object progress = Core.eq(method, "notifications/progress");
     Object logging = Core.eq(method, "notifications/message");
-    Object task = Core.eq(method, "notifications/tasks/status");
+    Object legacy_task = Core.eq(method, "notifications/tasks/status");
+    Object modern_task = Core.eq(method, "notifications/tasks");
+    Object task = Core.or(legacy_task, modern_task);
     if (Core.truthy(resource)) {
       Core.set(out, "type", "mcp.resource.updated");
     }
@@ -42633,12 +42635,36 @@ final class Core {
     return out;
   }
 
-  static Object mcp_listen_interests(Object subscribed_uris, Object filters) {
+  static Object mcp_listen_interests(Object subscribed_uris, Object filters, Object task_ids) {
     axirCoverageMark("mcp_listen_interests");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object filters_object = Core.typeIs(filters, "object");
     if (Core.truthy(filters_object)) {
       out = Core.mapMerge(out, filters);
+    }
+    Object tasks = new java.util.ArrayList<Object>();
+    Object task_ids_list = Core.typeIs(task_ids, "list");
+    if (Core.truthy(task_ids_list)) {
+      for (Object task_id : Core.iter(task_ids)) {
+        Object task_id_string = Core.typeIs(task_id, "string");
+        if (Core.truthy(task_id_string)) {
+          Object task_id_empty = Core.eq(task_id, "");
+          Object task_id_duplicate = Core.contains(tasks, task_id);
+          Object task_id_skip = Core.or(task_id_empty, task_id_duplicate);
+          if (Core.truthy(task_id_skip)) {
+            // empty
+          }
+          if (!Core.truthy(task_id_skip)) {
+            Core.append(tasks, task_id);
+          }
+        }
+      }
+    }
+    Object task_count = Core.len(tasks);
+    Object has_tasks = Core.gt(task_count, 0);
+    if (Core.truthy(has_tasks)) {
+      Object sorted_tasks = Core.sortedStrings(tasks);
+      Core.set(out, "taskIds", sorted_tasks);
     }
     Object subscriptions = new java.util.ArrayList<Object>();
     for (Object uri : Core.iter(subscribed_uris)) {
@@ -43435,6 +43461,35 @@ final class Core {
       Core.append(ids, key);
     }
     return ids;
+  }
+
+  static Object mcp_tool_call_outcome(Object result, Object tasks_negotiated) {
+    axirCoverageMark("mcp_tool_call_outcome");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object result_type = Core.get(result, "resultType", null);
+    Object is_task = Core.eq(result_type, "task");
+    Object not_task = Core.not(is_task);
+    if (Core.truthy(not_task)) {
+      Core.set(out, "kind", "complete");
+      Core.set(out, "result", result);
+      return out;
+    }
+    Object no_tasks = Core.not(tasks_negotiated);
+    if (Core.truthy(no_tasks)) {
+      Core.set(out, "kind", "violation");
+      Core.set(out, "message", "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks");
+      return out;
+    }
+    Object valid = Core.mcp_validate_modern_task(result);
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Core.set(out, "kind", "violation");
+      Core.set(out, "message", "MCP protocol violation: invalid CreateTaskResult");
+      return out;
+    }
+    Core.set(out, "kind", "task");
+    Core.set(out, "task", result);
+    return out;
   }
 
   // END AXIR CORE EMITTED FUNCTIONS

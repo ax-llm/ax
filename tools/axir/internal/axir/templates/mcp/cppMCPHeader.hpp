@@ -107,6 +107,14 @@ class AxMCPClient {
   Value list_tools(const std::string& cursor = "");
   Value call_tool(const std::string& name, Value arguments = Value::object());
   Value call_tool(const std::string& name,Value arguments,const AxToolContext& context);
+  // As TypeScript's callTool with options: {"taskHandling": "expose"} returns a
+  // modern server's task as its flattened CreateTaskResult (with its top-level
+  // taskId) instead of waiting for it; "await" (the default) waits.
+  Value call_tool(const std::string& name,Value arguments,Value options);
+  // As TypeScript's callToolOutcome: {"kind": "complete", "result": ...} or
+  // {"kind": "task", "task": ...}, without waiting on a task. A legacy server's
+  // task-shaped result is a complete result.
+  Value call_tool_outcome(const std::string& name, Value arguments = Value::object());
   Value list_prompts(const std::string& cursor = "");
   Value get_prompt(const std::string& name, Value arguments = Value::object());
   Value list_resources(const std::string& cursor = "");
@@ -175,6 +183,9 @@ class AxMCPClient {
   std::function<Value(Value,Value)> elicitation_handler_;
   std::function<std::optional<bool>(const AxMCPClient&, Value)> tool_authorizer_;
   bool initialized_=false;
+  // Latest snapshot of each task this client has seen, by task id.
+  std::map<std::string,Value> tasks_;
+  std::mutex task_mutex_;
   };
   std::shared_ptr<State> state_;
   explicit AxMCPClient(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -198,6 +209,9 @@ class AxMCPClient {
   bool catalog_cache_fresh(const std::string& name) const;
   bool has_tasks_capability() const;
   Value await_modern_task(const std::string& task_id);
+  Value request_tool_call_outcome(const std::string& name, Value arguments);
+  void record_task(Value task, bool from_notification);
+  Value listen_task_ids();
   Value handle_server_request(Value request);
   Tool tool_to_function(Value spec);
   Tool prompt_to_function(Value spec);
