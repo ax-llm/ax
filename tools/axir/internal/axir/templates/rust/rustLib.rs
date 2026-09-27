@@ -4712,9 +4712,21 @@ impl AxGen {
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), options.clone());
         let run_session = session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background");
         if run_session { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
+        // The run's model, as the forward op reads it, whose features decide
+        // whether a chat session applies the run's controls.
+        let control_model = options.get("model").or_else(|| self.options.get("model")).and_then(Value::as_str).map(str::to_string);
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
+            // As in TS, a step starts by applying the run control updates
+            // queued for the run, and the forward takes another step while
+            // any are pending.
+            if method == "control_take_pending" {
+                return session_run.take_control_updates(&*client, control_model.as_deref()).map(Value::Array);
+            }
+            if method == "control_pending_count" {
+                return session_run.pending_control_count(&*client, control_model.as_deref()).map(|count| json!(count));
+            }
             if method == "stream" && !run_session {
                 return client.stream(request).map(Value::Array);
             }
@@ -4742,7 +4754,7 @@ impl AxGen {
                 session_run.chat(client, request, options)
             }
         };
-        let result = with_core_client(&mut chat, || {
+        let result = with_core_boundary_client(&mut chat, || {
             let options = core_forward_options(&options, caching_function.as_ref())?;
             if !lookup.is_null() {
                 core_set(&options, CoreValue::from("_ax_cache_lookup"), lookup.clone())?;
@@ -16104,6 +16116,10 @@ struct FixtureClient {
     name: String,
     model: String,
     options: Value,
+    // Called with each chat request's 1-based number while it is in flight,
+    // before the scripted answer (a fixture's control_steer).
+    on_request: Option<Box<dyn FnMut(usize) -> AxResult<()>>>,
+    chat_requests: usize,
 }
 
 impl AxAIClient for FixtureClient {
@@ -16164,6 +16180,7 @@ impl FixtureClient {
         if let Some(options) = options {
             self.chat_options.push(options);
         }
+        self.note_chat_request()?;
         let mut out = Vec::new();
         for chunk in chunks {
             if let (Some(error), None) = (chunk.get("error"), chunk.get("results")) {
@@ -16190,6 +16207,7 @@ impl FixtureClient {
 
     fn scripted_chat(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
+        self.note_chat_request()?;
         let response = self
             .responses
             .pop_front()
@@ -16198,6 +16216,14 @@ impl FixtureClient {
             return Err(fixture_ai_service_error(error));
         }
         Ok(fixture_chat_response(response))
+    }
+
+    fn note_chat_request(&mut self) -> AxResult<()> {
+        self.chat_requests += 1;
+        match self.on_request.as_mut() {
+            Some(on_request) => on_request(self.chat_requests),
+            None => Ok(()),
+        }
     }
 
     fn scripted(responses: impl Into<VecDeque<Value>>, features: Value) -> Self {
@@ -16210,6 +16236,8 @@ impl FixtureClient {
             name: "scripted".to_string(),
             model: "scripted-chat".to_string(),
             options: json!({}),
+            on_request: None,
+            chat_requests: 0,
         }
     }
 
@@ -16337,13 +16365,59 @@ fn fixture_field_processor(
     }
 }
 
+// python: _attach_fixture_control. A fixture's run control, recording its
+// lifecycle events (started, completed, failed, aborted) as {path, type}.
+// With control_steer ({during_request, text}) it records every event, and
+// the scripted client steers with the text while that chat request (1-based)
+// is in flight.
+fn attach_fixture_control(fixture: &Value, client: &mut FixtureClient) -> (AxRunControl, Arc<Mutex<Vec<Value>>>) {
+    let control = run_control();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let steer = fixture.get("control_steer").filter(|steer| steer.is_object()).cloned();
+    let every_event = steer.is_some();
+    let recorded = events.clone();
+    control.on_event(move |event| {
+        if every_event || matches!(event["type"].as_str(), Some("started" | "completed" | "failed" | "aborted")) {
+            recorded.lock().unwrap().push(json!({"path": event["path"], "type": event["type"]}));
+        }
+    });
+    if let Some(steer) = steer {
+        let during = steer.get("during_request").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let text = steer.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+        let steering = control.clone();
+        client.on_request = Some(Box::new(move |number| {
+            if number == during {
+                steering.steer(text.clone())?;
+            }
+            Ok(())
+        }));
+    }
+    (control, events)
+}
+
+// python: _assert_request_roles. expected_request_roles lists the message
+// roles of every request, in order.
+fn expect_fixture_request_roles(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    let Some(expected) = fixture.get("expected_request_roles") else {
+        return Ok(());
+    };
+    let roles = client
+        .requests
+        .iter()
+        .map(|request| {
+            let messages = request.get("chat_prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+            Value::Array(messages.iter().map(|message| message.get("role").cloned().unwrap_or(Value::Null)).collect())
+        })
+        .collect();
+    expect_json_equal("request roles", &Value::Array(roles), expected)
+}
+
 // python: _run_streaming_forward. Streams the forward into a delta list and
 // checks the deltas (also those sent before an expected error), the merged
 // output, the requests, tool calls and field processor calls. With `control`
-// a run control records its lifecycle events ({type, path} for started,
-// completed, failed and aborted); with `stop_after_deltas` the consumer
-// stops the run from on_delta after that many deltas, which is the expected
-// outcome, and the output is not compared.
+// a run control records its events (see attach_fixture_control); with
+// `stop_after_deltas` the consumer stops the run from on_delta after that
+// many deltas, which is the expected outcome, and the output is not compared.
 fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     let signature = build_fixture_signature(fixture)?;
     let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
@@ -16377,15 +16451,10 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     );
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or_else(|| json!({})));
-    let control_events = Arc::new(Mutex::new(Vec::new()));
+    let mut control_events = Arc::new(Mutex::new(Vec::new()));
     if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
-        let control = run_control();
-        let events = control_events.clone();
-        control.on_event(move |event| {
-            if matches!(event["type"].as_str(), Some("started" | "completed" | "failed" | "aborted")) {
-                events.lock().unwrap().push(json!({"path": event["path"], "type": event["type"]}));
-            }
-        });
+        let (control, events) = attach_fixture_control(fixture, &mut client);
+        control_events = events;
         options = options.with_control(control);
     }
     let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
@@ -16433,6 +16502,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         let actual = Value::Array(control_events.lock().unwrap().clone());
         expect_json_equal("run control events", &actual, expected)?;
     }
+    expect_fixture_request_roles(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
             return Err(AxError::new("fixture", format!("expected {expected} requests, got {}", client.requests.len())));
@@ -16756,11 +16826,15 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
     )
     .with_client_spec(fixture.get("client"));
-    let result = if let Some(options) = fixture.get("forward_options") {
-        program.forward_with_options(&mut client, input, options.clone())
+    let mut options = AxForwardOptions::from(fixture.get("forward_options").cloned().unwrap_or(Value::Null));
+    let control_events = if fixture.get("control").and_then(Value::as_bool).unwrap_or(false) {
+        let (control, events) = attach_fixture_control(fixture, &mut client);
+        options = options.with_control(control);
+        Some(events)
     } else {
-        program.forward(&mut client, input)
+        None
     };
+    let result = program.forward_with_options(&mut client, input, options);
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
@@ -16791,6 +16865,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("forward output", &output, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_control_events") {
+        let actual = control_events.map(|events| Value::Array(events.lock().unwrap().clone())).unwrap_or_else(|| json!([]));
+        expect_json_equal("run control events", &actual, expected)?;
+    }
+    expect_fixture_request_roles(fixture, &client)?;
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() != expected as usize {
             return Err(AxError::new(
@@ -21123,6 +21202,72 @@ pub(crate) fn with_core_client<R>(
     run()
 }
 
+thread_local! {
+    // The client stack depths whose callbacks are an AxGen run's request
+    // boundary (run_forward's), which answer control_take_pending and
+    // control_pending_count. Other callbacks take any method they don't know
+    // for chat, so they must not be asked.
+    static CORE_CONTROL_BOUNDARIES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+// with_core_client for a callback that is an AxGen run's request boundary.
+pub(crate) fn with_core_boundary_client<R>(
+    chat: &mut dyn FnMut(&str, Value, Value) -> AxResult<Value>,
+    run: impl FnOnce() -> R,
+) -> R {
+    with_core_client(chat, || {
+        struct BoundaryGuard;
+        impl Drop for BoundaryGuard {
+            fn drop(&mut self) {
+                CORE_CONTROL_BOUNDARIES.with(|boundaries| {
+                    boundaries.borrow_mut().pop();
+                });
+            }
+        }
+        let depth = CORE_CLIENT_STACK.with(|stack| stack.borrow().len());
+        CORE_CONTROL_BOUNDARIES.with(|boundaries| boundaries.borrow_mut().push(depth));
+        let _guard = BoundaryGuard;
+        run()
+    })
+}
+
+// Asks the innermost client callback for its run's control updates, when it
+// is an AxGen run's request boundary; None for any other callback.
+fn core_control_boundary_call(method: &str) -> AxResult<Option<Value>> {
+    let depth = CORE_CLIENT_STACK.with(|stack| stack.borrow().len());
+    let boundary = CORE_CONTROL_BOUNDARIES.with(|boundaries| boundaries.borrow().last() == Some(&depth));
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    let (true, Some(ptr)) = (boundary, top) else {
+        return Ok(None);
+    };
+    // SAFETY: as in core_ai_complete_once.
+    let chat = unsafe { &mut *ptr };
+    chat(method, Value::Null, Value::Null).map(Some)
+}
+
+// python: _core_ai_control_take_pending(client). The run control updates
+// queued for this run ({type, text or level, id, target}), which the forward
+// applies when a step starts, as TS does. The run's request boundary counts
+// them as applied, emits applied for each and skips them from then on. None
+// without a control, when a chat session applies the controls itself, and
+// under a client scope that is not an AxGen run's.
+#[allow(dead_code)]
+pub(crate) fn core_ai_control_take_pending(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let updates = core_control_boundary_call("control_take_pending")?.unwrap_or_else(|| json!([]));
+    Ok(core_value_from_json(&updates))
+}
+
+// python: _core_ai_control_pending_count(client). How many run control
+// updates are queued for this run, without taking them; 0 wherever
+// control_take_pending has none.
+#[allow(dead_code)]
+pub(crate) fn core_ai_control_pending_count(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let count = core_control_boundary_call("control_pending_count")?
+        .and_then(|count| count.as_u64())
+        .unwrap_or(0);
+    Ok(CoreValue::Num(count as f64))
+}
+
 // python: _core_ai_complete_once(client, request). The client argument is
 // ignored; the innermost with_core_client chat callback services the request.
 #[allow(dead_code)]
@@ -25053,7 +25198,8 @@ mod axgen_streaming_surface_tests {
     #[test]
     fn controlled_stream_applies_steering_and_reports_its_end() -> AxResult<()> {
         // Under a run control the chunks still arrive one by one, and the
-        // queued steering reaches the streamed request.
+        // queued steering reaches the streamed request. As in TS, the first
+        // step applies it when it starts, which starts version 1.
         let (control, events) = recorded_control();
         control.steer("Answer in lowercase.")?;
         let mut client = ScriptedStream::new(vec![vec!["Answer: hel", "lo"]]);
@@ -25062,7 +25208,7 @@ mod axgen_streaming_surface_tests {
         let options = AxForwardOptions::from(json!({})).with_control(control);
         let output = program.streaming_forward(&mut client, json!({"question": "Hi?"}), options, on_delta)?;
         assert_eq!(output, json!({"answer": "hello"}));
-        assert_eq!(*deltas.borrow(), vec![delta(0, json!({"answer": "hel"})), delta(0, json!({"answer": "lo"}))]);
+        assert_eq!(*deltas.borrow(), vec![delta(1, json!({"answer": "hel"})), delta(1, json!({"answer": "lo"}))]);
         assert!(stable_stringify(&client.requests[0]).contains("Answer in lowercase."));
         assert_eq!(*events.lock().unwrap(), vec!["queued", "started", "applied", "completed"]);
         // A stop from on_delta ends the controlled run as aborted, not failed.
@@ -25536,6 +25682,43 @@ mod axflow_caching_function_tests {
             assert_eq!(program.forward_with_caching_function(&mut client, input, controlled, cache)?, output);
             assert_eq!(counts(), (4, 5, 3), "parallel {parallel}");
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axgen_control_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_run_boundary_is_asked_for_control_updates() -> AxResult<()> {
+        let mut methods = Vec::new();
+        let mut callback = |method: &str, _request: Value, _options: Value| -> AxResult<Value> {
+            methods.push(method.to_string());
+            Ok(match method {
+                "control_take_pending" => json!([{"type": "steer", "text": "Answer in French.", "id": "1"}]),
+                "control_pending_count" => json!(1),
+                _ => json!({}),
+            })
+        };
+        let ask = || -> AxResult<Value> {
+            Ok(json!([
+                core_value_to_json(&core_ai_control_take_pending(&[])?),
+                core_value_to_json(&core_ai_control_pending_count(&[])?),
+            ]))
+        };
+        // Another client scope, such as the one a playbook's reflector runs
+        // under, is not asked: it would take the method for a chat request.
+        assert_eq!(with_core_client(&mut callback, ask)?, json!([[], 0]));
+        // An AxGen run's boundary answers, but not under a scope pushed on top.
+        let (answers, nested) = with_core_boundary_client(&mut callback, || -> AxResult<(Value, Value)> {
+            let mut other = |_: &str, _: Value, _: Value| -> AxResult<Value> { Err(AxError::runtime("not a run boundary")) };
+            let nested = with_core_client(&mut other, ask)?;
+            Ok((ask()?, nested))
+        })?;
+        let steer = json!([{"type": "steer", "text": "Answer in French.", "id": "1"}]);
+        assert_eq!((answers, nested), (json!([steer, 1]), json!([[], 0])));
+        assert_eq!(methods, vec!["control_take_pending", "control_pending_count"]);
         Ok(())
     }
 }

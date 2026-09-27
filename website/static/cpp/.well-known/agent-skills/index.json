@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:7fcc800cce1f854b1c3363d3b2b06b235e71f078b7ded2b28ad69d1c1a600ac1"
+      "digest": "sha256:e3e53e453edf564bcf67762bfc2c0017a16574608d431cb57961606b89ab1e87"
     },
     {
       "name": "ax-cpp-typesafe",
@@ -41,21 +41,21 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:c0a1dd28b9ffcbca254eaff15b1cc6503b82b5f33468428be92f8d724365898d"
+      "digest": "sha256:175353b4ab53ff28e3e6fc4c6650f29220c2198c2ee8580a0e727234ce67d691"
     },
     {
       "name": "ax-cpp-flow",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-cpp-flow/SKILL.md",
-      "digest": "sha256:0e2dfcc697308a6856ad4ba10aecf0981ad2f0b62c2c14882812a594ad073822"
+      "digest": "sha256:7378321922bc6d245e7add31d64b230573b4476e2167a81a01ea30fed3f9e011"
     },
     {
       "name": "ax-cpp-agent",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:a4c3fa6e19076c2cabcdf44cf1f49601a932f453e9c3b2123d82949434345808"
+      "digest": "sha256:a88a32275e97be34ff144effab8e6ace193a53f4ada16015f52e4d205dc09a8b"
     },
     {
       "name": "ax-cpp-agent-rlm",

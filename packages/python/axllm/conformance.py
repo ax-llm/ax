@@ -109,11 +109,19 @@ class ConformanceScriptedAI(AxBaseAI):
         self.requests = []
         self.chat_options = []
         self.chat_calls = 0
+        # Called with each chat request's 1-based number while it is in
+        # flight, before the scripted answer (a fixture's control_steer).
+        self.on_request = None
+
+    def _note_request(self):
+        if self.on_request is not None:
+            self.on_request(len(self.requests))
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
         self.chat_options.append(copy.deepcopy(options or {}))
+        self._note_request()
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
         raw = self.responses.pop(0)
@@ -134,6 +142,7 @@ class ConformanceScriptedAI(AxBaseAI):
             self.chat_calls += 1
             self.requests.append(copy.deepcopy(request))
             self.chat_options.append(copy.deepcopy(options or {}))
+            self._note_request()
             raw = self.responses.pop(0)
             for event in raw["stream"]:
                 # An {"error": ...} entry fails the stream at that point.
@@ -1198,8 +1207,13 @@ def _run_forward(fixture):
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
     client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"), **_scripted_client_kwargs(fixture.get("client")))
+    forward_options = fixture.get("forward_options")
+    control_events = []
+    if fixture.get("control"):
+        forward_options = dict(forward_options or {})
+        control_events = _attach_fixture_control(fixture, client, forward_options)
     try:
-        output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
+        output = gen.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -1216,6 +1230,9 @@ def _run_forward(fixture):
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "forward output")
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if fixture.get("expect_chat_path", True) and client.chat_calls == 0:
@@ -1314,6 +1331,35 @@ def _fixture_processor(spec, calls):
         return result
 
     return processor
+
+
+def _attach_fixture_control(fixture, client, run_options):
+    # A fixture's run control goes into run_options. Its lifecycle events are
+    # recorded, and with control_steer every event is, and the scripted
+    # client queues the steer while that request is in flight.
+    from .session import run_control
+    events = []
+    control = run_control()
+    steer = fixture.get("control_steer")
+    lifecycle = ("started", "completed", "failed", "aborted")
+    control.on_event(lambda event: events.append({"path": event.get("path"), "type": event.get("type")})
+        if steer or event.get("type") in lifecycle else None)
+    if steer:
+        def on_request(number):
+            if number == steer.get("during_request"):
+                control.steer(steer.get("text") or "")
+        client.on_request = on_request
+    run_options["control"] = control
+    return events
+
+
+def _assert_request_roles(fixture, client):
+    # The message roles of every request, in order.
+    expected = fixture.get("expected_request_roles")
+    if expected is None:
+        return
+    roles = [[message.get("role") for message in request.get("chat_prompt") or []] for request in client.requests]
+    _assert_equal(roles, expected, "request roles")
 
 
 def _assert_error_cause(fixture, exc):
@@ -1488,11 +1534,7 @@ def _run_streaming_forward(fixture):
     run_options = dict(fixture.get("forward_options") or {})
     control_events = []
     if fixture.get("control"):
-        from .session import run_control
-        control = run_control()
-        control.on_event(lambda event: control_events.append({"path": event.get("path"), "type": event.get("type")})
-            if event.get("type") in ("started", "completed", "failed", "aborted") else None)
-        run_options["control"] = control
+        control_events = _attach_fixture_control(fixture, client, run_options)
     deltas = []
     stop_after = fixture.get("stop_after_deltas")
     try:
@@ -1524,6 +1566,7 @@ def _run_streaming_forward(fixture):
             _assert_equal(output, fixture.get("expected_output"), "streaming output")
     if "expected_control_events" in fixture:
         _assert_equal(control_events, fixture["expected_control_events"], "run control events")
+    _assert_request_roles(fixture, client)
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if "expected_tool_calls" in fixture:

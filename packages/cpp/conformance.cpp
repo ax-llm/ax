@@ -50,6 +50,11 @@ struct ConformanceScriptedAI : AxBaseAI {
   std::vector<Value> chat_options;
   Value features;
   int chat_calls = 0;
+  // The chat_prompt message roles of each chat request as it was sent.
+  Value request_roles = Value::array();
+  // Called with each chat request's 1-based number while it is in flight,
+  // before the scripted answer (a fixture's control_steer).
+  std::function<void(int)> on_request;
 
   explicit ConformanceScriptedAI(Value values, Value feature_values = Value(), Value client_spec = Value())
       : AxBaseAI(scripted_client_text(client_spec, "name", "scripted"),
@@ -58,10 +63,18 @@ struct ConformanceScriptedAI : AxBaseAI {
         responses(as_array(values)),
         features(std::move(feature_values)) {}
 
+  void note_request(const Value& request) {
+    Value roles = Value::array();
+    for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) Core::append(roles, Core::get(message, "role"));
+    Core::append(request_roles, roles);
+    if (on_request) on_request(chat_calls);
+  }
+
   Value do_chat(Value request, Value options) override {
     ++chat_calls;
     requests.push_back(request);
     chat_options.push_back(options);
+    note_request(request);
     if (responses.empty()) throw AxError("fixture", "scripted client exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
@@ -83,6 +96,7 @@ struct ConformanceScriptedAI : AxBaseAI {
         requests.push_back(request);
         chat_options.push_back(options);
         responses.erase(responses.begin());
+        note_request(request);
         for (const auto& chunk : Core::iter(chunks)) {
           Object entry = as_object(chunk);
           if (entry.count("error") && !entry.count("results")) throw fixture_ai_service_error_cpp(Core::get(chunk, "error"));
@@ -806,6 +820,49 @@ static AxFieldProcessor fixture_processor(Value spec, Value calls) {
   };
 }
 
+// The run control events a fixture records.
+struct FixtureControlEvents {
+  std::mutex mutex;
+  Value events = Value::array();
+};
+
+// A fixture's run control goes into run_options. Its lifecycle events are
+// recorded, and with control_steer every event is, and the scripted client
+// steers while that request is in flight.
+static AxRunControl attach_fixture_control(Value fixture, ConformanceScriptedAI& client, Value& run_options, std::shared_ptr<FixtureControlEvents> events) {
+  AxRunControl control = run_control();
+  Value steer = Core::get(fixture, "control_steer");
+  bool every_event = !steer.is_null();
+  control.on_event([events, every_event](Value event) {
+    std::string type = display(Core::get(event, "type"));
+    if (!every_event && type != "started" && type != "completed" && type != "failed" && type != "aborted") return;
+    std::lock_guard<std::mutex> lock(events->mutex);
+    Core::append(events->events, object({{"path", Core::get(event, "path")}, {"type", type}}));
+  });
+  if (every_event) {
+    int during = static_cast<int>(Core::number(Core::get(steer, "during_request")));
+    std::string text = display(Core::get(steer, "text", ""));
+    client.on_request = [control, during, text](int number) {
+      if (number == during) control.steer(text);
+    };
+  }
+  Core::set(run_options, "control", control.value());
+  return control;
+}
+
+static void assert_control_events(Value fixture, const std::shared_ptr<FixtureControlEvents>& events) {
+  Value expected = Core::get(fixture, "expected_control_events");
+  if (expected.is_null()) return;
+  std::lock_guard<std::mutex> lock(events->mutex);
+  assert_equal(events->events, expected, "run control events");
+}
+
+// The message roles of every chat request, in order.
+static void assert_request_roles(Value fixture, const ConformanceScriptedAI& client) {
+  Value expected = Core::get(fixture, "expected_request_roles");
+  if (!expected.is_null()) assert_equal(client.request_roles, expected, "request roles");
+}
+
 static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
@@ -831,8 +888,15 @@ static void run_forward(Value fixture) {
     });
   }
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
+  Value forward_options = Core::get(fixture, "forward_options", Value::object());
+  auto control_events = std::make_shared<FixtureControlEvents>();
+  std::optional<AxRunControl> control;
+  if (Core::truthy(Core::get(fixture, "control", false))) {
+    forward_options = Core::map_merge(Value::object(), forward_options);
+    control = attach_fixture_control(fixture, client, forward_options, control_events);
+  }
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
-  Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture, true);
+  Value output = expect_maybe_error([&] { return gen.forward(client, input, forward_options); }, fixture, true);
   bool expected_error = !Core::get(fixture, "expected_error_contains").is_null();
   if (!expected_error && !Core::get(fixture, "expected_processor_calls").is_null()) {
     assert_equal(processor_calls, Core::get(fixture, "expected_processor_calls"), "field processor calls");
@@ -840,9 +904,11 @@ static void run_forward(Value fixture) {
   if (!expected_error && !Core::get(fixture, "expected_output").is_null()) {
     assert_equal(output, Core::get(fixture, "expected_output"), "forward output");
   }
+  assert_control_events(fixture, control_events);
+  assert_request_roles(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
-    throw AxError("fixture", "expected request count mismatch");
+    throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));
   }
   // An expected failure may stop before the client sends anything (e.g. the
   // expensive-model gate), so only a successful forward must reach chat().
@@ -941,23 +1007,9 @@ static void run_streaming_forward(Value fixture) {
   if (!Core::get(fixture, "stop_functions").is_null()) gen.set_stop_functions(Core::get(fixture, "stop_functions", Value::array()));
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"), Core::get(fixture, "client"));
   Value run_options = Core::map_merge(Value::object(), Core::get(fixture, "forward_options", Value::object()));
-  // control attaches a run control and records its lifecycle events.
-  struct ControlEvents {
-    std::mutex mutex;
-    Value events = Value::array();
-  };
-  auto control_events = std::make_shared<ControlEvents>();
+  auto control_events = std::make_shared<FixtureControlEvents>();
   std::optional<AxRunControl> control;
-  if (Core::truthy(Core::get(fixture, "control", false))) {
-    control = run_control();
-    control->on_event([control_events](Value event) {
-      std::string type = display(Core::get(event, "type"));
-      if (type != "started" && type != "completed" && type != "failed" && type != "aborted") return;
-      std::lock_guard<std::mutex> lock(control_events->mutex);
-      Core::append(control_events->events, object({{"path", Core::get(event, "path")}, {"type", type}}));
-    });
-    Core::set(run_options, "control", control->value());
-  }
+  if (Core::truthy(Core::get(fixture, "control", false))) control = attach_fixture_control(fixture, client, run_options, control_events);
   // stop_after_deltas: the handler stops the run after that many deltas.
   Value stop_after = Core::get(fixture, "stop_after_deltas");
   Value deltas = Value::array();
@@ -982,11 +1034,8 @@ static void run_streaming_forward(Value fixture) {
     assert_equal(deltas, Core::get(fixture, "expected_deltas", Value::array()), "streaming deltas");
     if (stop_after.is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "streaming output");
   }
-  Value expected_control_events = Core::get(fixture, "expected_control_events");
-  if (!expected_control_events.is_null()) {
-    std::lock_guard<std::mutex> lock(control_events->mutex);
-    assert_equal(control_events->events, expected_control_events, "run control events");
-  }
+  assert_control_events(fixture, control_events);
+  assert_request_roles(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected " + display(expected_count) + " requests, got " + std::to_string(client.requests.size()));

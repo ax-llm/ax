@@ -11154,6 +11154,16 @@ type conformanceScriptedAI struct {
 	Name    string
 	Model   string
 	Options map[string]Value
+	// OnRequest, when set, is called with each chat request's 1-based number
+	// while it is in flight, before the scripted answer (a fixture's
+	// control_steer).
+	OnRequest func(number int)
+}
+
+func (f *conformanceScriptedAI) noteRequest() {
+	if f.OnRequest != nil {
+		f.OnRequest(len(f.Requests))
+	}
 }
 
 // conformanceApplyScriptedClientSpec configures a scripted client from a
@@ -11205,6 +11215,7 @@ func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Val
 	f.ChatCalls++
 	f.Requests = append(f.Requests, cloneMap(request))
 	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
+	f.noteRequest()
 	if len(f.Responses) == 0 {
 		return nil, AxError{Category: "runtime", Message: "scripted client exhausted"}
 	}
@@ -11244,6 +11255,7 @@ func (f *conformanceScriptedAI) scriptedStreamChunks(request map[string]Value, o
 	f.ChatCalls++
 	f.Requests = append(f.Requests, cloneMap(request))
 	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
+	f.noteRequest()
 	return asSlice(chunks), true
 }
 
@@ -12547,9 +12559,15 @@ func runConformanceForward(fixture map[string]Value) {
 		})
 	}
 	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
+	controlEvents := func() Value { return Array() }
+	if coreTruthy(coreGet(fixture, "control", false)) {
+		forwardOptions = cloneMap(forwardOptions)
+		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)
+	}
 	var forwardErr error
 	output := expectMaybeFixtureError(func() Value {
-		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
+		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), forwardOptions)
 		if err != nil {
 			forwardErr = err
 			panic(err)
@@ -12567,6 +12585,10 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "forward output")
 		}
+		if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
+			assertEqual(controlEvents(), expected, "run control events")
+		}
+		conformanceAssertRequestRoles(fixture, client)
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
 		}
@@ -12697,6 +12719,64 @@ func conformanceFixtureProcessor(spec map[string]Value, calls *AxArray) AxFieldP
 	}
 }
 
+// conformanceAttachControl puts a fixture's run control into options and
+// returns its recorded events as {path, type}: lifecycle events (started,
+// completed, failed, aborted), or every event with control_steer, where the
+// scripted client steers while request during_request (1-based) is in
+// flight.
+func conformanceAttachControl(fixture map[string]Value, client *conformanceScriptedAI, options map[string]Value) func() Value {
+	var mu sync.Mutex
+	events := Array()
+	control := RunControl()
+	steer := coreGet(fixture, "control_steer", nil)
+	control.OnEvent(func(event map[string]Value) {
+		switch display(event["type"]) {
+		case "started", "completed", "failed", "aborted":
+		default:
+			if steer == nil {
+				return
+			}
+		}
+		mu.Lock()
+		events = append(events, Object("path", event["path"], "type", event["type"]))
+		mu.Unlock()
+	})
+	if steer != nil {
+		during, text := int(num(coreGet(steer, "during_request", 0))), display(coreGet(steer, "text", ""))
+		client.OnRequest = func(number int) {
+			if number == during {
+				if err := control.Steer(text); err != nil {
+					panic(err)
+				}
+			}
+		}
+	}
+	options["control"] = control
+	return func() Value {
+		mu.Lock()
+		defer mu.Unlock()
+		return cloneValue(events)
+	}
+}
+
+// conformanceAssertRequestRoles compares expected_request_roles with the
+// chat_prompt message roles of every request, in order.
+func conformanceAssertRequestRoles(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected := coreGet(fixture, "expected_request_roles", nil)
+	if expected == nil {
+		return
+	}
+	roles := Array()
+	for _, request := range client.Requests {
+		messageRoles := Array()
+		for _, message := range asSlice(coreGet(request, "chat_prompt", Array())) {
+			messageRoles = append(messageRoles, coreGet(message, "role", nil))
+		}
+		roles = append(roles, messageRoles)
+	}
+	assertEqual(roles, expected, "request roles")
+}
+
 func runConformanceStreamingForward(fixture map[string]Value) {
 	tools, calls := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), cloneMap(asMap(coreGet(fixture, "options", Object()))))
@@ -12737,19 +12817,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	}
 	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
 	runOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
-	var controlEventsMu sync.Mutex
-	controlEvents := Array()
+	controlEvents := func() Value { return Array() }
 	if coreTruthy(coreGet(fixture, "control", false)) {
-		control := RunControl()
-		control.OnEvent(func(event map[string]Value) {
-			switch display(event["type"]) {
-			case "started", "completed", "failed", "aborted":
-				controlEventsMu.Lock()
-				controlEvents = append(controlEvents, Object("path", event["path"], "type", event["type"]))
-				controlEventsMu.Unlock()
-			}
-		})
-		runOptions["control"] = control
+		controlEvents = conformanceAttachControl(fixture, client, runOptions)
 	}
 	deltas := Array()
 	var output Value
@@ -12774,10 +12844,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 		output, err = gen.streamingForwardWith(context.Background(), client, asMap(coreGet(fixture, "input", Object())), runOptions, sink, AxRuntimeHooks{})
 	}
 	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
-		controlEventsMu.Lock()
-		assertEqual(controlEvents, expected, "run control events")
-		controlEventsMu.Unlock()
+		assertEqual(controlEvents(), expected, "run control events")
 	}
+	conformanceAssertRequestRoles(fixture, client)
 	if expected := display(coreGet(fixture, "expected_error_contains", "")); expected != "" {
 		if err == nil {
 			panic(FixtureError{Message: "expected streaming forward to fail"})
