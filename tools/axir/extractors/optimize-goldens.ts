@@ -3162,6 +3162,16 @@ const evalSteps = {
     expected_code: "askClarification('Which docs do you mean?')",
     result: { type: 'askClarification', args: ['Which docs do you mean?'] },
   },
+  clarifyObject: {
+    expected_code:
+      "askClarification({question: 'Which docs do you mean?', choices: ['API', 'Guides']})",
+    result: {
+      type: 'askClarification',
+      args: [
+        { question: 'Which docs do you mean?', choices: ['API', 'Guides'] },
+      ],
+    },
+  },
   respond: {
     expected_code: "respond('Ready', {})",
     result: { type: 'respond', args: ['Ready', {}] },
@@ -3231,6 +3241,13 @@ function evalToolRuntime(): AxCodeRuntime {
             g.askClarification('Which docs do you mean?');
             return '';
           }
+          if (code === evalSteps.clarifyObject.expected_code) {
+            g.askClarification({
+              question: 'Which docs do you mean?',
+              choices: ['API', 'Guides'],
+            });
+            return '';
+          }
           if (code === evalSteps.respond.expected_code) {
             g.respond('Ready', {});
             return '';
@@ -3259,10 +3276,11 @@ function evalToolRuntime(): AxCodeRuntime {
   };
 }
 
-// A scripted student that answers the scenario's model requests in order.
+// A scripted student that answers the scenario's model requests in order;
+// requests() counts them.
 function evalStudent(responses: readonly { content: string }[]) {
   let turn = 0;
-  return new AxMockAIService<string>({
+  const student = new AxMockAIService<string>({
     name: 'mock',
     features: { functions: false, streaming: false },
     chatResponse: async () => {
@@ -3273,17 +3291,20 @@ function evalStudent(responses: readonly { content: string }[]) {
       };
     },
   });
+  return Object.assign(student, { requests: () => turn });
 }
 
 function evalAgent(
   student: AxMockAIService<string>,
-  names: readonly (keyof typeof evalToolSpecs)[]
+  names: readonly (keyof typeof evalToolSpecs)[],
+  extraOptions: Record<string, unknown> = {}
 ) {
   return agent('question:string -> answer:string', {
     ai: student,
     contextFields: [],
     runtime: evalToolRuntime(),
     ...(names.length > 0 ? { functions: evalTsTools(names) } : {}),
+    ...extraOptions,
   } as never) as unknown as {
     _forwardForEvaluation: (
       ai: unknown,
@@ -3322,14 +3343,74 @@ await (async () => {
       ],
       runtime_script: [evalSteps.final, evalSteps.search, evalSteps.clarify],
       completionType: 'askClarification',
+      // The ports carry TS's structured clarification with this option.
+      portOptions: { clarificationShape: 'structured' },
+    },
+    {
+      name: 'eval-prediction-clarification-object',
+      tools: ['search'] as const,
+      responses: [
+        evalCode(evalFinalCode),
+        evalCode('search'),
+        evalCode(evalSteps.clarifyObject.expected_code),
+      ],
+      runtime_script: [
+        evalSteps.final,
+        evalSteps.search,
+        evalSteps.clarifyObject,
+      ],
+      completionType: 'askClarification',
+      portOptions: { clarificationShape: 'structured' },
+    },
+    // An agent with a playbook (run-end learning on by default) evaluates a
+    // run with a tool error: TS's evaluation path never updates the
+    // playbook, so no reflector or curator request goes out. The teacher
+    // answers at the end would only be used by a port that learns.
+    {
+      name: 'eval-prediction-playbook-no-learning',
+      tools: ['search', 'fetch'] as const,
+      agentOptions: { playbook: {} },
+      responses: [
+        evalCode(evalFinalCode),
+        evalCode('search'),
+        evalCode('fetch'),
+        evalCode(evalFinalCode),
+        { content: 'Answer: Docs' },
+        {
+          content: [
+            'Reasoning: The fetch tool failed.',
+            'Error Identification: fetch failed.',
+            'Root Cause Analysis: The page was unavailable.',
+            'Correct Approach: Check tool results.',
+            'Key Insight: Check tool results before using them.',
+            'Bullet Tags: []',
+          ].join('\n'),
+        },
+        {
+          content: [
+            'Reasoning: One avoidance rule covers the failure.',
+            'Operations: [{"type":"ADD","section":"failures_to_avoid","content":"Check tool results before using them."}]',
+          ].join('\n'),
+        },
+      ],
+      runtime_script: [
+        evalSteps.final,
+        evalSteps.search,
+        evalSteps.fetch,
+        evalSteps.final,
+      ],
+      completionType: 'final',
     },
   ];
   for (const scenario of scenarios) {
     const student = evalStudent(scenario.responses);
     const task = { input: { question: 'Find the docs.' } };
+    const agentOptions =
+      'agentOptions' in scenario ? scenario.agentOptions : {};
     const prediction = await evalAgent(
       student,
-      scenario.tools
+      scenario.tools,
+      agentOptions
     )._forwardForEvaluation(student, task);
     if (prediction.completionType !== scenario.completionType) {
       throw new Error(
@@ -3345,11 +3426,14 @@ await (async () => {
         contextFields: [],
         functions: evalPortTools(scenario.tools),
         callable_results: evalCallableResults(scenario.tools),
+        ...agentOptions,
+        ...('portOptions' in scenario ? scenario.portOptions : {}),
       },
       runtime_language: 'JavaScript',
       runtime_script: scenario.runtime_script,
       task,
       responses: scenario.responses,
+      expected_request_count: student.requests(),
       expected_prediction_subset: {
         completionType: prediction.completionType,
         ...(prediction.completionType === 'final'
@@ -3361,10 +3445,47 @@ await (async () => {
         functionCalls: prediction.functionCalls,
         toolErrors: prediction.toolErrors,
         turnCount: prediction.turnCount,
+        // TS's structured clarification (normalizeClarificationForError).
+        ...(prediction.completionType === 'askClarification'
+          ? { clarification: prediction.clarification }
+          : {}),
       },
     } as never);
   }
 })();
+
+// Port-only: without clarificationShape the ports' evaluated clarification is
+// the askClarification payload as given, as this release carries it (a
+// one-time warning names the option); TS's is always structured (above).
+for (const [name, step] of [
+  ['eval-prediction-clarification-raw', evalSteps.clarify],
+  ['eval-prediction-clarification-object-raw', evalSteps.clarifyObject],
+] as const) {
+  writeFixture(name, {
+    kind: 'optimize',
+    operation: 'eval',
+    program: 'agent',
+    description:
+      "Port-only: without clarificationShape: 'structured', the evaluated clarification is the askClarification payload as given, as this release carries it.",
+    signature: 'question:string -> answer:string',
+    options: {
+      contextFields: [],
+      functions: evalPortTools(['search']),
+      callable_results: evalCallableResults(['search']),
+    },
+    runtime_language: 'JavaScript',
+    runtime_script: [evalSteps.final, evalSteps.search, step],
+    task: { input: { question: 'Find the docs.' } },
+    responses: [
+      evalCode(evalFinalCode),
+      evalCode('search'),
+      evalCode(step.expected_code),
+    ],
+    expected_request_count: 3,
+    expected_prediction_subset: { completionType: 'askClarification' },
+    expected_prediction_fields: { clarification: step.result.args[0] },
+  } as never);
+}
 
 // --- agent playbook evolve: the miner sees each run's calls and log -------
 // Two failing tasks run the executor's search tool before the final answer,
@@ -3372,7 +3493,10 @@ await (async () => {
 // executor never runs). The expected miner messages are TS's mineWeakness
 // over TS's evaluated predictions of the same runs, clustered by TS: each
 // record carries only its own run's action log and function calls, and a
-// direct respond's record carries the distiller's log.
+// direct respond's record carries the distiller's log. In a fourth
+// scenario every run throws (a task without its required input): TS's
+// evaluation harness records the message as record.error, with no
+// prediction, so the miner shows "Run threw: <message>".
 await (async () => {
   const agentOutDir = join(outRoot, 'ir/conformance/axagent');
   mkdirSync(agentOutDir, { recursive: true });
@@ -3432,6 +3556,13 @@ await (async () => {
         runtime_script: [evalSteps.respond],
       },
     },
+    {
+      name: 'agent-playbook-evolve-miner-run-threw',
+      quote: 'is required',
+      tools: [] as const,
+      tasks: [{ input: {} }, { input: {} }],
+      run: { responses: [], runtime_script: [] },
+    },
   ];
   for (const scenario of scenarios) {
     const minerAnswer = minerAnswerQuoting(scenario.quote);
@@ -3440,8 +3571,19 @@ await (async () => {
     const tsAgent = evalAgent(student, scenario.tools);
     const records = [];
     for (const task of scenario.tasks) {
-      const prediction = await tsAgent._forwardForEvaluation(student, task);
-      records.push({ task, prediction, score: 0, passed: false });
+      // As TS's evaluation harness (runAgentEvalBatch) records a run: a
+      // thrown run keeps its message as error, with no prediction.
+      try {
+        const prediction = await tsAgent._forwardForEvaluation(student, task);
+        records.push({ task, prediction, score: 0, passed: false });
+      } catch (err) {
+        records.push({
+          task,
+          score: 0,
+          passed: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     const clusters = clusterFailures(records as never, 0.7, 1);
     const systemPrompts: string[] = [];
@@ -3526,6 +3668,227 @@ await (async () => {
         },
       ],
       teacher_responses: [{ content: minerAnswer }],
+    };
+    writeFileSync(
+      join(agentOutDir, `${scenario.name}.json`),
+      `${JSON.stringify(stable(fixture), null, 2)}\n`
+    );
+  }
+})();
+
+// --- run-end learning over two runs ----------------------------------------
+// TS carries a stage's action log into the agent's next run through its
+// state (each entry's turn, code, output and tags), so an earlier run's error
+// turn still counts in a later run's failure report, but its tool calls do
+// not: a later run has no tool_error signal from an earlier run. In each
+// scenario run 1 learns from its failure and run 2 is clean. Dedupe is off, so
+// a signal that carries into run 2 learns again (two more playbook requests).
+// - earlier-error-turn-carried: run 1's executor turn fails at runtime; TS's
+//   run 2 learns again from the carried error turn.
+// - earlier-tool-error-not-carried: run 1's executor catches a failing tool
+//   call (a tool_error signal, no error turn); TS's run 2 learns nothing.
+await (async () => {
+  const agentOutDir = join(outRoot, 'ir/conformance/axagent');
+  mkdirSync(agentOutDir, { recursive: true });
+  const caughtFetchCode = 'fetchCaught';
+  const caughtOutput = 'fetch failed; using the cached page';
+  const lookupCode = 'lookupPolicy()';
+  const lookupError = 'lookupPolicy is not defined';
+  const stageOf = (system: string) =>
+    system.includes('You (`distiller`)')
+      ? 'distiller'
+      : system.includes('You (`executor`)')
+        ? 'executor'
+        : system.includes('`Generator answer`') ||
+            system.includes('`Question context`')
+          ? 'playbook'
+          : 'responder';
+  const teacher = [
+    {
+      content: [
+        'Reasoning: The executor step failed.',
+        'Error Identification: The step raised an error.',
+        'Root Cause Analysis: The executor did not check its step.',
+        'Correct Approach: Check each step before relying on it.',
+        'Key Insight: Check tool results before using them.',
+        'Bullet Tags: []',
+      ].join('\n'),
+    },
+    {
+      content: [
+        'Reasoning: One avoidance rule covers the failure.',
+        'Operations: [{"type":"ADD","section":"failures_to_avoid","content":"Check tool results before using them."}]',
+      ].join('\n'),
+    },
+  ];
+  const answer = { content: 'Answer: Docs' };
+  const scenarios = [
+    {
+      name: 'agent-forward-runs-earlier-error-turn-carried',
+      description:
+        "Run 1's executor turn fails at runtime and run 1 learns; run 2 is clean. TS carries the stage's action log into the next run through the agent's state, so run 2's failure report still has run 1's error turn and, with dedupe off, learns again.",
+      failingCode: lookupCode,
+      failingStep: {
+        expected_code: lookupCode,
+        result: {
+          is_error: true,
+          kind: 'error',
+          error_category: 'runtime_error',
+          error: lookupError,
+        },
+      },
+    },
+    {
+      name: 'agent-forward-runs-earlier-tool-error-not-carried',
+      description:
+        "Run 1's executor catches a failing tool call (a tool_error signal and no error turn) and learns; run 2 is clean. An earlier run's tool calls do not carry into a later run's failure report in TS, so run 2 has no failure signals and sends no playbook request.",
+      failingCode: caughtFetchCode,
+      failingStep: {
+        expected_code: caughtFetchCode,
+        result: {
+          callable: {
+            qualified_name: 'tools.fetch',
+            args: { url: 'https://example.com' },
+          },
+          output: caughtOutput,
+        },
+      },
+    },
+  ];
+  for (const scenario of scenarios) {
+    const responses = [
+      evalCode(evalFinalCode),
+      evalCode(scenario.failingCode),
+      evalCode(evalFinalCode),
+      answer,
+      ...teacher,
+      evalCode(evalFinalCode),
+      evalCode(evalFinalCode),
+      answer,
+      // Answers a learning update in run 2, when a signal carries.
+      ...teacher,
+    ];
+    const transcript: string[] = [];
+    let turn = 0;
+    const student = new AxMockAIService<string>({
+      name: 'mock',
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const first = req.chatPrompt[0];
+        const system =
+          first?.role === 'system' && typeof first.content === 'string'
+            ? first.content
+            : '';
+        transcript.push(`request:${stageOf(system)}`);
+        const next = responses[turn++];
+        if (!next) throw new Error('runs scenario: responses exhausted');
+        return {
+          results: [{ index: 0, content: next.content, finishReason: 'stop' }],
+        };
+      },
+    });
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        const g = (globals ?? {}) as Record<string, any>;
+        return {
+          async execute(code: string) {
+            if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+            if (code === caughtFetchCode) {
+              try {
+                await g.tools.fetch({ url: 'https://example.com' });
+              } catch {
+                return caughtOutput;
+              }
+              throw new Error('fetch was expected to fail');
+            }
+            if (code === lookupCode) throw new Error(lookupError);
+            if (code === evalFinalCode) {
+              g.final('Answer', { answer: 'Docs' });
+              return '';
+            }
+            throw new Error(`unscripted code: ${code}`);
+          },
+          async patchGlobals(patch: Record<string, unknown>) {
+            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+            Object.assign(g, rest);
+            if (staged && typeof staged === 'object') {
+              g.inputs = Object.assign(
+                (g.inputs as Record<string, unknown>) ?? {},
+                staged
+              );
+            }
+          },
+          inspectGlobals() {
+            return JSON.stringify({ entries: [] });
+          },
+          snapshotGlobals() {
+            return { version: 1, entries: [], bindings: {} };
+          },
+          close() {},
+        };
+      },
+    };
+    const observerCalls: Record<string, unknown>[] = [];
+    const ag = agent('question:string -> answer:string', {
+      ai: student,
+      contextFields: [],
+      runtime,
+      functions: evalTsTools(['fetch']),
+      playbook: {
+        learn: { dedupe: false },
+        onUpdate: (result: { status: string }) => {
+          transcript.push('playbook_update');
+          observerCalls.push({
+            callback: 'playbook_update',
+            payload: { status: result.status },
+          });
+        },
+      },
+    } as never) as unknown as {
+      forward: (
+        ai: unknown,
+        input: unknown
+      ) => Promise<Record<string, unknown>>;
+    };
+    const input = { question: 'Find the docs.' };
+    const outputs: Record<string, unknown>[] = [];
+    for (let run = 0; run < 2; run++) {
+      outputs.push(await ag.forward(student, input));
+      // Fire-and-forget observers settle before the next run.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const fixture = {
+      name: scenario.name,
+      kind: 'agent_forward',
+      description: scenario.description,
+      signature: 'question:string -> answer:string',
+      options: {
+        contextFields: [],
+        functions: evalPortTools(['fetch']),
+        callable_results: evalCallableResults(['fetch']),
+        playbook: { learn: { dedupe: false } },
+        runtime: { language: 'JavaScript' },
+      },
+      observers: ['playbook_update'],
+      features: {
+        functions: false,
+        streaming: false,
+        structured_outputs: false,
+      },
+      runtime_script: [
+        evalSteps.final,
+        scenario.failingStep,
+        evalSteps.final,
+        evalSteps.final,
+        evalSteps.final,
+      ],
+      responses,
+      forward_runs: [{ input }, { input }],
+      expected_output: outputs,
+      expected_request_count: turn,
+      expected_transcript: transcript,
+      expected_observer_calls: observerCalls,
     };
     writeFileSync(
       join(agentOutDir, `${scenario.name}.json`),

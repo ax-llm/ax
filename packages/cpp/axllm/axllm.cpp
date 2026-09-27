@@ -1757,6 +1757,10 @@ Value Core::exception_value(const std::exception& error) {
       out["request"] = Value(std::move(request));
     }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
+    if (const auto* clarification = dynamic_cast<const AxAgentClarificationError*>(ax)) {
+      out["clarification"] = clarification->clarification;
+      out["state"] = clarification->state;
+    }
     return Value(out);
   }
   return runtime_error(error.what());
@@ -1875,6 +1879,11 @@ AxError Core::as_error(Value error) {
     const std::string prefix = "Request aborted: ";
     std::string reason = message.rfind(prefix, 0) == 0 ? message.substr(prefix.size()) : "cancelled";
     throw AxAIServiceAbortedError(reason);
+  }
+  // A clarification keeps its payload and the runtime state, as the other
+  // ports' clarification errors do.
+  if (error.is_object() && str(get_key(error, "__error")) == "AxAgentClarificationError") {
+    throw AxAgentClarificationError(str(get_key(error, "message")), get_key(error, "clarification"), get_key(error, "state"));
   }
   throw as_error(std::move(error));
 }
@@ -38047,6 +38056,9 @@ Value Core::_agent_playbook_miner_inputs(Value signature, Value records, Value c
       error = Core::get(error, Value("message"), Value(""));
     }
     Value has_error = Core::truthy_value(error);
+    if (Core::truthy(has_error)) {
+      prediction = empty_map;
+    }
     Value body = Value("");
     if (Core::truthy(has_error)) {
       body = Core::string_format(Value("Run threw: {}"), error);
@@ -38284,9 +38296,15 @@ Value Core::_agent_build_failure_signals(Value state) {
     }
   }
   Value function_traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value run_calls_from = Core::get(state, Value("run_function_call_start"), Value(0));
+  Value call_index = Value(0);
   for (auto call : Core::iter(function_traces)) {
     Value status = Core::get(call, Value("status"), Value("ok"));
-    Value failed = Core::eq(status, Value("error"));
+    Value call_failed = Core::eq(status, Value("error"));
+    Value call_in_run = Core::gte(call_index, run_calls_from);
+    Value failed = Core::and_(call_failed, call_in_run);
+    Value next_call_index = Core::add(call_index, Value(1));
+    call_index = next_call_index;
     if (Core::truthy(failed)) {
       Value result = Core::get(call, Value("result"), Value());
       Value error_text = Core::get(result, Value("error"), Value("tool call failed"));
@@ -38339,6 +38357,46 @@ Value Core::_throw_agent_clarification(Value payload, Value state) {
   Value type = Core::get(payload, Value("type"), Value());
   Value is_clarification = Core::eq(type, Value("askClarification"));
   if (Core::truthy(is_clarification)) {
+    Value empty_map = Value::object();
+    Value empty_list = Value::array();
+    Value agent_options = Core::get(state, Value("options"), empty_map);
+    Value shape_snake = Core::get(agent_options, Value("clarification_shape"), Value());
+    Value shape = Core::get(agent_options, Value("clarificationShape"), shape_snake);
+    Value shape_set = Core::is_not_none(shape);
+    if (Core::truthy(shape_set)) {
+      Value is_raw = Core::eq(shape, Value("raw"));
+      Value is_structured = Core::eq(shape, Value("structured"));
+      Value known_shape = Core::or_(is_raw, is_structured);
+      Value unknown_shape = Core::not_(known_shape);
+      if (Core::truthy(unknown_shape)) {
+        Value shape_json = Core::json_pretty(shape);
+        Value shape_message = Core::string_format(Value("clarificationShape must be 'raw' or 'structured', received: {}"), shape_json);
+        Value shape_error = Core::validation_error(shape_message);
+        Core::raise_error(shape_error);
+      }
+      if (Core::truthy(is_structured)) {
+        Value args = Core::get(payload, Value("args"), empty_list);
+        Value arg_count = Core::len(args);
+        Value has_arg = Core::gt(arg_count, Value(0));
+        Value source = payload;
+        if (Core::truthy(has_arg)) {
+          source = Core::list_get(args, Value(0), Value());
+        }
+        Value structured = Core::_agent_structured_clarification(source);
+        Value structured_args = Value::array();
+        Core::append(structured_args, structured);
+        Value shaped = Value::object();
+        for (auto key : Core::iter(payload)) {
+          Value kept = Core::get(payload, key, Value());
+          Core::set(shaped, key, kept);
+        }
+        Core::set(shaped, Value("args"), structured_args);
+        payload = shaped;
+      }
+    }
+    if (!Core::truthy(shape_set)) {
+      Core::axgen_deprecation(Value("agent-clarification-shape"), Value("An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version."));
+    }
     Value error = Core::agent_clarification_error(payload, state);
     Core::raise_error(error);
   }
@@ -39210,6 +39268,7 @@ Value Core::_agent_run_llm_query(Value sub_gen, Value client, Value params, Valu
 
 Value Core::_agent_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
   axir_coverage_mark("_agent_forward_impl");
+  Core::_agent_check_inputs(state, values, options);
   Value prepared = Core::_agent_run_actor_stages(state, distiller, executor, client, values, options);
   values = Core::get(prepared, Value("values"), Value());
   Value executor_payload = Core::get(prepared, Value("executor_payload"), Value());
@@ -39443,6 +39502,10 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::set(state, Value("forward_active"), Value(true));
   Core::set(state, Value("active_client"), client);
   Core::set(state, Value("active_forward_options"), options);
+  Value run_calls_empty = Value::array();
+  Value run_calls_before = Core::get(state, Value("function_call_traces"), run_calls_empty);
+  Value run_calls_start = Core::len(run_calls_before);
+  Core::set(state, Value("run_function_call_start"), run_calls_start);
   Value output = Value::object();
   try {
     output = Core::_agent_forward_impl(state, distiller, executor, responder, client, values, options);
@@ -39968,6 +40031,7 @@ Value Core::_agent_controlled_stage_streaming_forward(Value stage, Value state, 
 
 Value Core::_agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink) {
   axir_coverage_mark("_agent_streaming_forward_impl");
+  Core::_agent_check_inputs(state, values, options);
   Value prepared = Core::_agent_run_actor_stages(state, distiller, executor, client, values, options);
   values = Core::get(prepared, Value("values"), Value());
   Value executor_payload = Core::get(prepared, Value("executor_payload"), Value());
@@ -40013,6 +40077,10 @@ Value Core::_agent_streaming_forward(Value state, Value distiller, Value executo
   Core::set(state, Value("forward_active"), Value(true));
   Core::set(state, Value("active_client"), client);
   Core::set(state, Value("active_forward_options"), options);
+  Value run_calls_empty = Value::array();
+  Value run_calls_before = Core::get(state, Value("function_call_traces"), run_calls_empty);
+  Value run_calls_start = Core::len(run_calls_before);
+  Core::set(state, Value("run_function_call_start"), run_calls_start);
   Value output = Value::object();
   try {
     output = Core::_agent_streaming_forward_impl(state, distiller, executor, responder, client, values, options, sink);
@@ -40211,6 +40279,331 @@ Value Core::_agent_use_stage_mode(Value state, Value options) {
   Value record_responder_description = Core::get(state, Value("responder_description"), Value(""));
   Core::set(record, Value("responder_description"), record_responder_description);
   return record;
+}
+
+Value Core::_agent_check_inputs(Value state, Value values, Value options) {
+  axir_coverage_mark("_agent_check_inputs");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value agent_options = Core::get(state, Value("options"), empty_map);
+  Value agent_mode_snake = Core::get(agent_options, Value("input_validation"), Value());
+  Value agent_mode = Core::get(agent_options, Value("inputValidation"), agent_mode_snake);
+  Value call_mode_snake = Core::get(options, Value("input_validation"), Value());
+  Value mode = Core::get(options, Value("inputValidation"), call_mode_snake);
+  Value call_unset = Core::is_none(mode);
+  if (Core::truthy(call_unset)) {
+    mode = agent_mode;
+  }
+  Value mode_set = Core::is_not_none(mode);
+  Value is_fail = Value(false);
+  if (Core::truthy(mode_set)) {
+    is_fail = Core::eq(mode, Value("fail"));
+    Value is_lenient = Core::eq(mode, Value("lenient"));
+    Value known = Core::or_(is_fail, is_lenient);
+    Value unknown = Core::not_(known);
+    if (Core::truthy(unknown)) {
+      Value mode_json = Core::json_pretty(mode);
+      Value mode_message = Core::string_format(Value("inputValidation must be 'lenient' or 'fail', received: {}"), mode_json);
+      Value mode_error = Core::validation_error(mode_message);
+      Core::raise_error(mode_error);
+    }
+  }
+  Value sig = Core::get(state, Value("signature"), empty_map);
+  Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
+  Value context_fields = Core::get(state, Value("context_fields"), empty_list);
+  Value context_names = Value::array();
+  for (auto context_field : Core::iter(context_fields)) {
+    Value context_is_map = Core::type_is(context_field, Value("object"));
+    Value context_name = context_field;
+    if (Core::truthy(context_is_map)) {
+      context_name = Core::get(context_field, Value("name"), Value(""));
+    }
+    Core::append(context_names, context_name);
+  }
+  Value context_problem = Value("");
+  for (auto context_name : Core::iter(context_names)) {
+    Value context_problem_empty = Core::eq(context_problem, Value(""));
+    if (Core::truthy(context_problem_empty)) {
+      Value context_optional = Value(false);
+      for (auto field : Core::iter(input_fields)) {
+        Value field_name = Core::get(field, Value("name"), Value(""));
+        Value same_field = Core::eq(field_name, context_name);
+        if (Core::truthy(same_field)) {
+          context_optional = Core::get(field, Value("is_optional"), Value(false));
+        }
+      }
+      Value context_required = Core::not_(context_optional);
+      if (Core::truthy(context_required)) {
+        Value context_present = Core::map_contains(values, context_name);
+        Value context_missing = Core::not_(context_present);
+        if (Core::truthy(context_missing)) {
+          context_problem = Core::string_format(Value("RLM contextField \"{}\" is missing from input values"), context_name);
+        }
+      }
+    }
+  }
+  Value has_context_problem = Core::ne(context_problem, Value(""));
+  if (Core::truthy(has_context_problem)) {
+    if (Core::truthy(is_fail)) {
+      Value context_error = Core::validation_error(context_problem);
+      Core::raise_error(context_error);
+    }
+    Value warn = Core::not_(mode_set);
+    if (Core::truthy(warn)) {
+      Value warning = Core::string_format(Value("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version."), context_problem);
+      Core::axgen_deprecation(Value("agent-input-validation"), warning);
+    }
+  }
+  for (auto field : Core::iter(input_fields)) {
+    Value field_name = Core::get(field, Value("name"), Value(""));
+    Value is_optional = Core::get(field, Value("is_optional"), Value(false));
+    Value is_context = Value(false);
+    for (auto known_context : Core::iter(context_names)) {
+      Value same_context = Core::eq(known_context, field_name);
+      is_context = Core::or_(is_context, same_context);
+    }
+    Value skip = Core::or_(is_optional, is_context);
+    Value check = Core::not_(skip);
+    if (Core::truthy(check)) {
+      Value value = Core::get(values, field_name, Value());
+      Value missing = Core::is_none(value);
+      Value is_text = Core::type_is(value, Value("string"));
+      if (Core::truthy(is_text)) {
+        Value empty_text = Core::eq(value, Value(""));
+        missing = Core::or_(missing, empty_text);
+      }
+      Value is_list = Core::type_is(value, Value("list"));
+      if (Core::truthy(is_list)) {
+        Value list_length = Core::len(value);
+        Value empty_list_value = Core::eq(list_length, Value(0));
+        missing = Core::or_(missing, empty_list_value);
+      }
+      if (Core::truthy(missing)) {
+        Value problem = Core::string_format(Value("Value for input field '{}' is required."), field_name);
+        Value input_error = Core::validation_error(problem);
+        Core::raise_error(input_error);
+      }
+    }
+  }
+  return Value();
+}
+
+Value Core::_agent_clarification_choice(Value choice) {
+  axir_coverage_mark("_agent_clarification_choice");
+  Value is_text = Core::type_is(choice, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value trimmed = Core::string_trim(choice);
+    Value non_empty = Core::ne(trimmed, Value(""));
+    if (Core::truthy(non_empty)) {
+      return choice;
+    }
+  }
+  Value is_map = Core::type_is(choice, Value("object"));
+  Value not_map = Core::not_(is_map);
+  if (Core::truthy(not_map)) {
+    Value error = Core::runtime_error(Value("askClarification() choice entries must be non-empty strings or objects with a non-empty label"));
+    Core::raise_error(error);
+  }
+  Value label = Core::get(choice, Value("label"), Value());
+  Value label_ok = Value(false);
+  Value label_is_text = Core::type_is(label, Value("string"));
+  if (Core::truthy(label_is_text)) {
+    Value label_trimmed = Core::string_trim(label);
+    label_ok = Core::ne(label_trimmed, Value(""));
+  }
+  Value label_bad = Core::not_(label_ok);
+  if (Core::truthy(label_bad)) {
+    Value label_error = Core::runtime_error(Value("askClarification() choice objects require a non-empty label"));
+    Core::raise_error(label_error);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("label"), label);
+  Value has_value = Core::map_contains(choice, Value("value"));
+  if (Core::truthy(has_value)) {
+    Value value = Core::get(choice, Value("value"), Value());
+    Value value_ok = Value(false);
+    Value value_is_text = Core::type_is(value, Value("string"));
+    if (Core::truthy(value_is_text)) {
+      Value value_trimmed = Core::string_trim(value);
+      value_ok = Core::ne(value_trimmed, Value(""));
+    }
+    Value value_bad = Core::not_(value_ok);
+    if (Core::truthy(value_bad)) {
+      Value value_error = Core::runtime_error(Value("askClarification() choice object values must be non-empty strings"));
+      Core::raise_error(value_error);
+    }
+    Core::set(out, Value("value"), value);
+  }
+  return out;
+}
+
+Value Core::_agent_structured_clarification(Value payload) {
+  axir_coverage_mark("_agent_structured_clarification");
+  Value multiple_message = Value("askClarification() with type \"multiple_choice\" must include at least two valid choices. Use a non-empty string question plus choices like [\"Option A\", \"Option B\"], or switch to \"single_choice\" / a plain question if there is only one option.");
+  Value is_text = Core::type_is(payload, Value("string"));
+  if (Core::truthy(is_text)) {
+    Value trimmed = Core::string_trim(payload);
+    Value non_empty = Core::ne(trimmed, Value(""));
+    if (Core::truthy(non_empty)) {
+      Value wrapped = Value::object();
+      Core::set(wrapped, Value("question"), payload);
+      return wrapped;
+    }
+  }
+  Value is_map = Core::type_is(payload, Value("object"));
+  Value not_map = Core::not_(is_map);
+  if (Core::truthy(not_map)) {
+    Value error = Core::runtime_error(Value("askClarification() requires a non-empty string or an object payload"));
+    Core::raise_error(error);
+  }
+  Value question = Core::get(payload, Value("question"), Value());
+  Value question_ok = Value(false);
+  Value question_is_text = Core::type_is(question, Value("string"));
+  if (Core::truthy(question_is_text)) {
+    Value question_trimmed = Core::string_trim(question);
+    question_ok = Core::ne(question_trimmed, Value(""));
+  }
+  Value question_bad = Core::not_(question_ok);
+  if (Core::truthy(question_bad)) {
+    Value question_error = Core::runtime_error(Value("askClarification() object payload requires a non-empty question"));
+    Core::raise_error(question_error);
+  }
+  Value has_type = Core::map_contains(payload, Value("type"));
+  Value raw_type = Core::get(payload, Value("type"), Value());
+  Value type_given = Core::is_not_none(raw_type);
+  Value raw_choices = Core::get(payload, Value("choices"), Value());
+  Value choices_given = Core::map_contains(payload, Value("choices"));
+  Value choices_is_list = Core::type_is(raw_choices, Value("list"));
+  Value choices_count = Value(0);
+  if (Core::truthy(choices_is_list)) {
+    choices_count = Core::len(raw_choices);
+  }
+  Value has_choices = Core::gt(choices_count, Value(0));
+  Value normalized_type = Core::none();
+  if (Core::truthy(type_given)) {
+    Value type_is_text = Core::type_is(raw_type, Value("string"));
+    Value allowed = Value(false);
+    if (Core::truthy(type_is_text)) {
+      Value is_text_kind = Core::eq(raw_type, Value("text"));
+      Value is_number_kind = Core::eq(raw_type, Value("number"));
+      Value is_date_kind = Core::eq(raw_type, Value("date"));
+      Value is_single_kind = Core::eq(raw_type, Value("single_choice"));
+      Value is_multiple_kind = Core::eq(raw_type, Value("multiple_choice"));
+      allowed = Core::or_(is_text_kind, is_number_kind);
+      allowed = Core::or_(allowed, is_date_kind);
+      allowed = Core::or_(allowed, is_single_kind);
+      allowed = Core::or_(allowed, is_multiple_kind);
+    }
+    Value not_allowed = Core::not_(allowed);
+    if (Core::truthy(not_allowed)) {
+      Value type_error = Core::runtime_error(Value("askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice"));
+      Core::raise_error(type_error);
+    }
+    normalized_type = raw_type;
+  }
+  if (!Core::truthy(type_given)) {
+    if (Core::truthy(has_choices)) {
+      normalized_type = Value("single_choice");
+    }
+  }
+  Value is_single = Core::eq(normalized_type, Value("single_choice"));
+  Value is_multiple = Core::eq(normalized_type, Value("multiple_choice"));
+  Value wants_choices = Core::or_(is_single, is_multiple);
+  Value strip = Value(false);
+  Value drop_type = Value(false);
+  Value normalized_choices = Core::none();
+  if (Core::truthy(choices_given)) {
+    Value choices_usable = Core::and_(choices_is_list, has_choices);
+    Value choices_unusable = Core::not_(choices_usable);
+    if (Core::truthy(choices_unusable)) {
+      if (Core::truthy(is_multiple)) {
+        Value empty_multiple_error = Core::runtime_error(multiple_message);
+        Core::raise_error(empty_multiple_error);
+      }
+      strip = Value(true);
+      drop_type = is_single;
+    }
+    if (!Core::truthy(choices_unusable)) {
+      Value mapped = Value::array();
+      Value choice_failure = Value("");
+      for (auto choice : Core::iter(raw_choices)) {
+        Value failure_empty = Core::eq(choice_failure, Value(""));
+        if (Core::truthy(failure_empty)) {
+          try {
+            Value normalized_choice = Core::_agent_clarification_choice(choice);
+            Core::append(mapped, normalized_choice);
+          } catch (const std::exception& e) {
+            Value choice_error = Core::exception_value(e);
+            choice_failure = Core::exception_message(choice_error);
+          }
+        }
+      }
+      Value choice_failed = Core::ne(choice_failure, Value(""));
+      if (Core::truthy(choice_failed)) {
+        if (Core::truthy(is_multiple)) {
+          Value detail = Core::string_format(Value("{} Fix the choices so each option is a non-empty string or an object with a non-empty label. {}"), multiple_message, choice_failure);
+          Value choice_multiple_error = Core::runtime_error(detail);
+          Core::raise_error(choice_multiple_error);
+        }
+        strip = Value(true);
+        drop_type = is_single;
+      }
+      if (!Core::truthy(choice_failed)) {
+        normalized_choices = mapped;
+      }
+    }
+  }
+  if (!Core::truthy(choices_given)) {
+    if (Core::truthy(wants_choices)) {
+      if (Core::truthy(is_multiple)) {
+        Value missing_multiple_error = Core::runtime_error(multiple_message);
+        Core::raise_error(missing_multiple_error);
+      }
+      strip = Value(true);
+      drop_type = Value(true);
+    }
+  }
+  if (Core::truthy(strip)) {
+    Value stripped = Value::object();
+    for (auto key : Core::iter(payload)) {
+      Value is_choices_key = Core::eq(key, Value("choices"));
+      Value is_type_key = Core::eq(key, Value("type"));
+      Value drop_this_type = Core::and_(is_type_key, drop_type);
+      Value drop_key = Core::or_(is_choices_key, drop_this_type);
+      Value keep_key = Core::not_(drop_key);
+      if (Core::truthy(keep_key)) {
+        Value kept = Core::get(payload, key, Value());
+        Core::set(stripped, key, kept);
+      }
+    }
+    Core::set(stripped, Value("question"), question);
+    return stripped;
+  }
+  Value choices_count_after = Value(0);
+  Value has_normalized_choices = Core::is_not_none(normalized_choices);
+  if (Core::truthy(has_normalized_choices)) {
+    choices_count_after = Core::len(normalized_choices);
+  }
+  Value too_few = Core::lt(choices_count_after, Value(2));
+  Value multiple_too_few = Core::and_(is_multiple, too_few);
+  if (Core::truthy(multiple_too_few)) {
+    Value few_error = Core::runtime_error(multiple_message);
+    Core::raise_error(few_error);
+  }
+  Value out = Value::object();
+  for (auto key : Core::iter(payload)) {
+    Value copied = Core::get(payload, key, Value());
+    Core::set(out, key, copied);
+  }
+  Core::set(out, Value("question"), question);
+  Value has_normalized_type = Core::is_not_none(normalized_type);
+  if (Core::truthy(has_normalized_type)) {
+    Core::set(out, Value("type"), normalized_type);
+  }
+  if (Core::truthy(has_normalized_choices)) {
+    Core::set(out, Value("choices"), normalized_choices);
+  }
+  return out;
 }
 
 Value Core::_flow_factory(Value options) {
@@ -48936,6 +49329,9 @@ static std::string playbook_error_signature(const std::string& value) {
 }
 
 static std::string playbook_record_signature(const Value& record) {
+  // TS's record of a thrown run has only its error.
+  Value record_error = Core::get(record, "error");
+  if (Core::truthy(record_error)) return playbook_error_signature(display(record_error));
   Value prediction = Core::get(record, "prediction", Value::object());
   std::vector<std::pair<std::string, int>> counts;
   for (const auto& signal : Core::iter(Core::get(prediction, "failureSignals", Value::array()))) {
@@ -49179,6 +49575,7 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       const auto& raw_task = tasks[task_index];
       Value task = raw_task.is_object() ? raw_task : object({{"input", raw_task}});
       Value prediction;
+      Value error_prediction;
       std::string last_error;
       double score_sum = 0;
       int completed_runs = 0;
@@ -49187,7 +49584,18 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
         --remaining;
         double score = 0;
         try {
-          prediction = agent_->evaluate_optimization_task(*student_, task, options);
+          Value candidate = agent_->evaluate_optimization_task(*student_, task, options);
+          if (display(Core::get(candidate, "completionType", Value(""))) == "error") {
+            // TS's harness sees a thrown run: a zero score with no metric
+            // call, and its message as the error.
+            Value error_value = Core::get(candidate, "error");
+            last_error = error_value.is_object() ? display(Core::get(error_value, "message", Value(""))) : display(error_value);
+            error_prediction = candidate;
+            score_sum += 0;
+            ++completed_runs;
+            continue;
+          }
+          prediction = candidate;
           Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
           Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
           score = num(Core::_scalarize_optimization_scores(Core::_normalize_optimization_metric_scores(raw_score), options));
@@ -49206,7 +49614,12 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       weight_sum += weight;
       Value record = object({{"task", task}, {"index", Value(static_cast<double>(task_index))}, {"score", Value(score)}, {"passed", Value(score >= threshold && display(Core::get(prediction, "completionType", Value(""))) == "final")}});
       if (!prediction.is_null()) Core::set(record, "prediction", prediction);
-      else if (!last_error.empty()) Core::set(record, "error", Value(last_error));
+      else if (!last_error.empty()) {
+        Core::set(record, "error", Value(last_error));
+        // Kept this release for compatibility; TS's record has no prediction
+        // (dropped at the next major).
+        if (!error_prediction.is_null()) Core::set(record, "prediction", error_prediction);
+      }
       records.push_back(record);
       if (completed_runs < runs_per_task) break;
     }
@@ -50266,9 +50679,17 @@ Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value op
   // this run's share of the agent's logs.
   Value marks = Core::_agent_eval_marks(state_);
   Value completion;
+  // TS's evaluation path runs no playbook run-end learning.
+  Core::set(state_, "playbook_learning_paused", Value(true));
+  struct ResumeLearning {
+    Value& state;
+    ~ResumeLearning() { Core::map_delete(state, Value("playbook_learning_paused")); }
+  } resume_learning{state_};
   try {
     Value output = forward(client, input, forward_options);
     completion = object({{"type", Value("final")}, {"output", output}});
+  } catch (const AxAgentClarificationError& e) {
+    completion = object({{"type", Value("askClarification")}, {"clarification", e.clarification}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
       completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
@@ -50444,6 +50865,8 @@ void AxAgent::attach_configured_playbook() {
 
 void AxAgent::learn_playbook_failures(Value output) {
   if (!playbook_handle_ || playbook_config_.is_null()) return;
+  // An evaluated run learns nothing, as TS's evaluation path.
+  if (Core::truthy(Core::get(state_, "playbook_learning_paused", Value(false)))) return;
   Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
   Value learn = Core::get(config, "learn", Value(true));
   if (learn.is_bool() && !Core::truthy(learn)) return;

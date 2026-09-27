@@ -1749,12 +1749,22 @@ public final class Conformance {
           String.valueOf(fixture.getOrDefault("runtime_language", "JavaScript")),
           ""));
     }
+    String operation = String.valueOf(fixture.getOrDefault("operation", "components"));
+    // The eval operation's scripted client; as the agent fixtures do, a
+    // playbook without studentAI learns through it.
+    ConformanceScriptedAI evalClient = "eval".equals(operation)
+      ? new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())))
+      : null;
+    if (evalClient != null && options.get("playbook") instanceof Map<?, ?> rawPlaybook) {
+      Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(rawPlaybook));
+      playbook.putIfAbsent("studentAI", evalClient);
+      options.put("playbook", playbook);
+    }
     Object program = "axgen".equals(programKind)
       ? new AxGen(AxSignature.create(signature), options)
       : "flow".equals(programKind)
         ? buildFlow(fixture)
         : Ax.agent(signature, options);
-    String operation = String.valueOf(fixture.getOrDefault("operation", "components"));
     try {
       if ("verification".equals(operation)) {
         assertEqual(verificationInstrumentsSummary(), fixture.get("expected_output"), "verification instruments");
@@ -1973,12 +1983,14 @@ public final class Conformance {
         return;
       }
       if ("eval".equals(operation)) {
-        ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        ConformanceScriptedAI client = evalClient;
         Map<String, Object> prediction = ((AxAgent) program).evaluateOptimizationTask(client, Core.asMap(fixture.getOrDefault("task", Map.of("input", fixture.getOrDefault("input", Map.of())))), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
         if (fixture.containsKey("expected_prediction_subset")) assertSubset(prediction, fixture.get("expected_prediction_subset"), "eval prediction");
         // Fields that must match exactly: a list compares in full.
         for (Map.Entry<String, Object> field : Core.asMap(fixture.getOrDefault("expected_prediction_fields", Map.of())).entrySet())
           assertEqual(prediction.get(field.getKey()), field.getValue(), "eval prediction " + field.getKey());
+        if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count")))
+          throw new FixtureError("expected " + fixture.get("expected_request_count") + " eval requests, got " + client.requests.size());
         return;
       }
     } catch (RuntimeException e) {

@@ -36476,6 +36476,9 @@ final class Core {
         error = Core.get(error, "message", "");
       }
       Object has_error = Core.truthyValue(error);
+      if (Core.truthy(has_error)) {
+        prediction = empty_map;
+      }
       Object body = "";
       if (Core.truthy(has_error)) {
         body = Core.stringFormat("Run threw: {}", error);
@@ -36713,9 +36716,15 @@ final class Core {
       }
     }
     Object function_traces = Core.get(state, "function_call_traces", empty_list);
+    Object run_calls_from = Core.get(state, "run_function_call_start", 0);
+    Object call_index = 0;
     for (Object call : Core.iter(function_traces)) {
       Object status = Core.get(call, "status", "ok");
-      Object failed = Core.eq(status, "error");
+      Object call_failed = Core.eq(status, "error");
+      Object call_in_run = Core.gte(call_index, run_calls_from);
+      Object failed = Core.and(call_failed, call_in_run);
+      Object next_call_index = Core.add(call_index, 1);
+      call_index = next_call_index;
       if (Core.truthy(failed)) {
         Object result = Core.get(call, "result", null);
         Object error_text = Core.get(result, "error", "tool call failed");
@@ -36768,6 +36777,46 @@ final class Core {
     Object type = Core.get(payload, "type", null);
     Object is_clarification = Core.eq(type, "askClarification");
     if (Core.truthy(is_clarification)) {
+      Object empty_map = new java.util.LinkedHashMap<String, Object>();
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object agent_options = Core.get(state, "options", empty_map);
+      Object shape_snake = Core.get(agent_options, "clarification_shape", null);
+      Object shape = Core.get(agent_options, "clarificationShape", shape_snake);
+      Object shape_set = Core.isNotNone(shape);
+      if (Core.truthy(shape_set)) {
+        Object is_raw = Core.eq(shape, "raw");
+        Object is_structured = Core.eq(shape, "structured");
+        Object known_shape = Core.or(is_raw, is_structured);
+        Object unknown_shape = Core.not(known_shape);
+        if (Core.truthy(unknown_shape)) {
+          Object shape_json = Core.jsonPretty(shape);
+          Object shape_message = Core.stringFormat("clarificationShape must be 'raw' or 'structured', received: {}", shape_json);
+          Object shape_error = Core.validationError(shape_message);
+          throw Core.asRuntime(shape_error);
+        }
+        if (Core.truthy(is_structured)) {
+          Object args = Core.get(payload, "args", empty_list);
+          Object arg_count = Core.len(args);
+          Object has_arg = Core.gt(arg_count, 0);
+          Object source = payload;
+          if (Core.truthy(has_arg)) {
+            source = Core.listGet(args, 0, null);
+          }
+          Object structured = Core._agent_structured_clarification(source);
+          Object structured_args = new java.util.ArrayList<Object>();
+          Core.append(structured_args, structured);
+          Object shaped = new java.util.LinkedHashMap<String, Object>();
+          for (Object key : Core.iter(payload)) {
+            Object kept = Core.get(payload, key, null);
+            Core.set(shaped, key, kept);
+          }
+          Core.set(shaped, "args", structured_args);
+          payload = shaped;
+        }
+      }
+      if (!Core.truthy(shape_set)) {
+        Core.axgenDeprecation("agent-clarification-shape", "An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version.");
+      }
       Object error = Core.agentClarificationError(payload, state);
       throw Core.asRuntime(error);
     }
@@ -37639,6 +37688,7 @@ final class Core {
 
   static Object _agent_forward_impl(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
     axirCoverageMark("_agent_forward_impl");
+    Core._agent_check_inputs(state, values, options);
     Object prepared = Core._agent_run_actor_stages(state, distiller, executor, client, values, options);
     values = Core.get(prepared, "values", null);
     Object executor_payload = Core.get(prepared, "executor_payload", null);
@@ -37871,6 +37921,10 @@ final class Core {
     Core.set(state, "forward_active", Boolean.TRUE);
     Core.set(state, "active_client", client);
     Core.set(state, "active_forward_options", options);
+    Object run_calls_empty = new java.util.ArrayList<Object>();
+    Object run_calls_before = Core.get(state, "function_call_traces", run_calls_empty);
+    Object run_calls_start = Core.len(run_calls_before);
+    Core.set(state, "run_function_call_start", run_calls_start);
     Object output = new java.util.LinkedHashMap<String, Object>();
     try {
       output = Core._agent_forward_impl(state, distiller, executor, responder, client, values, options);
@@ -38393,6 +38447,7 @@ final class Core {
 
   static Object _agent_streaming_forward_impl(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options, Object sink) {
     axirCoverageMark("_agent_streaming_forward_impl");
+    Core._agent_check_inputs(state, values, options);
     Object prepared = Core._agent_run_actor_stages(state, distiller, executor, client, values, options);
     values = Core.get(prepared, "values", null);
     Object executor_payload = Core.get(prepared, "executor_payload", null);
@@ -38437,6 +38492,10 @@ final class Core {
     Core.set(state, "forward_active", Boolean.TRUE);
     Core.set(state, "active_client", client);
     Core.set(state, "active_forward_options", options);
+    Object run_calls_empty = new java.util.ArrayList<Object>();
+    Object run_calls_before = Core.get(state, "function_call_traces", run_calls_empty);
+    Object run_calls_start = Core.len(run_calls_before);
+    Core.set(state, "run_function_call_start", run_calls_start);
     Object output = new java.util.LinkedHashMap<String, Object>();
     try {
       output = Core._agent_streaming_forward_impl(state, distiller, executor, responder, client, values, options, sink);
@@ -38633,6 +38692,330 @@ final class Core {
     Object record_responder_description = Core.get(state, "responder_description", "");
     Core.set(record, "responder_description", record_responder_description);
     return record;
+  }
+
+  static Object _agent_check_inputs(Object state, Object values, Object options) {
+    axirCoverageMark("_agent_check_inputs");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object agent_options = Core.get(state, "options", empty_map);
+    Object agent_mode_snake = Core.get(agent_options, "input_validation", null);
+    Object agent_mode = Core.get(agent_options, "inputValidation", agent_mode_snake);
+    Object call_mode_snake = Core.get(options, "input_validation", null);
+    Object mode = Core.get(options, "inputValidation", call_mode_snake);
+    Object call_unset = Core.isNone(mode);
+    if (Core.truthy(call_unset)) {
+      mode = agent_mode;
+    }
+    Object mode_set = Core.isNotNone(mode);
+    Object is_fail = Boolean.FALSE;
+    if (Core.truthy(mode_set)) {
+      is_fail = Core.eq(mode, "fail");
+      Object is_lenient = Core.eq(mode, "lenient");
+      Object known = Core.or(is_fail, is_lenient);
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        Object mode_json = Core.jsonPretty(mode);
+        Object mode_message = Core.stringFormat("inputValidation must be 'lenient' or 'fail', received: {}", mode_json);
+        Object mode_error = Core.validationError(mode_message);
+        throw Core.asRuntime(mode_error);
+      }
+    }
+    Object sig = Core.get(state, "signature", empty_map);
+    Object input_fields = Core.get(sig, "input_fields", empty_list);
+    Object context_fields = Core.get(state, "context_fields", empty_list);
+    Object context_names = new java.util.ArrayList<Object>();
+    for (Object context_field : Core.iter(context_fields)) {
+      Object context_is_map = Core.typeIs(context_field, "object");
+      Object context_name = context_field;
+      if (Core.truthy(context_is_map)) {
+        context_name = Core.get(context_field, "name", "");
+      }
+      Core.append(context_names, context_name);
+    }
+    Object context_problem = "";
+    for (Object context_name : Core.iter(context_names)) {
+      Object context_problem_empty = Core.eq(context_problem, "");
+      if (Core.truthy(context_problem_empty)) {
+        Object context_optional = Boolean.FALSE;
+        for (Object field : Core.iter(input_fields)) {
+          Object field_name = Core.get(field, "name", "");
+          Object same_field = Core.eq(field_name, context_name);
+          if (Core.truthy(same_field)) {
+            context_optional = Core.get(field, "is_optional", Boolean.FALSE);
+          }
+        }
+        Object context_required = Core.not(context_optional);
+        if (Core.truthy(context_required)) {
+          Object context_present = Core.mapContains(values, context_name);
+          Object context_missing = Core.not(context_present);
+          if (Core.truthy(context_missing)) {
+            context_problem = Core.stringFormat("RLM contextField \"{}\" is missing from input values", context_name);
+          }
+        }
+      }
+    }
+    Object has_context_problem = Core.ne(context_problem, "");
+    if (Core.truthy(has_context_problem)) {
+      if (Core.truthy(is_fail)) {
+        Object context_error = Core.validationError(context_problem);
+        throw Core.asRuntime(context_error);
+      }
+      Object warn = Core.not(mode_set);
+      if (Core.truthy(warn)) {
+        Object warning = Core.stringFormat("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version.", context_problem);
+        Core.axgenDeprecation("agent-input-validation", warning);
+      }
+    }
+    for (Object field : Core.iter(input_fields)) {
+      Object field_name = Core.get(field, "name", "");
+      Object is_optional = Core.get(field, "is_optional", Boolean.FALSE);
+      Object is_context = Boolean.FALSE;
+      for (Object known_context : Core.iter(context_names)) {
+        Object same_context = Core.eq(known_context, field_name);
+        is_context = Core.or(is_context, same_context);
+      }
+      Object skip = Core.or(is_optional, is_context);
+      Object check = Core.not(skip);
+      if (Core.truthy(check)) {
+        Object value = Core.get(values, field_name, null);
+        Object missing = Core.isNone(value);
+        Object is_text = Core.typeIs(value, "string");
+        if (Core.truthy(is_text)) {
+          Object empty_text = Core.eq(value, "");
+          missing = Core.or(missing, empty_text);
+        }
+        Object is_list = Core.typeIs(value, "list");
+        if (Core.truthy(is_list)) {
+          Object list_length = Core.len(value);
+          Object empty_list_value = Core.eq(list_length, 0);
+          missing = Core.or(missing, empty_list_value);
+        }
+        if (Core.truthy(missing)) {
+          Object problem = Core.stringFormat("Value for input field '{}' is required.", field_name);
+          Object input_error = Core.validationError(problem);
+          throw Core.asRuntime(input_error);
+        }
+      }
+    }
+    return null;
+  }
+
+  static Object _agent_clarification_choice(Object choice) {
+    axirCoverageMark("_agent_clarification_choice");
+    Object is_text = Core.typeIs(choice, "string");
+    if (Core.truthy(is_text)) {
+      Object trimmed = Core.stringTrim(choice);
+      Object non_empty = Core.ne(trimmed, "");
+      if (Core.truthy(non_empty)) {
+        return choice;
+      }
+    }
+    Object is_map = Core.typeIs(choice, "object");
+    Object not_map = Core.not(is_map);
+    if (Core.truthy(not_map)) {
+      Object error = Core.runtimeError("askClarification() choice entries must be non-empty strings or objects with a non-empty label");
+      throw Core.asRuntime(error);
+    }
+    Object label = Core.get(choice, "label", null);
+    Object label_ok = Boolean.FALSE;
+    Object label_is_text = Core.typeIs(label, "string");
+    if (Core.truthy(label_is_text)) {
+      Object label_trimmed = Core.stringTrim(label);
+      label_ok = Core.ne(label_trimmed, "");
+    }
+    Object label_bad = Core.not(label_ok);
+    if (Core.truthy(label_bad)) {
+      Object label_error = Core.runtimeError("askClarification() choice objects require a non-empty label");
+      throw Core.asRuntime(label_error);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "label", label);
+    Object has_value = Core.mapContains(choice, "value");
+    if (Core.truthy(has_value)) {
+      Object value = Core.get(choice, "value", null);
+      Object value_ok = Boolean.FALSE;
+      Object value_is_text = Core.typeIs(value, "string");
+      if (Core.truthy(value_is_text)) {
+        Object value_trimmed = Core.stringTrim(value);
+        value_ok = Core.ne(value_trimmed, "");
+      }
+      Object value_bad = Core.not(value_ok);
+      if (Core.truthy(value_bad)) {
+        Object value_error = Core.runtimeError("askClarification() choice object values must be non-empty strings");
+        throw Core.asRuntime(value_error);
+      }
+      Core.set(out, "value", value);
+    }
+    return out;
+  }
+
+  static Object _agent_structured_clarification(Object payload) {
+    axirCoverageMark("_agent_structured_clarification");
+    Object multiple_message = "askClarification() with type \"multiple_choice\" must include at least two valid choices. Use a non-empty string question plus choices like [\"Option A\", \"Option B\"], or switch to \"single_choice\" / a plain question if there is only one option.";
+    Object is_text = Core.typeIs(payload, "string");
+    if (Core.truthy(is_text)) {
+      Object trimmed = Core.stringTrim(payload);
+      Object non_empty = Core.ne(trimmed, "");
+      if (Core.truthy(non_empty)) {
+        Object wrapped = new java.util.LinkedHashMap<String, Object>();
+        Core.set(wrapped, "question", payload);
+        return wrapped;
+      }
+    }
+    Object is_map = Core.typeIs(payload, "object");
+    Object not_map = Core.not(is_map);
+    if (Core.truthy(not_map)) {
+      Object error = Core.runtimeError("askClarification() requires a non-empty string or an object payload");
+      throw Core.asRuntime(error);
+    }
+    Object question = Core.get(payload, "question", null);
+    Object question_ok = Boolean.FALSE;
+    Object question_is_text = Core.typeIs(question, "string");
+    if (Core.truthy(question_is_text)) {
+      Object question_trimmed = Core.stringTrim(question);
+      question_ok = Core.ne(question_trimmed, "");
+    }
+    Object question_bad = Core.not(question_ok);
+    if (Core.truthy(question_bad)) {
+      Object question_error = Core.runtimeError("askClarification() object payload requires a non-empty question");
+      throw Core.asRuntime(question_error);
+    }
+    Object has_type = Core.mapContains(payload, "type");
+    Object raw_type = Core.get(payload, "type", null);
+    Object type_given = Core.isNotNone(raw_type);
+    Object raw_choices = Core.get(payload, "choices", null);
+    Object choices_given = Core.mapContains(payload, "choices");
+    Object choices_is_list = Core.typeIs(raw_choices, "list");
+    Object choices_count = 0;
+    if (Core.truthy(choices_is_list)) {
+      choices_count = Core.len(raw_choices);
+    }
+    Object has_choices = Core.gt(choices_count, 0);
+    Object normalized_type = Core.none();
+    if (Core.truthy(type_given)) {
+      Object type_is_text = Core.typeIs(raw_type, "string");
+      Object allowed = Boolean.FALSE;
+      if (Core.truthy(type_is_text)) {
+        Object is_text_kind = Core.eq(raw_type, "text");
+        Object is_number_kind = Core.eq(raw_type, "number");
+        Object is_date_kind = Core.eq(raw_type, "date");
+        Object is_single_kind = Core.eq(raw_type, "single_choice");
+        Object is_multiple_kind = Core.eq(raw_type, "multiple_choice");
+        allowed = Core.or(is_text_kind, is_number_kind);
+        allowed = Core.or(allowed, is_date_kind);
+        allowed = Core.or(allowed, is_single_kind);
+        allowed = Core.or(allowed, is_multiple_kind);
+      }
+      Object not_allowed = Core.not(allowed);
+      if (Core.truthy(not_allowed)) {
+        Object type_error = Core.runtimeError("askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice");
+        throw Core.asRuntime(type_error);
+      }
+      normalized_type = raw_type;
+    }
+    if (!Core.truthy(type_given)) {
+      if (Core.truthy(has_choices)) {
+        normalized_type = "single_choice";
+      }
+    }
+    Object is_single = Core.eq(normalized_type, "single_choice");
+    Object is_multiple = Core.eq(normalized_type, "multiple_choice");
+    Object wants_choices = Core.or(is_single, is_multiple);
+    Object strip = Boolean.FALSE;
+    Object drop_type = Boolean.FALSE;
+    Object normalized_choices = Core.none();
+    if (Core.truthy(choices_given)) {
+      Object choices_usable = Core.and(choices_is_list, has_choices);
+      Object choices_unusable = Core.not(choices_usable);
+      if (Core.truthy(choices_unusable)) {
+        if (Core.truthy(is_multiple)) {
+          Object empty_multiple_error = Core.runtimeError(multiple_message);
+          throw Core.asRuntime(empty_multiple_error);
+        }
+        strip = Boolean.TRUE;
+        drop_type = is_single;
+      }
+      if (!Core.truthy(choices_unusable)) {
+        Object mapped = new java.util.ArrayList<Object>();
+        Object choice_failure = "";
+        for (Object choice : Core.iter(raw_choices)) {
+          Object failure_empty = Core.eq(choice_failure, "");
+          if (Core.truthy(failure_empty)) {
+            try {
+              Object normalized_choice = Core._agent_clarification_choice(choice);
+              Core.append(mapped, normalized_choice);
+            } catch (RuntimeException choice_error) {
+              choice_failure = Core.exceptionMessage(choice_error);
+            }
+          }
+        }
+        Object choice_failed = Core.ne(choice_failure, "");
+        if (Core.truthy(choice_failed)) {
+          if (Core.truthy(is_multiple)) {
+            Object detail = Core.stringFormat("{} Fix the choices so each option is a non-empty string or an object with a non-empty label. {}", multiple_message, choice_failure);
+            Object choice_multiple_error = Core.runtimeError(detail);
+            throw Core.asRuntime(choice_multiple_error);
+          }
+          strip = Boolean.TRUE;
+          drop_type = is_single;
+        }
+        if (!Core.truthy(choice_failed)) {
+          normalized_choices = mapped;
+        }
+      }
+    }
+    if (!Core.truthy(choices_given)) {
+      if (Core.truthy(wants_choices)) {
+        if (Core.truthy(is_multiple)) {
+          Object missing_multiple_error = Core.runtimeError(multiple_message);
+          throw Core.asRuntime(missing_multiple_error);
+        }
+        strip = Boolean.TRUE;
+        drop_type = Boolean.TRUE;
+      }
+    }
+    if (Core.truthy(strip)) {
+      Object stripped = new java.util.LinkedHashMap<String, Object>();
+      for (Object key : Core.iter(payload)) {
+        Object is_choices_key = Core.eq(key, "choices");
+        Object is_type_key = Core.eq(key, "type");
+        Object drop_this_type = Core.and(is_type_key, drop_type);
+        Object drop_key = Core.or(is_choices_key, drop_this_type);
+        Object keep_key = Core.not(drop_key);
+        if (Core.truthy(keep_key)) {
+          Object kept = Core.get(payload, key, null);
+          Core.set(stripped, key, kept);
+        }
+      }
+      Core.set(stripped, "question", question);
+      return stripped;
+    }
+    Object choices_count_after = 0;
+    Object has_normalized_choices = Core.isNotNone(normalized_choices);
+    if (Core.truthy(has_normalized_choices)) {
+      choices_count_after = Core.len(normalized_choices);
+    }
+    Object too_few = Core.lt(choices_count_after, 2);
+    Object multiple_too_few = Core.and(is_multiple, too_few);
+    if (Core.truthy(multiple_too_few)) {
+      Object few_error = Core.runtimeError(multiple_message);
+      throw Core.asRuntime(few_error);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    for (Object key : Core.iter(payload)) {
+      Object copied = Core.get(payload, key, null);
+      Core.set(out, key, copied);
+    }
+    Core.set(out, "question", question);
+    Object has_normalized_type = Core.isNotNone(normalized_type);
+    if (Core.truthy(has_normalized_type)) {
+      Core.set(out, "type", normalized_type);
+    }
+    if (Core.truthy(has_normalized_choices)) {
+      Core.set(out, "choices", normalized_choices);
+    }
+    return out;
   }
 
   static Object _flow_factory(Object options) {

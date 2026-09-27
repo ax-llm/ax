@@ -36,9 +36,11 @@ from .gen import (
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_axgen_deprecation,
+    _core_exception_message,
     _core_string_index_of,
     _core_string_str,
     _core_tool_invoke,
+    _core_validation_error,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -1109,6 +1111,14 @@ def _agent_playbook_weakness_miner_signature():
     )
 
 
+def _agent_evolve_prediction_error(prediction):
+    # The message of the ports' error prediction (TS's thrown run).
+    error = (prediction or {}).get("error")
+    if isinstance(error, dict):
+        return str(error.get("message") or "")
+    return str(error or "")
+
+
 def _playbook_option(options, *keys, default=None):
     for key in keys:
         if isinstance(options, dict) and key in options and options.get(key) is not None:
@@ -1527,17 +1537,26 @@ class AxAgentPlaybook:
                 scores = []
                 prediction = None
                 error = None
+                error_prediction = None
                 for _ in range(runs_per_task):
                     if remaining[0] <= 0:
                         exhausted = True
                         break
                     remaining[0] -= 1
                     try:
-                        prediction = self.agent.evaluate_optimization_task(client, task, opts)
-                        if callable(metric):
-                            score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                        candidate = self.agent.evaluate_optimization_task(client, task, opts)
+                        if (candidate or {}).get("completionType") == "error":
+                            # TS's harness sees a thrown run: a zero score with
+                            # no metric call, and its message as the error.
+                            score = 0.0
+                            error = _agent_evolve_prediction_error(candidate)
+                            error_prediction = candidate
                         else:
-                            _, score = _score_optimization_prediction(task, prediction, opts)
+                            prediction = candidate
+                            if callable(metric):
+                                score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                            else:
+                                _, score = _score_optimization_prediction(task, prediction, opts)
                     except Exception as exc:
                         score = 0.0
                         error = str(exc)
@@ -1550,6 +1569,10 @@ class AxAgentPlaybook:
                     record["prediction"] = prediction
                 elif error:
                     record["error"] = error
+                    # Kept this release for compatibility; TS's record has
+                    # no prediction (dropped at the next major).
+                    if error_prediction is not None:
+                        record["prediction"] = error_prediction
                 records.append(record)
                 if len(scores) < runs_per_task:
                     exhausted = True
@@ -1565,6 +1588,9 @@ class AxAgentPlaybook:
             return match.group(1) if match else text[:80]
 
         def record_signature(record):
+            # TS's record of a thrown run has only its error.
+            if record.get("error"):
+                return error_signature(record.get("error"))
             prediction = record.get("prediction") or {}
             counts = {}
             for signal in prediction.get("failureSignals") or []:
@@ -2171,6 +2197,8 @@ class AxAgent:
         # As TS evaluates each task from a fresh state, the prediction carries
         # only this run's share of the agent's logs.
         marks = _agent_eval_marks(self.state)
+        # TS's evaluation path runs no playbook run-end learning.
+        self.state["playbook_learning_paused"] = True
         try:
             output = self.forward(client, task.get("input") or task, opts.get("forward_options") or {})
             completion = {"type": "final", "output": output}
@@ -2178,6 +2206,8 @@ class AxAgent:
             completion = {"type": "askClarification", "clarification": exc.clarification}
         except Exception as exc:
             completion = {"type": "error", "message": str(exc)}
+        finally:
+            self.state.pop("playbook_learning_paused", None)
         return _build_agent_run_prediction(self.state, marks, completion, self.get_usage(), self.export_trace())
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -2252,6 +2282,9 @@ class AxAgent:
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):
+            return
+        # An evaluated run learns nothing, as TS's evaluation path.
+        if _core_get(self.state, "playbook_learning_paused", False):
             return
         config = dict(self._playbook_config) if isinstance(self._playbook_config, dict) else {}
         learn = config.get("learn", True)
@@ -10475,6 +10508,10 @@ def _agent_playbook_miner_inputs(signature: str, records: list[Any], current_pla
         else:
             pass
         has_error = _core_truthy(error)
+        if has_error:
+            prediction = empty_map
+        else:
+            pass
         body = ""
         if has_error:
             body = _core_string_format("Run threw: {}", error)
@@ -10712,9 +10749,15 @@ def _agent_build_failure_signals(state: Any) -> list[Any]:
         else:
             pass
     function_traces = _core_get(state, "function_call_traces", empty_list)
+    run_calls_from = _core_get(state, "run_function_call_start", 0)
+    call_index = 0
     for call in function_traces:
         status = _core_get(call, "status", "ok")
-        failed = _core_eq(status, "error")
+        call_failed = _core_eq(status, "error")
+        call_in_run = _core_gte(call_index, run_calls_from)
+        failed = _core_and(call_failed, call_in_run)
+        next_call_index = _core_add(call_index, 1)
+        call_index = next_call_index
         if failed:
             result = _core_get(call, "result", None)
             error_text = _core_get(result, "error", "tool call failed")
@@ -10769,6 +10812,46 @@ def _throw_agent_clarification(payload: Any, state: Any) -> None:
     type = _core_get(payload, "type", None)
     is_clarification = _core_eq(type, "askClarification")
     if is_clarification:
+        empty_map = {}
+        empty_list = []
+        agent_options = _core_get(state, "options", empty_map)
+        shape_snake = _core_get(agent_options, "clarification_shape", None)
+        shape = _core_get(agent_options, "clarificationShape", shape_snake)
+        shape_set = _core_is_not_none(shape)
+        if shape_set:
+            is_raw = _core_eq(shape, "raw")
+            is_structured = _core_eq(shape, "structured")
+            known_shape = _core_or(is_raw, is_structured)
+            unknown_shape = _core_not(known_shape)
+            if unknown_shape:
+                shape_json = _core_json_pretty(shape)
+                shape_message = _core_string_format("clarificationShape must be 'raw' or 'structured', received: {}", shape_json)
+                shape_error = _core_validation_error(shape_message)
+                raise shape_error
+            else:
+                pass
+            if is_structured:
+                args = _core_get(payload, "args", empty_list)
+                arg_count = _core_len(args)
+                has_arg = _core_gt(arg_count, 0)
+                source = payload
+                if has_arg:
+                    source = _core_list_get(args, 0, None)
+                else:
+                    pass
+                structured = _agent_structured_clarification(source)
+                structured_args = []
+                structured_args.append(structured)
+                shaped = {}
+                for key in payload:
+                    kept = _core_get(payload, key, None)
+                    shaped[key] = kept
+                shaped["args"] = structured_args
+                payload = shaped
+            else:
+                pass
+        else:
+            _core_axgen_deprecation("agent-clarification-shape", "An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version.")
         error = _core_agent_clarification_error(payload, state)
         raise error
     else:
@@ -11648,6 +11731,7 @@ def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any, options: Any) -
 
 def _agent_forward_impl(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_forward_impl")
+    _agent_check_inputs(state, values, options)
     prepared = _agent_run_actor_stages(state, distiller, executor, client, values, options)
     values = _core_get(prepared, "values", None)
     executor_payload = _core_get(prepared, "executor_payload", None)
@@ -11866,6 +11950,10 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     state["forward_active"] = True
     state["active_client"] = client
     state["active_forward_options"] = options
+    run_calls_empty = []
+    run_calls_before = _core_get(state, "function_call_traces", run_calls_empty)
+    run_calls_start = _core_len(run_calls_before)
+    state["run_function_call_start"] = run_calls_start
     output = {}
     try:
         output = _agent_forward_impl(state, distiller, executor, responder, client, values, options)
@@ -12394,6 +12482,7 @@ def _agent_controlled_stage_streaming_forward(stage: Any, state: Any, client: An
 
 def _agent_streaming_forward_impl(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any, sink: Any) -> Any:
     _core_coverage_mark("_agent_streaming_forward_impl")
+    _agent_check_inputs(state, values, options)
     prepared = _agent_run_actor_stages(state, distiller, executor, client, values, options)
     values = _core_get(prepared, "values", None)
     executor_payload = _core_get(prepared, "executor_payload", None)
@@ -12438,6 +12527,10 @@ def _agent_streaming_forward(state: Any, distiller: Any, executor: Any, responde
     state["forward_active"] = True
     state["active_client"] = client
     state["active_forward_options"] = options
+    run_calls_empty = []
+    run_calls_before = _core_get(state, "function_call_traces", run_calls_empty)
+    run_calls_start = _core_len(run_calls_before)
+    state["run_function_call_start"] = run_calls_start
     output = {}
     try:
         output = _agent_streaming_forward_impl(state, distiller, executor, responder, client, values, options, sink)
@@ -12634,5 +12727,355 @@ def _agent_use_stage_mode(state: Any, options: Any) -> Any:
     record_responder_description = _core_get(state, "responder_description", "")
     record["responder_description"] = record_responder_description
     return record
+
+
+def _agent_check_inputs(state: Any, values: Any, options: Any) -> None:
+    _core_coverage_mark("_agent_check_inputs")
+    empty_map = {}
+    empty_list = []
+    agent_options = _core_get(state, "options", empty_map)
+    agent_mode_snake = _core_get(agent_options, "input_validation", None)
+    agent_mode = _core_get(agent_options, "inputValidation", agent_mode_snake)
+    call_mode_snake = _core_get(options, "input_validation", None)
+    mode = _core_get(options, "inputValidation", call_mode_snake)
+    call_unset = _core_is_none(mode)
+    if call_unset:
+        mode = agent_mode
+    else:
+        pass
+    mode_set = _core_is_not_none(mode)
+    is_fail = False
+    if mode_set:
+        is_fail = _core_eq(mode, "fail")
+        is_lenient = _core_eq(mode, "lenient")
+        known = _core_or(is_fail, is_lenient)
+        unknown = _core_not(known)
+        if unknown:
+            mode_json = _core_json_pretty(mode)
+            mode_message = _core_string_format("inputValidation must be 'lenient' or 'fail', received: {}", mode_json)
+            mode_error = _core_validation_error(mode_message)
+            raise mode_error
+        else:
+            pass
+    else:
+        pass
+    sig = _core_get(state, "signature", empty_map)
+    input_fields = _core_get(sig, "input_fields", empty_list)
+    context_fields = _core_get(state, "context_fields", empty_list)
+    context_names = []
+    for context_field in context_fields:
+        context_is_map = _core_type_is(context_field, "object")
+        context_name = context_field
+        if context_is_map:
+            context_name = _core_get(context_field, "name", "")
+        else:
+            pass
+        context_names.append(context_name)
+    context_problem = ""
+    for context_name in context_names:
+        context_problem_empty = _core_eq(context_problem, "")
+        if context_problem_empty:
+            context_optional = False
+            for field in input_fields:
+                field_name = _core_get(field, "name", "")
+                same_field = _core_eq(field_name, context_name)
+                if same_field:
+                    context_optional = _core_get(field, "is_optional", False)
+                else:
+                    pass
+            context_required = _core_not(context_optional)
+            if context_required:
+                context_present = _core_map_contains(values, context_name)
+                context_missing = _core_not(context_present)
+                if context_missing:
+                    context_problem = _core_string_format("RLM contextField \"{}\" is missing from input values", context_name)
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    has_context_problem = _core_ne(context_problem, "")
+    if has_context_problem:
+        if is_fail:
+            context_error = _core_validation_error(context_problem)
+            raise context_error
+        else:
+            pass
+        warn = _core_not(mode_set)
+        if warn:
+            warning = _core_string_format("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version.", context_problem)
+            _core_axgen_deprecation("agent-input-validation", warning)
+        else:
+            pass
+    else:
+        pass
+    for field in input_fields:
+        field_name = _core_get(field, "name", "")
+        is_optional = _core_get(field, "is_optional", False)
+        is_context = False
+        for known_context in context_names:
+            same_context = _core_eq(known_context, field_name)
+            is_context = _core_or(is_context, same_context)
+        skip = _core_or(is_optional, is_context)
+        check = _core_not(skip)
+        if check:
+            value = _core_get(values, field_name, None)
+            missing = _core_is_none(value)
+            is_text = _core_type_is(value, "string")
+            if is_text:
+                empty_text = _core_eq(value, "")
+                missing = _core_or(missing, empty_text)
+            else:
+                pass
+            is_list = _core_type_is(value, "list")
+            if is_list:
+                list_length = _core_len(value)
+                empty_list_value = _core_eq(list_length, 0)
+                missing = _core_or(missing, empty_list_value)
+            else:
+                pass
+            if missing:
+                problem = _core_string_format("Value for input field '{}' is required.", field_name)
+                input_error = _core_validation_error(problem)
+                raise input_error
+            else:
+                pass
+        else:
+            pass
+    return None
+
+
+def _agent_clarification_choice(choice: Any) -> Any:
+    _core_coverage_mark("_agent_clarification_choice")
+    is_text = _core_type_is(choice, "string")
+    if is_text:
+        trimmed = str(choice).strip()
+        non_empty = _core_ne(trimmed, "")
+        if non_empty:
+            return choice
+        else:
+            pass
+    else:
+        pass
+    is_map = _core_type_is(choice, "object")
+    not_map = _core_not(is_map)
+    if not_map:
+        error = _core_runtime_error("askClarification() choice entries must be non-empty strings or objects with a non-empty label")
+        raise error
+    else:
+        pass
+    label = _core_get(choice, "label", None)
+    label_ok = False
+    label_is_text = _core_type_is(label, "string")
+    if label_is_text:
+        label_trimmed = str(label).strip()
+        label_ok = _core_ne(label_trimmed, "")
+    else:
+        pass
+    label_bad = _core_not(label_ok)
+    if label_bad:
+        label_error = _core_runtime_error("askClarification() choice objects require a non-empty label")
+        raise label_error
+    else:
+        pass
+    out = {}
+    out["label"] = label
+    has_value = _core_map_contains(choice, "value")
+    if has_value:
+        value = _core_get(choice, "value", None)
+        value_ok = False
+        value_is_text = _core_type_is(value, "string")
+        if value_is_text:
+            value_trimmed = str(value).strip()
+            value_ok = _core_ne(value_trimmed, "")
+        else:
+            pass
+        value_bad = _core_not(value_ok)
+        if value_bad:
+            value_error = _core_runtime_error("askClarification() choice object values must be non-empty strings")
+            raise value_error
+        else:
+            pass
+        out["value"] = value
+    else:
+        pass
+    return out
+
+
+def _agent_structured_clarification(payload: Any) -> Any:
+    _core_coverage_mark("_agent_structured_clarification")
+    multiple_message = "askClarification() with type \"multiple_choice\" must include at least two valid choices. Use a non-empty string question plus choices like [\"Option A\", \"Option B\"], or switch to \"single_choice\" / a plain question if there is only one option."
+    is_text = _core_type_is(payload, "string")
+    if is_text:
+        trimmed = str(payload).strip()
+        non_empty = _core_ne(trimmed, "")
+        if non_empty:
+            wrapped = {}
+            wrapped["question"] = payload
+            return wrapped
+        else:
+            pass
+    else:
+        pass
+    is_map = _core_type_is(payload, "object")
+    not_map = _core_not(is_map)
+    if not_map:
+        error = _core_runtime_error("askClarification() requires a non-empty string or an object payload")
+        raise error
+    else:
+        pass
+    question = _core_get(payload, "question", None)
+    question_ok = False
+    question_is_text = _core_type_is(question, "string")
+    if question_is_text:
+        question_trimmed = str(question).strip()
+        question_ok = _core_ne(question_trimmed, "")
+    else:
+        pass
+    question_bad = _core_not(question_ok)
+    if question_bad:
+        question_error = _core_runtime_error("askClarification() object payload requires a non-empty question")
+        raise question_error
+    else:
+        pass
+    has_type = _core_map_contains(payload, "type")
+    raw_type = _core_get(payload, "type", None)
+    type_given = _core_is_not_none(raw_type)
+    raw_choices = _core_get(payload, "choices", None)
+    choices_given = _core_map_contains(payload, "choices")
+    choices_is_list = _core_type_is(raw_choices, "list")
+    choices_count = 0
+    if choices_is_list:
+        choices_count = _core_len(raw_choices)
+    else:
+        pass
+    has_choices = _core_gt(choices_count, 0)
+    normalized_type = _core_none()
+    if type_given:
+        type_is_text = _core_type_is(raw_type, "string")
+        allowed = False
+        if type_is_text:
+            is_text_kind = _core_eq(raw_type, "text")
+            is_number_kind = _core_eq(raw_type, "number")
+            is_date_kind = _core_eq(raw_type, "date")
+            is_single_kind = _core_eq(raw_type, "single_choice")
+            is_multiple_kind = _core_eq(raw_type, "multiple_choice")
+            allowed = _core_or(is_text_kind, is_number_kind)
+            allowed = _core_or(allowed, is_date_kind)
+            allowed = _core_or(allowed, is_single_kind)
+            allowed = _core_or(allowed, is_multiple_kind)
+        else:
+            pass
+        not_allowed = _core_not(allowed)
+        if not_allowed:
+            type_error = _core_runtime_error("askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice")
+            raise type_error
+        else:
+            pass
+        normalized_type = raw_type
+    else:
+        if has_choices:
+            normalized_type = "single_choice"
+        else:
+            pass
+    is_single = _core_eq(normalized_type, "single_choice")
+    is_multiple = _core_eq(normalized_type, "multiple_choice")
+    wants_choices = _core_or(is_single, is_multiple)
+    strip = False
+    drop_type = False
+    normalized_choices = _core_none()
+    if choices_given:
+        choices_usable = _core_and(choices_is_list, has_choices)
+        choices_unusable = _core_not(choices_usable)
+        if choices_unusable:
+            if is_multiple:
+                empty_multiple_error = _core_runtime_error(multiple_message)
+                raise empty_multiple_error
+            else:
+                pass
+            strip = True
+            drop_type = is_single
+        else:
+            mapped = []
+            choice_failure = ""
+            for choice in raw_choices:
+                failure_empty = _core_eq(choice_failure, "")
+                if failure_empty:
+                    try:
+                        normalized_choice = _agent_clarification_choice(choice)
+                        mapped.append(normalized_choice)
+                    except Exception as choice_error:
+                        choice_failure = _core_exception_message(choice_error)
+                else:
+                    pass
+            choice_failed = _core_ne(choice_failure, "")
+            if choice_failed:
+                if is_multiple:
+                    detail = _core_string_format("{} Fix the choices so each option is a non-empty string or an object with a non-empty label. {}", multiple_message, choice_failure)
+                    choice_multiple_error = _core_runtime_error(detail)
+                    raise choice_multiple_error
+                else:
+                    pass
+                strip = True
+                drop_type = is_single
+            else:
+                normalized_choices = mapped
+    else:
+        if wants_choices:
+            if is_multiple:
+                missing_multiple_error = _core_runtime_error(multiple_message)
+                raise missing_multiple_error
+            else:
+                pass
+            strip = True
+            drop_type = True
+        else:
+            pass
+    if strip:
+        stripped = {}
+        for key in payload:
+            is_choices_key = _core_eq(key, "choices")
+            is_type_key = _core_eq(key, "type")
+            drop_this_type = _core_and(is_type_key, drop_type)
+            drop_key = _core_or(is_choices_key, drop_this_type)
+            keep_key = _core_not(drop_key)
+            if keep_key:
+                kept = _core_get(payload, key, None)
+                stripped[key] = kept
+            else:
+                pass
+        stripped["question"] = question
+        return stripped
+    else:
+        pass
+    choices_count_after = 0
+    has_normalized_choices = _core_is_not_none(normalized_choices)
+    if has_normalized_choices:
+        choices_count_after = _core_len(normalized_choices)
+    else:
+        pass
+    too_few = _core_lt(choices_count_after, 2)
+    multiple_too_few = _core_and(is_multiple, too_few)
+    if multiple_too_few:
+        few_error = _core_runtime_error(multiple_message)
+        raise few_error
+    else:
+        pass
+    out = {}
+    for key in payload:
+        copied = _core_get(payload, key, None)
+        out[key] = copied
+    out["question"] = question
+    has_normalized_type = _core_is_not_none(normalized_type)
+    if has_normalized_type:
+        out["type"] = normalized_type
+    else:
+        pass
+    if has_normalized_choices:
+        out["choices"] = normalized_choices
+    else:
+        pass
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS

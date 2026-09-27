@@ -231,6 +231,19 @@ class AxAIServiceAbortedError : public AxError {
                 "AxAIServiceAbortedError", 0, "", false) {}
 };
 
+// An agent run that asked for clarification. clarification is the
+// askClarification payload as given, or TypeScript's {question, ...} form with
+// clarificationShape: 'structured'; state is the agent's runtime state.
+class AxAgentClarificationError : public AxError {
+ public:
+  AxAgentClarificationError(std::string message, Value clarification, Value state)
+      : AxError("AxAgentClarificationError", std::move(message)),
+        clarification(std::move(clarification)),
+        state(std::move(state)) {}
+  Value clarification;
+  Value state;
+};
+
 class AxCancellationToken {
  private:
   struct State {

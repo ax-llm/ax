@@ -1,7 +1,9 @@
 {
   "expected_prediction_fields": {
     "clarification": {
-      "question": "Which docs do you mean?"
+      "choices": ["API", "Guides"],
+      "question": "Which docs do you mean?",
+      "type": "single_choice"
     },
     "functionCalls": [
       {
@@ -23,7 +25,7 @@
   },
   "expected_request_count": 3,
   "kind": "optimize",
-  "name": "eval-prediction-clarification-function-calls",
+  "name": "eval-prediction-clarification-object",
   "operation": "eval",
   "options": {
     "callable_results": {
@@ -67,7 +69,7 @@
       "content": "{\"javascriptCode\":\"search\"}"
     },
     {
-      "content": "{\"javascriptCode\":\"askClarification('Which docs do you mean?')\"}"
+      "content": "{\"javascriptCode\":\"askClarification({question: 'Which docs do you mean?', choices: ['API', 'Guides']})\"}"
     }
   ],
   "runtime_language": "JavaScript",
@@ -97,9 +99,14 @@
       }
     },
     {
-      "expected_code": "askClarification('Which docs do you mean?')",
+      "expected_code": "askClarification({question: 'Which docs do you mean?', choices: ['API', 'Guides']})",
       "result": {
-        "args": ["Which docs do you mean?"],
+        "args": [
+          {
+            "choices": ["API", "Guides"],
+            "question": "Which docs do you mean?"
+          }
+        ],
         "type": "askClarification"
       }
     }

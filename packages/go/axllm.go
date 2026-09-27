@@ -76681,6 +76681,11 @@ func _agent_playbook_miner_inputs(args ...Value) (Value, error) {
 		// empty
 		}
 		v_has_error = _core_truthy(v_error)
+		if coreTruthy(v_has_error) {
+			v_prediction = v_empty_map
+		} else {
+		// empty
+		}
 		v_body = ""
 		if coreTruthy(v_has_error) {
 			v_body = _core_string_format("Run threw: {}", v_error)
@@ -77013,6 +77018,9 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	var v_arguments_preview Value
 	var v_arguments_text Value
 	var v_call Value
+	var v_call_failed Value
+	var v_call_in_run Value
+	var v_call_index Value
 	var v_category Value
 	var v_code Value
 	var v_code_preview Value
@@ -77029,10 +77037,12 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	var v_has_code Value
 	var v_is_error Value
 	var v_kind Value
+	var v_next_call_index Value
 	var v_previous_signature Value
 	var v_qualified_name Value
 	var v_repeated Value
 	var v_result Value
+	var v_run_calls_from Value
 	var v_signal Value
 	var v_signals Value
 	var v_signature Value
@@ -77047,6 +77057,9 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	_ = v_arguments_preview
 	_ = v_arguments_text
 	_ = v_call
+	_ = v_call_failed
+	_ = v_call_in_run
+	_ = v_call_index
 	_ = v_category
 	_ = v_code
 	_ = v_code_preview
@@ -77063,10 +77076,12 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 	_ = v_has_code
 	_ = v_is_error
 	_ = v_kind
+	_ = v_next_call_index
 	_ = v_previous_signature
 	_ = v_qualified_name
 	_ = v_repeated
 	_ = v_result
+	_ = v_run_calls_from
 	_ = v_signal
 	_ = v_signals
 	_ = v_signature
@@ -77127,9 +77142,15 @@ func _agent_build_failure_signals(args ...Value) (Value, error) {
 		}
 	}
 	v_function_traces = coreGet(v_state, "function_call_traces", v_empty_list)
+	v_run_calls_from = coreGet(v_state, "run_function_call_start", 0)
+	v_call_index = 0
 	for _, v_call = range coreIter(v_function_traces) {
 		v_status = coreGet(v_call, "status", "ok")
-		v_failed = _core_eq(v_status, "error")
+		v_call_failed = _core_eq(v_status, "error")
+		v_call_in_run = _core_gte(v_call_index, v_run_calls_from)
+		v_failed = _core_and(v_call_failed, v_call_in_run)
+		v_next_call_index = _core_add(v_call_index, 1)
+		v_call_index = v_next_call_index
 		if coreTruthy(v_failed) {
 			v_result = coreGet(v_call, "result", nil)
 			v_error_text = coreGet(v_result, "error", "tool call failed")
@@ -77212,21 +77233,110 @@ func _throw_agent_clarification(args ...Value) (Value, error) {
 	axirCoverageMark("_throw_agent_clarification")
 	var v_payload Value
 	var v_state Value
+	var v_agent_options Value
+	var v_arg_count Value
+	var v_args Value
+	var v_empty_list Value
+	var v_empty_map Value
 	var v_error Value
+	var v_has_arg Value
 	var v_is_clarification Value
+	var v_is_raw Value
+	var v_is_structured Value
+	var v_kept Value
+	var v_key Value
+	var v_known_shape Value
 	var v_none Value
+	var v_shape Value
+	var v_shape_error Value
+	var v_shape_json Value
+	var v_shape_message Value
+	var v_shape_set Value
+	var v_shape_snake Value
+	var v_shaped Value
+	var v_source Value
+	var v_structured Value
+	var v_structured_args Value
 	var v_type Value
+	var v_unknown_shape Value
 	if len(args) > 0 { v_payload = args[0] }
 	_ = v_payload
 	if len(args) > 1 { v_state = args[1] }
 	_ = v_state
+	_ = v_agent_options
+	_ = v_arg_count
+	_ = v_args
+	_ = v_empty_list
+	_ = v_empty_map
 	_ = v_error
+	_ = v_has_arg
 	_ = v_is_clarification
+	_ = v_is_raw
+	_ = v_is_structured
+	_ = v_kept
+	_ = v_key
+	_ = v_known_shape
 	_ = v_none
+	_ = v_shape
+	_ = v_shape_error
+	_ = v_shape_json
+	_ = v_shape_message
+	_ = v_shape_set
+	_ = v_shape_snake
+	_ = v_shaped
+	_ = v_source
+	_ = v_structured
+	_ = v_structured_args
 	_ = v_type
+	_ = v_unknown_shape
 	v_type = coreGet(v_payload, "type", nil)
 	v_is_clarification = _core_eq(v_type, "askClarification")
 	if coreTruthy(v_is_clarification) {
+		v_empty_map = Object()
+		v_empty_list = MutableArray()
+		v_agent_options = coreGet(v_state, "options", v_empty_map)
+		v_shape_snake = coreGet(v_agent_options, "clarification_shape", nil)
+		v_shape = coreGet(v_agent_options, "clarificationShape", v_shape_snake)
+		v_shape_set = _core_is_not_none(v_shape)
+		if coreTruthy(v_shape_set) {
+			v_is_raw = _core_eq(v_shape, "raw")
+			v_is_structured = _core_eq(v_shape, "structured")
+			v_known_shape = _core_or(v_is_raw, v_is_structured)
+			v_unknown_shape = _core_not(v_known_shape)
+			if coreTruthy(v_unknown_shape) {
+				v_shape_json = _core_json_pretty(v_shape)
+				v_shape_message = _core_string_format("clarificationShape must be 'raw' or 'structured', received: {}", v_shape_json)
+				v_shape_error = _core_validation_error(v_shape_message)
+				return nil, asError(v_shape_error)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_is_structured) {
+				v_args = coreGet(v_payload, "args", v_empty_list)
+				v_arg_count = _core_len(v_args)
+				v_has_arg = _core_gt(v_arg_count, 0)
+				v_source = v_payload
+				if coreTruthy(v_has_arg) {
+					v_source = _core_list_get(v_args, 0, nil)
+				} else {
+				// empty
+				}
+				{ v, err := _agent_structured_clarification(v_source); if err != nil { return nil, err }; v_structured = v }
+				v_structured_args = MutableArray()
+				v_structured_args = coreAppend(v_structured_args, v_structured)
+				v_shaped = Object()
+				for _, v_key = range coreIter(v_payload) {
+					v_kept = coreGet(v_payload, v_key, nil)
+					if err := coreSet(v_shaped, v_key, v_kept); err != nil { return nil, err }
+				}
+				if err := coreSet(v_shaped, "args", v_structured_args); err != nil { return nil, err }
+				v_payload = v_shaped
+			} else {
+			// empty
+			}
+		} else {
+			_core_axgen_deprecation("agent-clarification-shape", "An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version.")
+		}
 		v_error = _core_agent_clarification_error(v_payload, v_state)
 		return nil, asError(v_error)
 	} else {
@@ -79163,6 +79273,7 @@ func _agent_forward_impl(args ...Value) (Value, error) {
 	_ = v_responder_request_event
 	_ = v_responder_response_event
 	_ = v_responder_values
+	if _, err := _agent_check_inputs(v_state, v_values, v_options); err != nil { return nil, err }
 	{ v, err := _agent_run_actor_stages(v_state, v_distiller, v_executor, v_client, v_values, v_options); if err != nil { return nil, err }; v_prepared = v }
 	v_values = coreGet(v_prepared, "values", nil)
 	v_executor_payload = coreGet(v_prepared, "executor_payload", nil)
@@ -79590,6 +79701,9 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_forward_error Value
 	var v_none Value
 	var v_output Value
+	var v_run_calls_before Value
+	var v_run_calls_empty Value
+	var v_run_calls_start Value
 	var v_session Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -79611,6 +79725,9 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_forward_error
 	_ = v_none
 	_ = v_output
+	_ = v_run_calls_before
+	_ = v_run_calls_empty
+	_ = v_run_calls_start
 	_ = v_session
 	v_none = _core_none()
 	v_active = coreGet(v_state, "forward_active", false)
@@ -79623,6 +79740,10 @@ func _agent_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "forward_active", true); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_client", v_client); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_forward_options", v_options); err != nil { return nil, err }
+	v_run_calls_empty = MutableArray()
+	v_run_calls_before = coreGet(v_state, "function_call_traces", v_run_calls_empty)
+	v_run_calls_start = _core_len(v_run_calls_before)
+	if err := coreSet(v_state, "run_function_call_start", v_run_calls_start); err != nil { return nil, err }
 	v_output = Object()
 	{
 		__flow, __err := func() (coreFlow, error) {
@@ -80752,6 +80873,7 @@ func _agent_streaming_forward_impl(args ...Value) (Value, error) {
 	_ = v_responder_request_event
 	_ = v_responder_response_event
 	_ = v_responder_values
+	if _, err := _agent_check_inputs(v_state, v_values, v_options); err != nil { return nil, err }
 	{ v, err := _agent_run_actor_stages(v_state, v_distiller, v_executor, v_client, v_values, v_options); if err != nil { return nil, err }; v_prepared = v }
 	v_values = coreGet(v_prepared, "values", nil)
 	v_executor_payload = coreGet(v_prepared, "executor_payload", nil)
@@ -80807,6 +80929,9 @@ func _agent_streaming_forward(args ...Value) (Value, error) {
 	var v_forward_error Value
 	var v_none Value
 	var v_output Value
+	var v_run_calls_before Value
+	var v_run_calls_empty Value
+	var v_run_calls_start Value
 	var v_session Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -80830,6 +80955,9 @@ func _agent_streaming_forward(args ...Value) (Value, error) {
 	_ = v_forward_error
 	_ = v_none
 	_ = v_output
+	_ = v_run_calls_before
+	_ = v_run_calls_empty
+	_ = v_run_calls_start
 	_ = v_session
 	v_none = _core_none()
 	v_active = coreGet(v_state, "forward_active", false)
@@ -80842,6 +80970,10 @@ func _agent_streaming_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "forward_active", true); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_client", v_client); err != nil { return nil, err }
 	if err := coreSet(v_state, "active_forward_options", v_options); err != nil { return nil, err }
+	v_run_calls_empty = MutableArray()
+	v_run_calls_before = coreGet(v_state, "function_call_traces", v_run_calls_empty)
+	v_run_calls_start = _core_len(v_run_calls_before)
+	if err := coreSet(v_state, "run_function_call_start", v_run_calls_start); err != nil { return nil, err }
 	v_output = Object()
 	{
 		__flow, __err := func() (coreFlow, error) {
@@ -81247,6 +81379,709 @@ func _agent_use_stage_mode(args ...Value) (Value, error) {
 	v_record_responder_description = coreGet(v_state, "responder_description", "")
 	if err := coreSet(v_record, "responder_description", v_record_responder_description); err != nil { return nil, err }
 	return v_record, nil
+}
+
+func _agent_check_inputs(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_check_inputs")
+	var v_state Value
+	var v_values Value
+	var v_options Value
+	var v_agent_mode Value
+	var v_agent_mode_snake Value
+	var v_agent_options Value
+	var v_call_mode_snake Value
+	var v_call_unset Value
+	var v_check Value
+	var v_context_error Value
+	var v_context_field Value
+	var v_context_fields Value
+	var v_context_is_map Value
+	var v_context_missing Value
+	var v_context_name Value
+	var v_context_names Value
+	var v_context_optional Value
+	var v_context_present Value
+	var v_context_problem Value
+	var v_context_problem_empty Value
+	var v_context_required Value
+	var v_empty_list Value
+	var v_empty_list_value Value
+	var v_empty_map Value
+	var v_empty_text Value
+	var v_field Value
+	var v_field_name Value
+	var v_has_context_problem Value
+	var v_input_error Value
+	var v_input_fields Value
+	var v_is_context Value
+	var v_is_fail Value
+	var v_is_lenient Value
+	var v_is_list Value
+	var v_is_optional Value
+	var v_is_text Value
+	var v_known Value
+	var v_known_context Value
+	var v_list_length Value
+	var v_missing Value
+	var v_mode Value
+	var v_mode_error Value
+	var v_mode_json Value
+	var v_mode_message Value
+	var v_mode_set Value
+	var v_problem Value
+	var v_same_context Value
+	var v_same_field Value
+	var v_sig Value
+	var v_skip Value
+	var v_unknown Value
+	var v_value Value
+	var v_warn Value
+	var v_warning Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_agent_mode
+	_ = v_agent_mode_snake
+	_ = v_agent_options
+	_ = v_call_mode_snake
+	_ = v_call_unset
+	_ = v_check
+	_ = v_context_error
+	_ = v_context_field
+	_ = v_context_fields
+	_ = v_context_is_map
+	_ = v_context_missing
+	_ = v_context_name
+	_ = v_context_names
+	_ = v_context_optional
+	_ = v_context_present
+	_ = v_context_problem
+	_ = v_context_problem_empty
+	_ = v_context_required
+	_ = v_empty_list
+	_ = v_empty_list_value
+	_ = v_empty_map
+	_ = v_empty_text
+	_ = v_field
+	_ = v_field_name
+	_ = v_has_context_problem
+	_ = v_input_error
+	_ = v_input_fields
+	_ = v_is_context
+	_ = v_is_fail
+	_ = v_is_lenient
+	_ = v_is_list
+	_ = v_is_optional
+	_ = v_is_text
+	_ = v_known
+	_ = v_known_context
+	_ = v_list_length
+	_ = v_missing
+	_ = v_mode
+	_ = v_mode_error
+	_ = v_mode_json
+	_ = v_mode_message
+	_ = v_mode_set
+	_ = v_problem
+	_ = v_same_context
+	_ = v_same_field
+	_ = v_sig
+	_ = v_skip
+	_ = v_unknown
+	_ = v_value
+	_ = v_warn
+	_ = v_warning
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_agent_options = coreGet(v_state, "options", v_empty_map)
+	v_agent_mode_snake = coreGet(v_agent_options, "input_validation", nil)
+	v_agent_mode = coreGet(v_agent_options, "inputValidation", v_agent_mode_snake)
+	v_call_mode_snake = coreGet(v_options, "input_validation", nil)
+	v_mode = coreGet(v_options, "inputValidation", v_call_mode_snake)
+	v_call_unset = _core_is_none(v_mode)
+	if coreTruthy(v_call_unset) {
+		v_mode = v_agent_mode
+	} else {
+	// empty
+	}
+	v_mode_set = _core_is_not_none(v_mode)
+	v_is_fail = false
+	if coreTruthy(v_mode_set) {
+		v_is_fail = _core_eq(v_mode, "fail")
+		v_is_lenient = _core_eq(v_mode, "lenient")
+		v_known = _core_or(v_is_fail, v_is_lenient)
+		v_unknown = _core_not(v_known)
+		if coreTruthy(v_unknown) {
+			v_mode_json = _core_json_pretty(v_mode)
+			v_mode_message = _core_string_format("inputValidation must be 'lenient' or 'fail', received: {}", v_mode_json)
+			v_mode_error = _core_validation_error(v_mode_message)
+			return nil, asError(v_mode_error)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_sig = coreGet(v_state, "signature", v_empty_map)
+	v_input_fields = coreGet(v_sig, "input_fields", v_empty_list)
+	v_context_fields = coreGet(v_state, "context_fields", v_empty_list)
+	v_context_names = MutableArray()
+	for _, v_context_field = range coreIter(v_context_fields) {
+		v_context_is_map = coreTypeIs(v_context_field, "object")
+		v_context_name = v_context_field
+		if coreTruthy(v_context_is_map) {
+			v_context_name = coreGet(v_context_field, "name", "")
+		} else {
+		// empty
+		}
+		v_context_names = coreAppend(v_context_names, v_context_name)
+	}
+	v_context_problem = ""
+	for _, v_context_name = range coreIter(v_context_names) {
+		v_context_problem_empty = _core_eq(v_context_problem, "")
+		if coreTruthy(v_context_problem_empty) {
+			v_context_optional = false
+			for _, v_field = range coreIter(v_input_fields) {
+				v_field_name = coreGet(v_field, "name", "")
+				v_same_field = _core_eq(v_field_name, v_context_name)
+				if coreTruthy(v_same_field) {
+					v_context_optional = coreGet(v_field, "is_optional", false)
+				} else {
+				// empty
+				}
+			}
+			v_context_required = _core_not(v_context_optional)
+			if coreTruthy(v_context_required) {
+				v_context_present = _core_map_contains(v_values, v_context_name)
+				v_context_missing = _core_not(v_context_present)
+				if coreTruthy(v_context_missing) {
+					v_context_problem = _core_string_format("RLM contextField \"{}\" is missing from input values", v_context_name)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_has_context_problem = _core_ne(v_context_problem, "")
+	if coreTruthy(v_has_context_problem) {
+		if coreTruthy(v_is_fail) {
+			v_context_error = _core_validation_error(v_context_problem)
+			return nil, asError(v_context_error)
+		} else {
+		// empty
+		}
+		v_warn = _core_not(v_mode_set)
+		if coreTruthy(v_warn) {
+			v_warning = _core_string_format("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version.", v_context_problem)
+			_core_axgen_deprecation("agent-input-validation", v_warning)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	for _, v_field = range coreIter(v_input_fields) {
+		v_field_name = coreGet(v_field, "name", "")
+		v_is_optional = coreGet(v_field, "is_optional", false)
+		v_is_context = false
+		for _, v_known_context = range coreIter(v_context_names) {
+			v_same_context = _core_eq(v_known_context, v_field_name)
+			v_is_context = _core_or(v_is_context, v_same_context)
+		}
+		v_skip = _core_or(v_is_optional, v_is_context)
+		v_check = _core_not(v_skip)
+		if coreTruthy(v_check) {
+			v_value = coreGet(v_values, v_field_name, nil)
+			v_missing = _core_is_none(v_value)
+			v_is_text = coreTypeIs(v_value, "string")
+			if coreTruthy(v_is_text) {
+				v_empty_text = _core_eq(v_value, "")
+				v_missing = _core_or(v_missing, v_empty_text)
+			} else {
+			// empty
+			}
+			v_is_list = coreTypeIs(v_value, "list")
+			if coreTruthy(v_is_list) {
+				v_list_length = _core_len(v_value)
+				v_empty_list_value = _core_eq(v_list_length, 0)
+				v_missing = _core_or(v_missing, v_empty_list_value)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_missing) {
+				v_problem = _core_string_format("Value for input field '{}' is required.", v_field_name)
+				v_input_error = _core_validation_error(v_problem)
+				return nil, asError(v_input_error)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return nil, nil
+}
+
+func _agent_clarification_choice(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_clarification_choice")
+	var v_choice Value
+	var v_error Value
+	var v_has_value Value
+	var v_is_map Value
+	var v_is_text Value
+	var v_label Value
+	var v_label_bad Value
+	var v_label_error Value
+	var v_label_is_text Value
+	var v_label_ok Value
+	var v_label_trimmed Value
+	var v_non_empty Value
+	var v_not_map Value
+	var v_out Value
+	var v_trimmed Value
+	var v_value Value
+	var v_value_bad Value
+	var v_value_error Value
+	var v_value_is_text Value
+	var v_value_ok Value
+	var v_value_trimmed Value
+	if len(args) > 0 { v_choice = args[0] }
+	_ = v_choice
+	_ = v_error
+	_ = v_has_value
+	_ = v_is_map
+	_ = v_is_text
+	_ = v_label
+	_ = v_label_bad
+	_ = v_label_error
+	_ = v_label_is_text
+	_ = v_label_ok
+	_ = v_label_trimmed
+	_ = v_non_empty
+	_ = v_not_map
+	_ = v_out
+	_ = v_trimmed
+	_ = v_value
+	_ = v_value_bad
+	_ = v_value_error
+	_ = v_value_is_text
+	_ = v_value_ok
+	_ = v_value_trimmed
+	v_is_text = coreTypeIs(v_choice, "string")
+	if coreTruthy(v_is_text) {
+		v_trimmed = coreStringTrim(v_choice)
+		v_non_empty = _core_ne(v_trimmed, "")
+		if coreTruthy(v_non_empty) {
+			return v_choice, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_is_map = coreTypeIs(v_choice, "object")
+	v_not_map = _core_not(v_is_map)
+	if coreTruthy(v_not_map) {
+		v_error = _core_runtime_error("askClarification() choice entries must be non-empty strings or objects with a non-empty label")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_label = coreGet(v_choice, "label", nil)
+	v_label_ok = false
+	v_label_is_text = coreTypeIs(v_label, "string")
+	if coreTruthy(v_label_is_text) {
+		v_label_trimmed = coreStringTrim(v_label)
+		v_label_ok = _core_ne(v_label_trimmed, "")
+	} else {
+	// empty
+	}
+	v_label_bad = _core_not(v_label_ok)
+	if coreTruthy(v_label_bad) {
+		v_label_error = _core_runtime_error("askClarification() choice objects require a non-empty label")
+		return nil, asError(v_label_error)
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "label", v_label); err != nil { return nil, err }
+	v_has_value = _core_map_contains(v_choice, "value")
+	if coreTruthy(v_has_value) {
+		v_value = coreGet(v_choice, "value", nil)
+		v_value_ok = false
+		v_value_is_text = coreTypeIs(v_value, "string")
+		if coreTruthy(v_value_is_text) {
+			v_value_trimmed = coreStringTrim(v_value)
+			v_value_ok = _core_ne(v_value_trimmed, "")
+		} else {
+		// empty
+		}
+		v_value_bad = _core_not(v_value_ok)
+		if coreTruthy(v_value_bad) {
+			v_value_error = _core_runtime_error("askClarification() choice object values must be non-empty strings")
+			return nil, asError(v_value_error)
+		} else {
+		// empty
+		}
+		if err := coreSet(v_out, "value", v_value); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func _agent_structured_clarification(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_structured_clarification")
+	var v_payload Value
+	var v_allowed Value
+	var v_choice Value
+	var v_choice_error Value
+	var v_choice_failed Value
+	var v_choice_failure Value
+	var v_choice_multiple_error Value
+	var v_choices_count Value
+	var v_choices_count_after Value
+	var v_choices_given Value
+	var v_choices_is_list Value
+	var v_choices_unusable Value
+	var v_choices_usable Value
+	var v_copied Value
+	var v_detail Value
+	var v_drop_key Value
+	var v_drop_this_type Value
+	var v_drop_type Value
+	var v_empty_multiple_error Value
+	var v_error Value
+	var v_failure_empty Value
+	var v_few_error Value
+	var v_has_choices Value
+	var v_has_normalized_choices Value
+	var v_has_normalized_type Value
+	var v_has_type Value
+	var v_is_choices_key Value
+	var v_is_date_kind Value
+	var v_is_map Value
+	var v_is_multiple Value
+	var v_is_multiple_kind Value
+	var v_is_number_kind Value
+	var v_is_single Value
+	var v_is_single_kind Value
+	var v_is_text Value
+	var v_is_text_kind Value
+	var v_is_type_key Value
+	var v_keep_key Value
+	var v_kept Value
+	var v_key Value
+	var v_mapped Value
+	var v_missing_multiple_error Value
+	var v_multiple_message Value
+	var v_multiple_too_few Value
+	var v_non_empty Value
+	var v_normalized_choice Value
+	var v_normalized_choices Value
+	var v_normalized_type Value
+	var v_not_allowed Value
+	var v_not_map Value
+	var v_out Value
+	var v_question Value
+	var v_question_bad Value
+	var v_question_error Value
+	var v_question_is_text Value
+	var v_question_ok Value
+	var v_question_trimmed Value
+	var v_raw_choices Value
+	var v_raw_type Value
+	var v_strip Value
+	var v_stripped Value
+	var v_too_few Value
+	var v_trimmed Value
+	var v_type_error Value
+	var v_type_given Value
+	var v_type_is_text Value
+	var v_wants_choices Value
+	var v_wrapped Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	_ = v_allowed
+	_ = v_choice
+	_ = v_choice_error
+	_ = v_choice_failed
+	_ = v_choice_failure
+	_ = v_choice_multiple_error
+	_ = v_choices_count
+	_ = v_choices_count_after
+	_ = v_choices_given
+	_ = v_choices_is_list
+	_ = v_choices_unusable
+	_ = v_choices_usable
+	_ = v_copied
+	_ = v_detail
+	_ = v_drop_key
+	_ = v_drop_this_type
+	_ = v_drop_type
+	_ = v_empty_multiple_error
+	_ = v_error
+	_ = v_failure_empty
+	_ = v_few_error
+	_ = v_has_choices
+	_ = v_has_normalized_choices
+	_ = v_has_normalized_type
+	_ = v_has_type
+	_ = v_is_choices_key
+	_ = v_is_date_kind
+	_ = v_is_map
+	_ = v_is_multiple
+	_ = v_is_multiple_kind
+	_ = v_is_number_kind
+	_ = v_is_single
+	_ = v_is_single_kind
+	_ = v_is_text
+	_ = v_is_text_kind
+	_ = v_is_type_key
+	_ = v_keep_key
+	_ = v_kept
+	_ = v_key
+	_ = v_mapped
+	_ = v_missing_multiple_error
+	_ = v_multiple_message
+	_ = v_multiple_too_few
+	_ = v_non_empty
+	_ = v_normalized_choice
+	_ = v_normalized_choices
+	_ = v_normalized_type
+	_ = v_not_allowed
+	_ = v_not_map
+	_ = v_out
+	_ = v_question
+	_ = v_question_bad
+	_ = v_question_error
+	_ = v_question_is_text
+	_ = v_question_ok
+	_ = v_question_trimmed
+	_ = v_raw_choices
+	_ = v_raw_type
+	_ = v_strip
+	_ = v_stripped
+	_ = v_too_few
+	_ = v_trimmed
+	_ = v_type_error
+	_ = v_type_given
+	_ = v_type_is_text
+	_ = v_wants_choices
+	_ = v_wrapped
+	v_multiple_message = "askClarification() with type \"multiple_choice\" must include at least two valid choices. Use a non-empty string question plus choices like [\"Option A\", \"Option B\"], or switch to \"single_choice\" / a plain question if there is only one option."
+	v_is_text = coreTypeIs(v_payload, "string")
+	if coreTruthy(v_is_text) {
+		v_trimmed = coreStringTrim(v_payload)
+		v_non_empty = _core_ne(v_trimmed, "")
+		if coreTruthy(v_non_empty) {
+			v_wrapped = Object()
+			if err := coreSet(v_wrapped, "question", v_payload); err != nil { return nil, err }
+			return v_wrapped, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_is_map = coreTypeIs(v_payload, "object")
+	v_not_map = _core_not(v_is_map)
+	if coreTruthy(v_not_map) {
+		v_error = _core_runtime_error("askClarification() requires a non-empty string or an object payload")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_question = coreGet(v_payload, "question", nil)
+	v_question_ok = false
+	v_question_is_text = coreTypeIs(v_question, "string")
+	if coreTruthy(v_question_is_text) {
+		v_question_trimmed = coreStringTrim(v_question)
+		v_question_ok = _core_ne(v_question_trimmed, "")
+	} else {
+	// empty
+	}
+	v_question_bad = _core_not(v_question_ok)
+	if coreTruthy(v_question_bad) {
+		v_question_error = _core_runtime_error("askClarification() object payload requires a non-empty question")
+		return nil, asError(v_question_error)
+	} else {
+	// empty
+	}
+	v_has_type = _core_map_contains(v_payload, "type")
+	v_raw_type = coreGet(v_payload, "type", nil)
+	v_type_given = _core_is_not_none(v_raw_type)
+	v_raw_choices = coreGet(v_payload, "choices", nil)
+	v_choices_given = _core_map_contains(v_payload, "choices")
+	v_choices_is_list = coreTypeIs(v_raw_choices, "list")
+	v_choices_count = 0
+	if coreTruthy(v_choices_is_list) {
+		v_choices_count = _core_len(v_raw_choices)
+	} else {
+	// empty
+	}
+	v_has_choices = _core_gt(v_choices_count, 0)
+	v_normalized_type = _core_none()
+	if coreTruthy(v_type_given) {
+		v_type_is_text = coreTypeIs(v_raw_type, "string")
+		v_allowed = false
+		if coreTruthy(v_type_is_text) {
+			v_is_text_kind = _core_eq(v_raw_type, "text")
+			v_is_number_kind = _core_eq(v_raw_type, "number")
+			v_is_date_kind = _core_eq(v_raw_type, "date")
+			v_is_single_kind = _core_eq(v_raw_type, "single_choice")
+			v_is_multiple_kind = _core_eq(v_raw_type, "multiple_choice")
+			v_allowed = _core_or(v_is_text_kind, v_is_number_kind)
+			v_allowed = _core_or(v_allowed, v_is_date_kind)
+			v_allowed = _core_or(v_allowed, v_is_single_kind)
+			v_allowed = _core_or(v_allowed, v_is_multiple_kind)
+		} else {
+		// empty
+		}
+		v_not_allowed = _core_not(v_allowed)
+		if coreTruthy(v_not_allowed) {
+			v_type_error = _core_runtime_error("askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice")
+			return nil, asError(v_type_error)
+		} else {
+		// empty
+		}
+		v_normalized_type = v_raw_type
+	} else {
+		if coreTruthy(v_has_choices) {
+			v_normalized_type = "single_choice"
+		} else {
+		// empty
+		}
+	}
+	v_is_single = _core_eq(v_normalized_type, "single_choice")
+	v_is_multiple = _core_eq(v_normalized_type, "multiple_choice")
+	v_wants_choices = _core_or(v_is_single, v_is_multiple)
+	v_strip = false
+	v_drop_type = false
+	v_normalized_choices = _core_none()
+	if coreTruthy(v_choices_given) {
+		v_choices_usable = _core_and(v_choices_is_list, v_has_choices)
+		v_choices_unusable = _core_not(v_choices_usable)
+		if coreTruthy(v_choices_unusable) {
+			if coreTruthy(v_is_multiple) {
+				v_empty_multiple_error = _core_runtime_error(v_multiple_message)
+				return nil, asError(v_empty_multiple_error)
+			} else {
+			// empty
+			}
+			v_strip = true
+			v_drop_type = v_is_single
+		} else {
+			v_mapped = MutableArray()
+			v_choice_failure = ""
+			for _, v_choice = range coreIter(v_raw_choices) {
+				v_failure_empty = _core_eq(v_choice_failure, "")
+				if coreTruthy(v_failure_empty) {
+					{
+						__flow, __err := func() (coreFlow, error) {
+							{ v, err := _agent_clarification_choice(v_choice); if err != nil { return coreFlow{}, err }; v_normalized_choice = v }
+							v_mapped = coreAppend(v_mapped, v_normalized_choice)
+							return coreFlow{}, nil
+						}()
+						if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+						if __err != nil {
+							v_choice_error = errorValue(__err)
+							v_choice_failure = _core_exception_message(v_choice_error)
+						}
+					}
+				} else {
+				// empty
+				}
+			}
+			v_choice_failed = _core_ne(v_choice_failure, "")
+			if coreTruthy(v_choice_failed) {
+				if coreTruthy(v_is_multiple) {
+					v_detail = _core_string_format("{} Fix the choices so each option is a non-empty string or an object with a non-empty label. {}", v_multiple_message, v_choice_failure)
+					v_choice_multiple_error = _core_runtime_error(v_detail)
+					return nil, asError(v_choice_multiple_error)
+				} else {
+				// empty
+				}
+				v_strip = true
+				v_drop_type = v_is_single
+			} else {
+				v_normalized_choices = v_mapped
+			}
+		}
+	} else {
+		if coreTruthy(v_wants_choices) {
+			if coreTruthy(v_is_multiple) {
+				v_missing_multiple_error = _core_runtime_error(v_multiple_message)
+				return nil, asError(v_missing_multiple_error)
+			} else {
+			// empty
+			}
+			v_strip = true
+			v_drop_type = true
+		} else {
+		// empty
+		}
+	}
+	if coreTruthy(v_strip) {
+		v_stripped = Object()
+		for _, v_key = range coreIter(v_payload) {
+			v_is_choices_key = _core_eq(v_key, "choices")
+			v_is_type_key = _core_eq(v_key, "type")
+			v_drop_this_type = _core_and(v_is_type_key, v_drop_type)
+			v_drop_key = _core_or(v_is_choices_key, v_drop_this_type)
+			v_keep_key = _core_not(v_drop_key)
+			if coreTruthy(v_keep_key) {
+				v_kept = coreGet(v_payload, v_key, nil)
+				if err := coreSet(v_stripped, v_key, v_kept); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+		if err := coreSet(v_stripped, "question", v_question); err != nil { return nil, err }
+		return v_stripped, nil
+	} else {
+	// empty
+	}
+	v_choices_count_after = 0
+	v_has_normalized_choices = _core_is_not_none(v_normalized_choices)
+	if coreTruthy(v_has_normalized_choices) {
+		v_choices_count_after = _core_len(v_normalized_choices)
+	} else {
+	// empty
+	}
+	v_too_few = _core_lt(v_choices_count_after, 2)
+	v_multiple_too_few = _core_and(v_is_multiple, v_too_few)
+	if coreTruthy(v_multiple_too_few) {
+		v_few_error = _core_runtime_error(v_multiple_message)
+		return nil, asError(v_few_error)
+	} else {
+	// empty
+	}
+	v_out = Object()
+	for _, v_key = range coreIter(v_payload) {
+		v_copied = coreGet(v_payload, v_key, nil)
+		if err := coreSet(v_out, v_key, v_copied); err != nil { return nil, err }
+	}
+	if err := coreSet(v_out, "question", v_question); err != nil { return nil, err }
+	v_has_normalized_type = _core_is_not_none(v_normalized_type)
+	if coreTruthy(v_has_normalized_type) {
+		if err := coreSet(v_out, "type", v_normalized_type); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_normalized_choices) {
+		if err := coreSet(v_out, "choices", v_normalized_choices); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _flow_factory(args ...Value) (Value, error) {
@@ -96023,7 +96858,10 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	// As TS evaluates each task from a fresh state, the prediction carries
 	// only this run's share of the agent's logs.
 	marks := mustCore(_agent_eval_marks(a.State))
+	// TS's evaluation path runs no playbook run-end learning.
+	coreSet(a.State, "playbook_learning_paused", true)
 	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+	delete(a.State, "playbook_learning_paused")
 	completion := Object("type", "final", "output", output)
 	if err != nil {
 		if clarification, ok := agentClarificationFromError(err); ok {
@@ -96178,6 +97016,10 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 
 func (a *AxAgent) learnPlaybookFailures(ctx context.Context, output Value) {
 	if a.PlaybookHandle == nil || a.PlaybookConfig == nil {
+		return
+	}
+	// An evaluated run learns nothing, as TS's evaluation path.
+	if coreTruthy(coreGet(a.State, "playbook_learning_paused", false)) {
 		return
 	}
 	config := asMap(a.PlaybookConfig)
@@ -97662,7 +98504,24 @@ func playbookErrorSignature(value string) string {
 	return value
 }
 
+// agentEvolvePredictionError is the message of the ports' error prediction
+// (TS's thrown run).
+func agentEvolvePredictionError(prediction Value) string {
+	errorValue := coreGet(prediction, "error", nil)
+	if errorMap, ok := errorValue.(map[string]Value); ok {
+		return display(coreGet(errorMap, "message", ""))
+	}
+	if errorValue == nil {
+		return ""
+	}
+	return display(errorValue)
+}
+
 func playbookRecordSignature(record Value) string {
+	// TS's record of a thrown run has only its error.
+	if value := coreGet(record, "error", nil); coreTruthy(value) {
+		return playbookErrorSignature(display(value))
+	}
 	prediction := coreGet(record, "prediction", Object())
 	counts := map[string]int{}
 	order := []string{}
@@ -98081,6 +98940,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				task = Object("input", raw)
 			}
 			var prediction Value
+			var errorPrediction Value
 			lastError := ""
 			scoreSum, completedRuns := 0.0, 0
 			for run := 0; run < runsPerTask; run++ {
@@ -98094,6 +98954,12 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				if evalErr != nil {
 					score = 0
 					lastError = evalErr.Error()
+				} else if display(coreGet(candidate, "completionType", "")) == "error" {
+					// TS's harness sees a thrown run: a zero score with no
+					// metric call, and its message as the error.
+					score = 0
+					lastError = agentEvolvePredictionError(candidate)
+					errorPrediction = candidate
 				} else {
 					prediction = candidate
 					switch metric := coreGet(options, "metric", nil).(type) {
@@ -98129,6 +98995,11 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				coreSet(record, "prediction", prediction)
 			} else if lastError != "" {
 				coreSet(record, "error", lastError)
+				// Kept this release for compatibility; TS's record has no
+				// prediction (dropped at the next major).
+				if errorPrediction != nil {
+					coreSet(record, "prediction", errorPrediction)
+				}
 			}
 			records = append(records, record)
 			if completedRuns < runsPerTask {
@@ -103166,6 +104037,20 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 			panic(AxError{Category: "fixture", Message: "eval operation requires agent program"})
 		}
 		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+		// As the agent fixtures do, a playbook without studentAI learns
+		// through the fixture's scripted client.
+		options := asMap(coreGet(fixture, "options", Object()))
+		if rawPlaybook := coreGet(options, "playbook", nil); rawPlaybook != nil {
+			playbook := cloneMap(asMap(rawPlaybook))
+			if coreGet(playbook, "studentAI", nil) == nil {
+				coreSet(playbook, "studentAI", client)
+			}
+			options = cloneMap(options)
+			coreSet(options, "playbook", playbook)
+			withStudent := cloneMap(fixture)
+			coreSet(withStudent, "options", options)
+			ag = conformanceBuildProgram(withStudent).(*AxAgent)
+		}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
@@ -103175,6 +104060,9 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
 		for _, key := range orderedKeys(fields) {
 			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
+		}
+		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d eval requests, got %d", int(num(expectedCount)), len(client.Requests))})
 		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -104492,6 +105380,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		}
 		if !strings.Contains(err.Error(), expectedErr) {
 			panic(AxError{Category: "fixture", Message: "expected error containing " + expectedErr + ", got " + err.Error()})
+		}
+		if expected := coreGet(fixture, "expected_clarification", nil); expected != nil {
+			clarification, ok := agentClarificationFromError(err)
+			if !ok {
+				panic(AxError{Category: "fixture", Message: "expected a clarification error, got " + err.Error()})
+			}
+			assertSubset(clarification, expected, "clarification")
 		}
 		if ag != nil {
 			assertAgentTrace(ag, fixture)

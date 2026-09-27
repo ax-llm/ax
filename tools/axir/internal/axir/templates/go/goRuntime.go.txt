@@ -7771,7 +7771,10 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	// As TS evaluates each task from a fresh state, the prediction carries
 	// only this run's share of the agent's logs.
 	marks := mustCore(_agent_eval_marks(a.State))
+	// TS's evaluation path runs no playbook run-end learning.
+	coreSet(a.State, "playbook_learning_paused", true)
 	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
+	delete(a.State, "playbook_learning_paused")
 	completion := Object("type", "final", "output", output)
 	if err != nil {
 		if clarification, ok := agentClarificationFromError(err); ok {
@@ -7926,6 +7929,10 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 
 func (a *AxAgent) learnPlaybookFailures(ctx context.Context, output Value) {
 	if a.PlaybookHandle == nil || a.PlaybookConfig == nil {
+		return
+	}
+	// An evaluated run learns nothing, as TS's evaluation path.
+	if coreTruthy(coreGet(a.State, "playbook_learning_paused", false)) {
 		return
 	}
 	config := asMap(a.PlaybookConfig)
@@ -9410,7 +9417,24 @@ func playbookErrorSignature(value string) string {
 	return value
 }
 
+// agentEvolvePredictionError is the message of the ports' error prediction
+// (TS's thrown run).
+func agentEvolvePredictionError(prediction Value) string {
+	errorValue := coreGet(prediction, "error", nil)
+	if errorMap, ok := errorValue.(map[string]Value); ok {
+		return display(coreGet(errorMap, "message", ""))
+	}
+	if errorValue == nil {
+		return ""
+	}
+	return display(errorValue)
+}
+
 func playbookRecordSignature(record Value) string {
+	// TS's record of a thrown run has only its error.
+	if value := coreGet(record, "error", nil); coreTruthy(value) {
+		return playbookErrorSignature(display(value))
+	}
 	prediction := coreGet(record, "prediction", Object())
 	counts := map[string]int{}
 	order := []string{}
@@ -9829,6 +9853,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				task = Object("input", raw)
 			}
 			var prediction Value
+			var errorPrediction Value
 			lastError := ""
 			scoreSum, completedRuns := 0.0, 0
 			for run := 0; run < runsPerTask; run++ {
@@ -9842,6 +9867,12 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				if evalErr != nil {
 					score = 0
 					lastError = evalErr.Error()
+				} else if display(coreGet(candidate, "completionType", "")) == "error" {
+					// TS's harness sees a thrown run: a zero score with no
+					// metric call, and its message as the error.
+					score = 0
+					lastError = agentEvolvePredictionError(candidate)
+					errorPrediction = candidate
 				} else {
 					prediction = candidate
 					switch metric := coreGet(options, "metric", nil).(type) {
@@ -9877,6 +9908,11 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				coreSet(record, "prediction", prediction)
 			} else if lastError != "" {
 				coreSet(record, "error", lastError)
+				// Kept this release for compatibility; TS's record has no
+				// prediction (dropped at the next major).
+				if errorPrediction != nil {
+					coreSet(record, "prediction", errorPrediction)
+				}
 			}
 			records = append(records, record)
 			if completedRuns < runsPerTask {
@@ -14914,6 +14950,20 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 			panic(AxError{Category: "fixture", Message: "eval operation requires agent program"})
 		}
 		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+		// As the agent fixtures do, a playbook without studentAI learns
+		// through the fixture's scripted client.
+		options := asMap(coreGet(fixture, "options", Object()))
+		if rawPlaybook := coreGet(options, "playbook", nil); rawPlaybook != nil {
+			playbook := cloneMap(asMap(rawPlaybook))
+			if coreGet(playbook, "studentAI", nil) == nil {
+				coreSet(playbook, "studentAI", client)
+			}
+			options = cloneMap(options)
+			coreSet(options, "playbook", playbook)
+			withStudent := cloneMap(fixture)
+			coreSet(withStudent, "options", options)
+			ag = conformanceBuildProgram(withStudent).(*AxAgent)
+		}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
@@ -14923,6 +14973,9 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
 		for _, key := range orderedKeys(fields) {
 			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
+		}
+		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d eval requests, got %d", int(num(expectedCount)), len(client.Requests))})
 		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -16240,6 +16293,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		}
 		if !strings.Contains(err.Error(), expectedErr) {
 			panic(AxError{Category: "fixture", Message: "expected error containing " + expectedErr + ", got " + err.Error()})
+		}
+		if expected := coreGet(fixture, "expected_clarification", nil); expected != nil {
+			clarification, ok := agentClarificationFromError(err)
+			if !ok {
+				panic(AxError{Category: "fixture", Message: "expected a clarification error, got " + err.Error()})
+			}
+			assertSubset(clarification, expected, "clarification")
 		}
 		if ag != nil {
 			assertAgentTrace(ag, fixture)

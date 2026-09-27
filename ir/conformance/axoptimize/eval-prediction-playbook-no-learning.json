@@ -31,7 +31,7 @@
   },
   "expected_request_count": 5,
   "kind": "optimize",
-  "name": "eval-prediction-function-calls",
+  "name": "eval-prediction-playbook-no-learning",
   "operation": "eval",
   "options": {
     "callable_results": {
@@ -80,7 +80,8 @@
         "namespace": "tools",
         "title": "Tools"
       }
-    ]
+    ],
+    "playbook": {}
   },
   "program": "agent",
   "responses": [
@@ -98,6 +99,12 @@
     },
     {
       "content": "Answer: Docs"
+    },
+    {
+      "content": "Reasoning: The fetch tool failed.\nError Identification: fetch failed.\nRoot Cause Analysis: The page was unavailable.\nCorrect Approach: Check tool results.\nKey Insight: Check tool results before using them.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: One avoidance rule covers the failure.\nOperations: [{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"Check tool results before using them.\"}]"
     }
   ],
   "runtime_language": "JavaScript",

@@ -18,3 +18,7 @@ release flow.
 - TypeScript's deprecated, ignored `responseFormatWithFunctions` is removed (#721).
 - An agent without runtime config builds TypeScript's JavaScript actor stages by default, and the runtime-less completion mode becomes opt-in (pending PR).
 - TypeScript `AxAIProfileAuthentication.type` drops `'api-key-query'`. No profile uses it and TypeScript never implemented query-key auth (such a profile fell through to a Bearer header), so it is deprecated until then (#747).
+- An agent's `clarificationShape` / `clarification_shape` defaults to `'structured'` in the ports: a clarification carries TypeScript's `{question, ...}` form. Today it carries the askClarification payload as given (`'raw'`) and warns once when the option is unset (pending PR).
+- An agent's `inputValidation` / `input_validation` defaults to `'fail'` in the ports: a run without a required context field fails before any request with TypeScript's message. Today it goes on (`'lenient'`) and warns once when the option is unset (pending PR).
+- In Python, Go, Java and C++, an agent playbook evolve record of a thrown run keeps only `error`, as TypeScript's does. Today it also carries the error prediction (pending PR).
+- Rust `evaluate_optimization_task` returns an error prediction (`Ok`) for a thrown task, as the other ports do. Today it returns the error (`Err`) (pending PR).

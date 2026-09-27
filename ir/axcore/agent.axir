@@ -8007,6 +8007,11 @@ module @ax.agent version "0.1" {
           %error = core.get %error["message"] default ""
         }
         %has_error = core.call intrinsic.truthy(%error)
+        // TS's record of a thrown run has no prediction: the ports keep the
+        // error prediction on it this release, and the miner reads none.
+        core.if %has_error {
+          %prediction = core.let %empty_map
+        }
         %body = core.let ""
         core.if %has_error {
           %body = core.call intrinsic.string.format("Run threw: {}", %error)
@@ -8250,10 +8255,19 @@ module @ax.agent version "0.1" {
           %previous_signature = core.let %signature
         }
       }
+      // As TS's failure report: an earlier run's error turns carry into this
+      // one through the agent's state, but only this run's own tool calls
+      // count (the calls from run_function_call_start on).
       %function_traces = core.get %state["function_call_traces"] default %empty_list
+      %run_calls_from = core.get %state["run_function_call_start"] default 0
+      %call_index = core.let 0
       core.for %call in %function_traces {
         %status = core.get %call["status"] default "ok"
-        %failed = core.call intrinsic.eq(%status, "error")
+        %call_failed = core.call intrinsic.eq(%status, "error")
+        %call_in_run = core.call intrinsic.gte(%call_index, %run_calls_from)
+        %failed = core.call intrinsic.and(%call_failed, %call_in_run)
+        %next_call_index = core.call intrinsic.add(%call_index, 1)
+        %call_index = core.let %next_call_index
         core.if %failed {
           %result = core.get %call["result"] default null
           %error_text = core.get %result["error"] default "tool call failed"
@@ -8316,6 +8330,50 @@ module @ax.agent version "0.1" {
       %type = core.get %payload["type"]
       %is_clarification = core.call intrinsic.eq(%type, "askClarification")
       core.if %is_clarification {
+        // clarificationShape says what the clarification carries: 'raw',
+        // this release's default, the askClarification payload as given;
+        // 'structured', TS's normalizeClarificationForError form ({question,
+        // ...}). Left unset, the payload stays as given and a one-time
+        // warning names the option.
+        %empty_map = core.map
+        %empty_list = core.list
+        %agent_options = core.get %state["options"] default %empty_map
+        %shape_snake = core.get %agent_options["clarification_shape"]
+        %shape = core.get %agent_options["clarificationShape"] default %shape_snake
+        %shape_set = core.call intrinsic.is_not_none(%shape)
+        core.if %shape_set {
+          %is_raw = core.call intrinsic.eq(%shape, "raw")
+          %is_structured = core.call intrinsic.eq(%shape, "structured")
+          %known_shape = core.call intrinsic.or(%is_raw, %is_structured)
+          %unknown_shape = core.call intrinsic.not(%known_shape)
+          core.if %unknown_shape {
+            %shape_json = core.call intrinsic.json.pretty(%shape)
+            %shape_message = core.call intrinsic.string.format("clarificationShape must be 'raw' or 'structured', received: {}", %shape_json)
+            %shape_error = core.call intrinsic.error.validation(%shape_message)
+            core.raise %shape_error
+          }
+          core.if %is_structured {
+            %args = core.get %payload["args"] default %empty_list
+            %arg_count = core.call intrinsic.len(%args)
+            %has_arg = core.call intrinsic.gt(%arg_count, 0)
+            %source = core.let %payload
+            core.if %has_arg {
+              %source = core.call intrinsic.list.get(%args, 0, null)
+            }
+            %structured = core.call @agent_structured_clarification(%source)
+            %structured_args = core.list
+            core.append %structured_args, %structured
+            %shaped = core.map
+            core.for %key in %payload {
+              %kept = core.get %payload[%key]
+              core.set %shaped[%key] = %kept
+            }
+            core.set %shaped["args"] = %structured_args
+            %payload = core.let %shaped
+          }
+        } else {
+          core.call intrinsic.axgen.deprecation("agent-clarification-shape", "An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version.")
+        }
         %error = core.call intrinsic.agent.clarification_error(%payload, %state)
         core.raise %error
       }
@@ -9319,6 +9377,7 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(json, json, json, json, json, json, json) -> json throws"
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
+      core.call @agent_check_inputs(%state, %values, %options)
       %prepared = core.call @agent_run_actor_stages(%state, %distiller, %executor, %client, %values, %options)
       %values = core.get %prepared["values"]
       %executor_payload = core.get %prepared["executor_payload"]
@@ -9554,6 +9613,11 @@ module @ax.agent version "0.1" {
       core.set %state["forward_active"] = true
       core.set %state["active_client"] = %client
       core.set %state["active_forward_options"] = %options
+      // This run's own tool calls start here (see @agent_build_failure_signals).
+      %run_calls_empty = core.list
+      %run_calls_before = core.get %state["function_call_traces"] default %run_calls_empty
+      %run_calls_start = core.call intrinsic.len(%run_calls_before)
+      core.set %state["run_function_call_start"] = %run_calls_start
       %output = core.map
       core.try {
         %output = core.call @agent_forward_impl(%state, %distiller, %executor, %responder, %client, %values, %options)
@@ -10124,6 +10188,7 @@ module @ax.agent version "0.1" {
       // TS AxAgent.streamingForward: the distiller and the executor (or the
       // direct-respond skip) run as in forward, then the responder streams
       // its deltas to the sink.
+      core.call @agent_check_inputs(%state, %values, %options)
       %prepared = core.call @agent_run_actor_stages(%state, %distiller, %executor, %client, %values, %options)
       %values = core.get %prepared["values"]
       %executor_payload = core.get %prepared["executor_payload"]
@@ -10173,6 +10238,11 @@ module @ax.agent version "0.1" {
       core.set %state["forward_active"] = true
       core.set %state["active_client"] = %client
       core.set %state["active_forward_options"] = %options
+      // This run's own tool calls start here (see @agent_build_failure_signals).
+      %run_calls_empty = core.list
+      %run_calls_before = core.get %state["function_call_traces"] default %run_calls_empty
+      %run_calls_start = core.call intrinsic.len(%run_calls_before)
+      core.set %state["run_function_call_start"] = %run_calls_start
       %output = core.map
       core.try {
         %output = core.call @agent_streaming_forward_impl(%state, %distiller, %executor, %responder, %client, %values, %options, %sink)
@@ -10427,6 +10497,366 @@ module @ax.agent version "0.1" {
       %record_responder_description = core.get %state["responder_description"] default ""
       core.set %record["responder_description"] = %record_responder_description
       core.return %record
+    }
+  }
+
+  op ax.agent.semantic @agent_check_inputs {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/runtimeInputState.ts#createRuntimeInputState"
+    type signature = "(json, json, json) -> void throws"
+    body @entry(%state: json, %values: json, %options: json) {
+      // TS checks an agent run's inputs before any request. First a required
+      // context field missing from the values ('RLM contextField "<name>" is
+      // missing from input values', as TS's runtime input state does), then
+      // a required input without a value (missing, null, '' or [], as TS
+      // renders the distiller's inputs: "Value for input field '<name>' is
+      // required.").
+      //
+      // The input check always fails the run: the ports' responder already
+      // failed it with the same message, only after the distiller and
+      // executor requests. inputValidation says what the context-field check
+      // does, since a port run without its context field succeeds today:
+      // 'fail' fails the run with TS's message; 'lenient', this release's
+      // default, runs on; left unset, the run goes on and warns once with
+      // TS's message. The call's option wins over the agent's.
+      %empty_map = core.map
+      %empty_list = core.list
+      %agent_options = core.get %state["options"] default %empty_map
+      %agent_mode_snake = core.get %agent_options["input_validation"]
+      %agent_mode = core.get %agent_options["inputValidation"] default %agent_mode_snake
+      %call_mode_snake = core.get %options["input_validation"]
+      %mode = core.get %options["inputValidation"] default %call_mode_snake
+      %call_unset = core.call intrinsic.is_none(%mode)
+      core.if %call_unset {
+        %mode = core.let %agent_mode
+      }
+      %mode_set = core.call intrinsic.is_not_none(%mode)
+      %is_fail = core.let false
+      core.if %mode_set {
+        %is_fail = core.call intrinsic.eq(%mode, "fail")
+        %is_lenient = core.call intrinsic.eq(%mode, "lenient")
+        %known = core.call intrinsic.or(%is_fail, %is_lenient)
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %mode_json = core.call intrinsic.json.pretty(%mode)
+          %mode_message = core.call intrinsic.string.format("inputValidation must be 'lenient' or 'fail', received: {}", %mode_json)
+          %mode_error = core.call intrinsic.error.validation(%mode_message)
+          core.raise %mode_error
+        }
+      }
+      %sig = core.get %state["signature"] default %empty_map
+      %input_fields = core.get %sig["input_fields"] default %empty_list
+      %context_fields = core.get %state["context_fields"] default %empty_list
+      %context_names = core.list
+      core.for %context_field in %context_fields {
+        %context_is_map = core.type_is %context_field type "object"
+        %context_name = core.let %context_field
+        core.if %context_is_map {
+          %context_name = core.get %context_field["name"] default ""
+        }
+        core.append %context_names, %context_name
+      }
+      %context_problem = core.let ""
+      core.for %context_name in %context_names {
+        %context_problem_empty = core.call intrinsic.eq(%context_problem, "")
+        core.if %context_problem_empty {
+          %context_optional = core.let false
+          core.for %field in %input_fields {
+            %field_name = core.get %field["name"] default ""
+            %same_field = core.call intrinsic.eq(%field_name, %context_name)
+            core.if %same_field {
+              %context_optional = core.get %field["is_optional"] default false
+            }
+          }
+          %context_required = core.call intrinsic.not(%context_optional)
+          core.if %context_required {
+            %context_present = core.call intrinsic.map.contains(%values, %context_name)
+            %context_missing = core.call intrinsic.not(%context_present)
+            core.if %context_missing {
+              %context_problem = core.call intrinsic.string.format("RLM contextField \"{}\" is missing from input values", %context_name)
+            }
+          }
+        }
+      }
+      %has_context_problem = core.call intrinsic.ne(%context_problem, "")
+      core.if %has_context_problem {
+        core.if %is_fail {
+          %context_error = core.call intrinsic.error.validation(%context_problem)
+          core.raise %context_error
+        }
+        %warn = core.call intrinsic.not(%mode_set)
+        core.if %warn {
+          %warning = core.call intrinsic.string.format("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version.", %context_problem)
+          core.call intrinsic.axgen.deprecation("agent-input-validation", %warning)
+        }
+      }
+      core.for %field in %input_fields {
+        %field_name = core.get %field["name"] default ""
+        %is_optional = core.get %field["is_optional"] default false
+        %is_context = core.let false
+        core.for %known_context in %context_names {
+          %same_context = core.call intrinsic.eq(%known_context, %field_name)
+          %is_context = core.call intrinsic.or(%is_context, %same_context)
+        }
+        %skip = core.call intrinsic.or(%is_optional, %is_context)
+        %check = core.call intrinsic.not(%skip)
+        core.if %check {
+          %value = core.get %values[%field_name]
+          %missing = core.call intrinsic.is_none(%value)
+          %is_text = core.type_is %value type "string"
+          core.if %is_text {
+            %empty_text = core.call intrinsic.eq(%value, "")
+            %missing = core.call intrinsic.or(%missing, %empty_text)
+          }
+          %is_list = core.type_is %value type "list"
+          core.if %is_list {
+            %list_length = core.call intrinsic.len(%value)
+            %empty_list_value = core.call intrinsic.eq(%list_length, 0)
+            %missing = core.call intrinsic.or(%missing, %empty_list_value)
+          }
+          core.if %missing {
+            %problem = core.call intrinsic.string.format("Value for input field '{}' is required.", %field_name)
+            %input_error = core.call intrinsic.error.validation(%problem)
+            core.raise %input_error
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.agent.semantic @agent_clarification_choice {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/completion.ts#normalizeClarificationChoice"
+    type signature = "(json) -> json throws"
+    body @entry(%choice: json) {
+      // TS's normalizeClarificationChoice: a non-empty string, or a
+      // {label, value?} object with non-empty strings.
+      %is_text = core.type_is %choice type "string"
+      core.if %is_text {
+        %trimmed = core.string_trim %choice
+        %non_empty = core.call intrinsic.ne(%trimmed, "")
+        core.if %non_empty {
+          core.return %choice
+        }
+      }
+      %is_map = core.type_is %choice type "object"
+      %not_map = core.call intrinsic.not(%is_map)
+      core.if %not_map {
+        %error = core.call intrinsic.error.runtime("askClarification() choice entries must be non-empty strings or objects with a non-empty label")
+        core.raise %error
+      }
+      %label = core.get %choice["label"]
+      %label_ok = core.let false
+      %label_is_text = core.type_is %label type "string"
+      core.if %label_is_text {
+        %label_trimmed = core.string_trim %label
+        %label_ok = core.call intrinsic.ne(%label_trimmed, "")
+      }
+      %label_bad = core.call intrinsic.not(%label_ok)
+      core.if %label_bad {
+        %label_error = core.call intrinsic.error.runtime("askClarification() choice objects require a non-empty label")
+        core.raise %label_error
+      }
+      %out = core.map
+      core.set %out["label"] = %label
+      %has_value = core.call intrinsic.map.contains(%choice, "value")
+      core.if %has_value {
+        %value = core.get %choice["value"]
+        %value_ok = core.let false
+        %value_is_text = core.type_is %value type "string"
+        core.if %value_is_text {
+          %value_trimmed = core.string_trim %value
+          %value_ok = core.call intrinsic.ne(%value_trimmed, "")
+        }
+        %value_bad = core.call intrinsic.not(%value_ok)
+        core.if %value_bad {
+          %value_error = core.call intrinsic.error.runtime("askClarification() choice object values must be non-empty strings")
+          core.raise %value_error
+        }
+        core.set %out["value"] = %value
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_structured_clarification {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/completion.ts#normalizeClarificationForError"
+    type signature = "(json) -> json throws"
+    body @entry(%payload: json) {
+      // TS's normalizeClarificationForError: a question string becomes
+      // {question}; an object payload is checked and normalized as TS's
+      // normalizeClarificationPayload does (its type, and its choices), with
+      // TS's messages.
+      %multiple_message = core.let "askClarification() with type \"multiple_choice\" must include at least two valid choices. Use a non-empty string question plus choices like [\"Option A\", \"Option B\"], or switch to \"single_choice\" / a plain question if there is only one option."
+      %is_text = core.type_is %payload type "string"
+      core.if %is_text {
+        %trimmed = core.string_trim %payload
+        %non_empty = core.call intrinsic.ne(%trimmed, "")
+        core.if %non_empty {
+          %wrapped = core.map
+          core.set %wrapped["question"] = %payload
+          core.return %wrapped
+        }
+      }
+      %is_map = core.type_is %payload type "object"
+      %not_map = core.call intrinsic.not(%is_map)
+      core.if %not_map {
+        %error = core.call intrinsic.error.runtime("askClarification() requires a non-empty string or an object payload")
+        core.raise %error
+      }
+      %question = core.get %payload["question"]
+      %question_ok = core.let false
+      %question_is_text = core.type_is %question type "string"
+      core.if %question_is_text {
+        %question_trimmed = core.string_trim %question
+        %question_ok = core.call intrinsic.ne(%question_trimmed, "")
+      }
+      %question_bad = core.call intrinsic.not(%question_ok)
+      core.if %question_bad {
+        %question_error = core.call intrinsic.error.runtime("askClarification() object payload requires a non-empty question")
+        core.raise %question_error
+      }
+      %has_type = core.call intrinsic.map.contains(%payload, "type")
+      %raw_type = core.get %payload["type"]
+      %type_given = core.call intrinsic.is_not_none(%raw_type)
+      %raw_choices = core.get %payload["choices"]
+      %choices_given = core.call intrinsic.map.contains(%payload, "choices")
+      %choices_is_list = core.type_is %raw_choices type "list"
+      %choices_count = core.let 0
+      core.if %choices_is_list {
+        %choices_count = core.call intrinsic.len(%raw_choices)
+      }
+      %has_choices = core.call intrinsic.gt(%choices_count, 0)
+      %normalized_type = core.call intrinsic.none()
+      core.if %type_given {
+        %type_is_text = core.type_is %raw_type type "string"
+        %allowed = core.let false
+        core.if %type_is_text {
+          %is_text_kind = core.call intrinsic.eq(%raw_type, "text")
+          %is_number_kind = core.call intrinsic.eq(%raw_type, "number")
+          %is_date_kind = core.call intrinsic.eq(%raw_type, "date")
+          %is_single_kind = core.call intrinsic.eq(%raw_type, "single_choice")
+          %is_multiple_kind = core.call intrinsic.eq(%raw_type, "multiple_choice")
+          %allowed = core.call intrinsic.or(%is_text_kind, %is_number_kind)
+          %allowed = core.call intrinsic.or(%allowed, %is_date_kind)
+          %allowed = core.call intrinsic.or(%allowed, %is_single_kind)
+          %allowed = core.call intrinsic.or(%allowed, %is_multiple_kind)
+        }
+        %not_allowed = core.call intrinsic.not(%allowed)
+        core.if %not_allowed {
+          %type_error = core.call intrinsic.error.runtime("askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice")
+          core.raise %type_error
+        }
+        %normalized_type = core.let %raw_type
+      } else {
+        core.if %has_choices {
+          %normalized_type = core.let "single_choice"
+        }
+      }
+      %is_single = core.call intrinsic.eq(%normalized_type, "single_choice")
+      %is_multiple = core.call intrinsic.eq(%normalized_type, "multiple_choice")
+      %wants_choices = core.call intrinsic.or(%is_single, %is_multiple)
+      %strip = core.let false
+      %drop_type = core.let false
+      %normalized_choices = core.call intrinsic.none()
+      core.if %choices_given {
+        %choices_usable = core.call intrinsic.and(%choices_is_list, %has_choices)
+        %choices_unusable = core.call intrinsic.not(%choices_usable)
+        core.if %choices_unusable {
+          core.if %is_multiple {
+            %empty_multiple_error = core.call intrinsic.error.runtime(%multiple_message)
+            core.raise %empty_multiple_error
+          }
+          %strip = core.let true
+          %drop_type = core.let %is_single
+        } else {
+          %mapped = core.list
+          %choice_failure = core.let ""
+          core.for %choice in %raw_choices {
+            %failure_empty = core.call intrinsic.eq(%choice_failure, "")
+            core.if %failure_empty {
+              core.try {
+                %normalized_choice = core.call @agent_clarification_choice(%choice)
+                core.append %mapped, %normalized_choice
+              } catch %choice_error {
+                %choice_failure = core.call intrinsic.exception.message(%choice_error)
+              }
+            }
+          }
+          %choice_failed = core.call intrinsic.ne(%choice_failure, "")
+          core.if %choice_failed {
+            core.if %is_multiple {
+              %detail = core.call intrinsic.string.format("{} Fix the choices so each option is a non-empty string or an object with a non-empty label. {}", %multiple_message, %choice_failure)
+              %choice_multiple_error = core.call intrinsic.error.runtime(%detail)
+              core.raise %choice_multiple_error
+            }
+            %strip = core.let true
+            %drop_type = core.let %is_single
+          } else {
+            %normalized_choices = core.let %mapped
+          }
+        }
+      } else {
+        core.if %wants_choices {
+          core.if %is_multiple {
+            %missing_multiple_error = core.call intrinsic.error.runtime(%multiple_message)
+            core.raise %missing_multiple_error
+          }
+          %strip = core.let true
+          %drop_type = core.let true
+        }
+      }
+      core.if %strip {
+        // TS's stripChoiceMetadata: the payload without its choices (and
+        // without its type when dropped), with the question.
+        %stripped = core.map
+        core.for %key in %payload {
+          %is_choices_key = core.call intrinsic.eq(%key, "choices")
+          %is_type_key = core.call intrinsic.eq(%key, "type")
+          %drop_this_type = core.call intrinsic.and(%is_type_key, %drop_type)
+          %drop_key = core.call intrinsic.or(%is_choices_key, %drop_this_type)
+          %keep_key = core.call intrinsic.not(%drop_key)
+          core.if %keep_key {
+            %kept = core.get %payload[%key]
+            core.set %stripped[%key] = %kept
+          }
+        }
+        core.set %stripped["question"] = %question
+        core.return %stripped
+      }
+      %choices_count_after = core.let 0
+      %has_normalized_choices = core.call intrinsic.is_not_none(%normalized_choices)
+      core.if %has_normalized_choices {
+        %choices_count_after = core.call intrinsic.len(%normalized_choices)
+      }
+      %too_few = core.call intrinsic.lt(%choices_count_after, 2)
+      %multiple_too_few = core.call intrinsic.and(%is_multiple, %too_few)
+      core.if %multiple_too_few {
+        %few_error = core.call intrinsic.error.runtime(%multiple_message)
+        core.raise %few_error
+      }
+      %out = core.map
+      core.for %key in %payload {
+        %copied = core.get %payload[%key]
+        core.set %out[%key] = %copied
+      }
+      core.set %out["question"] = %question
+      %has_normalized_type = core.call intrinsic.is_not_none(%normalized_type)
+      core.if %has_normalized_type {
+        core.set %out["type"] = %normalized_type
+      }
+      core.if %has_normalized_choices {
+        core.set %out["choices"] = %normalized_choices
+      }
+      core.return %out
     }
   }
 }

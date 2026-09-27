@@ -247,7 +247,16 @@ public final class AxPlaybook {
     return match.find() ? match.group(1) : text.substring(0, Math.min(80, text.length()));
   }
 
+  // The message of the ports' error prediction (TS's thrown run).
+  private static String evolvePredictionError(Map<String, Object> prediction) {
+    Object error = prediction.get("error");
+    if (error instanceof Map<?, ?> errorMap) return String.valueOf(Core.asMap(errorMap).getOrDefault("message", ""));
+    return error == null ? "" : String.valueOf(error);
+  }
+
   private static String recordSignature(Map<String, Object> record) {
+    // TS's record of a thrown run has only its error.
+    if (Core.truthy(record.get("error"))) return extractErrorSignature(record.get("error"));
     Map<String, Object> prediction = Core.asMap(record.get("prediction"));
     Map<String, Integer> counts = new LinkedHashMap<>();
     for (Object signal : Core.asList(prediction.getOrDefault("failureSignals", List.of()))) {
@@ -494,6 +503,7 @@ public final class AxPlaybook {
       Object rawTask = tasks.get(taskIndex);
       Map<String, Object> task = rawTask instanceof Map<?, ?> ? Core.asMap(rawTask) : new LinkedHashMap<>(Map.of("input", rawTask));
       Map<String, Object> prediction = null;
+      Map<String, Object> errorPrediction = null;
       String lastError = null;
       double scoreSum = 0;
       int completedRuns = 0;
@@ -502,7 +512,17 @@ public final class AxPlaybook {
         remaining[0]--;
         double score;
         try {
-          prediction = agent.evaluateOptimizationTask(client, task, options);
+          Map<String, Object> candidate = agent.evaluateOptimizationTask(client, task, options);
+          if ("error".equals(candidate.get("completionType"))) {
+            // TS's harness sees a thrown run: a zero score with no metric
+            // call, and its message as the error.
+            lastError = evolvePredictionError(candidate);
+            errorPrediction = candidate;
+            scoreSum += 0;
+            completedRuns++;
+            continue;
+          }
+          prediction = candidate;
           Object rawScore;
           if (metric instanceof Function<?, ?> rawFunction) {
             Map<String, Object> metricArgs = new LinkedHashMap<>();
@@ -531,7 +551,12 @@ public final class AxPlaybook {
       record.put("task", task);
       record.put("index", taskIndex);
       if (prediction != null) record.put("prediction", prediction);
-      else if (lastError != null) record.put("error", lastError);
+      else if (lastError != null) {
+        record.put("error", lastError);
+        // Kept this release for compatibility; TS's record has no prediction
+        // (dropped at the next major).
+        if (errorPrediction != null) record.put("prediction", errorPrediction);
+      }
       record.put("score", score);
       record.put("passed", score >= scoreThreshold && prediction != null && "final".equals(prediction.get("completionType")));
       records.add(record);

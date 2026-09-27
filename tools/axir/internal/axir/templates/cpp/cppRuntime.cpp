@@ -1757,6 +1757,10 @@ Value Core::exception_value(const std::exception& error) {
       out["request"] = Value(std::move(request));
     }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
+    if (const auto* clarification = dynamic_cast<const AxAgentClarificationError*>(ax)) {
+      out["clarification"] = clarification->clarification;
+      out["state"] = clarification->state;
+    }
     return Value(out);
   }
   return runtime_error(error.what());
@@ -1875,6 +1879,11 @@ AxError Core::as_error(Value error) {
     const std::string prefix = "Request aborted: ";
     std::string reason = message.rfind(prefix, 0) == 0 ? message.substr(prefix.size()) : "cancelled";
     throw AxAIServiceAbortedError(reason);
+  }
+  // A clarification keeps its payload and the runtime state, as the other
+  // ports' clarification errors do.
+  if (error.is_object() && str(get_key(error, "__error")) == "AxAgentClarificationError") {
+    throw AxAgentClarificationError(str(get_key(error, "message")), get_key(error, "clarification"), get_key(error, "state"));
   }
   throw as_error(std::move(error));
 }
@@ -7227,6 +7236,9 @@ static std::string playbook_error_signature(const std::string& value) {
 }
 
 static std::string playbook_record_signature(const Value& record) {
+  // TS's record of a thrown run has only its error.
+  Value record_error = Core::get(record, "error");
+  if (Core::truthy(record_error)) return playbook_error_signature(display(record_error));
   Value prediction = Core::get(record, "prediction", Value::object());
   std::vector<std::pair<std::string, int>> counts;
   for (const auto& signal : Core::iter(Core::get(prediction, "failureSignals", Value::array()))) {
@@ -7470,6 +7482,7 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       const auto& raw_task = tasks[task_index];
       Value task = raw_task.is_object() ? raw_task : object({{"input", raw_task}});
       Value prediction;
+      Value error_prediction;
       std::string last_error;
       double score_sum = 0;
       int completed_runs = 0;
@@ -7478,7 +7491,18 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
         --remaining;
         double score = 0;
         try {
-          prediction = agent_->evaluate_optimization_task(*student_, task, options);
+          Value candidate = agent_->evaluate_optimization_task(*student_, task, options);
+          if (display(Core::get(candidate, "completionType", Value(""))) == "error") {
+            // TS's harness sees a thrown run: a zero score with no metric
+            // call, and its message as the error.
+            Value error_value = Core::get(candidate, "error");
+            last_error = error_value.is_object() ? display(Core::get(error_value, "message", Value(""))) : display(error_value);
+            error_prediction = candidate;
+            score_sum += 0;
+            ++completed_runs;
+            continue;
+          }
+          prediction = candidate;
           Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
           Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
           score = num(Core::_scalarize_optimization_scores(Core::_normalize_optimization_metric_scores(raw_score), options));
@@ -7497,7 +7521,12 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       weight_sum += weight;
       Value record = object({{"task", task}, {"index", Value(static_cast<double>(task_index))}, {"score", Value(score)}, {"passed", Value(score >= threshold && display(Core::get(prediction, "completionType", Value(""))) == "final")}});
       if (!prediction.is_null()) Core::set(record, "prediction", prediction);
-      else if (!last_error.empty()) Core::set(record, "error", Value(last_error));
+      else if (!last_error.empty()) {
+        Core::set(record, "error", Value(last_error));
+        // Kept this release for compatibility; TS's record has no prediction
+        // (dropped at the next major).
+        if (!error_prediction.is_null()) Core::set(record, "prediction", error_prediction);
+      }
       records.push_back(record);
       if (completed_runs < runs_per_task) break;
     }
@@ -8557,9 +8586,17 @@ Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value op
   // this run's share of the agent's logs.
   Value marks = Core::_agent_eval_marks(state_);
   Value completion;
+  // TS's evaluation path runs no playbook run-end learning.
+  Core::set(state_, "playbook_learning_paused", Value(true));
+  struct ResumeLearning {
+    Value& state;
+    ~ResumeLearning() { Core::map_delete(state, Value("playbook_learning_paused")); }
+  } resume_learning{state_};
   try {
     Value output = forward(client, input, forward_options);
     completion = object({{"type", Value("final")}, {"output", output}});
+  } catch (const AxAgentClarificationError& e) {
+    completion = object({{"type", Value("askClarification")}, {"clarification", e.clarification}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
       completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
@@ -8735,6 +8772,8 @@ void AxAgent::attach_configured_playbook() {
 
 void AxAgent::learn_playbook_failures(Value output) {
   if (!playbook_handle_ || playbook_config_.is_null()) return;
+  // An evaluated run learns nothing, as TS's evaluation path.
+  if (Core::truthy(Core::get(state_, "playbook_learning_paused", Value(false)))) return;
   Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
   Value learn = Core::get(config, "learn", Value(true));
   if (learn.is_bool() && !Core::truthy(learn)) return;

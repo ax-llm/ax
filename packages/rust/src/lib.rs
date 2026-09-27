@@ -8365,6 +8365,10 @@ impl AxAgent {
         if self.playbook_config.is_null() || self.playbook_config.as_bool() == Some(false) {
             return;
         }
+        // An evaluated run learns nothing, as TS's evaluation path.
+        if self.state_json("playbook_learning_paused").as_bool() == Some(true) {
+            return;
+        }
         let _ = (|| -> AxResult<()> {
             let config = self
                 .playbook_config
@@ -8711,11 +8715,28 @@ impl AxAgent {
         ])?))
     }
 
+    /// Run one task and return its prediction. A run that asks for
+    /// clarification is an askClarification prediction. A run that throws
+    /// currently returns that error (Err), unlike the other ports, whose
+    /// prediction for it has completionType 'error'; Rust returns that
+    /// prediction at the next major version.
     pub fn evaluate_optimization_task<C: AxAIClient>(
         &mut self,
         client: &mut C,
         task: Value,
         options: Value,
+    ) -> AxResult<Value> {
+        self.evaluate_optimization_task_with(client, task, options, false)
+    }
+
+    // thrown_as_prediction: a run that throws is a completionType 'error'
+    // prediction, as the other ports' evaluate_optimization_task returns it.
+    fn evaluate_optimization_task_with<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        task: Value,
+        options: Value,
+        thrown_as_prediction: bool,
     ) -> AxResult<Value> {
         let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
         let forward_options = options
@@ -8725,13 +8746,25 @@ impl AxAgent {
         // As TS evaluates each task from a fresh state, the prediction carries
         // only this run's share of the agent's logs.
         let marks = _agent_eval_marks(&[self.state.clone()])?;
-        let completion = match self.forward_with_options(client, input, forward_options) {
+        // TS's evaluation path runs no playbook run-end learning.
+        core_set(
+            &self.state,
+            CoreValue::from("playbook_learning_paused"),
+            CoreValue::Bool(true),
+        )?;
+        let forwarded = self.forward_with_options(client, input, forward_options);
+        let _ = core_map_delete(&[
+            self.state.clone(),
+            CoreValue::from("playbook_learning_paused"),
+        ]);
+        let completion = match forwarded {
             Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
                 Some(detail) => json!({
                     "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
                 }),
+                None if thrown_as_prediction => json!({"type": "error", "message": error.message}),
                 None => return Err(error),
             },
         };
@@ -9009,8 +9042,10 @@ impl AxAgent {
                 } else {
                     json!({"input": raw_task})
                 };
+                // A task that throws is a completionType 'error' row scored
+                // 0, and the evaluation goes on, as in the other ports.
                 let prediction =
-                    self.evaluate_optimization_task(client, task.clone(), opts.clone())?;
+                    self.evaluate_optimization_task_with(client, task.clone(), opts.clone(), true)?;
                 let error = prediction.get("error").cloned().unwrap_or(Value::Null);
                 let score_task = if raw_task.is_object() {
                     raw_task.clone()
@@ -9643,6 +9678,58 @@ impl AxFlow {
         Ok(core_value_to_json(&_flow_get_optimizable_components(&[
             self.state.clone(),
         ])?))
+    }
+
+    /// Evaluate a candidate component map over a dataset: each task runs the
+    /// flow on the client and is scored, and the flow's components are
+    /// restored afterwards, as `evaluate_optimization` does in the other
+    /// ports (the flow's Core evaluation).
+    pub fn evaluate_optimization<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        dataset: &Value,
+        candidate_map: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method == "owned_worker" {
+                return Ok(publish_owned_client_factory(client.owned_worker_factory()));
+            }
+            if method.starts_with("route_") {
+                return session::dispatch_run_route(client, method, request, options);
+            }
+            if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(
+                    client.open_chat_session(request, options)?,
+                ))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options);
+                Ok(Value::Null)
+            } else {
+                client.chat_with_options(request, options)
+            }
+        };
+        let options = if options.is_object() {
+            options.clone()
+        } else {
+            json!({})
+        };
+        let result = with_core_client(&mut chat, || {
+            _flow_evaluate_optimization(&[
+                self.state.clone(),
+                CoreValue::Null,
+                core_value_from_json(dataset),
+                core_value_from_json(candidate_map),
+                core_value_from_json(&options),
+            ])
+        })?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
@@ -11631,6 +11718,14 @@ fn playbook_error_signature(value: &str) -> String {
 }
 
 fn playbook_record_signature(record: &Value) -> String {
+    // TS's record of a thrown run has only its error.
+    if let Some(error) = record
+        .get("error")
+        .and_then(Value::as_str)
+        .filter(|error| !error.is_empty())
+    {
+        return playbook_error_signature(error);
+    }
     let prediction = record.get("prediction").unwrap_or(&Value::Null);
     let mut counts: Vec<(String, u64)> = Vec::new();
     for signal in prediction
@@ -11723,6 +11818,7 @@ fn run_agent_playbook_batch<C: AxAIClient>(
             json!({"input":raw})
         };
         let mut prediction = Value::Null;
+        let mut error_prediction = Value::Null;
         let mut last_error: Option<String> = None;
         let mut score_sum = 0.0;
         let mut completed_runs = 0usize;
@@ -11734,6 +11830,25 @@ fn run_agent_playbook_batch<C: AxAIClient>(
             remaining.set(remaining.get() - 1);
             let score =
                 match agent.evaluate_optimization_task(client, task.clone(), options.clone()) {
+                    // TS's harness sees a thrown run: a zero score with no metric
+                    // call, and its message as the error.
+                    Ok(value)
+                        if value.get("completionType").and_then(Value::as_str) == Some("error") =>
+                    {
+                        let error = value.get("error").cloned().unwrap_or(Value::Null);
+                        last_error = Some(match &error {
+                            Value::Object(map) => map
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            Value::String(text) => text.clone(),
+                            Value::Null => String::new(),
+                            other => other.to_string(),
+                        });
+                        error_prediction = value;
+                        0.0
+                    }
                     Ok(value) => {
                         prediction = value;
                         let raw_score = task
@@ -11784,6 +11899,11 @@ fn run_agent_playbook_batch<C: AxAIClient>(
             record["prediction"] = prediction;
         } else if let Some(error) = last_error {
             record["error"] = json!(error);
+            // Kept this release for compatibility; TS's record has no
+            // prediction (dropped at the next major).
+            if !error_prediction.is_null() {
+                record["prediction"] = error_prediction;
+            }
         }
         records.push(record);
         if completed_runs < runs_per_task {
@@ -21687,15 +21807,9 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "evaluate" => {
-            if fixture
-                .get("eval_options")
-                .and_then(|options| options.get("maxMetricCalls"))
-                .and_then(Value::as_f64)
-                .is_some_and(|value| value <= 0.0)
-            {
-                return Err(AxError::runtime("max metric calls exceeded"));
-            }
-            let result = conformance_evaluation_result(fixture);
+            // The program's own evaluate_optimization on the fixture's
+            // scripted client, as the other runners do.
+            let (result, components_after) = conformance_evaluation_result(fixture)?;
             if let Some(expected) = fixture.get("expected_evaluation_subset") {
                 expect_json_subset("optimization evaluation", &result, expected)?;
             }
@@ -21713,11 +21827,7 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
                 .get("expected_components_subset_after")
                 .and_then(Value::as_array)
             {
-                expect_json_list_subset(
-                    "post-eval components",
-                    &Value::Array(conformance_optimizable_components(fixture)),
-                    expected,
-                )?;
+                expect_json_list_subset("post-eval components", &components_after, expected)?;
             }
         }
         "engine" => {
@@ -22556,75 +22666,87 @@ fn build_optimizer_evidence_batch(eval_result: &Value, components: &[Value]) -> 
     )
 }
 
-fn conformance_evaluation_result(fixture: &Value) -> Value {
-    let dataset = normalize_optimization_dataset(fixture.get("dataset").unwrap_or(&json!([])));
-    let rows = dataset
-        .get("train")
+// The optimize evaluate operation: the fixture's program (agent, flow or
+// AxGen) evaluates the dataset with the candidate map on the fixture's
+// scripted client, and the program's components after the evaluation come
+// back with the result.
+fn conformance_evaluation_result(fixture: &Value) -> AxResult<(Value, Value)> {
+    let signature = fixture
+        .get("signature")
+        .and_then(Value::as_str)
+        .unwrap_or("question:string -> answer:string");
+    let dataset = fixture.get("dataset").cloned().unwrap_or_else(|| json!([]));
+    let candidate_map = fixture
+        .get("candidate_map")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let eval_options = fixture
+        .get("eval_options")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let responses = fixture
+        .get("responses")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|task| {
-            let prediction = conformance_optimization_prediction_for_task(fixture, &task);
-            let (scores, scalar) = score_optimization_prediction(
-                &task,
-                &prediction,
-                fixture.get("eval_options").unwrap_or(&json!({})),
-            )
-            .unwrap_or_else(|_| {
-                let scalar =
-                    if prediction.get("completionType").and_then(Value::as_str) == Some("error") {
-                        0.0
-                    } else {
-                        task.get("score").and_then(Value::as_f64).unwrap_or(1.0)
-                    };
-                (json!({"score": scalar}), scalar)
-            });
-            let trace = prediction
-                .get("trace")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            let error = prediction.get("error").cloned().unwrap_or(Value::Null);
-            core_value_to_json(
-                &_build_optimization_eval_row(&[
-                    core_value_from_json(&task),
-                    core_value_from_json(&prediction),
-                    core_value_from_json(&scores),
-                    CoreValue::Num(scalar),
-                    core_value_from_json(&trace),
-                    core_value_from_json(&error),
-                ])
-                .unwrap_or_else(|_| {
-                    core_value_from_json(&json!({
-                        "input": task.get("input").cloned().unwrap_or_else(|| json!({})),
-                        "prediction": prediction,
-                        "scalar": scalar,
-                        "scores": scores,
-                    }))
-                }),
-            )
-        })
-        .collect::<Vec<_>>();
-    let phase = fixture
-        .get("eval_options")
-        .and_then(|options| options.get("phase"))
-        .and_then(Value::as_str)
-        .unwrap_or("train");
-    let mut result = core_value_to_json(
-        &_build_optimization_eval_result(&[
-            core_value_from_json(&Value::Array(rows)),
-            core_value_from_json(
-                &fixture
-                    .get("candidate_map")
-                    .cloned()
-                    .unwrap_or_else(|| json!({})),
-            ),
-            CoreValue::from(phase),
-        ])
-        .unwrap_or_else(|_| core_value_from_json(&json!({}))),
+        .unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture
+            .get("features")
+            .cloned()
+            .unwrap_or_else(router_default_features),
     );
-    result["contractVersion"] = json!("axir-optimization-eval-v1");
-    result
+    let mut result = match fixture
+        .get("program")
+        .and_then(Value::as_str)
+        .unwrap_or("agent")
+    {
+        "flow" => {
+            let mut flow = AxFlow {
+                state: conformance_build_flow_state(fixture)?,
+                execution_context: None,
+                runtime_hooks: AxRuntimeHooks::default(),
+            };
+            let result =
+                flow.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, flow.get_optimizable_components()?)
+        }
+        "axgen" => {
+            let mut gen = ax(signature)?;
+            let result =
+                gen.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, Value::Array(gen.get_optimizable_components()))
+        }
+        _ => {
+            let mut program = agent_with_options(
+                signature,
+                fixture.get("options").cloned().unwrap_or_else(|| json!({})),
+            )?;
+            if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+                let language = fixture
+                    .get("runtime_language")
+                    .and_then(Value::as_str)
+                    .unwrap_or("JavaScript")
+                    .to_string();
+                program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(
+                    script.clone(),
+                    language,
+                    String::new(),
+                )))?;
+            }
+            let result = program.evaluate_optimization(
+                &mut client,
+                &dataset,
+                &candidate_map,
+                &eval_options,
+            )?;
+            (result, Value::Array(program.get_optimizable_components()?))
+        }
+    };
+    if result.0.get("contractVersion").is_none() {
+        result.0["contractVersion"] = json!("axir-optimization-eval-v1");
+    }
+    Ok(result)
 }
 
 // The optimize eval operation runs the agent's evaluate_optimization_task on
@@ -22666,65 +22788,29 @@ fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
     let task = fixture.get("task").cloned().unwrap_or_else(
         || json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}),
     );
-    program.evaluate_optimization_task(
+    let prediction = program.evaluate_optimization_task(
         &mut client,
         task,
         fixture
             .get("eval_options")
             .cloned()
             .unwrap_or_else(|| json!({})),
-    )
-}
-
-fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {
-    if fixture
-        .get("expected_evaluation_rows_subset")
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter().any(|row| {
-                row.get("prediction")
-                    .and_then(|prediction| prediction.get("completionType"))
-                    .and_then(Value::as_str)
-                    == Some("error")
-            })
-        })
-        .unwrap_or(false)
+    )?;
+    if let Some(expected) = fixture
+        .get("expected_request_count")
+        .and_then(Value::as_u64)
     {
-        return json!({"completionType": "error", "error": "runtime error"});
+        if client.requests.len() != expected as usize {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "expected {expected} eval requests, got {}",
+                    client.requests.len()
+                ),
+            ));
+        }
     }
-    if fixture
-        .get("responses")
-        .and_then(Value::as_array)
-        .map(|responses| {
-            responses.iter().any(|response| {
-                response
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .contains("runtime error")
-            })
-        })
-        .unwrap_or(false)
-    {
-        return json!({"completionType": "error", "error": "runtime error"});
-    }
-    let output = task
-        .get("expectedOutput")
-        .or_else(|| task.get("expected"))
-        .cloned()
-        .or_else(|| {
-            fixture
-                .get("expected_prediction_subset")
-                .and_then(|value| value.get("output"))
-                .cloned()
-        })
-        .unwrap_or_else(|| json!({"answer": "Paris"}));
-    json!({
-        "completionType": "final",
-        "output": output,
-        "functionCalls": [],
-        "turnCount": 2,
-    })
+    Ok(prediction)
 }
 
 fn optimizer_engine_request(fixture: &Value, components: &[Value]) -> Value {
@@ -22798,7 +22884,10 @@ fn engine_evaluations(fixture: &Value) -> Vec<Value> {
             if let Some(obj) = fixture_copy.as_object_mut() {
                 obj.insert("candidate_map".to_string(), candidate_map.clone());
             }
-            let result = conformance_evaluation_result(&fixture_copy);
+            // An evaluation that fails scores nothing, as before.
+            let result = conformance_evaluation_result(&fixture_copy)
+                .map(|(result, _)| result)
+                .unwrap_or_else(|_| json!({"count": 0, "avg": 0}));
             json!({
                 "candidateMap": candidate_map,
                 "count": result.get("count").cloned().unwrap_or_else(|| json!(0)),
@@ -110907,6 +110996,9 @@ fn _agent_playbook_miner_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError
             v_error = core_get(&v_error, &CoreValue::from("message"), CoreValue::from(""));
         }
         v_has_error = core_truthy_value(&[v_error.clone()])?;
+        if core_truthy(&v_has_error) {
+            v_prediction = v_empty_map.clone();
+        }
         v_body = CoreValue::from("");
         if core_truthy(&v_has_error) {
             v_body = core_string_format(&[CoreValue::from("Run threw: {}"), v_error.clone()])?;
@@ -111282,6 +111374,9 @@ fn _agent_build_failure_signals(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_arguments_preview = CoreValue::Null;
     let mut v_arguments_text = CoreValue::Null;
     let mut v_call = CoreValue::Null;
+    let mut v_call_failed = CoreValue::Null;
+    let mut v_call_in_run = CoreValue::Null;
+    let mut v_call_index = CoreValue::Null;
     let mut v_category = CoreValue::Null;
     let mut v_code = CoreValue::Null;
     let mut v_code_preview = CoreValue::Null;
@@ -111298,10 +111393,12 @@ fn _agent_build_failure_signals(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_has_code = CoreValue::Null;
     let mut v_is_error = CoreValue::Null;
     let mut v_kind = CoreValue::Null;
+    let mut v_next_call_index = CoreValue::Null;
     let mut v_previous_signature = CoreValue::Null;
     let mut v_qualified_name = CoreValue::Null;
     let mut v_repeated = CoreValue::Null;
     let mut v_result = CoreValue::Null;
+    let mut v_run_calls_from = CoreValue::Null;
     let mut v_signal = CoreValue::Null;
     let mut v_signals = CoreValue::Null;
     let mut v_signature = CoreValue::Null;
@@ -111393,10 +111490,20 @@ fn _agent_build_failure_signals(args: &[CoreValue]) -> Result<CoreValue, AxError
         &CoreValue::from("function_call_traces"),
         v_empty_list.clone(),
     );
+    v_run_calls_from = core_get(
+        &v_state,
+        &CoreValue::from("run_function_call_start"),
+        CoreValue::Num(0f64),
+    );
+    v_call_index = CoreValue::Num(0f64);
     for v_call in core_iter(&v_function_traces)? {
         let mut v_call = v_call;
         v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::from("ok"));
-        v_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
+        v_call_failed = core_eq(&[v_status.clone(), CoreValue::from("error")])?;
+        v_call_in_run = core_gte(&[v_call_index.clone(), v_run_calls_from.clone()])?;
+        v_failed = core_and(&[v_call_failed.clone(), v_call_in_run.clone()])?;
+        v_next_call_index = core_add(&[v_call_index.clone(), CoreValue::Num(1f64)])?;
+        v_call_index = v_next_call_index.clone();
         if core_truthy(&v_failed) {
             v_result = core_get(&v_call, &CoreValue::from("result"), CoreValue::Null);
             v_error_text = core_get(
@@ -111523,13 +111630,93 @@ fn _throw_agent_clarification(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     axir_coverage_mark("_throw_agent_clarification");
     let mut v_payload = core_arg(args, 0);
     let mut v_state = core_arg(args, 1);
+    let mut v_agent_options = CoreValue::Null;
+    let mut v_arg_count = CoreValue::Null;
+    let mut v_args = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
     let mut v_error = CoreValue::Null;
+    let mut v_has_arg = CoreValue::Null;
     let mut v_is_clarification = CoreValue::Null;
+    let mut v_is_raw = CoreValue::Null;
+    let mut v_is_structured = CoreValue::Null;
+    let mut v_kept = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_known_shape = CoreValue::Null;
     let mut v_none = CoreValue::Null;
+    let mut v_shape = CoreValue::Null;
+    let mut v_shape_error = CoreValue::Null;
+    let mut v_shape_json = CoreValue::Null;
+    let mut v_shape_message = CoreValue::Null;
+    let mut v_shape_set = CoreValue::Null;
+    let mut v_shape_snake = CoreValue::Null;
+    let mut v_shaped = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_structured = CoreValue::Null;
+    let mut v_structured_args = CoreValue::Null;
     let mut v_type = CoreValue::Null;
+    let mut v_unknown_shape = CoreValue::Null;
     v_type = core_get(&v_payload, &CoreValue::from("type"), CoreValue::Null);
     v_is_clarification = core_eq(&[v_type.clone(), CoreValue::from("askClarification")])?;
     if core_truthy(&v_is_clarification) {
+        v_empty_map = CoreValue::new_map();
+        v_empty_list = CoreValue::new_list();
+        v_agent_options = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+        v_shape_snake = core_get(
+            &v_agent_options,
+            &CoreValue::from("clarification_shape"),
+            CoreValue::Null,
+        );
+        v_shape = core_get(
+            &v_agent_options,
+            &CoreValue::from("clarificationShape"),
+            v_shape_snake.clone(),
+        );
+        v_shape_set = core_is_not_none(&[v_shape.clone()])?;
+        if core_truthy(&v_shape_set) {
+            v_is_raw = core_eq(&[v_shape.clone(), CoreValue::from("raw")])?;
+            v_is_structured = core_eq(&[v_shape.clone(), CoreValue::from("structured")])?;
+            v_known_shape = core_or(&[v_is_raw.clone(), v_is_structured.clone()])?;
+            v_unknown_shape = core_not(&[v_known_shape.clone()])?;
+            if core_truthy(&v_unknown_shape) {
+                v_shape_json = core_json_pretty(&[v_shape.clone()])?;
+                v_shape_message = core_string_format(&[
+                    CoreValue::from(
+                        "clarificationShape must be 'raw' or 'structured', received: {}",
+                    ),
+                    v_shape_json.clone(),
+                ])?;
+                v_shape_error = core_validation_error(&[v_shape_message.clone()])?;
+                return Err(core_as_error(&v_shape_error));
+            }
+            if core_truthy(&v_is_structured) {
+                v_args = core_get(&v_payload, &CoreValue::from("args"), v_empty_list.clone());
+                v_arg_count = core_len(&[v_args.clone()])?;
+                v_has_arg = core_gt(&[v_arg_count.clone(), CoreValue::Num(0f64)])?;
+                v_source = v_payload.clone();
+                if core_truthy(&v_has_arg) {
+                    v_source =
+                        core_list_get(&[v_args.clone(), CoreValue::Num(0f64), CoreValue::Null])?;
+                }
+                v_structured = _agent_structured_clarification(&[v_source.clone()])?;
+                v_structured_args = CoreValue::new_list();
+                core_append(&v_structured_args, v_structured.clone())?;
+                v_shaped = CoreValue::new_map();
+                for v_key in core_iter(&v_payload)? {
+                    let mut v_key = v_key;
+                    v_kept = core_get(&v_payload, &v_key.clone(), CoreValue::Null);
+                    core_set(&v_shaped, v_key.clone(), v_kept.clone())?;
+                }
+                core_set(
+                    &v_shaped,
+                    CoreValue::from("args"),
+                    v_structured_args.clone(),
+                )?;
+                v_payload = v_shaped.clone();
+            }
+        } else {
+            core_axgen_deprecation(&[CoreValue::from("agent-clarification-shape"), CoreValue::from("An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version.")])?;
+        }
         v_error = core_agent_clarification_error(&[v_payload.clone(), v_state.clone()])?;
         return Err(core_as_error(&v_error));
     }
@@ -113525,6 +113712,7 @@ fn _agent_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_responder_request_event = CoreValue::Null;
     let mut v_responder_response_event = CoreValue::Null;
     let mut v_responder_values = CoreValue::Null;
+    _agent_check_inputs(&[v_state.clone(), v_values.clone(), v_options.clone()])?;
     v_prepared = _agent_run_actor_stages(&[
         v_state.clone(),
         v_distiller.clone(),
@@ -114078,6 +114266,9 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_forward_error = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_output = CoreValue::Null;
+    let mut v_run_calls_before = CoreValue::Null;
+    let mut v_run_calls_empty = CoreValue::Null;
+    let mut v_run_calls_start = CoreValue::Null;
     let mut v_session = CoreValue::Null;
     v_none = core_none(&[])?;
     v_active = core_get(
@@ -114101,6 +114292,18 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_state,
         CoreValue::from("active_forward_options"),
         v_options.clone(),
+    )?;
+    v_run_calls_empty = CoreValue::new_list();
+    v_run_calls_before = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_run_calls_empty.clone(),
+    );
+    v_run_calls_start = core_len(&[v_run_calls_before.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("run_function_call_start"),
+        v_run_calls_start.clone(),
     )?;
     v_output = CoreValue::new_map();
     let __core_try: Result<CoreFlow, AxError> = (|| {
@@ -115706,6 +115909,7 @@ fn _agent_streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_responder_request_event = CoreValue::Null;
     let mut v_responder_response_event = CoreValue::Null;
     let mut v_responder_values = CoreValue::Null;
+    _agent_check_inputs(&[v_state.clone(), v_values.clone(), v_options.clone()])?;
     v_prepared = _agent_run_actor_stages(&[
         v_state.clone(),
         v_distiller.clone(),
@@ -115846,6 +116050,9 @@ fn _agent_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_forward_error = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_output = CoreValue::Null;
+    let mut v_run_calls_before = CoreValue::Null;
+    let mut v_run_calls_empty = CoreValue::Null;
+    let mut v_run_calls_start = CoreValue::Null;
     let mut v_session = CoreValue::Null;
     v_none = core_none(&[])?;
     v_active = core_get(
@@ -115869,6 +116076,18 @@ fn _agent_streaming_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_state,
         CoreValue::from("active_forward_options"),
         v_options.clone(),
+    )?;
+    v_run_calls_empty = CoreValue::new_list();
+    v_run_calls_before = core_get(
+        &v_state,
+        &CoreValue::from("function_call_traces"),
+        v_run_calls_empty.clone(),
+    );
+    v_run_calls_start = core_len(&[v_run_calls_before.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("run_function_call_start"),
+        v_run_calls_start.clone(),
     )?;
     v_output = CoreValue::new_map();
     let __core_try: Result<CoreFlow, AxError> = (|| {
@@ -116361,6 +116580,571 @@ fn _agent_use_stage_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_record_responder_description.clone(),
     )?;
     return Ok(v_record.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_check_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_check_inputs");
+    let mut v_state = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_agent_mode = CoreValue::Null;
+    let mut v_agent_mode_snake = CoreValue::Null;
+    let mut v_agent_options = CoreValue::Null;
+    let mut v_call_mode_snake = CoreValue::Null;
+    let mut v_call_unset = CoreValue::Null;
+    let mut v_check = CoreValue::Null;
+    let mut v_context_error = CoreValue::Null;
+    let mut v_context_field = CoreValue::Null;
+    let mut v_context_fields = CoreValue::Null;
+    let mut v_context_is_map = CoreValue::Null;
+    let mut v_context_missing = CoreValue::Null;
+    let mut v_context_name = CoreValue::Null;
+    let mut v_context_names = CoreValue::Null;
+    let mut v_context_optional = CoreValue::Null;
+    let mut v_context_present = CoreValue::Null;
+    let mut v_context_problem = CoreValue::Null;
+    let mut v_context_problem_empty = CoreValue::Null;
+    let mut v_context_required = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_list_value = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_text = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_has_context_problem = CoreValue::Null;
+    let mut v_input_error = CoreValue::Null;
+    let mut v_input_fields = CoreValue::Null;
+    let mut v_is_context = CoreValue::Null;
+    let mut v_is_fail = CoreValue::Null;
+    let mut v_is_lenient = CoreValue::Null;
+    let mut v_is_list = CoreValue::Null;
+    let mut v_is_optional = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_known_context = CoreValue::Null;
+    let mut v_list_length = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_mode_error = CoreValue::Null;
+    let mut v_mode_json = CoreValue::Null;
+    let mut v_mode_message = CoreValue::Null;
+    let mut v_mode_set = CoreValue::Null;
+    let mut v_problem = CoreValue::Null;
+    let mut v_same_context = CoreValue::Null;
+    let mut v_same_field = CoreValue::Null;
+    let mut v_sig = CoreValue::Null;
+    let mut v_skip = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_warn = CoreValue::Null;
+    let mut v_warning = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_agent_options = core_get(&v_state, &CoreValue::from("options"), v_empty_map.clone());
+    v_agent_mode_snake = core_get(
+        &v_agent_options,
+        &CoreValue::from("input_validation"),
+        CoreValue::Null,
+    );
+    v_agent_mode = core_get(
+        &v_agent_options,
+        &CoreValue::from("inputValidation"),
+        v_agent_mode_snake.clone(),
+    );
+    v_call_mode_snake = core_get(
+        &v_options,
+        &CoreValue::from("input_validation"),
+        CoreValue::Null,
+    );
+    v_mode = core_get(
+        &v_options,
+        &CoreValue::from("inputValidation"),
+        v_call_mode_snake.clone(),
+    );
+    v_call_unset = core_is_none(&[v_mode.clone()])?;
+    if core_truthy(&v_call_unset) {
+        v_mode = v_agent_mode.clone();
+    }
+    v_mode_set = core_is_not_none(&[v_mode.clone()])?;
+    v_is_fail = CoreValue::Bool(false);
+    if core_truthy(&v_mode_set) {
+        v_is_fail = core_eq(&[v_mode.clone(), CoreValue::from("fail")])?;
+        v_is_lenient = core_eq(&[v_mode.clone(), CoreValue::from("lenient")])?;
+        v_known = core_or(&[v_is_fail.clone(), v_is_lenient.clone()])?;
+        v_unknown = core_not(&[v_known.clone()])?;
+        if core_truthy(&v_unknown) {
+            v_mode_json = core_json_pretty(&[v_mode.clone()])?;
+            v_mode_message = core_string_format(&[
+                CoreValue::from("inputValidation must be 'lenient' or 'fail', received: {}"),
+                v_mode_json.clone(),
+            ])?;
+            v_mode_error = core_validation_error(&[v_mode_message.clone()])?;
+            return Err(core_as_error(&v_mode_error));
+        }
+    }
+    v_sig = core_get(&v_state, &CoreValue::from("signature"), v_empty_map.clone());
+    v_input_fields = core_get(
+        &v_sig,
+        &CoreValue::from("input_fields"),
+        v_empty_list.clone(),
+    );
+    v_context_fields = core_get(
+        &v_state,
+        &CoreValue::from("context_fields"),
+        v_empty_list.clone(),
+    );
+    v_context_names = CoreValue::new_list();
+    for v_context_field in core_iter(&v_context_fields)? {
+        let mut v_context_field = v_context_field;
+        v_context_is_map = core_type_is(&v_context_field, CoreValue::from("object"));
+        v_context_name = v_context_field.clone();
+        if core_truthy(&v_context_is_map) {
+            v_context_name = core_get(
+                &v_context_field,
+                &CoreValue::from("name"),
+                CoreValue::from(""),
+            );
+        }
+        core_append(&v_context_names, v_context_name.clone())?;
+    }
+    v_context_problem = CoreValue::from("");
+    for v_context_name in core_iter(&v_context_names)? {
+        let mut v_context_name = v_context_name;
+        v_context_problem_empty = core_eq(&[v_context_problem.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_context_problem_empty) {
+            v_context_optional = CoreValue::Bool(false);
+            for v_field in core_iter(&v_input_fields)? {
+                let mut v_field = v_field;
+                v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+                v_same_field = core_eq(&[v_field_name.clone(), v_context_name.clone()])?;
+                if core_truthy(&v_same_field) {
+                    v_context_optional = core_get(
+                        &v_field,
+                        &CoreValue::from("is_optional"),
+                        CoreValue::Bool(false),
+                    );
+                }
+            }
+            v_context_required = core_not(&[v_context_optional.clone()])?;
+            if core_truthy(&v_context_required) {
+                v_context_present = core_map_contains(&[v_values.clone(), v_context_name.clone()])?;
+                v_context_missing = core_not(&[v_context_present.clone()])?;
+                if core_truthy(&v_context_missing) {
+                    v_context_problem = core_string_format(&[
+                        CoreValue::from("RLM contextField \"{}\" is missing from input values"),
+                        v_context_name.clone(),
+                    ])?;
+                }
+            }
+        }
+    }
+    v_has_context_problem = core_ne(&[v_context_problem.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_context_problem) {
+        if core_truthy(&v_is_fail) {
+            v_context_error = core_validation_error(&[v_context_problem.clone()])?;
+            return Err(core_as_error(&v_context_error));
+        }
+        v_warn = core_not(&[v_mode_set.clone()])?;
+        if core_truthy(&v_warn) {
+            v_warning = core_string_format(&[CoreValue::from("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version."), v_context_problem.clone()])?;
+            core_axgen_deprecation(&[
+                CoreValue::from("agent-input-validation"),
+                v_warning.clone(),
+            ])?;
+        }
+    }
+    for v_field in core_iter(&v_input_fields)? {
+        let mut v_field = v_field;
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_is_optional = core_get(
+            &v_field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Bool(false),
+        );
+        v_is_context = CoreValue::Bool(false);
+        for v_known_context in core_iter(&v_context_names)? {
+            let mut v_known_context = v_known_context;
+            v_same_context = core_eq(&[v_known_context.clone(), v_field_name.clone()])?;
+            v_is_context = core_or(&[v_is_context.clone(), v_same_context.clone()])?;
+        }
+        v_skip = core_or(&[v_is_optional.clone(), v_is_context.clone()])?;
+        v_check = core_not(&[v_skip.clone()])?;
+        if core_truthy(&v_check) {
+            v_value = core_get(&v_values, &v_field_name.clone(), CoreValue::Null);
+            v_missing = core_is_none(&[v_value.clone()])?;
+            v_is_text = core_type_is(&v_value, CoreValue::from("string"));
+            if core_truthy(&v_is_text) {
+                v_empty_text = core_eq(&[v_value.clone(), CoreValue::from("")])?;
+                v_missing = core_or(&[v_missing.clone(), v_empty_text.clone()])?;
+            }
+            v_is_list = core_type_is(&v_value, CoreValue::from("list"));
+            if core_truthy(&v_is_list) {
+                v_list_length = core_len(&[v_value.clone()])?;
+                v_empty_list_value = core_eq(&[v_list_length.clone(), CoreValue::Num(0f64)])?;
+                v_missing = core_or(&[v_missing.clone(), v_empty_list_value.clone()])?;
+            }
+            if core_truthy(&v_missing) {
+                v_problem = core_string_format(&[
+                    CoreValue::from("Value for input field '{}' is required."),
+                    v_field_name.clone(),
+                ])?;
+                v_input_error = core_validation_error(&[v_problem.clone()])?;
+                return Err(core_as_error(&v_input_error));
+            }
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_clarification_choice(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_clarification_choice");
+    let mut v_choice = core_arg(args, 0);
+    let mut v_error = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_label_bad = CoreValue::Null;
+    let mut v_label_error = CoreValue::Null;
+    let mut v_label_is_text = CoreValue::Null;
+    let mut v_label_ok = CoreValue::Null;
+    let mut v_label_trimmed = CoreValue::Null;
+    let mut v_non_empty = CoreValue::Null;
+    let mut v_not_map = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_value_bad = CoreValue::Null;
+    let mut v_value_error = CoreValue::Null;
+    let mut v_value_is_text = CoreValue::Null;
+    let mut v_value_ok = CoreValue::Null;
+    let mut v_value_trimmed = CoreValue::Null;
+    v_is_text = core_type_is(&v_choice, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_trimmed = core_string_trim(&v_choice);
+        v_non_empty = core_ne(&[v_trimmed.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_non_empty) {
+            return Ok(v_choice.clone());
+        }
+    }
+    v_is_map = core_type_is(&v_choice, CoreValue::from("object"));
+    v_not_map = core_not(&[v_is_map.clone()])?;
+    if core_truthy(&v_not_map) {
+        v_error = core_runtime_error(&[CoreValue::from("askClarification() choice entries must be non-empty strings or objects with a non-empty label")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_label = core_get(&v_choice, &CoreValue::from("label"), CoreValue::Null);
+    v_label_ok = CoreValue::Bool(false);
+    v_label_is_text = core_type_is(&v_label, CoreValue::from("string"));
+    if core_truthy(&v_label_is_text) {
+        v_label_trimmed = core_string_trim(&v_label);
+        v_label_ok = core_ne(&[v_label_trimmed.clone(), CoreValue::from("")])?;
+    }
+    v_label_bad = core_not(&[v_label_ok.clone()])?;
+    if core_truthy(&v_label_bad) {
+        v_label_error = core_runtime_error(&[CoreValue::from(
+            "askClarification() choice objects require a non-empty label",
+        )])?;
+        return Err(core_as_error(&v_label_error));
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("label"), v_label.clone())?;
+    v_has_value = core_map_contains(&[v_choice.clone(), CoreValue::from("value")])?;
+    if core_truthy(&v_has_value) {
+        v_value = core_get(&v_choice, &CoreValue::from("value"), CoreValue::Null);
+        v_value_ok = CoreValue::Bool(false);
+        v_value_is_text = core_type_is(&v_value, CoreValue::from("string"));
+        if core_truthy(&v_value_is_text) {
+            v_value_trimmed = core_string_trim(&v_value);
+            v_value_ok = core_ne(&[v_value_trimmed.clone(), CoreValue::from("")])?;
+        }
+        v_value_bad = core_not(&[v_value_ok.clone()])?;
+        if core_truthy(&v_value_bad) {
+            v_value_error = core_runtime_error(&[CoreValue::from(
+                "askClarification() choice object values must be non-empty strings",
+            )])?;
+            return Err(core_as_error(&v_value_error));
+        }
+        core_set(&v_out, CoreValue::from("value"), v_value.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_structured_clarification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_structured_clarification");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_allowed = CoreValue::Null;
+    let mut v_choice = CoreValue::Null;
+    let mut v_choice_error = CoreValue::Null;
+    let mut v_choice_failed = CoreValue::Null;
+    let mut v_choice_failure = CoreValue::Null;
+    let mut v_choice_multiple_error = CoreValue::Null;
+    let mut v_choices_count = CoreValue::Null;
+    let mut v_choices_count_after = CoreValue::Null;
+    let mut v_choices_given = CoreValue::Null;
+    let mut v_choices_is_list = CoreValue::Null;
+    let mut v_choices_unusable = CoreValue::Null;
+    let mut v_choices_usable = CoreValue::Null;
+    let mut v_copied = CoreValue::Null;
+    let mut v_detail = CoreValue::Null;
+    let mut v_drop_key = CoreValue::Null;
+    let mut v_drop_this_type = CoreValue::Null;
+    let mut v_drop_type = CoreValue::Null;
+    let mut v_empty_multiple_error = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failure_empty = CoreValue::Null;
+    let mut v_few_error = CoreValue::Null;
+    let mut v_has_choices = CoreValue::Null;
+    let mut v_has_normalized_choices = CoreValue::Null;
+    let mut v_has_normalized_type = CoreValue::Null;
+    let mut v_has_type = CoreValue::Null;
+    let mut v_is_choices_key = CoreValue::Null;
+    let mut v_is_date_kind = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_multiple = CoreValue::Null;
+    let mut v_is_multiple_kind = CoreValue::Null;
+    let mut v_is_number_kind = CoreValue::Null;
+    let mut v_is_single = CoreValue::Null;
+    let mut v_is_single_kind = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_is_text_kind = CoreValue::Null;
+    let mut v_is_type_key = CoreValue::Null;
+    let mut v_keep_key = CoreValue::Null;
+    let mut v_kept = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_mapped = CoreValue::Null;
+    let mut v_missing_multiple_error = CoreValue::Null;
+    let mut v_multiple_message = CoreValue::Null;
+    let mut v_multiple_too_few = CoreValue::Null;
+    let mut v_non_empty = CoreValue::Null;
+    let mut v_normalized_choice = CoreValue::Null;
+    let mut v_normalized_choices = CoreValue::Null;
+    let mut v_normalized_type = CoreValue::Null;
+    let mut v_not_allowed = CoreValue::Null;
+    let mut v_not_map = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_question = CoreValue::Null;
+    let mut v_question_bad = CoreValue::Null;
+    let mut v_question_error = CoreValue::Null;
+    let mut v_question_is_text = CoreValue::Null;
+    let mut v_question_ok = CoreValue::Null;
+    let mut v_question_trimmed = CoreValue::Null;
+    let mut v_raw_choices = CoreValue::Null;
+    let mut v_raw_type = CoreValue::Null;
+    let mut v_strip = CoreValue::Null;
+    let mut v_stripped = CoreValue::Null;
+    let mut v_too_few = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_type_error = CoreValue::Null;
+    let mut v_type_given = CoreValue::Null;
+    let mut v_type_is_text = CoreValue::Null;
+    let mut v_wants_choices = CoreValue::Null;
+    let mut v_wrapped = CoreValue::Null;
+    v_multiple_message = CoreValue::from("askClarification() with type \"multiple_choice\" must include at least two valid choices. Use a non-empty string question plus choices like [\"Option A\", \"Option B\"], or switch to \"single_choice\" / a plain question if there is only one option.");
+    v_is_text = core_type_is(&v_payload, CoreValue::from("string"));
+    if core_truthy(&v_is_text) {
+        v_trimmed = core_string_trim(&v_payload);
+        v_non_empty = core_ne(&[v_trimmed.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_non_empty) {
+            v_wrapped = CoreValue::new_map();
+            core_set(&v_wrapped, CoreValue::from("question"), v_payload.clone())?;
+            return Ok(v_wrapped.clone());
+        }
+    }
+    v_is_map = core_type_is(&v_payload, CoreValue::from("object"));
+    v_not_map = core_not(&[v_is_map.clone()])?;
+    if core_truthy(&v_not_map) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "askClarification() requires a non-empty string or an object payload",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_question = core_get(&v_payload, &CoreValue::from("question"), CoreValue::Null);
+    v_question_ok = CoreValue::Bool(false);
+    v_question_is_text = core_type_is(&v_question, CoreValue::from("string"));
+    if core_truthy(&v_question_is_text) {
+        v_question_trimmed = core_string_trim(&v_question);
+        v_question_ok = core_ne(&[v_question_trimmed.clone(), CoreValue::from("")])?;
+    }
+    v_question_bad = core_not(&[v_question_ok.clone()])?;
+    if core_truthy(&v_question_bad) {
+        v_question_error = core_runtime_error(&[CoreValue::from(
+            "askClarification() object payload requires a non-empty question",
+        )])?;
+        return Err(core_as_error(&v_question_error));
+    }
+    v_has_type = core_map_contains(&[v_payload.clone(), CoreValue::from("type")])?;
+    v_raw_type = core_get(&v_payload, &CoreValue::from("type"), CoreValue::Null);
+    v_type_given = core_is_not_none(&[v_raw_type.clone()])?;
+    v_raw_choices = core_get(&v_payload, &CoreValue::from("choices"), CoreValue::Null);
+    v_choices_given = core_map_contains(&[v_payload.clone(), CoreValue::from("choices")])?;
+    v_choices_is_list = core_type_is(&v_raw_choices, CoreValue::from("list"));
+    v_choices_count = CoreValue::Num(0f64);
+    if core_truthy(&v_choices_is_list) {
+        v_choices_count = core_len(&[v_raw_choices.clone()])?;
+    }
+    v_has_choices = core_gt(&[v_choices_count.clone(), CoreValue::Num(0f64)])?;
+    v_normalized_type = core_none(&[])?;
+    if core_truthy(&v_type_given) {
+        v_type_is_text = core_type_is(&v_raw_type, CoreValue::from("string"));
+        v_allowed = CoreValue::Bool(false);
+        if core_truthy(&v_type_is_text) {
+            v_is_text_kind = core_eq(&[v_raw_type.clone(), CoreValue::from("text")])?;
+            v_is_number_kind = core_eq(&[v_raw_type.clone(), CoreValue::from("number")])?;
+            v_is_date_kind = core_eq(&[v_raw_type.clone(), CoreValue::from("date")])?;
+            v_is_single_kind = core_eq(&[v_raw_type.clone(), CoreValue::from("single_choice")])?;
+            v_is_multiple_kind =
+                core_eq(&[v_raw_type.clone(), CoreValue::from("multiple_choice")])?;
+            v_allowed = core_or(&[v_is_text_kind.clone(), v_is_number_kind.clone()])?;
+            v_allowed = core_or(&[v_allowed.clone(), v_is_date_kind.clone()])?;
+            v_allowed = core_or(&[v_allowed.clone(), v_is_single_kind.clone()])?;
+            v_allowed = core_or(&[v_allowed.clone(), v_is_multiple_kind.clone()])?;
+        }
+        v_not_allowed = core_not(&[v_allowed.clone()])?;
+        if core_truthy(&v_not_allowed) {
+            v_type_error = core_runtime_error(&[CoreValue::from("askClarification() object payload type must be one of: text, number, date, single_choice, multiple_choice")])?;
+            return Err(core_as_error(&v_type_error));
+        }
+        v_normalized_type = v_raw_type.clone();
+    } else {
+        if core_truthy(&v_has_choices) {
+            v_normalized_type = CoreValue::from("single_choice");
+        }
+    }
+    v_is_single = core_eq(&[v_normalized_type.clone(), CoreValue::from("single_choice")])?;
+    v_is_multiple = core_eq(&[
+        v_normalized_type.clone(),
+        CoreValue::from("multiple_choice"),
+    ])?;
+    v_wants_choices = core_or(&[v_is_single.clone(), v_is_multiple.clone()])?;
+    v_strip = CoreValue::Bool(false);
+    v_drop_type = CoreValue::Bool(false);
+    v_normalized_choices = core_none(&[])?;
+    if core_truthy(&v_choices_given) {
+        v_choices_usable = core_and(&[v_choices_is_list.clone(), v_has_choices.clone()])?;
+        v_choices_unusable = core_not(&[v_choices_usable.clone()])?;
+        if core_truthy(&v_choices_unusable) {
+            if core_truthy(&v_is_multiple) {
+                v_empty_multiple_error = core_runtime_error(&[v_multiple_message.clone()])?;
+                return Err(core_as_error(&v_empty_multiple_error));
+            }
+            v_strip = CoreValue::Bool(true);
+            v_drop_type = v_is_single.clone();
+        } else {
+            v_mapped = CoreValue::new_list();
+            v_choice_failure = CoreValue::from("");
+            for v_choice in core_iter(&v_raw_choices)? {
+                let mut v_choice = v_choice;
+                v_failure_empty = core_eq(&[v_choice_failure.clone(), CoreValue::from("")])?;
+                if core_truthy(&v_failure_empty) {
+                    let __core_try: Result<CoreFlow, AxError> = (|| {
+                        v_normalized_choice = _agent_clarification_choice(&[v_choice.clone()])?;
+                        core_append(&v_mapped, v_normalized_choice.clone())?;
+                        Ok(CoreFlow::Normal)
+                    })();
+                    match __core_try {
+                        Ok(CoreFlow::Normal) => {}
+                        Ok(CoreFlow::Return(value)) => return Ok(value),
+                        Ok(CoreFlow::Break) => break,
+                        Ok(CoreFlow::Continue) => continue,
+                        Err(__core_caught) => {
+                            v_choice_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                            v_choice_failure = core_exception_message(&[v_choice_error.clone()])?;
+                        }
+                    }
+                }
+            }
+            v_choice_failed = core_ne(&[v_choice_failure.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_choice_failed) {
+                if core_truthy(&v_is_multiple) {
+                    v_detail = core_string_format(&[CoreValue::from("{} Fix the choices so each option is a non-empty string or an object with a non-empty label. {}"), v_multiple_message.clone(), v_choice_failure.clone()])?;
+                    v_choice_multiple_error = core_runtime_error(&[v_detail.clone()])?;
+                    return Err(core_as_error(&v_choice_multiple_error));
+                }
+                v_strip = CoreValue::Bool(true);
+                v_drop_type = v_is_single.clone();
+            } else {
+                v_normalized_choices = v_mapped.clone();
+            }
+        }
+    } else {
+        if core_truthy(&v_wants_choices) {
+            if core_truthy(&v_is_multiple) {
+                v_missing_multiple_error = core_runtime_error(&[v_multiple_message.clone()])?;
+                return Err(core_as_error(&v_missing_multiple_error));
+            }
+            v_strip = CoreValue::Bool(true);
+            v_drop_type = CoreValue::Bool(true);
+        }
+    }
+    if core_truthy(&v_strip) {
+        v_stripped = CoreValue::new_map();
+        for v_key in core_iter(&v_payload)? {
+            let mut v_key = v_key;
+            v_is_choices_key = core_eq(&[v_key.clone(), CoreValue::from("choices")])?;
+            v_is_type_key = core_eq(&[v_key.clone(), CoreValue::from("type")])?;
+            v_drop_this_type = core_and(&[v_is_type_key.clone(), v_drop_type.clone()])?;
+            v_drop_key = core_or(&[v_is_choices_key.clone(), v_drop_this_type.clone()])?;
+            v_keep_key = core_not(&[v_drop_key.clone()])?;
+            if core_truthy(&v_keep_key) {
+                v_kept = core_get(&v_payload, &v_key.clone(), CoreValue::Null);
+                core_set(&v_stripped, v_key.clone(), v_kept.clone())?;
+            }
+        }
+        core_set(&v_stripped, CoreValue::from("question"), v_question.clone())?;
+        return Ok(v_stripped.clone());
+    }
+    v_choices_count_after = CoreValue::Num(0f64);
+    v_has_normalized_choices = core_is_not_none(&[v_normalized_choices.clone()])?;
+    if core_truthy(&v_has_normalized_choices) {
+        v_choices_count_after = core_len(&[v_normalized_choices.clone()])?;
+    }
+    v_too_few = core_lt(&[v_choices_count_after.clone(), CoreValue::Num(2f64)])?;
+    v_multiple_too_few = core_and(&[v_is_multiple.clone(), v_too_few.clone()])?;
+    if core_truthy(&v_multiple_too_few) {
+        v_few_error = core_runtime_error(&[v_multiple_message.clone()])?;
+        return Err(core_as_error(&v_few_error));
+    }
+    v_out = CoreValue::new_map();
+    for v_key in core_iter(&v_payload)? {
+        let mut v_key = v_key;
+        v_copied = core_get(&v_payload, &v_key.clone(), CoreValue::Null);
+        core_set(&v_out, v_key.clone(), v_copied.clone())?;
+    }
+    core_set(&v_out, CoreValue::from("question"), v_question.clone())?;
+    v_has_normalized_type = core_is_not_none(&[v_normalized_type.clone()])?;
+    if core_truthy(&v_has_normalized_type) {
+        core_set(&v_out, CoreValue::from("type"), v_normalized_type.clone())?;
+    }
+    if core_truthy(&v_has_normalized_choices) {
+        core_set(
+            &v_out,
+            CoreValue::from("choices"),
+            v_normalized_choices.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -126126,7 +126910,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (936 of 936 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (939 of 939 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

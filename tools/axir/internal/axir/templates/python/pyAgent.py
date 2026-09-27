@@ -36,9 +36,11 @@ from .gen import (
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_axgen_deprecation,
+    _core_exception_message,
     _core_string_index_of,
     _core_string_str,
     _core_tool_invoke,
+    _core_validation_error,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -1101,6 +1103,14 @@ def _agent_playbook_weakness_miner_signature():
     )
 
 
+def _agent_evolve_prediction_error(prediction):
+    # The message of the ports' error prediction (TS's thrown run).
+    error = (prediction or {}).get("error")
+    if isinstance(error, dict):
+        return str(error.get("message") or "")
+    return str(error or "")
+
+
 def _playbook_option(options, *keys, default=None):
     for key in keys:
         if isinstance(options, dict) and key in options and options.get(key) is not None:
@@ -1519,17 +1529,26 @@ class AxAgentPlaybook:
                 scores = []
                 prediction = None
                 error = None
+                error_prediction = None
                 for _ in range(runs_per_task):
                     if remaining[0] <= 0:
                         exhausted = True
                         break
                     remaining[0] -= 1
                     try:
-                        prediction = self.agent.evaluate_optimization_task(client, task, opts)
-                        if callable(metric):
-                            score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                        candidate = self.agent.evaluate_optimization_task(client, task, opts)
+                        if (candidate or {}).get("completionType") == "error":
+                            # TS's harness sees a thrown run: a zero score with
+                            # no metric call, and its message as the error.
+                            score = 0.0
+                            error = _agent_evolve_prediction_error(candidate)
+                            error_prediction = candidate
                         else:
-                            _, score = _score_optimization_prediction(task, prediction, opts)
+                            prediction = candidate
+                            if callable(metric):
+                                score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                            else:
+                                _, score = _score_optimization_prediction(task, prediction, opts)
                     except Exception as exc:
                         score = 0.0
                         error = str(exc)
@@ -1542,6 +1561,10 @@ class AxAgentPlaybook:
                     record["prediction"] = prediction
                 elif error:
                     record["error"] = error
+                    # Kept this release for compatibility; TS's record has
+                    # no prediction (dropped at the next major).
+                    if error_prediction is not None:
+                        record["prediction"] = error_prediction
                 records.append(record)
                 if len(scores) < runs_per_task:
                     exhausted = True
@@ -1557,6 +1580,9 @@ class AxAgentPlaybook:
             return match.group(1) if match else text[:80]
 
         def record_signature(record):
+            # TS's record of a thrown run has only its error.
+            if record.get("error"):
+                return error_signature(record.get("error"))
             prediction = record.get("prediction") or {}
             counts = {}
             for signal in prediction.get("failureSignals") or []:
@@ -2163,6 +2189,8 @@ class AxAgent:
         # As TS evaluates each task from a fresh state, the prediction carries
         # only this run's share of the agent's logs.
         marks = _agent_eval_marks(self.state)
+        # TS's evaluation path runs no playbook run-end learning.
+        self.state["playbook_learning_paused"] = True
         try:
             output = self.forward(client, task.get("input") or task, opts.get("forward_options") or {})
             completion = {"type": "final", "output": output}
@@ -2170,6 +2198,8 @@ class AxAgent:
             completion = {"type": "askClarification", "clarification": exc.clarification}
         except Exception as exc:
             completion = {"type": "error", "message": str(exc)}
+        finally:
+            self.state.pop("playbook_learning_paused", None)
         return _build_agent_run_prediction(self.state, marks, completion, self.get_usage(), self.export_trace())
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -2244,6 +2274,9 @@ class AxAgent:
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):
+            return
+        # An evaluated run learns nothing, as TS's evaluation path.
+        if _core_get(self.state, "playbook_learning_paused", False):
             return
         config = dict(self._playbook_config) if isinstance(self._playbook_config, dict) else {}
         learn = config.get("learn", True)

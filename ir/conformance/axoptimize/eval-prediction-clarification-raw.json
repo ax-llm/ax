@@ -1,29 +1,14 @@
 {
+  "description": "Port-only: without clarificationShape: 'structured', the evaluated clarification is the askClarification payload as given, as this release carries it.",
   "expected_prediction_fields": {
-    "clarification": {
-      "question": "Which docs do you mean?"
-    },
-    "functionCalls": [
-      {
-        "arguments": {
-          "query": "ax"
-        },
-        "name": "search",
-        "qualifiedName": "tools.search",
-        "result": {
-          "title": "Docs"
-        }
-      }
-    ],
-    "toolErrors": [],
-    "turnCount": 2
+    "clarification": "Which docs do you mean?"
   },
   "expected_prediction_subset": {
     "completionType": "askClarification"
   },
   "expected_request_count": 3,
   "kind": "optimize",
-  "name": "eval-prediction-clarification-function-calls",
+  "name": "eval-prediction-clarification-raw",
   "operation": "eval",
   "options": {
     "callable_results": {
@@ -33,7 +18,6 @@
         }
       }
     },
-    "clarificationShape": "structured",
     "contextFields": [],
     "functions": [
       {

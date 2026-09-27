@@ -547,6 +547,8 @@ public final class AxAgent implements AxProgram {
     // only this run's share of the agent's logs.
     Object marks = Core._agent_eval_marks(state);
     Map<String, Object> completion = new LinkedHashMap<>();
+    // TS's evaluation path runs no playbook run-end learning.
+    state.put("playbook_learning_paused", true);
     try {
       Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), Core.asMap(opts.getOrDefault("forward_options", Map.of())));
       completion.put("type", "final");
@@ -557,6 +559,8 @@ public final class AxAgent implements AxProgram {
     } catch (RuntimeException e) {
       completion.put("type", "error");
       completion.put("message", String.valueOf(e.getMessage()));
+    } finally {
+      state.remove("playbook_learning_paused");
     }
     return Core.asMap(Core._build_agent_run_prediction(state, marks, completion, getUsage(), exportTrace()));
   }
@@ -692,6 +696,8 @@ public final class AxAgent implements AxProgram {
   @SuppressWarnings("unchecked")
   private void learnPlaybookFailures(Map<String, Object> output) {
     if (playbookHandle == null || playbookConfig == null || Boolean.FALSE.equals(playbookConfig)) return;
+    // An evaluated run learns nothing, as TS's evaluation path.
+    if (Core.truthy(Core.get(state, "playbook_learning_paused", false))) return;
     Map<String, Object> config = playbookConfig instanceof Map<?, ?> ? Core.asMap(playbookConfig) : Map.of();
     Object learn = config.getOrDefault("learn", Boolean.TRUE);
     if (Boolean.FALSE.equals(learn)) return;
