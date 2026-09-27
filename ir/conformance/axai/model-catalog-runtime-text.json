@@ -5107,6 +5107,9 @@
             "isDefault": false,
             "maxTokens": 200000,
             "name": "claude-haiku-4-5",
+            "notSupported": {
+              "temperatureWithTopP": true
+            },
             "promptTokenCostPer1M": 1,
             "provider": "anthropic",
             "supported": {
@@ -5495,6 +5498,9 @@
             "isDefault": false,
             "maxTokens": 200000,
             "name": "claude-sonnet-4-5-20250929",
+            "notSupported": {
+              "temperatureWithTopP": true
+            },
             "promptTokenCostPer1M": 3,
             "provider": "anthropic",
             "supported": {
@@ -5567,6 +5573,9 @@
             "isDefault": false,
             "maxTokens": 64000,
             "name": "claude-sonnet-4-6",
+            "notSupported": {
+              "temperatureWithTopP": true
+            },
             "promptTokenCostPer1M": 3,
             "provider": "anthropic",
             "supported": {
@@ -5766,6 +5775,9 @@
             "isDefault": false,
             "maxTokens": 64000,
             "name": "claude-opus-4-5-20251101",
+            "notSupported": {
+              "temperatureWithTopP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {
@@ -5843,6 +5855,9 @@
             "isDefault": false,
             "maxTokens": 128000,
             "name": "claude-opus-4-6",
+            "notSupported": {
+              "temperatureWithTopP": true
+            },
             "promptTokenCostPer1M": 5,
             "provider": "anthropic",
             "supported": {

@@ -419,7 +419,10 @@ Anthropic and Gemini, and `temperature: 0.7` with `topP: 1` for
 - Anthropic: Opus 4.7 and later, Opus 5, Fable 5 and Sonnet 5 deprecated
   sampling, so they take only `temperature: 1` (no `topP` or `topK`). The
   other Claude models take every value with thinking off; while thinking,
-  only `temperature: 1`, `topP` of 0.95 or above, and no `topK`. The default
+  only `temperature: 1`, `topP` of 0.95 or above, and no `topK`. They reject
+  `temperature` and `topP` together (`notSupported.temperatureWithTopP`): an
+  explicit `topP` goes alone in place of the default temperature, and an
+  explicit `temperature` wins over it with a warning. The default
   `temperature: 0` is sent only without thinking, as before. Claude on Vertex
   keeps that older rule for explicit values too, and warns about a drop.
 - Gemini: the server-managed Flash models ignore `temperature`, `topP` and

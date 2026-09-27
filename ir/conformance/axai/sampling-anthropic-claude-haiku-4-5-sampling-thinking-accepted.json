@@ -1,16 +1,17 @@
 {
-  "expected_transport_json_absent": ["top_k"],
+  "expected_transport_json_absent": ["top_p", "top_k"],
   "expected_transport_request": {
     "json": {
       "max_tokens": 40000,
       "temperature": 1,
       "thinking": {
         "type": "enabled"
-      },
-      "top_p": 0.95
+      }
     }
   },
-  "expected_warnings": [],
+  "expected_warnings": [
+    "Ax dropped topP for claude-haiku-4-5: the model accepts temperature or topP, not both."
+  ],
   "kind": "ai_chat",
   "model": "claude-haiku-4-5",
   "name": "sampling-anthropic-claude-haiku-4-5-sampling-thinking-accepted",

@@ -1,13 +1,14 @@
 {
-  "expected_transport_json_absent": ["top_k", "thinking.type"],
+  "expected_transport_json_absent": ["top_p", "top_k", "thinking.type"],
   "expected_transport_request": {
     "json": {
       "max_tokens": 123,
-      "temperature": 0.7,
-      "top_p": 0.9
+      "temperature": 0.7
     }
   },
-  "expected_warnings": [],
+  "expected_warnings": [
+    "Ax dropped topP for claude-haiku-4-5: the model accepts temperature or topP, not both."
+  ],
   "kind": "ai_chat",
   "model": "claude-haiku-4-5",
   "model_config": {
