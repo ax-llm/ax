@@ -248,7 +248,7 @@ func (s *responsesChatSession) send(items []Value, continuation bool) {
 	}
 	go func() {
 		_, err := safeValue(func() Value {
-			stream, err := s.client.openProviderStream(s.ctx, call)
+			stream, err := s.client.openProviderStream(s.ctx, call, s.options)
 			if err != nil {
 				panic(err)
 			}
