@@ -7,9 +7,9 @@ import { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
 import type { AxChatResponse } from './types.js';
 import { ai } from './wrap.js';
 
-// Per-call service options that the generated ports follow. The conformance
-// fixtures (tools/axir/extractors/axai-goldens.ts) and the ports' loopback
-// examples pin the same behavior.
+// Per-call service options that the generated ports follow. The AxAI
+// conformance fixtures and the ports' timeout_http_roundtrip examples pin the
+// same behavior.
 
 const chatPrompt = [{ role: 'user' as const, content: 'hi' }];
 
