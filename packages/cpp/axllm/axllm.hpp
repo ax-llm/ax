@@ -455,6 +455,7 @@ struct Core {
   static Value run_control_aborted(Value control);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
   static Value agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected);
+  static Value agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink);
   static Value agent_stage_chat_log(Value stage);
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
@@ -1238,7 +1239,9 @@ struct Core {
   static Value _build_responder_signature(Value sig, Value context_fields, Value citations);
   static Value _resolve_agent_citations(Value options, Value sig);
   static Value _agent_collect_citation_ids(Value ids, Value node, Value depth);
-  static Value _agent_validate_citations(Value state, Value output);
+  static Value _agent_begin_citation_checks(Value state, Value executor_payload);
+  static Value _agent_end_citation_checks(Value state);
+  static Value _agent_citation_assert(Value state, Value output);
   static Value _agent_finalize_citations(Value state, Value output);
   static Value _agent_collect_covered_failure_signatures(Value snapshot);
   static Value _agent_build_failure_signals(Value state);
@@ -1280,6 +1283,14 @@ struct Core {
   static Value _agent_runtime_callable_names(Value state);
   static Value _agent_callable_visible(Value state, Value qualified);
   static Value _agent_runtime_invoke_callable(Value state, Value qualified, Value arguments);
+  static Value _agent_run_actor_stages(Value state, Value distiller, Value executor, Value client, Value values, Value options);
+  static Value _agent_complete_run(Value state, Value distiller, Value executor, Value responder, Value client, Value options, Value output);
+  static Value _agent_stream_citation_delta(Value state, Value envelope);
+  static Value _agent_finalize_stream_citations(Value state, Value output);
+  static Value _agent_controlled_stage_streaming_forward(Value stage, Value state, Value client, Value values, Value options, Value sink);
+  static Value _agent_streaming_forward_impl(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
+  static Value _agent_streaming_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options, Value sink);
+  static Value _agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _flow_factory(Value options);
   static Value _program_descriptor(Value kind, Value id, Value metadata);
   static Value _program_trace_event(Value program_id, Value kind, Value payload);
@@ -2449,6 +2460,20 @@ class AxAgent : public AxProgram {
   Value forward(AIClient& client, Value values, Value options = Value::object());
   Value forward(AIClient& client, Value values, Value options, const AxCancellationToken* cancellation);
   Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  // Runs the agent and streams the responder's output, as TypeScript's
+  // streamingForward does. The distiller and the executor (or the
+  // direct-respond skip) run first without streaming; then `handler` gets
+  // each AxGenDelta of the responder as it streams (see
+  // AxGen::streaming_forward), on the calling thread, and this returns the
+  // responder's output. With citations surface "hidden" the deltas leave out
+  // the citation field, and the citations observer gets the streamed
+  // citations after the stream. Returning false from the handler stops the
+  // run without an exception and returns what was merged so far; an exception
+  // the handler throws stops the run and propagates. With a run control a run
+  // the handler stops ends with an "aborted" event. Under a run control the
+  // responder streams through the request boundary, as
+  // AxGen::streaming_forward does.
+  Value streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler);
   AxAgent& set_rate_limiter(AxRateLimiter limiter);
   AxAgent& set_tracer(std::shared_ptr<AxTracer> tracer);
   AxAgent& set_meter(std::shared_ptr<AxMeter> meter);
@@ -2521,6 +2546,8 @@ class AxAgent : public AxProgram {
   void rebind_playbook();
   void set_stage_instruction(AxGen& stage, Value instruction);
   void learn_playbook_failures(Value output);
+  std::unique_ptr<AxGen> make_responder(const Value& options);
+  Value run(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks, Value sink, const bool* consumer_stopped);
 };
 
 std::string stringify(const Value& value);

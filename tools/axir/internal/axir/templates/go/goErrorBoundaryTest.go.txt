@@ -546,3 +546,53 @@ func TestIsRetryableFollowsCoreStatusSet(t *testing.T) {
 		t.Fatal("only Ax envelopes classify as retryable")
 	}
 }
+
+// assertionTestClient answers each request with the next reply and records
+// each request's chat prompt.
+type assertionTestClient struct {
+	replies []string
+	prompts []string
+}
+
+func (c *assertionTestClient) Chat(_ context.Context, request map[string]Value, _ map[string]Value) (Value, error) {
+	if len(c.prompts) >= len(c.replies) {
+		return nil, errors.New("assertion test client exhausted")
+	}
+	c.prompts = append(c.prompts, stableStringify(coreGet(request, "chat_prompt", Array())))
+	return Object("results", Array(Object("content", c.replies[len(c.prompts)-1], "function_calls", Array()))), nil
+}
+func (c *assertionTestClient) Embed(context.Context, map[string]Value, map[string]Value) (Value, error) {
+	return nil, nil
+}
+func (c *assertionTestClient) Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error) {
+	return nil, nil
+}
+
+// A func assertion works as a TypeScript addAssert function: a message fails
+// the attempt and the retry carries it as the correction; false without a
+// message ends the forward. (A func used to pass unchecked.)
+func TestAxGenFuncAssertionRetriesWithItsMessage(t *testing.T) {
+	ctx := context.Background()
+	question := map[string]Value{"question": "Capital of France?"}
+	client := &assertionTestClient{replies: []string{"Answer: Lyon", "Answer: Paris"}}
+	gen := NewAx("question:string -> answer:string", nil)
+	gen.AddAssert(AxAssertion(func(values map[string]Value) Value {
+		if values["answer"] != "Paris" {
+			return "The capital of France is Paris."
+		}
+		return nil
+	}))
+	out, err := gen.Forward(ctx, client, question, nil)
+	if err != nil || coreGet(out, "answer", nil) != "Paris" {
+		t.Fatalf("forward = %v, %v", out, err)
+	}
+	if len(client.prompts) != 2 || !strings.Contains(client.prompts[1], "The capital of France is Paris.") {
+		t.Fatalf("the retry did not carry the assertion's message: %q", client.prompts)
+	}
+
+	failing := NewAx("question:string -> answer:string", nil)
+	failing.AddAssert(func(map[string]Value) bool { return false })
+	if _, err := failing.Forward(ctx, &assertionTestClient{replies: []string{"Answer: Paris"}}, question, nil); err == nil || !strings.Contains(err.Error(), "Assertion failed without message") {
+		t.Fatalf("a failure without a message = %v", err)
+	}
+}

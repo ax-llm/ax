@@ -2009,6 +2009,44 @@ static std::string semantic_available_skills_index(const std::string& system) {
   return out;
 }
 
+// Which part of an agent run sent a model request, by its system prompt.
+static std::string agent_request_stage(const Value& request) {
+  std::string system;
+  Value prompt = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Value::array()));
+  auto messages = Core::iter(prompt);
+  if (!messages.empty() && display(Core::get(messages[0], "role", "")) == "system" && Core::get(messages[0], "content").is_string()) {
+    system = display(Core::get(messages[0], "content"));
+  }
+  if (system.find("You (`distiller`)") != std::string::npos) return "distiller";
+  if (system.find("You (`executor`)") != std::string::npos) return "executor";
+  if (system.find("`Generator answer`") != std::string::npos || system.find("`Question context`") != std::string::npos) return "playbook";
+  if (system.find("context-map Distiller") != std::string::npos || system.find("context-map Cartographer") != std::string::npos) return "context_map";
+  return "responder";
+}
+
+static void assert_agent_run_projections(const Value& fixture, AxAgent* ag, const std::vector<Value>& requests, const Value& deltas, const Value& control_events, const Value& observer_calls, const std::vector<std::pair<size_t, std::string>>& observer_marks) {
+  if (display(Core::get(fixture, "kind")) == "agent_streaming_forward" || !Core::get(fixture, "expected_deltas").is_null()) {
+    assert_equal(deltas, Core::get(fixture, "expected_deltas", Value::array()), "agent streaming deltas");
+  }
+  if (!Core::get(fixture, "expected_control_events").is_null()) assert_equal(control_events, Core::get(fixture, "expected_control_events"), "agent run control events");
+  if (!Core::get(fixture, "expected_observer_calls").is_null()) assert_equal(observer_calls, Core::get(fixture, "expected_observer_calls"), "agent observer calls");
+  if (!Core::get(fixture, "expected_transcript").is_null()) {
+    Value transcript = Value::array();
+    size_t mark = 0;
+    for (size_t index = 0; index < requests.size(); ++index) {
+      while (mark < observer_marks.size() && observer_marks[mark].first <= index) Core::append(transcript, observer_marks[mark++].second);
+      Core::append(transcript, "request:" + agent_request_stage(requests[index]));
+    }
+    for (; mark < observer_marks.size(); ++mark) Core::append(transcript, observer_marks[mark].second);
+    assert_equal(transcript, Core::get(fixture, "expected_transcript"), "agent run transcript");
+  }
+  if (!Core::get(fixture, "expected_chat_log_shape").is_null() && ag) {
+    Value shape = Value::array();
+    for (const auto& entry : Core::iter(ag->get_chat_log())) Core::append(shape, object({{"name", Core::get(entry, "name")}, {"stage", Core::get(entry, "stage")}}));
+    assert_equal(shape, Core::get(fixture, "expected_chat_log_shape"), "agent chat log shape");
+  }
+}
+
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
@@ -2026,6 +2064,40 @@ static void run_agent_forward(Value fixture) {
   install_semantic_observer(agent_options, "onLoadedMemories", "loaded_memories", true);
   install_semantic_observer(agent_options, "onUsedSkills", "constructor.used_skills", false);
   install_semantic_observer(agent_options, "onUsedMemories", "constructor.used_memories", false);
+  // Observer calls, each marked with the number of model requests before it,
+  // so the transcript can interleave them with the requests.
+  Value observer_calls = Value::array();
+  std::vector<std::pair<size_t, std::string>> observer_marks;
+  auto recording_observer = [&](const std::string& label) {
+    return [&, label](Value payload) {
+      observer_marks.emplace_back(client.requests.size(), label);
+      Core::append(observer_calls, object({{"callback", label}, {"payload", payload}}));
+    };
+  };
+  Value observers = Core::get(fixture, "observers", Value::array());
+  bool record_citations = false;
+  bool record_playbook_update = false;
+  for (const auto& raw_label : Core::iter(observers)) {
+    std::string label = display(raw_label);
+    if (label == "used_memories") Core::set(agent_options, "onUsedMemories", register_agent_observer(recording_observer(label)));
+    else if (label == "used_skills") Core::set(agent_options, "onUsedSkills", register_agent_observer(recording_observer(label)));
+    else if (label == "citations") record_citations = true;
+    else if (label == "playbook_update") record_playbook_update = true;
+  }
+  // The run lifecycle events, in order, with their paths; with control_steer
+  // every event, and the steer lands during that request.
+  std::optional<AxRunControl> run_control_handle;
+  auto fixture_control_events = std::make_shared<FixtureControlEvents>();
+  if (Core::truthy(Core::get(fixture, "control", false))) {
+    Value control_options = Value::object();
+    run_control_handle.emplace(attach_fixture_control(fixture, client, control_options, fixture_control_events));
+  }
+  auto control_events = [&]() {
+    std::lock_guard<std::mutex> lock(fixture_control_events->mutex);
+    return fixture_control_events->events;
+  };
+  bool streaming = display(Core::get(fixture, "kind")) == "agent_streaming_forward";
+  Value stream_deltas = Value::array();
   std::unique_ptr<ScriptedCodeRuntime> runtime;
   if (!Core::get(fixture, "runtime_script").is_null()) {
     Value runtime_config = Core::get(agent_options, "runtime", Value::object());
@@ -2093,6 +2165,12 @@ static void run_agent_forward(Value fixture) {
     }
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
     if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));
+    if (record_citations) ag->set_citations_observer(recording_observer("citations"));
+    if (record_playbook_update) {
+      // The playbook's onUpdate after run-end learning, by its status.
+      auto record = recording_observer("playbook_update");
+      ag->set_playbook_observer([record](Value update) mutable { record(object({{"status", Core::get(update, "status")}})); });
+    }
     if (Core::truthy(Core::get(fixture, "observer_throws", false))) {
       ag->set_citations_observer([&observer_called](Value) {
         observer_called = true;
@@ -2138,7 +2216,17 @@ static void run_agent_forward(Value fixture) {
       Value forward_options = Core::get(fixture, "forward_options", Value::object());
       install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
       install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
-      output = ag->forward(client, Core::get(fixture, "input", Value::object()), forward_options);
+      if (run_control_handle) Core::set(forward_options, "control", run_control_handle->value());
+      if (streaming) {
+        Value stop_after = Core::get(fixture, "stop_after_deltas");
+        output = ag->streaming_forward(client, Core::get(fixture, "input", Value::object()), forward_options, [&](const AxGenDelta& delta) {
+          Core::append(stream_deltas, object({{"version", Value(static_cast<double>(delta.version))}, {"index", Value(static_cast<double>(delta.index))}, {"delta", delta.delta}}));
+          return stop_after.is_null() || Core::iter(stream_deltas).size() < static_cast<size_t>(std::stoul(display(stop_after)));
+        });
+        if (!stop_after.is_null()) output = Value();
+      } else {
+        output = ag->forward(client, Core::get(fixture, "input", Value::object()), forward_options);
+      }
     }
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
@@ -2151,8 +2239,12 @@ static void run_agent_forward(Value fixture) {
     if (expected.is_null()) throw;
     if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
     if (ag) assert_agent_trace(*ag, fixture);
+    assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events(), observer_calls, observer_marks);
+    assert_request_roles(fixture, client);
     return;
   }
+  assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events(), observer_calls, observer_marks);
+  assert_request_roles(fixture, client);
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected agent request count mismatch");
@@ -3749,7 +3841,7 @@ static void run(Value fixture) {
     run_cache_sequence(fixture);
   } else if (kind == "flow_cache_sequence") {
     run_flow_cache_sequence(fixture);
-  } else if (kind == "agent_forward") {
+  } else if (kind == "agent_forward" || kind == "agent_streaming_forward") {
     run_agent_forward(fixture);
   } else if (kind == "agent_playbook_coverage") {
     run_agent_playbook_coverage(fixture);

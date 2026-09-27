@@ -1,0 +1,106 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root/distiller",
+      "type": "started"
+    },
+    {
+      "path": "root/distiller",
+      "type": "completed"
+    },
+    {
+      "path": "root/executor",
+      "type": "started"
+    },
+    {
+      "path": "root/executor",
+      "type": "completed"
+    },
+    {
+      "path": "root/responder",
+      "type": "started"
+    },
+    {
+      "path": "root/responder",
+      "type": "failed"
+    },
+    {
+      "path": "root",
+      "type": "failed"
+    }
+  ],
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Invalid evidenceCitations entries: made_up_source. Cite only evidence ids that exist: policy — or leave the field empty.",
+  "expected_request_count": 6,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder",
+    "request:responder",
+    "request:responder",
+    "request:responder"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-control-failed",
+  "options": {
+    "directResponse": "off",
+    "citations": {},
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days.\nEvidence Citations: [\"made_up_source\"]"
+    },
+    {
+      "content": "Answer: Refunds take 30 days.\nEvidence Citations: [\"made_up_source\"]"
+    },
+    {
+      "content": "Answer: Refunds take 30 days.\nEvidence Citations: [\"made_up_source\"]"
+    },
+    {
+      "content": "Answer: Refunds take 30 days.\nEvidence Citations: [\"made_up_source\"]"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

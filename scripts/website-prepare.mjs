@@ -449,6 +449,7 @@ async function renderContext(language, page) {
     flowRefineExample: snippetBlock(language, 'flow.refine', 'flow'),
     agentCode: lines(snippets.agent),
     agentMinimalExample: snippetBlock(language, 'agents.minimal', 'agent'),
+    agentStreamingExample: snippetBlock(language, 'agents.streaming'),
     agentToolsExample: snippetBlock(language, 'tools.agentFlat', 'agent'),
     agentDiscoveryExample: snippetBlock(language, 'agents.discovery', 'agent'),
     agentMemoryExample: snippetBlock(language, 'agents.memory', 'agent'),

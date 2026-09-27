@@ -6618,9 +6618,40 @@ func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values ma
 	})
 	return out, err
 }
+// AxAssertion checks a forward's output values, as a TypeScript addAssert
+// function does: it returns nil or true to pass, a message string to fail
+// (the attempt is retried with that correction), or false to fail without a
+// message (the forward ends, as TypeScript's "Assertion failed without
+// message"). Returning an error, or panicking, ends the forward without a
+// retry.
+type AxAssertion func(values map[string]Value) Value
+
+// AddAssert adds an assertion on the output: a declarative spec map
+// ({field, contains, equals, return, message}) or an AxAssertion (also a
+// plain func(map[string]Value) Value or func(map[string]Value) bool).
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
 	g.Assertions = coreAppend(g.Assertions, assertion)
 	return g
+}
+
+// axAssertionCall returns the call of a callable assertion, or false for a
+// declarative spec.
+func axAssertionCall(assertion Value, output map[string]Value) (func() (Value, error), bool) {
+	switch fn := assertion.(type) {
+	case AxAssertion:
+		if fn != nil {
+			return func() (Value, error) { return fn(output), nil }, true
+		}
+	case func(map[string]Value) Value:
+		if fn != nil {
+			return func() (Value, error) { return fn(output), nil }, true
+		}
+	case func(map[string]Value) bool:
+		if fn != nil {
+			return func() (Value, error) { return fn(output), nil }, true
+		}
+	}
+	return nil, false
 }
 // AddStreamingAssert adds a streaming assertion on a string or code output
 // field. check is text the field must not contain, or a callable over the
@@ -7004,16 +7035,32 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	actorValidationRetries := coreGet(options, "validation_retries", coreGet(options, "validationRetries", 1))
 	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
 	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
-	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	a := &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
+	a := &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: newAgentResponder(state, responderSignature, options), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
 	a.attachConfiguredPlaybook()
 	return a
 }
+// newAgentResponder builds the responder stage. As in TypeScript, its
+// validation budget is maxRetries unless validation_retries is set, and with
+// citations on it asserts that the cited ids exist in the run's evidence.
+func newAgentResponder(state map[string]Value, signature string, options map[string]Value) *AxGen {
+	responderOptions := Object("id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
+	if retries, ok := options["validation_retries"]; ok {
+		responderOptions["validation_retries"] = retries
+	}
+	responder := NewAx(signature, responderOptions)
+	if coreTruthy(coreGet(coreGet(state, "citations", Object()), "enabled", false)) {
+		responder.AddAssert(AxAssertion(func(output map[string]Value) Value {
+			return mustCore(_agent_citation_assert(state, output))
+		}))
+	}
+	return responder
+}
+
 func NewAgentWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxAgent {
 	a := NewAgent(signature, options)
 	a.RuntimeHooks = hooks
@@ -7036,7 +7083,6 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
 	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
 	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
-	responderOptions := Object("validation_retries", coreGet(a.Options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
@@ -7044,7 +7090,7 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
 	a.Distiller = NewAx(distillerSignature, distillerOptions)
 	a.Executor = NewAx(executorSignature, executorOptions)
-	a.Responder = NewAx(responderSignature, responderOptions)
+	a.Responder = newAgentResponder(state, responderSignature, a.Options)
 	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
 	a.rebindPlaybook()
 	return a
@@ -7093,7 +7139,77 @@ func (a *AxAgent) forward(ctx context.Context, client AIClient, values map[strin
 	return a.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
 func (a *AxAgent) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (output Value, forwardErr error) {
+	return a.run(ctx, client, values, options, hooks, nil)
+}
+
+// StreamingForward runs the agent and yields the responder's output as it
+// streams, as TypeScript's streamingForward does. The distiller and the
+// executor (or the direct-respond skip) run first without streaming; then it
+// yields the responder's AxGenDelta updates (see AxGen.StreamingForward). With
+// citations surface "hidden" the updates leave out the citation field, and
+// onCitations gets the streamed citations after the stream. The run works in
+// its own goroutine and waits while the caller handles each update. An error
+// ends the sequence as a final (AxGenDelta{}, err) pair. Stopping the
+// iteration early cancels the run; with a run control the run then ends with
+// an "aborted" event. Under a run control the responder streams through the
+// request boundary, as AxGen.StreamingForward does.
+func (a *AxAgent) StreamingForward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) iter.Seq2[AxGenDelta, error] {
+	return func(yield func(AxGenDelta, error) bool) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		runCtx, cancel := context.WithCancelCause(ctx)
+		type delivery struct {
+			delta AxGenDelta
+			err   error
+		}
+		deliveries := make(chan delivery)
+		stopped := make(chan struct{})
+		stopErr := newAIServiceAbortedError("streaming consumer stopped")
+		go func() {
+			defer close(deliveries)
+			sink := axGenDeltaSink(func(envelope map[string]Value) error {
+				select {
+				case <-stopped:
+					return stopErr
+				default:
+				}
+				select {
+				case deliveries <- delivery{delta: axGenDeltaFromEnvelope(envelope)}:
+					return nil
+				case <-stopped:
+					return stopErr
+				}
+			})
+			if _, err := a.run(runCtx, client, values, options, runtimeHooksFromOptions(options), sink); err != nil {
+				select {
+				case deliveries <- delivery{err: err}:
+				case <-stopped:
+				}
+			}
+		}()
+		defer func() {
+			// Cancel before releasing the worker, so the run sees why it
+			// stops.
+			cancel(errStreamingConsumerStopped)
+			close(stopped)
+			for range deliveries {
+			}
+		}()
+		for item := range deliveries {
+			if !yield(item.delta, item.err) {
+				return
+			}
+		}
+	}
+}
+
+// run is forward, and with a sink the streaming forward.
+func (a *AxAgent) run(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks, sink axGenDeltaSink) (output Value, forwardErr error) {
 	attributes := Object("ax.program.id", "root.agent", "ax.program.type", "AxAgent")
+	if sink != nil {
+		coreSet(attributes, "ax.streaming", true)
+	}
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, a.RuntimeHooks, "ax_gen_agent_forward", "ax_gen_agent", attributes)
 	defer func() { finish(forwardErr) }()
 	options = stripRuntimeHooks(options)
@@ -7139,23 +7255,51 @@ func (a *AxAgent) forwardWithHooks(ctx context.Context, client AIClient, values 
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params, callOptions)
 		})
 	}
+	// As TypeScript's forward and streamingForward do, a run control hears
+	// the run's own lifecycle at its path; each stage reports at
+	// <path>/<stage>.
+	control, _ := coreGet(callOptions, "control", nil).(*AxRunControl)
+	runPath := display(coreGet(callOptions, "execution_path", coreGet(callOptions, "executionPath", "root")))
+	if control != nil {
+		control.emit(Object("type", "started", "path", runPath))
+	}
 	output, forwardErr = safeValue(func() Value {
-		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
+		if sink == nil {
+			return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
+		}
+		return mustCore(_agent_streaming_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions, sink))
 	})
-	if forwardErr == nil {
-		if config, ok := coreGet(a.Options, "citations", nil).(map[string]Value); ok {
-			if callback, ok := coreGet(config, "onCitations", coreGet(config, "on_citations", nil)).(func([]Value)); ok {
-				func() {
-					defer func() { _ = recover() }()
-					callback(append([]Value{}, asSlice(coreGet(a.State, "last_citations", Array()))...))
-				}()
+	if forwardErr != nil {
+		if control != nil {
+			if sink != nil && errors.Is(context.Cause(ctx), errStreamingConsumerStopped) {
+				// The consumer stopped the stream early: the run ended on
+				// purpose, as with control.Abort().
+				control.emit(Object("type", "aborted", "path", runPath))
+			} else {
+				control.emit(Object("type", "failed", "path", runPath, "error", forwardErr.Error()))
 			}
 		}
+		return output, forwardErr
 	}
-	if forwardErr == nil {
-		a.learnPlaybookFailures(ctx, output)
+	if config, ok := coreGet(a.Options, "citations", nil).(map[string]Value); ok {
+		if callback, ok := coreGet(config, "onCitations", coreGet(config, "on_citations", nil)).(func([]Value)); ok {
+			func() {
+				defer func() { _ = recover() }()
+				callback(append([]Value{}, asSlice(coreGet(a.State, "last_citations", Array()))...))
+			}()
+		}
 	}
-	return output, forwardErr
+	// TS learns from the responder's answer after forward; a stream has no
+	// single answer to hand the playbook.
+	learned := output
+	if sink != nil {
+		learned = Object()
+	}
+	a.learnPlaybookFailures(ctx, learned)
+	if control != nil {
+		control.emit(Object("type", "completed", "path", runPath))
+	}
+	return output, nil
 }
 func (a *AxAgent) get(k string, fallback Value) Value {
 	switch k {
@@ -10461,6 +10605,26 @@ func _core_axgen_cache_write(cachingFunction Value, key Value, output Value) (Va
 func _core_axgen_run_assertions(gen Value, output Value) (Value, error) {
 	out := asMap(output)
 	for _, raw := range asSlice(coreGet(gen, "assertions", Array())) {
+		if call, ok := axAssertionCall(raw, out); ok {
+			// As in the other ports: nil or true passes, a string fails with
+			// that message, false fails without one, and an error (or panic)
+			// comes back as the assertion's error.
+			result, err := axCallCallback(call)
+			if err != nil {
+				return Object("status", "error", "error", err), nil
+			}
+			switch outcome := result.(type) {
+			case bool:
+				if !outcome {
+					return Object("status", "fail", "message", nil), nil
+				}
+			case string:
+				return Object("status", "fail", "message", outcome), nil
+			case error:
+				return Object("status", "error", "error", outcome), nil
+			}
+			continue
+		}
 		assertion := asMap(raw)
 		if thrown, ok := assertion["throw"]; ok {
 			return Object("status", "error", "error", _core_runtime_error(thrown)), nil
@@ -10741,6 +10905,30 @@ func _core_agent_native_stage_forward(stage,state,client,values,options,selected
     program.Functions=append(append([]Tool{},original...),nativeTools...);program.FunctionCallTraces=Array();program.BaseFunctions=append(append([]Tool{},base...),nativeTools...)
     defer func(){records:=program.FunctionCallTraces;program.Functions=original;program.BaseFunctions=base;program.FunctionCallTraces=append(append(Array(),asSlice(previous)...),asSlice(records)...);mustCore(_agent_record_native_calls(state,selected,records,options))}()
     ai:=client.(AIClient);return program.forward(contextForAIClient(ai,context.Background()),ai,asMap(values),asMap(options))
+}
+
+// _core_agent_stage_streaming_forward streams the stage's AxGen deltas to
+// sink, each through the agent's citation handling (hidden citations leave
+// the delta).
+func _core_agent_stage_streaming_forward(stage, state, client, values, options, sink Value) (Value, error) {
+	program, ok := stage.(*AxGen)
+	if !ok {
+		return nil, fmt.Errorf("the agent's streamed stage must be an AxGen")
+	}
+	deliver, ok := sink.(axGenDeltaSink)
+	if !ok {
+		return nil, fmt.Errorf("the agent stream has no delta sink")
+	}
+	ai := client.(AIClient)
+	ctx := contextForAIClient(ai, context.Background())
+	emit := axGenDeltaSink(func(envelope map[string]Value) error {
+		filtered, err := _agent_stream_citation_delta(state, envelope)
+		if err != nil {
+			return err
+		}
+		return deliver(asMap(filtered))
+	})
+	return program.streamingForwardWith(ctx, ai, asMap(values), asMap(options), emit, runtimeHooksFromOptions(asMap(options)))
 }
 
 func _core_agent_stage_forward(stage Value, client Value, values Value, options Value) (Value, error) {
@@ -11520,6 +11708,8 @@ func runConformanceFixture(fixture map[string]Value) {
 	case "event":
 		runConformanceEvent(fixture)
 	case "agent_forward":
+		runConformanceAgentForward(fixture)
+	case "agent_streaming_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_playbook_coverage":
 		runConformanceAgentPlaybookCoverage(fixture)
@@ -15179,6 +15369,29 @@ func semanticAvailableSkillsIndex(system string) string {
 	return heading + "\n\n" + strings.Join(entries, "\n")
 }
 
+// conformanceAgentRequestStage names the part of an agent run that sent a
+// model request, by its system prompt.
+func conformanceAgentRequestStage(request map[string]Value) string {
+	system := ""
+	prompt := asSlice(coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", Array())))
+	if len(prompt) > 0 && display(coreGet(prompt[0], "role", "")) == "system" {
+		if content, ok := coreGet(prompt[0], "content", "").(string); ok {
+			system = content
+		}
+	}
+	switch {
+	case strings.Contains(system, "You (`distiller`)"):
+		return "distiller"
+	case strings.Contains(system, "You (`executor`)"):
+		return "executor"
+	case strings.Contains(system, "`Generator answer`"), strings.Contains(system, "`Question context`"):
+		return "playbook"
+	case strings.Contains(system, "context-map Distiller"), strings.Contains(system, "context-map Cartographer"):
+		return "context_map"
+	}
+	return "responder"
+}
+
 func runConformanceAgentForward(fixture map[string]Value) {
 	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
@@ -15199,6 +15412,49 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	installSemanticObserver(options, "onLoadedMemories", "loaded_memories", true)
 	installSemanticObserver(options, "onUsedSkills", "constructor.used_skills", false)
 	installSemanticObserver(options, "onUsedMemories", "constructor.used_memories", false)
+	// Observer calls, each marked with the number of model requests before
+	// it, so the transcript can interleave them with the requests.
+	observerCalls := MutableArray()
+	type observerMark struct {
+		requests int
+		label    string
+	}
+	var observerMarks []observerMark
+	recordingObserver := func(label string) func([]Value) {
+		return func(payload []Value) {
+			observerMarks = append(observerMarks, observerMark{len(client.Requests), label})
+			coreAppend(observerCalls, Object("callback", label, "payload", cloneValue(payload)))
+		}
+	}
+	for _, rawLabel := range asSlice(coreGet(fixture, "observers", Array())) {
+		switch label := display(rawLabel); label {
+		case "used_memories":
+			options["onUsedMemories"] = AxAgentObserverFn(recordingObserver(label))
+		case "used_skills":
+			options["onUsedSkills"] = AxAgentObserverFn(recordingObserver(label))
+		case "citations":
+			citations := cloneMap(asMap(coreGet(options, "citations", Object())))
+			citations["onCitations"] = recordingObserver(label)
+			options["citations"] = citations
+		case "playbook_update":
+			// The playbook's onUpdate after run-end learning, by its status.
+			playbook := cloneMap(asMap(coreGet(options, "playbook", Object())))
+			playbook["onUpdate"] = func(update map[string]Value) {
+				observerMarks = append(observerMarks, observerMark{len(client.Requests), label})
+				coreAppend(observerCalls, Object("callback", label, "payload", Object("status", update["status"])))
+			}
+			options["playbook"] = playbook
+		}
+	}
+	// The run lifecycle events, in order, with their paths; with
+	// control_steer every event, and the steer lands during that request.
+	controlEvents := func() Value { return Array() }
+	controlOptions := map[string]Value{}
+	if coreTruthy(coreGet(fixture, "control", false)) {
+		controlEvents = conformanceAttachControl(fixture, client, controlOptions)
+	}
+	streaming := display(coreGet(fixture, "kind", "")) == "agent_streaming_forward"
+	streamDeltas := Array()
 	observerCalled := false
 	if coreTruthy(coreGet(fixture, "observer_throws", false)) {
 		citations := cloneMap(asMap(coreGet(options, "citations", Object())))
@@ -15307,6 +15563,25 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 		installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
 		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+		for key, value := range controlOptions {
+			forwardOptions[key] = value
+		}
+		if streaming {
+			stopAfter := coreGet(fixture, "stop_after_deltas", nil)
+			for delta, deltaErr := range ag.StreamingForward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), forwardOptions) {
+				if deltaErr != nil {
+					panic(deltaErr)
+				}
+				streamDeltas = append(streamDeltas, Object("version", delta.Version, "index", delta.Index, "delta", publicValue(delta.Delta)))
+				if stopAfter != nil && len(streamDeltas) == int(num(stopAfter)) {
+					break
+				}
+			}
+			if stopAfter == nil {
+				output = publicValue(coreGet(ag.State, "last_output", nil))
+			}
+			return output
+		}
 		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), forwardOptions)
 		if forwardErr != nil {
 			panic(forwardErr)
@@ -15314,6 +15589,40 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		output = out
 		return out
 	})
+	assertRunProjections := func() {
+		if streaming || coreGet(fixture, "expected_deltas", nil) != nil {
+			assertEqual(streamDeltas, coreGet(fixture, "expected_deltas", Array()), "agent streaming deltas")
+		}
+		if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
+			assertEqual(controlEvents(), expected, "agent run control events")
+		}
+		conformanceAssertRequestRoles(fixture, client)
+		if expected := coreGet(fixture, "expected_observer_calls", nil); expected != nil {
+			assertEqual(observerCalls, expected, "agent observer calls")
+		}
+		if expected := coreGet(fixture, "expected_transcript", nil); expected != nil {
+			transcript := Array()
+			marks := observerMarks
+			for index, request := range client.Requests {
+				for len(marks) > 0 && marks[0].requests <= index {
+					transcript = append(transcript, marks[0].label)
+					marks = marks[1:]
+				}
+				transcript = append(transcript, "request:"+conformanceAgentRequestStage(request))
+			}
+			for _, mark := range marks {
+				transcript = append(transcript, mark.label)
+			}
+			assertEqual(transcript, expected, "agent run transcript")
+		}
+		if expected := coreGet(fixture, "expected_chat_log_shape", nil); expected != nil && ag != nil {
+			shape := Array()
+			for _, entry := range asSlice(ag.GetChatLog()) {
+				shape = append(shape, Object("name", coreGet(entry, "name", nil), "stage", coreGet(entry, "stage", nil)))
+			}
+			assertEqual(shape, expected, "agent chat log shape")
+		}
+	}
 	expectedErr := display(coreGet(fixture, "expected_error_contains", ""))
 	if expectedErr != "" {
 		if err == nil {
@@ -15325,6 +15634,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if ag != nil {
 			assertAgentTrace(ag, fixture)
 		}
+		assertRunProjections()
 		return
 	}
 	if err != nil {
@@ -15333,6 +15643,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
 	}
+	assertRunProjections()
 	if expected := coreGet(fixture, "expected_run_state_projections", nil); expected != nil {
 		assertEqual(runStateProjections, expected, "agent run state projections")
 	}
