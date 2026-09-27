@@ -301,7 +301,13 @@ public final class Conformance {
     public Object call(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
       if (responses.isEmpty()) throw new RuntimeException("scripted transport exhausted");
-      return responses.remove(0);
+      Object response = responses.remove(0);
+      // {"network_error": message} stands for a request that failed to
+      // connect, send or read, which the transport reports as TS does.
+      if (response instanceof Map<?, ?> map && map.containsKey("network_error")) {
+        throw new AxAIServiceNetworkError("Network Error: " + map.get("network_error"));
+      }
+      return response;
     }
     public Object call(Map<String,Object> request,AxCancellationToken cancellation){cancellations.add(cancellation);return call(request);}
     public Object stream(Map<String,Object> request,AxCancellationToken cancellation){cancellations.add(cancellation);return call(request);}
@@ -783,6 +789,33 @@ public final class Conformance {
   // expected_deprecations pins the one-time deprecation warnings the run
   // gives (the ones already shown are forgotten first).
   static void run(Map<String, Object> fixture) {
+    // The request-layer retry records its delays instead of waiting, and a
+    // fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    // pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    // checks that a cancellation ends the wait, so it waits for real.
+    List<Double> delays = java.util.Collections.synchronizedList(new ArrayList<>());
+    OpenAICompatibleClient.requestRetrySleepHook =
+        "ai_cancellation".equals(fixture.get("kind")) ? null : delays::add;
+    Object random = fixture.get("retry_random");
+    Object now = fixture.get("retry_now_ms");
+    OpenAICompatibleClient.requestRetryRandomHook = random == null ? null : () -> Core.asDouble(random);
+    OpenAICompatibleClient.requestRetryNowHook = now == null ? null : () -> Core.asDouble(now);
+    try {
+      runWithDeprecations(fixture);
+    } finally {
+      OpenAICompatibleClient.requestRetrySleepHook = null;
+      OpenAICompatibleClient.requestRetryRandomHook = null;
+      OpenAICompatibleClient.requestRetryNowHook = null;
+    }
+    if (fixture.containsKey("expected_retry_delays_ms")) {
+      List<Object> expected = Core.asList(fixture.get("expected_retry_delays_ms"));
+      boolean matches = expected.size() == delays.size();
+      for (int index = 0; matches && index < expected.size(); index++) matches = Math.abs(Core.asDouble(expected.get(index)) - delays.get(index)) <= 1e-6;
+      if (!matches) throw new FixtureError("retry delays: expected " + Json.stringify(expected) + ", got " + delays);
+    }
+  }
+
+  static void runWithDeprecations(Map<String, Object> fixture) {
     if (!fixture.containsKey("expected_deprecations")) {
       runKind(fixture);
       return;

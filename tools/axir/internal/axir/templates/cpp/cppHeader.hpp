@@ -195,6 +195,10 @@ void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources. Empty
+// functions restore the defaults.
+void set_request_retry_hooks(std::function<void(double)> sleep, std::function<double()> random, std::function<double()> now_ms);
 // The process-wide caching function, which AxGen uses when neither the call
 // nor the AxGen sets one; an empty function clears it.
 void set_caching_function(AxCachingFunction fn);
@@ -1018,6 +1022,9 @@ class OpenAICompatibleClient : public AxBaseAI {
   // error_options are the call's merged options; their includeRequestBodyInErrors
   // decides whether a provider error keeps the request body.
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
+  // TS apiCall's request-layer retry around request_json.
+  Value request_json_retried(const std::string& endpoint, Value payload, const std::string& method, Value error_options, bool stream = false);
+  Value request_json_attempt(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options, std::string* retry_after);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   void check_call_options(const Value& call_options) override;
   std::string operation_method(const std::string& operation) const;

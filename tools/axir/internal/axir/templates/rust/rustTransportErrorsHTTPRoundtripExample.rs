@@ -10,8 +10,8 @@ use std::time::Duration;
 // Send requests through the REAL reqwest transport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Panics on any mismatch so
@@ -95,8 +95,8 @@ fn read_request(stream: &mut TcpStream) {
 }
 
 // Accept connections and count them: "close" closes each one without a
-// response, "drop" sends one stream event and drops it, "gateway" answers 504,
-// "hold" never answers.
+// response, "drop" sends one stream event and drops it, "headers" sends the
+// response headers and drops it, "gateway" answers 504, "hold" never answers.
 fn serve(mode: &'static str) -> (u16, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -118,6 +118,11 @@ fn serve(mode: &'static str) -> (u16, Arc<AtomicUsize>) {
                     DROP_EVENT.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+                thread::sleep(Duration::from_millis(50));
+            }
+            if mode == "headers" {
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n");
                 let _ = stream.flush();
                 thread::sleep(Duration::from_millis(50));
             }
@@ -145,7 +150,7 @@ fn main() {
         "refused chat",
         "AxAIServiceNetworkError",
         "Network Error: ",
-        client(refused, json!({})).chat_with_options(request.clone(), json!({"stream": false})),
+        client(refused, json!({})).chat_with_options(request.clone(), json!({"stream": false, "retry": fast_retry["retry"]})),
     );
     expect(
         "refused stream",
@@ -158,12 +163,14 @@ fn main() {
     // request layer retries it under the call's retry options: the first
     // request and two retries.
     let (closing, closed) = serve("close");
+    let before = closed.load(Ordering::SeqCst);
     expect(
         "closed chat",
         "AxAIServiceNetworkError",
         "Network Error: ",
-        client(closing, json!({})).chat_with_options(request.clone(), json!({"stream": false})),
+        client(closing, json!({})).chat_with_options(request.clone(), json!({"stream": false, "retry": fast_retry["retry"]})),
     );
+    assert_eq!(closed.load(Ordering::SeqCst) - before, 3, "closed chat requests");
     let before = closed.load(Ordering::SeqCst);
     expect(
         "closed stream",
@@ -176,6 +183,18 @@ fn main() {
         3,
         "closed stream requests"
     );
+
+    // A stream whose response began and dropped before its first event is not
+    // retried: TS reads the first event after apiCall returns.
+    let (started, began) = serve("headers");
+    assert!(drain(client(started, json!({})), fast_retry.clone(), &mut ignored).is_err(), "started stream: no error");
+    assert_eq!(began.load(Ordering::SeqCst), 1, "started stream requests");
+
+    // A 504 response is retried by its status, as TS apiCall retries it: it is
+    // not a timeout the request ran out of.
+    let (gateway, answered) = serve("gateway");
+    assert!(drain(client(gateway, json!({})), fast_retry.clone(), &mut ignored).is_err(), "gateway stream: no error");
+    assert_eq!(answered.load(Ordering::SeqCst), 3, "gateway stream requests");
 
     // The client's own timeout (seconds) ends a chat or a stream whose
     // response has not started, in TS's words, and the request layer does not

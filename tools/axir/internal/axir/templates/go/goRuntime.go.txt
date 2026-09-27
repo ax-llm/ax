@@ -3561,6 +3561,9 @@ type Transport interface {
 type AxHTTPStreamResponse struct {
 	Status int
 	Body   io.ReadCloser
+	// Headers holds response headers the client reads, such as Retry-After on
+	// a status response. It may be nil.
+	Headers map[string]string
 }
 
 type StreamingTransport interface {
@@ -3585,6 +3588,11 @@ func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, err
 	}
 	out := t.Responses[0]
 	t.Responses = t.Responses[1:]
+	// {"network_error": message} stands for a request that failed to connect,
+	// send or read, as the HTTP client reports it.
+	if message := coreGet(out, "network_error", nil); message != nil {
+		return nil, errors.New(display(message))
+	}
 	return out, nil
 }
 
@@ -3779,6 +3787,127 @@ func chatTransportError(ctx context.Context, err error, call Value, options map[
 	return ended
 }
 
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources.
+var (
+	requestRetrySleepHook  func(ms float64)
+	requestRetryRandomHook func() float64
+	requestRetryNowHook    func() float64
+)
+
+// requestRetryFailure is TS apiCall's view of a failed request: its HTTP
+// status (with its Retry-After) or a network failure. Anything else is nil and
+// is not retried.
+func requestRetryFailure(err error, retryAfter string) Value {
+	typed, ok := AsAxError(err)
+	if !ok || typed.Type == "AxAIServiceAuthenticationError" || typed.Type == "AxAIServiceAbortedError" {
+		return nil
+	}
+	if typed.Status > 0 {
+		failure := Object("status", float64(typed.Status))
+		if retryAfter != "" {
+			coreSet(failure, "retry_after", retryAfter)
+		}
+		return failure
+	}
+	if typed.Type == "AxAIServiceNetworkError" {
+		return Object("network", true)
+	}
+	return nil
+}
+
+// retryWait is requestRetryWait for the Typesafe client.
+func (c *OpenAICompatibleClient) retryWait(ctx context.Context, config Value, attempt int, err error, retryAfter string) (bool, error) {
+	return requestRetryWait(ctx, config, attempt, err, retryAfter)
+}
+
+// requestRetryWait waits before the failed request goes out again, as TS
+// apiCall does, and reports whether it does.
+func requestRetryWait(ctx context.Context, config Value, attempt int, err error, retryAfter string) (bool, error) {
+	failure := requestRetryFailure(err, retryAfter)
+	if failure == nil {
+		return false, nil
+	}
+	now := float64(time.Now().UnixMilli())
+	if requestRetryNowHook != nil {
+		now = requestRetryNowHook()
+	}
+	random := rand.Float64()
+	if requestRetryRandomHook != nil {
+		random = requestRetryRandomHook()
+	}
+	delay := mustCore(request_retry_delay(config, float64(attempt), failure, now, random))
+	if delay == nil {
+		return false, nil
+	}
+	return true, requestRetrySleep(ctx, num(delay))
+}
+
+func requestRetrySleep(ctx context.Context, ms float64) error {
+	if requestRetrySleepHook != nil {
+		if err := contextCancellationError(ctx); err != nil {
+			return err
+		}
+		requestRetrySleepHook(ms)
+		return nil
+	}
+	return waitStreamRetry(ctx, ms)
+}
+
+// transportRetryAfter is a transport result's Retry-After header.
+func transportRetryAfter(raw Value) string {
+	headers := asMap(coreGet(raw, "headers", Object()))
+	for _, key := range orderedKeys(headers) {
+		if strings.EqualFold(key, "Retry-After") {
+			return display(headers[key])
+		}
+	}
+	return ""
+}
+
+// transportCallOnce sends one request and returns the provider's body, or the
+// error and the status response's Retry-After.
+func (c *OpenAICompatibleClient) transportCallOnce(ctx context.Context, call Value, options map[string]Value) (Value, string, error) {
+	raw, err := c.Transport.Call(ctx, call)
+	if err != nil {
+		return nil, "", chatTransportError(ctx, err, call, options)
+	}
+	body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
+	if statusErr != nil {
+		return nil, transportRetryAfter(raw), statusErr
+	}
+	return body, "", nil
+}
+
+// retriedTransportCall is TS apiCall's request-layer retry around one
+// request: a listed status or a network failure goes out again after its
+// jittered backoff (or its Retry-After), under the call's retry options, else
+// the client's. Each retry rebuilds the request, as apiCall resolves its
+// headers again; a nil rebuild sends the same request.
+func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first Value, rebuild func() Value, options map[string]Value) (Value, error) {
+	config := mustCore(resolve_stream_retry(Value(options)))
+	call := first
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 && rebuild != nil {
+			call = rebuild()
+		}
+		body, retryAfter, err := c.transportCallOnce(ctx, call, options)
+		if err == nil {
+			return body, nil
+		}
+		if ctx.Err() != nil {
+			return nil, normalizeContextError(ctx, err)
+		}
+		retry, waitErr := requestRetryWait(ctx, config, attempt, err, retryAfter)
+		if waitErr != nil {
+			return nil, waitErr
+		}
+		if !retry {
+			return nil, err
+		}
+	}
+}
+
 // warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
 // ignores it until the next major version and warns once, naming timeoutMs.
 func warnCallTimeout(options map[string]Value) {
@@ -3827,6 +3956,9 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 		return nil, normalizeContextError(ctx, err)
 	}
 	out := Object("status", float64(resp.StatusCode))
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" && resp.StatusCode >= 400 {
+		coreSet(out, "headers", Object("Retry-After", retryAfter))
+	}
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
 		// be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
@@ -3880,10 +4012,14 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 		}
 		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
-	if timer == nil {
-		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	var headers map[string]string
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+		headers = map[string]string{"Retry-After": retryAfter}
 	}
-	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}}, nil
+	if timer == nil {
+		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body, Headers: headers}, nil
+	}
+	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}, Headers: headers}, nil
 }
 
 // TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
@@ -3948,29 +4084,46 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
     opts := mergeAIOptions(c.client.optionsSnapshot(), options)
-    parent := ctx
     timeout := num(coreGet(opts, "timeout", 0))
-    if timeout > 0 { var cancel context.CancelFunc; ctx,cancel=context.WithTimeout(ctx,time.Duration(timeout*float64(time.Second)));defer cancel() }
-    retries,initial,maxDelay,factor := streamRetryParams(opts)
-    for attempt:=0;;attempt++ {
-        if err:=ctx.Err();err!=nil{return nil,normalizeContextError(ctx,err)}
-        result,err:=safeValue(func() Value {
-            call:=c.client.requestJSON(ctx,operation,Object(),false,opts,payload)
-            raw,err:=c.client.Transport.Call(ctx,call)
-            if err!=nil {
-                // The client's own timeout, not the caller's deadline, ended it.
-                if timeout > 0 && parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-                    panic(clientTimeoutError(timeout, err, call, opts))
-                }
-                panic(chatTransportError(ctx, err, call, opts))
-            }
-            return normalizeTransportPayload(raw, call, opts)
-        })
-        if err==nil{return result,nil}
-        // As in TS apiCall, a timeout is not retried here.
-        if !IsRetryable(err)||isTransportTimeout(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
-        if err=waitStreamRetry(ctx,math.Min(initial*math.Pow(factor,float64(attempt)),maxDelay));err!=nil{return nil,err}
+    config := mustCore(resolve_stream_retry(Value(opts)))
+    for attempt := 0; ; attempt++ {
+        if err := ctx.Err(); err != nil { return nil, normalizeContextError(ctx, err) }
+        result, retryAfter, err := c.requestOnce(ctx, operation, payload, opts, timeout)
+        if err == nil { return result, nil }
+        if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+        // TS apiCall's request-layer retry: a listed status or a network
+        // failure, never a timeout the request ran out of.
+        retry, waitErr := c.client.retryWait(ctx, config, attempt, err, retryAfter)
+        if waitErr != nil { return nil, waitErr }
+        if !retry { return nil, err }
     }
+}
+
+// requestOnce sends one request under the client's timeout (seconds), which
+// TS arms for each attempt, and returns the body, or the error and the status
+// response's Retry-After.
+func (c *AxAITypesafeClient) requestOnce(ctx context.Context, operation string, payload map[string]Value, opts map[string]Value, timeout float64) (Value, string, error) {
+    attemptCtx := ctx
+    if timeout > 0 {
+        var cancel context.CancelFunc
+        attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeout*float64(time.Second)))
+        defer cancel()
+    }
+    var call Value
+    if _, buildErr := safeValue(func() Value { call = c.client.requestJSON(attemptCtx, operation, Object(), false, opts, payload); return nil }); buildErr != nil {
+        return nil, "", buildErr
+    }
+    raw, err := c.client.Transport.Call(attemptCtx, call)
+    if err != nil {
+        // The client's own timeout, not the caller's deadline, ended it.
+        if timeout > 0 && ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+            return nil, "", clientTimeoutError(timeout, err, call, opts)
+        }
+        return nil, "", chatTransportError(ctx, err, call, opts)
+    }
+    body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, opts) })
+    if statusErr != nil { return nil, transportRetryAfter(raw), statusErr }
+    return body, "", nil
 }
 
 type OpenAICompatibleClient struct {
@@ -4266,11 +4419,10 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
                 return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 			}
-			raw, err := c.Transport.Call(ctx, transportReq)
+			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "chat", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
-				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
+				panic(err)
 			}
-			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 		})
 	}
@@ -4317,12 +4469,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	payload := cloneMap(asMap(coreGet(fullCall, "json", Object())))
 	explicit := display(coreGet(cfg, "name", coreGet(cfg, "cacheName", coreGet(cfg, "cache_name", ""))))
 	tryCall := func(call Value) (Value, error) {
-		raw, err := c.Transport.Call(ctx, call)
-		if err != nil {
-			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, transportCallError(err, call, options)
-		}
-		return safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
+		return c.retriedTransportCall(ctx, call, nil, options)
 	}
 	if explicit != "" {
 		coreSet(payload, "cachedContent", explicit)
@@ -4522,11 +4669,11 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
 			c.setLastEmbed(model)
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
-			raw, err := c.Transport.Call(ctx, transportReq)
+			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "embed", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
-				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
+				panic(err)
 			}
-			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
+			return mustCore(provider_normalize_embed_response(c.Profile, body, c.Name, model))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
@@ -4570,20 +4717,33 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 }
 
 func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, error) {
+	stream, _, err := c.openProviderStreamOnce(ctx, request, errorOptions)
+	return stream, err
+}
+
+// openProviderStreamOnce opens the stream once, and on a status response also
+// returns its Retry-After.
+func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, string, error) {
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
-			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, transportCallError(err, request, errorOptions)
+			if ctx.Err() != nil { return nil, "", normalizeContextError(ctx, err) }
+			return nil, "", transportCallError(err, request, errorOptions)
 		}
 		if response.Body == nil {
-			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
+			return nil, "", AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
 		}
 		if response.Status >= 400 {
+			retryAfter := ""
+			for key, value := range response.Headers {
+				if strings.EqualFold(key, "Retry-After") {
+					retryAfter = value
+				}
+			}
 			data, readErr := io.ReadAll(response.Body)
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, providerNetworkError(readErr, request, errorOptions)
+				return nil, "", providerNetworkError(readErr, request, errorOptions)
 			}
 			// A JSON error body is parsed so the error carries the provider's
 			// message, as the chat path's does; anything else stays text.
@@ -4595,27 +4755,27 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 				return normalizeTransportPayload(Object("status", float64(response.Status), "json", body), request, errorOptions)
 			})
 			if normalizedErr != nil {
-				return nil, normalizedErr
+				return nil, retryAfter, normalizedErr
 			}
-			return nil, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
+			return nil, retryAfter, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
 		}
-		return newSSEJSONStream(response.Body, response.Body), nil
+		return newSSEJSONStream(response.Body, response.Body), "", nil
 	}
 
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
-		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-		return nil, transportCallError(err, request, errorOptions)
+		if ctx.Err() != nil { return nil, "", normalizeContextError(ctx, err) }
+		return nil, "", transportCallError(err, request, errorOptions)
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw, request, errorOptions) })
 	if normalizedErr != nil {
-		return nil, normalizedErr
+		return nil, transportRetryAfter(raw), normalizedErr
 	}
 	switch body.(type) {
 	case []any, *AxArray:
-		return &sliceProviderStream{values: asSlice(body)}, nil
+		return &sliceProviderStream{values: asSlice(body)}, "", nil
 	default:
-		return newSSEJSONStream(strings.NewReader(display(body)), nil), nil
+		return newSSEJSONStream(strings.NewReader(display(body)), nil), "", nil
 	}
 }
 
@@ -4673,35 +4833,38 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 			model := coreGet(req, "model", coreGet(opts, "model", nil))
 			config := coreGet(req, "model_config", Object())
 			c.setLastChat(model, config)
+			retryConfig := mustCore(resolve_stream_retry(Value(mergedOptions)))
 			maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
-			attempt := 0
+			startAttempt := 0
 			for {
-				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
-				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
-				if err != nil {
-					// As in TS apiCall, a timeout is not retried here.
-					if IsRetryable(err) && !isTransportTimeout(err) && attempt < maxRetries {
-						attempt++
-						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
-							panic(waitErr)
-						}
-						continue
+				// The stream's request goes through apiCall's request-layer
+				// retry; its first event is read once, as TS reads it after
+				// apiCall returns, and a failure to read it surfaces.
+				var raw rawProviderStream
+				var transportReq Value
+				for openAttempt := 0; ; openAttempt++ {
+					transportReq = c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
+					opened, retryAfter, err := c.openProviderStreamOnce(ctx, transportReq, mergedOptions)
+					if err == nil {
+						raw = opened
+						break
 					}
-					panic(err)
+					if ctx.Err() != nil {
+						panic(normalizeContextError(ctx, err))
+					}
+					retry, waitErr := requestRetryWait(ctx, retryConfig, openAttempt, err, retryAfter)
+					if waitErr != nil {
+						panic(waitErr)
+					}
+					if !retry {
+						panic(err)
+					}
 				}
 				firstRaw, firstErr := raw.Next()
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
 					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
-					wrapped := providerNetworkError(firstErr, transportReq, mergedOptions)
-					if attempt < maxRetries {
-						attempt++
-						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
-							panic(waitErr)
-						}
-						continue
-					}
-					panic(wrapped)
+					panic(transportCallError(firstErr, transportReq, mergedOptions))
 				}
 				if errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
@@ -4714,19 +4877,22 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 					_ = raw.Close()
 					panic(classifyErr)
 				}
+				// TS retryTransientStreamStart: a first event that carries a
+				// listed status (Anthropic's overloaded_error) goes out again,
+				// with its own budget and without jitter.
 				retryableStatus := false
 				if status != nil {
-					value, statusErr := safeValue(func() Value { return mustCore(is_retryable_status(status)) })
+					value, statusErr := safeValue(func() Value { return mustCore(retry_status_listed(retryConfig, status)) })
 					if statusErr != nil {
 						_ = raw.Close()
 						panic(statusErr)
 					}
 					retryableStatus = coreTruthy(value)
 				}
-				if retryableStatus && attempt < maxRetries {
+				if retryableStatus && startAttempt < maxRetries {
 					_ = raw.Close()
-					attempt++
-					if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
+					startAttempt++
+					if waitErr := requestRetrySleep(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, startAttempt)); waitErr != nil {
 						panic(waitErr)
 					}
 					continue
@@ -12609,12 +12775,39 @@ func RunConformanceFixture(fixture Value) error {
 	if ConformanceSkipReason(fixture) != "" {
 		return nil
 	}
+	// The request-layer retry records its delays instead of waiting, and a
+	// fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+	// pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+	// checks that a cancellation ends the wait, so it waits for real.
+	delays := []float64{}
+	if display(coreGet(fixture, "kind", "")) != "ai_cancellation" {
+		requestRetrySleepHook = func(ms float64) { delays = append(delays, ms) }
+	}
+	if random := coreGet(fixture, "retry_random", nil); random != nil {
+		requestRetryRandomHook = func() float64 { return num(random) }
+	}
+	if now := coreGet(fixture, "retry_now_ms", nil); now != nil {
+		requestRetryNowHook = func() float64 { return num(now) }
+	}
+	defer func() {
+		requestRetrySleepHook, requestRetryRandomHook, requestRetryNowHook = nil, nil, nil
+	}()
 	_, err := safeValue(func() Value {
 		runConformanceFixture(asMap(fixture))
 		return nil
 	})
 	if err != nil {
 		return FixtureError{Message: display(coreGet(fixture, "name", "fixture")) + ": " + err.Error()}
+	}
+	if expected := coreGet(fixture, "expected_retry_delays_ms", nil); expected != nil {
+		want := asSlice(expected)
+		matches := len(want) == len(delays)
+		for index := 0; matches && index < len(want); index++ {
+			matches = math.Abs(num(want[index])-delays[index]) <= 1e-6
+		}
+		if !matches {
+			return FixtureError{Message: fmt.Sprintf("%s: retry delays: expected %v, got %v", display(coreGet(fixture, "name", "fixture")), stableStringify(expected), delays)}
+		}
 	}
 	return nil
 }

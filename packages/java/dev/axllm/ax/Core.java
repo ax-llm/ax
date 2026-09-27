@@ -10517,6 +10517,15 @@ final class Core {
     Core.set(config, "initial_delay_ms", 1000);
     Core.set(config, "max_delay_ms", 60000);
     Core.set(config, "backoff_factor", 2);
+    Object codes = new java.util.ArrayList<Object>();
+    Core.append(codes, 500);
+    Core.append(codes, 408);
+    Core.append(codes, 429);
+    Core.append(codes, 502);
+    Core.append(codes, 503);
+    Core.append(codes, 504);
+    Core.append(codes, 529);
+    Core.set(config, "retryable_status_codes", codes);
     return config;
   }
 
@@ -10547,11 +10556,14 @@ final class Core {
     Object initial = Core.retry_opt_value(retry, "initialDelayMs", "initial_delay_ms", def_initial);
     Object max_delay = Core.retry_opt_value(retry, "maxDelayMs", "max_delay_ms", def_max_delay);
     Object backoff = Core.retry_opt_value(retry, "backoffFactor", "backoff_factor", def_backoff);
+    Object def_codes = Core.get(cfg, "retryable_status_codes", null);
+    Object codes = Core.retry_opt_value(retry, "retryableStatusCodes", "retryable_status_codes", def_codes);
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "max_retries", max_retries);
     Core.set(out, "initial_delay_ms", initial);
     Core.set(out, "max_delay_ms", max_delay);
     Core.set(out, "backoff_factor", backoff);
+    Core.set(out, "retryable_status_codes", codes);
     return out;
   }
 
@@ -16358,6 +16370,321 @@ final class Core {
       }
     }
     return view;
+  }
+
+  static Object retry_status_listed(Object config, Object status) {
+    axirCoverageMark("retry_status_listed");
+    Object codes = Core.get(config, "retryable_status_codes", null);
+    Object no_codes = Core.isNone(codes);
+    if (Core.truthy(no_codes)) {
+      Object defaults = Core.default_retry_config();
+      codes = Core.get(defaults, "retryable_status_codes", null);
+    }
+    for (Object code : Core.iter(codes)) {
+      Object same = Core.eq(code, status);
+      if (Core.truthy(same)) {
+        return Boolean.TRUE;
+      }
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object retry_backoff_ms(Object config, Object attempt, Object random) {
+    axirCoverageMark("retry_backoff_ms");
+    Object initial = Core.get(config, "initial_delay_ms", 1000);
+    Object max_delay = Core.get(config, "max_delay_ms", 60000);
+    Object factor = Core.get(config, "backoff_factor", 2);
+    Object scale = Core.mathPow(factor, attempt);
+    Object base = Core.mul(initial, scale);
+    Object capped = Core.gt(base, max_delay);
+    if (Core.truthy(capped)) {
+      base = max_delay;
+    }
+    Object spread = Core.mul(random, 0.5);
+    Object jitter = Core.add(spread, 0.75);
+    Object delay = Core.mul(base, jitter);
+    return delay;
+  }
+
+  static Object _retry_digits_value(Object text) {
+    axirCoverageMark("_retry_digits_value");
+    Object none = Core.none();
+    Object count = Core.len(text);
+    Object empty = Core.eq(count, 0);
+    if (Core.truthy(empty)) {
+      return none;
+    }
+    Object digits = new java.util.LinkedHashMap<String, Object>();
+    Core.set(digits, "0", 0);
+    Core.set(digits, "1", 1);
+    Core.set(digits, "2", 2);
+    Core.set(digits, "3", 3);
+    Core.set(digits, "4", 4);
+    Core.set(digits, "5", 5);
+    Core.set(digits, "6", 6);
+    Core.set(digits, "7", 7);
+    Core.set(digits, "8", 8);
+    Core.set(digits, "9", 9);
+    Object total = 0;
+    Object cursor = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object done = Core.gte(cursor, count);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object next = Core.add(cursor, 1);
+      Object ch = Core.stringSlice(text, cursor, next);
+      Object digit = Core.get(digits, ch, null);
+      Object not_digit = Core.isNone(digit);
+      if (Core.truthy(not_digit)) {
+        return none;
+      }
+      Object scaled = Core.mul(total, 10);
+      total = Core.add(scaled, digit);
+      cursor = next;
+    }
+    return total;
+  }
+
+  static Object _retry_after_seconds(Object text) {
+    axirCoverageMark("_retry_after_seconds");
+    Object none = Core.none();
+    Object trimmed = Core.stringTrim(text);
+    Object blank = Core.eq(trimmed, "");
+    if (Core.truthy(blank)) {
+      return 0;
+    }
+    Object decimal = Core.regexMatch("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$", trimmed);
+    Object not_decimal = Core.not(decimal);
+    if (Core.truthy(not_decimal)) {
+      return none;
+    }
+    Object sign = "";
+    Object body = trimmed;
+    Object plus = Core.stringStartsWith(body, "+");
+    if (Core.truthy(plus)) {
+      body = Core.stringSlice(body, 1);
+    }
+    Object minus = Core.stringStartsWith(body, "-");
+    if (Core.truthy(minus)) {
+      sign = "-";
+      body = Core.stringSlice(body, 1);
+    }
+    Object lower = Core.stringLower(body);
+    Object exponent = "";
+    Object exponent_split = Core.stringSplitOnce(lower, "e");
+    Object has_exponent = Core.get(exponent_split, "found", Boolean.FALSE);
+    if (Core.truthy(has_exponent)) {
+      Object exponent_digits = Core.get(exponent_split, "right", null);
+      exponent = Core.stringFormat("e{}", exponent_digits);
+      lower = Core.get(exponent_split, "left", null);
+    }
+    Object whole = lower;
+    Object fraction = "";
+    Object point_split = Core.stringSplitOnce(lower, ".");
+    Object has_point = Core.get(point_split, "found", Boolean.FALSE);
+    if (Core.truthy(has_point)) {
+      whole = Core.get(point_split, "left", null);
+      fraction = Core.get(point_split, "right", null);
+    }
+    while (Core.truthy(Boolean.TRUE)) {
+      Object whole_length = Core.len(whole);
+      Object many_digits = Core.gt(whole_length, 1);
+      Object leading_zero = Core.stringStartsWith(whole, "0");
+      Object strip = Core.and(many_digits, leading_zero);
+      Object keep = Core.not(strip);
+      if (Core.truthy(keep)) {
+        break;
+      }
+      whole = Core.stringSlice(whole, 1);
+    }
+    Object no_whole = Core.eq(whole, "");
+    if (Core.truthy(no_whole)) {
+      whole = "0";
+    }
+    Object literal = Core.stringFormat("{}{}", sign, whole);
+    Object fraction_length = Core.len(fraction);
+    Object has_fraction = Core.gt(fraction_length, 0);
+    if (Core.truthy(has_fraction)) {
+      literal = Core.stringFormat("{}.{}", literal, fraction);
+    }
+    literal = Core.stringFormat("{}{}", literal, exponent);
+    Object value = Core.jsonParse(literal);
+    return value;
+  }
+
+  static Object _retry_days_from_civil(Object year, Object month, Object day) {
+    axirCoverageMark("_retry_days_from_civil");
+    Object year_of_era = year;
+    Object early = Core.lte(month, 2);
+    if (Core.truthy(early)) {
+      year_of_era = Core.add(year, -1);
+    }
+    Object era_ratio = Core.div(year_of_era, 400);
+    Object era = Core.mathFloor(era_ratio);
+    Object era_years = Core.mul(era, -400);
+    Object yoe = Core.add(year_of_era, era_years);
+    Object shifted = Core.add(month, 9);
+    Object month_ratio = Core.div(shifted, 12);
+    Object month_wraps = Core.mathFloor(month_ratio);
+    month_wraps = Core.mul(month_wraps, -12);
+    Object month_index = Core.add(shifted, month_wraps);
+    Object month_days = Core.mul(month_index, 153);
+    month_days = Core.add(month_days, 2);
+    Object month_days_ratio = Core.div(month_days, 5);
+    month_days = Core.mathFloor(month_days_ratio);
+    Object doy = Core.add(month_days, day);
+    doy = Core.add(doy, -1);
+    Object doe = Core.mul(yoe, 365);
+    Object leap4_ratio = Core.div(yoe, 4);
+    Object leap4 = Core.mathFloor(leap4_ratio);
+    Object leap100_ratio = Core.div(yoe, 100);
+    Object leap100 = Core.mathFloor(leap100_ratio);
+    doe = Core.add(doe, leap4);
+    Object leap100_negated = Core.mul(leap100, -1);
+    doe = Core.add(doe, leap100_negated);
+    doe = Core.add(doe, doy);
+    Object days = Core.mul(era, 146097);
+    days = Core.add(days, doe);
+    days = Core.add(days, -719468);
+    return days;
+  }
+
+  static Object _retry_http_date_ms(Object text) {
+    axirCoverageMark("_retry_http_date_ms");
+    Object none = Core.none();
+    Object trimmed = Core.stringTrim(text);
+    Object fixdate = Core.regexMatch("^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$", trimmed);
+    Object not_fixdate = Core.not(fixdate);
+    if (Core.truthy(not_fixdate)) {
+      return none;
+    }
+    Object day_text = Core.stringSlice(trimmed, 5, 7);
+    Object month_text = Core.stringSlice(trimmed, 8, 11);
+    Object year_text = Core.stringSlice(trimmed, 12, 16);
+    Object hour_text = Core.stringSlice(trimmed, 17, 19);
+    Object minute_text = Core.stringSlice(trimmed, 20, 22);
+    Object second_text = Core.stringSlice(trimmed, 23, 25);
+    Object day = Core._retry_digits_value(day_text);
+    Object year = Core._retry_digits_value(year_text);
+    Object hour = Core._retry_digits_value(hour_text);
+    Object minute = Core._retry_digits_value(minute_text);
+    Object second = Core._retry_digits_value(second_text);
+    Object months = new java.util.LinkedHashMap<String, Object>();
+    Core.set(months, "Jan", 1);
+    Core.set(months, "Feb", 2);
+    Core.set(months, "Mar", 3);
+    Core.set(months, "Apr", 4);
+    Core.set(months, "May", 5);
+    Core.set(months, "Jun", 6);
+    Core.set(months, "Jul", 7);
+    Core.set(months, "Aug", 8);
+    Core.set(months, "Sep", 9);
+    Core.set(months, "Oct", 10);
+    Core.set(months, "Nov", 11);
+    Core.set(months, "Dec", 12);
+    Object month = Core.get(months, month_text, null);
+    Object day_low = Core.lt(day, 1);
+    Object day_high = Core.gt(day, 31);
+    Object hour_high = Core.gt(hour, 23);
+    Object minute_high = Core.gt(minute, 59);
+    Object second_high = Core.gt(second, 59);
+    Object bad_day = Core.or(day_low, day_high);
+    Object bad_clock = Core.or(hour_high, minute_high);
+    bad_clock = Core.or(bad_clock, second_high);
+    Object bad = Core.or(bad_day, bad_clock);
+    if (Core.truthy(bad)) {
+      return none;
+    }
+    Object days = Core._retry_days_from_civil(year, month, day);
+    Object millis = Core.mul(days, 86400000);
+    Object hour_ms = Core.mul(hour, 3600000);
+    Object minute_ms = Core.mul(minute, 60000);
+    Object second_ms = Core.mul(second, 1000);
+    millis = Core.add(millis, hour_ms);
+    millis = Core.add(millis, minute_ms);
+    millis = Core.add(millis, second_ms);
+    return millis;
+  }
+
+  static Object retry_after_ms(Object header, Object now_ms) {
+    axirCoverageMark("retry_after_ms");
+    Object none = Core.none();
+    Object is_string = Core.typeIs(header, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return none;
+    }
+    Object empty = Core.eq(header, "");
+    if (Core.truthy(empty)) {
+      return none;
+    }
+    Object seconds = Core._retry_after_seconds(header);
+    Object has_seconds = Core.isNotNone(seconds);
+    if (Core.truthy(has_seconds)) {
+      Object seconds_ms = Core.mul(seconds, 1000);
+      return seconds_ms;
+    }
+    Object date_ms = Core._retry_http_date_ms(header);
+    Object has_date = Core.isNotNone(date_ms);
+    if (Core.truthy(has_date)) {
+      Object negative_now = Core.mul(now_ms, -1);
+      Object wait = Core.add(date_ms, negative_now);
+      Object past = Core.lt(wait, 0);
+      if (Core.truthy(past)) {
+        return 0;
+      }
+      return wait;
+    }
+    return none;
+  }
+
+  static Object request_retry_delay(Object config, Object attempt, Object failure, Object now_ms, Object random) {
+    axirCoverageMark("request_retry_delay");
+    Object none = Core.none();
+    Object max_retries = Core.get(config, "max_retries", 3);
+    Object spent = Core.gte(attempt, max_retries);
+    if (Core.truthy(spent)) {
+      return none;
+    }
+    Object status = Core.get(failure, "status", null);
+    Object has_status = Core.isNotNone(status);
+    if (Core.truthy(has_status)) {
+      Object is_401 = Core.eq(status, 401);
+      Object is_403 = Core.eq(status, 403);
+      Object auth = Core.or(is_401, is_403);
+      if (Core.truthy(auth)) {
+        return none;
+      }
+      Object listed = Core.retry_status_listed(config, status);
+      Object not_listed = Core.not(listed);
+      if (Core.truthy(not_listed)) {
+        return none;
+      }
+      Object delay = Core.retry_backoff_ms(config, attempt, random);
+      Object header = Core.get(failure, "retry_after", null);
+      Object after = Core.retry_after_ms(header, now_ms);
+      Object has_after = Core.isNotNone(after);
+      if (Core.truthy(has_after)) {
+        Object max_delay = Core.get(config, "max_delay_ms", 60000);
+        Object within = Core.lte(after, max_delay);
+        if (Core.truthy(within)) {
+          delay = after;
+        }
+      }
+      Object negative = Core.lt(delay, 0);
+      if (Core.truthy(negative)) {
+        return 0;
+      }
+      return delay;
+    }
+    Object network = Core.get(failure, "network", Boolean.FALSE);
+    Object is_network = Core.truthyValue(network);
+    if (Core.truthy(is_network)) {
+      Object network_delay = Core.retry_backoff_ms(config, attempt, random);
+      return network_delay;
+    }
+    return none;
   }
 
   static Object chat_session_mode_enabled(Object options) {

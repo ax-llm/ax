@@ -265,7 +265,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
-    if (raw == null) raw = requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat", activeCancellation(), options);
+    if (raw == null) raw = requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat", activeCancellation(), options);
     return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : payload));
   }
 
@@ -280,7 +280,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request, options));
     Object modelName = request.getOrDefault("embed_model", request.getOrDefault("embedModel", payload.getOrDefault("model", embedModel)));
     String embedUrl = String.valueOf(Core.provider_embed_url(profile, String.valueOf(modelName), options));
-    Object raw = requestJson(embedUrl.isEmpty() ? operationPath("embed", modelName) : embedUrl, payload, false, "json", false, operationMethod("embed"), "embed", activeCancellation(), options);
+    Object raw = requestJsonRetried(embedUrl.isEmpty() ? operationPath("embed", modelName) : embedUrl, payload, operationMethod("embed"), "embed", activeCancellation(), options);
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
   }
 
@@ -294,7 +294,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (!explicit.isBlank()) {
       Map<String,Object> cached = new LinkedHashMap<>(payload);
       cached.put("cachedContent", explicit);
-      return requestJson(operationPath("chat", modelName), cached, false, "json", false, operationMethod("chat"), "chat", activeCancellation(), options);
+      return requestJsonRetried(operationPath("chat", modelName), cached, operationMethod("chat"), "chat", activeCancellation(), options);
     }
     List<Object> prompts = Core.asList(request.getOrDefault("chat_prompt", request.getOrDefault("chatPrompt", request.getOrDefault("messages", List.of()))));
     int nonSystem = 0, cachedCount = 0;
@@ -340,7 +340,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       try {
         String endpoint = String.valueOf(op.get("path"));
         if (op.get("base_url") != null) endpoint = String.valueOf(op.get("base_url")).replaceAll("/+$", "") + endpoint;
-        return requestJson(endpoint, Core.asMap(op.get("request")), false, "json", false, String.valueOf(op.getOrDefault("method", "POST")), "chat", activeCancellation(), options);
+        return requestJsonRetried(endpoint, Core.asMap(op.get("request")), String.valueOf(op.getOrDefault("method", "POST")), "chat", activeCancellation(), options);
       }
       catch (Exception error) { if (error instanceof RuntimeException runtime) throw runtime; throw new RuntimeException(error); }
     };
@@ -364,10 +364,10 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         if (expiresAt == 0) throw new AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", refreshed);
         setEntry.accept(new LinkedHashMap<>(Map.of("cacheName", cacheName[0], "expiresAt", expiresAt)));
       } catch (AxAIServiceError error) {
-        if (!create.getAsBoolean()) return requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "chat", activeCancellation(), options);
+        if (!create.getAsBoolean()) return requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "chat", activeCancellation(), options);
       }
     } else if ("create".equals(action)) {
-      if (!create.getAsBoolean()) return requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "chat", activeCancellation(), options);
+      if (!create.getAsBoolean()) return requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "chat", activeCancellation(), options);
     } else if ("none".equals(action)) return null;
     if (cacheName[0].isBlank()) return null;
     Map<String,Object> cached = new LinkedHashMap<>(payload);
@@ -375,7 +375,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     cached.put("contents", new ArrayList<>(contents.subList(Math.min(cachedCount, contents.size()), contents.size())));
     cached.put("cachedContent", cacheName[0]);
     try {
-      return requestJson(operationPath("chat", modelName), cached, false, "json", false, operationMethod("chat"), "chat", activeCancellation(), options);
+      return requestJsonRetried(operationPath("chat", modelName), cached, operationMethod("chat"), "chat", activeCancellation(), options);
     } catch (AxAIServiceError error) {
       if (!Core.truthy(Core.ai_context_cache_rejection(error.status == null ? 0 : error.status, error.responseBody))) throw error;
       Map<String,Object> recovery = Core.asMap(Core.ai_context_cache_recovery(getEntry.get(), cacheName[0], registry != null));
@@ -383,7 +383,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         if (registry != null) registry.set(namespace, cacheKey, Core.asMap(recovery.get("externalEntry")));
         else if (Core.truthy(recovery.get("deleteInMemory"))) contextCacheEntries.remove(cacheKey);
       }
-      return requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "chat", activeCancellation(), options);
+      return requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "chat", activeCancellation(), options);
     }
   }
 
@@ -413,42 +413,31 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     double initialDelay = Core.asDouble(retryCfg.getOrDefault("initial_delay_ms", 1000));
     double maxDelay = Core.asDouble(retryCfg.getOrDefault("max_delay_ms", 60000));
     double backoff = Core.asDouble(retryCfg.getOrDefault("backoff_factor", 2));
-    int attempt = 0;
+    int startAttempt = 0;
     while (true) {
-      RawSseStream raw = null;
+      // The stream's request goes through apiCall's request-layer retry; its
+      // first event is read once, as TS reads it after apiCall returns, and a
+      // failure to read it surfaces.
+      RawSseStream raw = requestSseRetried(operationPath("stream_chat", modelName), payload, modelName, cancellation, errorOptions, retryCfg);
       Object first;
       try {
-        raw = requestSse(operationPath("stream_chat", modelName), payload, modelName, cancellation, errorOptions);
         first = raw.nextEvent();
       } catch (Exception failure) {
-        if (raw != null) try { raw.close(); } catch (Exception ignored) {}
-        AxAIServiceError error = failure instanceof AxAIServiceError serviceError
-            ? serviceError
-            : networkError(failure, null);
-        // As in TS apiCall, a timeout the request ran out of is not retried
-        // here; a 408 or 504 response, typed as a timeout, is retried by its
-        // status.
-        boolean retryable = !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
-            || error instanceof AxAIServiceResponseError
-            || error instanceof AxAIServiceStreamTerminatedError
-            || (error instanceof AxAIServiceStatusError || error instanceof AxAIServiceTimeoutError) && error.status != null && Core.truthy(Core.is_retryable_status(error.status)));
-        if (!retryable || attempt >= maxRetries) throw error;
-        attempt++;
-        double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
-        waitBackoff((long)delay,cancellation);
-        continue;
+        try { raw.close(); } catch (Exception ignored) {}
+        if (failure instanceof AxAIServiceError serviceError) throw serviceError;
+        throw networkError(failure, null);
       }
-      // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
-      // runs (so peeking has no side effects); if the provider classifies it as a retryable
-      // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
-      // same exponential backoff apiCall uses for a 529 before surfacing.
+      // TS retryTransientStreamStart: peek the first raw SSE event before any stateful
+      // normalize runs (so peeking has no side effects); if the provider classifies it as a
+      // listed transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue
+      // it with its own budget and backoff, without jitter.
       if (first != null) {
         Object status = Core.provider_classify_stream_error_status(profile, first);
-        if (status != null && Core.truthy(Core.is_retryable_status(status)) && attempt < maxRetries) {
+        if (status != null && Core.truthy(Core.retry_status_listed(retryCfg, status)) && startAttempt < maxRetries) {
           raw.close();
-          attempt++;
-          double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);
-          waitBackoff((long)delay,cancellation);
+          startAttempt++;
+          double delay = Math.min(initialDelay * Math.pow(backoff, startAttempt - 1), maxDelay);
+          requestRetrySleep(delay, cancellation);
           continue;
         }
       }
@@ -1049,7 +1038,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         String errorBody = new String(res.body(), StandardCharsets.UTF_8);
         Object parsed;
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
-        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
+        throw statusError(res.statusCode(), parsed, errorRequest, res.headers().firstValue("Retry-After").orElse(null));
       }
       // The bytes go on as base64 with their Content-Type; a JSON body (as TS
       // reads one by its Content-Type) goes on parsed.
@@ -1062,7 +1051,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (res.statusCode() >= 400) {
       Object parsed;
       try { parsed = Json.parse(responseBody); } catch (RuntimeException ex) { parsed = responseBody; }
-      throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
+      throw statusError(res.statusCode(), parsed, errorRequest, res.headers().firstValue("Retry-After").orElse(null));
     }
     // Streaming responses are SSE text (text/event-stream): return the raw body
     // for iterSseJson to fold. This explicit branch matches the other ports
@@ -1110,7 +1099,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
         Object parsed;
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
-        throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
+        throw statusError(res.statusCode(), parsed, errorRequest, res.headers().firstValue("Retry-After").orElse(null));
       }
     }
     InputStream body=res.body();
@@ -1133,6 +1122,99 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (!baseUrl.equals(String.valueOf(descriptorBase).replaceAll("/+$", ""))) return baseUrl;
     Object resolved = Core.asMap(Core.provider_resolve_descriptor(profile, callOptions)).get("baseUrl");
     return resolved == null ? baseUrl : String.valueOf(resolved).replaceAll("/+$", "");
+  }
+
+  // Conformance hooks for the request-layer retry: a sleep that records the
+  // delay instead of waiting, and fixed random and clock sources.
+  static volatile java.util.function.DoubleConsumer requestRetrySleepHook;
+  static volatile java.util.function.DoubleSupplier requestRetryRandomHook;
+  static volatile java.util.function.DoubleSupplier requestRetryNowHook;
+
+  // TS apiCall's view of a failed request: its HTTP status (with its
+  // Retry-After) or a network failure. Anything else is null and not retried.
+  static Map<String, Object> requestRetryFailure(Throwable failure) {
+    if (failure instanceof AxAIServiceAuthenticationError || failure instanceof AxAIServiceAbortedError) return null;
+    if (failure instanceof AxAIServiceError service) {
+      if (service.status != null) {
+        Map<String, Object> described = new LinkedHashMap<>();
+        described.put("status", service.status);
+        if (service.retryAfter != null) described.put("retry_after", service.retryAfter);
+        return described;
+      }
+      return failure instanceof AxAIServiceNetworkError ? Map.of("network", true) : null;
+    }
+    // The HTTP client's own exception, which chat and embed throw until the
+    // next major version: a failed connection is retried, its timeout is not.
+    if (failure instanceof java.net.http.HttpTimeoutException) return null;
+    if (failure instanceof IOException) return Map.of("network", true);
+    return null;
+  }
+
+  // Waits before the failed request goes out again, as TS apiCall does, and
+  // says whether it does.
+  static boolean requestRetryWait(Map<String, Object> config, int attempt, Throwable failure, AxCancellationToken cancellation) throws InterruptedException {
+    Map<String, Object> described = requestRetryFailure(failure);
+    if (described == null) return false;
+    java.util.function.DoubleSupplier now = requestRetryNowHook;
+    java.util.function.DoubleSupplier random = requestRetryRandomHook;
+    Object delay = Core.request_retry_delay(config, attempt, described,
+        now != null ? now.getAsDouble() : (double) System.currentTimeMillis(),
+        random != null ? random.getAsDouble() : Math.random());
+    if (delay == null) return false;
+    requestRetrySleep(Core.asDouble(delay), cancellation);
+    return true;
+  }
+
+  static void requestRetrySleep(double delay, AxCancellationToken cancellation) throws InterruptedException {
+    java.util.function.DoubleConsumer sleep = requestRetrySleepHook;
+    if (sleep != null) {
+      if (cancellation != null) cancellation.throwIfCancelled();
+      sleep.accept(delay);
+      return;
+    }
+    waitBackoff((long) delay, cancellation);
+  }
+
+  // TS apiCall's request-layer retry around one request: a listed status or a
+  // network failure goes out again after its jittered backoff (or its
+  // Retry-After), under the call's retry options, else the client's. Each
+  // retry builds the request again, as apiCall resolves its headers again.
+  Object requestJsonRetried(String endpoint, Map<String, Object> payload, String method, String operation, AxCancellationToken cancellation, Map<String, Object> errorOptions) throws Exception {
+    Map<String, Object> config = Core.asMap(Core.resolve_stream_retry(errorOptions == null ? options : errorOptions));
+    for (int attempt = 0; ; attempt++) {
+      try {
+        return requestJson(endpoint, payload, false, "json", false, method, operation, cancellation, errorOptions);
+      } catch (Exception failure) {
+        if (cancellation != null && cancellation.cancelled()) throw failure;
+        if (!requestRetryWait(config, attempt, failure, cancellation)) throw failure;
+      }
+    }
+  }
+
+  private RawSseStream requestSseRetried(String endpoint, Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions, Map<String, Object> config) throws Exception {
+    for (int attempt = 0; ; attempt++) {
+      try {
+        return requestSse(endpoint, payload, modelName, cancellation, errorOptions);
+      } catch (Exception failure) {
+        if (cancellation != null && cancellation.cancelled()) throw failure;
+        if (!requestRetryWait(config, attempt, failure, cancellation)) throw failure;
+      }
+    }
+  }
+
+  // A status response's error, with its Retry-After.
+  private static RuntimeException statusError(int status, Object body, Map<String, Object> request, String retryAfter) {
+    RuntimeException error = Core.asRuntime(Core.openai_normalize_error(status, body, request, null));
+    if (error instanceof AxAIServiceError service) service.retryAfter = retryAfter;
+    return error;
+  }
+
+  private static String retryAfterHeader(Object headers) {
+    if (!(headers instanceof Map<?, ?> map)) return null;
+    for (Map.Entry<?, ?> entry : map.entrySet()) {
+      if ("retry-after".equalsIgnoreCase(String.valueOf(entry.getKey()))) return entry.getValue() == null ? null : String.valueOf(entry.getValue());
+    }
+    return null;
   }
 
   // The client's timeout stays the request's timeout; a longer timeoutMs
@@ -1369,7 +1451,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       if (map.containsKey("status")) {
         int status = Core.asInt(map.getOrDefault("status", 200));
         Object body = map.containsKey("json") ? map.get("json") : map.containsKey("body") ? map.get("body") : map.get("data");
-        if (status >= 400) throw Core.asRuntime(Core.openai_normalize_error(status, body, request, null));
+        if (status >= 400) throw statusError(status, body, request, retryAfterHeader(map.get("headers")));
         return body;
       }
     }
