@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:5d87b4a181c843a922b1b9485195752c103d05d4a24b4934af4a64db04bdd577"
+      "digest": "sha256:3ef78bd493aefadcffd99b987bdd079bc9ace9b300533f2d034ddf8037fb0943"
     },
     {
       "name": "ax-python-typesafe",
@@ -41,21 +41,21 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:4f69f2d8b7ec883c444751f2be16144eb8805aad19460a58b3b89790428c2c2a"
+      "digest": "sha256:be0a76587fb3042e7fed23ff0042256823b69cf0c2cf367bc777554335ca90a8"
     },
     {
       "name": "ax-python-flow",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-python-flow/SKILL.md",
-      "digest": "sha256:a04aae6f67c3d55d08002b33b8fb3d0a7ec6d84010d2304fcd93a47f74793339"
+      "digest": "sha256:9f3486dcf633e0a30bbeb08d4370983899018eae620f14701364f4fe7271677a"
     },
     {
       "name": "ax-python-agent",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-python-agent/SKILL.md",
-      "digest": "sha256:99a9e1b2ed7f324d617a40d7304a60e6961716a85b5a71e801767ecda1655492"
+      "digest": "sha256:f9c8cd0636ca2dcadf185d992b020912de73d9aafaf18a11a9db621f4a697f63"
     },
     {
       "name": "ax-python-agent-rlm",

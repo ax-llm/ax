@@ -496,6 +496,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'flow-cache-goldens.ts',
+      'AxFlow cache'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'mcp-authorization-goldens.ts',
       'AxMCP'
     );

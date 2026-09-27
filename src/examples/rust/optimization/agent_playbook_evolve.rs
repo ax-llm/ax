@@ -87,11 +87,13 @@ fn main() -> AxResult<()> {
             "score": 0
         }]
     });
+    // The playbook borrows `student` to reflect while the agent runs, so the
+    // agent runs on its own client for the same model.
     let evolution = {
-        let mut client = student.borrow_mut();
+        let mut runner = openai_client()?;
         playbook.evolve_agent(
             &mut assistant,
-            &mut *client,
+            &mut runner,
             &dataset,
             &json!({"verify": true, "maxProposals": 1}),
         )?

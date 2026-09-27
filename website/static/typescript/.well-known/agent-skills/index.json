@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:b6888f9cb1f30f20ef9fd8257ba926fdab977c1e590dfebf3003e32ffaeae7b5"
+      "digest": "sha256:2ed100f11db84f961336e4f3c7f776f35bd4d916065f2c72721a86d442126278"
     },
     {
       "name": "ax-typesafe",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:dd5b89fd8b636489b1f1af0373f13c4712837c755323b88daa66d2108b344e29"
+      "digest": "sha256:10128ea1cd5ea0a837cd1dd9659a73d29beb1daf5234a9831086f7583c624d15"
     },
     {
       "name": "ax-agent",

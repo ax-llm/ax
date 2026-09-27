@@ -80,6 +80,8 @@ const (
 	IntrinsicProgramComponents         CoreIntrinsic = "intrinsic.program.components"
 	IntrinsicProgramApplyComponents    CoreIntrinsic = "intrinsic.program.apply_components"
 	IntrinsicAICompleteOnce            CoreIntrinsic = "intrinsic.ai.complete_once"
+	IntrinsicAIControlTakePending      CoreIntrinsic = "intrinsic.ai.control_take_pending"
+	IntrinsicAIControlPendingCount     CoreIntrinsic = "intrinsic.ai.control_pending_count"
 	IntrinsicAIClientFeatures          CoreIntrinsic = "intrinsic.ai.client_features"
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
@@ -146,6 +148,7 @@ const (
 	IntrinsicAxGenRecordFunction       CoreIntrinsic = "intrinsic.axgen.record_function_call"
 	IntrinsicRunControlAborted         CoreIntrinsic = "intrinsic.run_control.aborted"
 	IntrinsicFlowDispatchGroup         CoreIntrinsic = "intrinsic.flow.dispatch_group"
+	IntrinsicFlowCachingFunction       CoreIntrinsic = "intrinsic.flow.caching_function"
 	IntrinsicAgentStageForward         CoreIntrinsic = "intrinsic.agent.stage_forward"
 	IntrinsicAgentNativeStageForward   CoreIntrinsic = "intrinsic.agent.native_stage_forward"
 	IntrinsicAgentStageChatLog         CoreIntrinsic = "intrinsic.agent.stage_chat_log"
@@ -235,6 +238,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicProgramComponents:         "_core_program_components",
 	IntrinsicProgramApplyComponents:    "_core_program_apply_components",
 	IntrinsicAICompleteOnce:            "_core_ai_complete_once",
+	IntrinsicAIControlTakePending:      "_core_ai_control_take_pending",
+	IntrinsicAIControlPendingCount:     "_core_ai_control_pending_count",
 	IntrinsicAIClientFeatures:          "_core_ai_client_features",
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
@@ -301,6 +306,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenRecordFunction:       "_core_axgen_record_function_call",
 	IntrinsicRunControlAborted:         "_core_run_control_aborted",
 	IntrinsicFlowDispatchGroup:         "_core_flow_dispatch_group",
+	IntrinsicFlowCachingFunction:       "_core_flow_caching_function",
 	IntrinsicAgentStageForward:         "_core_agent_stage_forward",
 	IntrinsicAgentNativeStageForward:   "_core_agent_native_stage_forward",
 	IntrinsicAgentStageChatLog:         "_core_agent_stage_chat_log",
@@ -389,6 +395,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.program.components":                    true,
 	"intrinsic.program.apply_components":              true,
 	"intrinsic.ai.complete_once":                      true,
+	"intrinsic.ai.control_take_pending":               true,
+	"intrinsic.ai.control_pending_count":              true,
 	"intrinsic.ai.client_features":                    true,
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
@@ -480,6 +488,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.record_function_call":            true,
 	"intrinsic.run_control.aborted":                   true,
 	"intrinsic.flow.dispatch_group":                   true,
+	"intrinsic.flow.caching_function":                 true,
 	"intrinsic.agent.stage_forward":                   true,
 	"intrinsic.agent.native_stage_forward":            true,
 	"intrinsic.agent.stage_chat_log":                  true,
@@ -776,6 +785,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.tool.invoke":                     intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
 	"intrinsic.run_control.aborted":             intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
 	"intrinsic.flow.dispatch_group":             intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
+	"intrinsic.flow.caching_function":           intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
 	"intrinsic.agent.stage_forward":             intrinsicInfo("intrinsic.agent.stage_forward", 4, 4, true, "json"),
 	"intrinsic.agent.native_stage_forward":      intrinsicInfo("intrinsic.agent.native_stage_forward", 6, 6, true, "json"),
 	"intrinsic.agent.stage_chat_log":            intrinsicInfo("intrinsic.agent.stage_chat_log", 1, 1, true, "list<json>"),
@@ -797,6 +807,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.program.components":              intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
 	"intrinsic.program.apply_components":        intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
 	"intrinsic.ai.complete_once":                intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
+	"intrinsic.ai.control_take_pending":         intrinsicInfo("intrinsic.ai.control_take_pending", 1, 1, true, "json"),
+	"intrinsic.ai.control_pending_count":        intrinsicInfo("intrinsic.ai.control_pending_count", 1, 1, true, "i64"),
 	"intrinsic.ai.client_features":              intrinsicInfo("intrinsic.ai.client_features", 2, 2, false, "json"),
 	"intrinsic.json.parse_strict":               intrinsicInfo("intrinsic.json.parse_strict", 1, 1, true, "json"),
 	"intrinsic.retry.sleep":                     intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),

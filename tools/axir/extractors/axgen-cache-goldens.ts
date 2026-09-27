@@ -110,6 +110,9 @@ type CallSpec = {
   forward_options?: JsonMap;
   // Attach a run control to this call.
   control?: boolean;
+  // Pass the input with its keys in reverse order. Fixture JSON sorts its
+  // keys, so the order is a flag every runner applies.
+  reverse_input_keys?: boolean;
 };
 
 type Case = {
@@ -172,12 +175,13 @@ async function record(name: string, spec: Case): Promise<void> {
         const picked = spec.result_picker_index;
         options.resultPicker = async () => picked;
       }
+      const input = call.reverse_input_keys
+        ? Object.fromEntries(Object.entries(call.input).reverse())
+        : call.input;
       errors.push(null);
       if (call.kind === 'forward') {
         try {
-          outputs.push(
-            clone((await gen.forward(ai, call.input, options)) as Json)
-          );
+          outputs.push(clone((await gen.forward(ai, input, options)) as Json));
         } catch (e) {
           errors[errors.length - 1] = (e as Error).message.split('\n')[0]!;
           outputs.push(null);
@@ -185,11 +189,7 @@ async function record(name: string, spec: Case): Promise<void> {
         deltas.push(null);
       } else {
         const seen: JsonMap[] = [];
-        for await (const delta of gen.streamingForward(
-          ai,
-          call.input,
-          options
-        )) {
+        for await (const delta of gen.streamingForward(ai, input, options)) {
           seen.push(clone(delta) as unknown as JsonMap);
         }
         // A consumer merges each index's deltas and starts over when the
@@ -396,6 +396,18 @@ const cases: Record<string, Case> = {
   },
   // Media inputs key on their data: other image data misses, the same
   // image hits.
+  // The key does not depend on the order of the input's keys.
+  'cache-forward-key-stable-input-order': {
+    signature: 'firstName:string, lastName:string -> fullName:string',
+    responses: [answer('Full Name: Ada Lovelace')],
+    calls: [
+      forward({ firstName: 'Ada', lastName: 'Lovelace' }),
+      forward(
+        { firstName: 'Ada', lastName: 'Lovelace' },
+        { reverse_input_keys: true }
+      ),
+    ],
+  },
   'cache-media-keys': {
     signature: 'photo:image, question:string -> answer:string',
     responses: [answer('Answer: a cat'), answer('Answer: a dog')],

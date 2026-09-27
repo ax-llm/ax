@@ -448,6 +448,64 @@ func TestAxGenCacheReadPrecedesTelemetry(t *testing.T) {
 	expectTelemetry("Forward read error", false)
 }
 
+// TestAxFlowCacheReadPrecedesTelemetry: as in TypeScript, AxFlow reads its
+// cache before it opens its ax_gen_flow_forward span and ax_gen_flow metrics,
+// so a hit, from Forward or StreamingForward, runs no node and records
+// nothing, while a miss records both.
+func TestAxFlowCacheReadPrecedesTelemetry(t *testing.T) {
+	ctx := context.Background()
+	tracer, meter := &cacheTelemetryTracer{}, &cacheTelemetryMeter{}
+	cache := newMemoryCache()
+	flow := NewFlow(Object("id", "cached-flow"))
+	flow.Execute("qa", NewAx("question:string -> answer:string", nil), nil)
+	flow.Returns(Object("answer", "answer"))
+	flow.SetTracer(tracer).SetMeter(meter)
+	client := &cachingTestClient{replies: []string{"Answer: Paris"}}
+	question := map[string]Value{"question": "Capital of France?"}
+	options := map[string]Value{"cachingFunction": AxCachingFunction(cache.cache)}
+
+	if out, err := flow.Forward(ctx, client, question, options); err != nil || coreGet(out, "answer", nil) != "Paris" {
+		t.Fatalf("flow miss = %v, %v", out, err)
+	}
+	spans, metrics := tracer.take(), meter.take()
+	span, metric := false, false
+	for _, name := range spans {
+		span = span || name == "ax_gen_flow_forward"
+	}
+	for _, name := range metrics {
+		metric = metric || strings.HasPrefix(name, "ax_gen_flow_")
+	}
+	if !span || !metric {
+		t.Fatalf("flow miss recorded spans %v and metrics %v, want the ax_gen_flow_forward span and ax_gen_flow metrics", spans, metrics)
+	}
+
+	if out, err := flow.Forward(ctx, client, question, options); err != nil || coreGet(out, "answer", nil) != "Paris" {
+		t.Fatalf("flow hit = %v, %v", out, err)
+	}
+	if spans, metrics := tracer.take(), meter.take(); len(spans) != 0 || len(metrics) != 0 {
+		t.Fatalf("flow Forward hit recorded spans %v and metrics %v, want none", spans, metrics)
+	}
+	var deltas []AxGenDelta
+	for delta, err := range flow.StreamingForward(ctx, client, question, options) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		deltas = append(deltas, delta)
+	}
+	if len(deltas) != 1 || deltas[0].Version != 1 || deltas[0].Index != 0 || coreGet(deltas[0].Delta, "answer", nil) != "Paris" {
+		t.Fatalf("flow StreamingForward hit = %+v, want one {1, 0} delta", deltas)
+	}
+	if _, internal := deltas[0].Delta["__order"]; internal {
+		t.Fatalf("flow StreamingForward hit delta = %v, want a plain map", deltas[0].Delta)
+	}
+	if spans, metrics := tracer.take(), meter.take(); len(spans) != 0 || len(metrics) != 0 {
+		t.Fatalf("flow StreamingForward hit recorded spans %v and metrics %v, want none", spans, metrics)
+	}
+	if client.requests != 1 {
+		t.Fatalf("%d requests, want the node to run once", client.requests)
+	}
+}
+
 func TestIsRetryableFollowsCoreStatusSet(t *testing.T) {
 	for status, want := range map[int]bool{
 		408: true, 429: true, 500: true, 502: true, 503: true, 504: true, 529: true,

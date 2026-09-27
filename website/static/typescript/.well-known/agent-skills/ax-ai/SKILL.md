@@ -392,6 +392,39 @@ Providers without the requested audio endpoint throw `AxMediaNotSupportedError`.
 - `functionCallMode`: `'auto'` | `'native'` | `'prompt'`
 - `debug`, `logger`, `tracer`, `rateLimiter`, `timeout`
 
+## Sampling Parameters
+
+Each provider starts from its own defaults: `temperature: 0` for OpenAI Chat,
+Anthropic and Gemini, and `temperature: 0.7` with `topP: 1` for
+`openai-responses`. Model info lists the sampling parameters a model rejects
+(`notSupported`: `temperature`, `topP`, `presencePenalty`, `frequencyPenalty`):
+
+- A provider default for such a parameter is never sent.
+- An explicit value is sent when the model accepts it for that request, and
+  otherwise dropped with a one-time `console.warn` naming the setting and the
+  model. Explicit values come from the AI's `config`, a model key's
+  `modelConfig`, or the request's `modelConfig`.
+- GPT-5.1 to 5.4 take sampling while they don't reason, which is their
+  default. GPT-5.5 and 5.6 take it only with reasoning effort `none`
+  (`thinkingTokenBudget: 'none'`, or `reasoningEffort: 'none'` in the
+  config). gpt-5, gpt-5-mini, gpt-5-nano and the o-series never take it; the
+  o-series still get `maxTokens` and `n`.
+- A profile without model info (`azure-openai`, `openai-compatible`, ...)
+  uses OpenAI's info for an exact o-series model name.
+
+```typescript
+const llm = ai({ name: 'openai', apiKey, config: { model: 'gpt-5.6-luna' } });
+// GPT-5.6 takes temperature with reasoning off, so this one is sent.
+await gen.forward(llm, values, {
+  thinkingTokenBudget: 'none',
+  modelConfig: { temperature: 0.2 },
+});
+```
+
+A profile without a base URL of its own (`openai-compatible`, `databricks`,
+`amazon-bedrock`, `vertex-ai`, ...) needs `apiURL`: `ai(...)` throws
+`<Name> requires apiURL` without it.
+
 ## Global Runtime Defaults
 
 Use `axGlobals` when the app wants one live default for AI requests, generator runs, flows, or metrics:
@@ -956,6 +989,10 @@ Controller-attached runs bypass result caching; provider prompt caching remains 
 HTTP streaming needs no WebSocket dependency. With a configured host
 `options.webSocket`, steering can apply natively during generation; otherwise it
 applies at the next response boundary. Observe the applied event's `timing`.
+An update queued while a request is in flight applies when the next step
+starts. If that request gave the final answer, the run takes one more step to
+apply it, and the answer comes from that step; a steer stays in the
+conversation for the steps after it.
 Reasoning updates use continuation input items, retaining the original prefix.
 Steering that awaits tool input is continued even when its pending notification
 arrives after completion. Duplicate acknowledgements do not apply an update twice.

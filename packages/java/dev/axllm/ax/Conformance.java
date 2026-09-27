@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,9 @@ public final class Conformance {
     final List<Map<String, Object>> chatOptions = new ArrayList<>();
     final Map<String, Object> features;
     int chatCalls;
+    // Called with each chat request's 1-based number while it is in flight,
+    // before the scripted answer (a fixture's control_steer).
+    java.util.function.IntConsumer onRequest;
 
     ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents) {
       this(responses, streamEvents, Map.of());
@@ -59,12 +63,25 @@ public final class Conformance {
 
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
       chatCalls++;
-      requests.add(new LinkedHashMap<>(request));
+      requests.add(sentRequest(request));
       chatOptions.add(new LinkedHashMap<>(options));
+      noteRequest();
       if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       Map<String, Object> raw = Core.asMap(responses.remove(0));
       if (raw.containsKey("error")) throw fixtureAIServiceError(Core.asMap(raw.get("error")));
       return Core.legacyResponseToChatResponse(raw);
+    }
+
+    // The request as sent: its chat_prompt is copied, since the forward goes
+    // on appending to the conversation it built the request from.
+    static Map<String, Object> sentRequest(Map<String, Object> request) {
+      Map<String, Object> sent = new LinkedHashMap<>(request);
+      if (sent.get("chat_prompt") instanceof List<?> prompt) sent.put("chat_prompt", Core.ownedCopy(prompt));
+      return sent;
+    }
+
+    private void noteRequest() {
+      if (onRequest != null) onRequest.accept(requests.size());
     }
 
     protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) {
@@ -79,8 +96,9 @@ public final class Conformance {
     public Iterable<Map<String, Object>> stream(Map<String, Object> request) {
       if (!responses.isEmpty() && Core.asMap(responses.get(0)).containsKey("stream")) {
         chatCalls++;
-        requests.add(new LinkedHashMap<>(request));
+        requests.add(sentRequest(request));
         chatOptions.add(new LinkedHashMap<>());
+        noteRequest();
         List<Object> chunks = Core.asList(Core.asMap(responses.remove(0)).get("stream"));
         return () -> new java.util.Iterator<Map<String, Object>>() {
           private int position;
@@ -619,6 +637,7 @@ public final class Conformance {
       case "forward" -> runForward(fixture);
       case "streaming_forward" -> runStreamingForward(fixture);
       case "cache_sequence" -> runCacheSequence(fixture);
+      case "flow_cache_sequence" -> runFlowCacheSequence(fixture);
       case "ai_session_state" -> runAISessionState(fixture);
       case "ai_session_events" -> runAISessionEvents(fixture);
       case "ai_typesafe_native" -> {
@@ -997,9 +1016,13 @@ public final class Conformance {
       });
     }
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client")));
-    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture, error -> assertErrorCause(error, fixture));
+    Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+    List<Object> controlEvents = attachFixtureControl(fixture, client, forwardOptions);
+    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
+    if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
+    assertRequestRoles(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
     // An expected failure (e.g. a gated expensive model) may stop before the provider call.
     if (!fixture.containsKey("expected_error_contains") && Boolean.TRUE.equals(fixture.getOrDefault("expect_chat_path", true)) && client.chatCalls == 0) throw new FixtureError("expected AxGen to use AxAIService.chat()");
@@ -1102,21 +1125,43 @@ public final class Conformance {
   }
 
   // control: true attaches a run control and records its lifecycle events as
-  // {type, path}, ignoring the other event types.
-  static List<Object> attachFixtureControl(Map<String, Object> fixture, Map<String, Object> runOptions) {
+  // {type, path}, ignoring the other event types. With control_steer
+  // {during_request, text} every event is recorded, and the scripted client
+  // steers while that request (1-based) is in flight.
+  static List<Object> attachFixtureControl(Map<String, Object> fixture, ConformanceScriptedAI client, Map<String, Object> runOptions) {
     List<Object> events = java.util.Collections.synchronizedList(new ArrayList<>());
     if (!Core.truthy(fixture.get("control"))) return events;
     AxRunControl control = new AxRunControl();
+    final Map<String, Object> steer = fixture.get("control_steer") instanceof Map<?, ?> spec ? Core.asMap(spec) : null;
     control.onEvent(event -> {
       Object type = event.get("type");
-      if (!List.of("started", "completed", "failed", "aborted").contains(String.valueOf(type))) return;
+      if (steer == null && !List.of("started", "completed", "failed", "aborted").contains(String.valueOf(type))) return;
       Map<String, Object> recorded = new LinkedHashMap<>();
       recorded.put("type", type);
       recorded.put("path", event.get("path"));
       events.add(recorded);
     });
+    if (steer != null) {
+      int during = Core.asInt(steer.getOrDefault("during_request", 1));
+      String text = String.valueOf(steer.getOrDefault("text", ""));
+      client.onRequest = number -> {
+        if (number == during) control.steer(text);
+      };
+    }
     runOptions.put("control", control);
     return events;
+  }
+
+  // expected_request_roles: the message roles of every request, in order.
+  static void assertRequestRoles(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (!fixture.containsKey("expected_request_roles")) return;
+    List<Object> roles = new ArrayList<>();
+    for (Map<String, Object> request : client.requests) {
+      List<Object> requestRoles = new ArrayList<>();
+      for (Object message : Core.asList(request.get("chat_prompt"))) requestRoles.add(Core.asMap(message).get("role"));
+      roles.add(requestRoles);
+    }
+    assertEqual(roles, fixture.get("expected_request_roles"), "request roles");
   }
 
   static Map<String, Object> deltaEnvelope(AxGenDelta delta) {
@@ -1133,7 +1178,7 @@ public final class Conformance {
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls);
     ConformanceScriptedAI client = streamingFixtureClient(fixture);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-    List<Object> controlEvents = attachFixtureControl(fixture, runOptions);
+    List<Object> controlEvents = attachFixtureControl(fixture, client, runOptions);
     Map<String, Object> input = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of())));
     Object stopAfter = fixture.get("stop_after_deltas");
     List<Object> deltas = new ArrayList<>();
@@ -1163,6 +1208,7 @@ public final class Conformance {
       if (stopAfter == null) assertEqual(output, fixture.get("expected_output"), "streaming output");
     }
     if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(controlEvents), fixture.get("expected_control_events"), "run control events");
+    assertRequestRoles(fixture, client);
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) {
       throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     }
@@ -1184,10 +1230,11 @@ public final class Conformance {
     List<Object> processorCalls = new ArrayList<>();
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-    List<Object> controlEvents = attachFixtureControl(fixture, runOptions);
+    ConformanceScriptedAI client = streamingFixtureClient(fixture);
+    List<Object> controlEvents = attachFixtureControl(fixture, client, runOptions);
     List<Object> deltas = new ArrayList<>();
     RuntimeException failure = null;
-    try (AxGenDeltaStream stream = gen.streamingForward(streamingFixtureClient(fixture), new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), runOptions)) {
+    try (AxGenDeltaStream stream = gen.streamingForward(client, new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of()))), runOptions)) {
       for (AxGenDelta delta : stream) deltas.add(deltaEnvelope(delta));
     } catch (RuntimeException error) {
       failure = error;
@@ -1210,21 +1257,9 @@ public final class Conformance {
   // and requests, and every cache read and write. cache_read_error and
   // cache_write_error make the cache throw that message.
   static void runCacheSequence(Map<String, Object> fixture) {
-    Map<String, Map<String, Object>> store = new java.util.HashMap<>();
     List<String> reads = new ArrayList<>();
     List<Object> writes = new ArrayList<>();
-    AxCachingFunction cache = (key, value) -> {
-      if (value != null) {
-        if (Core.truthy(fixture.get("cache_write_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_write_error")));
-        writes.add(Core.ownedCopy(value));
-        store.put(key, Core.asMap(Core.ownedCopy(value)));
-        return null;
-      }
-      reads.add(key);
-      if (Core.truthy(fixture.get("cache_read_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_read_error")));
-      Map<String, Object> hit = store.get(key);
-      return hit == null ? null : Core.asMap(Core.ownedCopy(hit));
-    };
+    AxCachingFunction cache = fixtureCachingFunction(fixture, reads, writes);
     String cacheIn = String.valueOf(fixture.getOrDefault("cache_in", "call"));
     Map<String, Object> options = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     if ("constructor".equals(cacheIn)) options.put("cachingFunction", cache);
@@ -1245,6 +1280,14 @@ public final class Conformance {
         if ("call".equals(cacheIn)) callOptions.put("cachingFunction", cache);
         if (Core.truthy(call.get("control"))) callOptions.put("control", new AxRunControl());
         Map<String, Object> input = new LinkedHashMap<>(Core.asMap(call.getOrDefault("input", Map.of())));
+        if (Core.truthy(call.get("reverse_input_keys"))) {
+          // Fixture JSON sorts its keys; the call asks for them reversed.
+          List<Map.Entry<String, Object>> entries = new ArrayList<>(input.entrySet());
+          Collections.reverse(entries);
+          Map<String, Object> reversed = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : entries) reversed.put(entry.getKey(), entry.getValue());
+          input = reversed;
+        }
         errors.add(null);
         if ("streaming_forward".equals(call.get("kind"))) {
           List<Object> deltas = new ArrayList<>();
@@ -1271,6 +1314,88 @@ public final class Conformance {
     if (client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
     if (reads.size() != Core.asInt(fixture.get("expected_cache_gets"))) throw new FixtureError("expected " + fixture.get("expected_cache_gets") + " cache reads, got " + reads.size());
     assertEqual(writes, fixture.get("expected_cache_sets"), "cache writes");
+  }
+
+  // The in-memory caching function of a cache fixture: it records each read's
+  // key and each written value, and throws cache_read_error or
+  // cache_write_error (before recording the write) when the fixture sets them.
+  static AxCachingFunction fixtureCachingFunction(Map<String, Object> fixture, List<String> reads, List<Object> writes) {
+    Map<String, Map<String, Object>> store = new java.util.concurrent.ConcurrentHashMap<>();
+    return (key, value) -> {
+      if (value != null) {
+        if (Core.truthy(fixture.get("cache_write_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_write_error")));
+        writes.add(Core.ownedCopy(value));
+        store.put(key, Core.asMap(Core.ownedCopy(value)));
+        return null;
+      }
+      reads.add(key);
+      if (Core.truthy(fixture.get("cache_read_error"))) throw new RuntimeException(String.valueOf(fixture.get("cache_read_error")));
+      Map<String, Object> hit = store.get(key);
+      return hit == null ? null : Core.asMap(Core.ownedCopy(hit));
+    };
+  }
+
+  // Several forward / streamingForward calls on one AxFlow with one in-memory
+  // cache (cache_in: call or global): each call's output, deltas and
+  // requests, and every read and write of the cache, the flow's own entry and
+  // its AxGen nodes'. A streamed call's output is its last delta's delta.
+  static void runFlowCacheSequence(Map<String, Object> fixture) {
+    List<String> reads = java.util.Collections.synchronizedList(new ArrayList<>());
+    List<Object> writes = java.util.Collections.synchronizedList(new ArrayList<>());
+    AxCachingFunction cache = fixtureCachingFunction(fixture, reads, writes);
+    String cacheIn = String.valueOf(fixture.getOrDefault("cache_in", "call"));
+    AxFlow fl = buildFlow(fixture);
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), List.of());
+    List<Object> outputs = new ArrayList<>();
+    List<Object> deltasPerCall = new ArrayList<>();
+    List<Object> requests = new ArrayList<>();
+    List<Object> errors = new ArrayList<>();
+    AxCachingFunction previousGlobal = AxGlobals.cachingFunction();
+    if ("global".equals(cacheIn)) AxGlobals.setCachingFunction(cache);
+    try {
+      for (Object rawCall : Core.asList(fixture.getOrDefault("calls", List.of()))) {
+        Map<String, Object> call = Core.asMap(rawCall);
+        int before = client.requests.size();
+        Map<String, Object> callOptions = new LinkedHashMap<>();
+        if ("call".equals(cacheIn)) callOptions.put("cachingFunction", cache);
+        if (Core.truthy(call.get("control"))) callOptions.put("control", new AxRunControl());
+        Map<String, Object> input = new LinkedHashMap<>(Core.asMap(call.getOrDefault("input", Map.of())));
+        if (Core.truthy(call.get("reverse_input_keys"))) {
+          // Fixture JSON sorts its keys; the call asks for them reversed.
+          List<Map.Entry<String, Object>> entries = new ArrayList<>(input.entrySet());
+          Collections.reverse(entries);
+          Map<String, Object> reversed = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : entries) reversed.put(entry.getKey(), entry.getValue());
+          input = reversed;
+        }
+        errors.add(null);
+        try {
+          if ("streaming_forward".equals(call.get("kind"))) {
+            List<Object> deltas = new ArrayList<>();
+            for (Map<String, Object> delta : fl.streamingForward(client, input, callOptions)) deltas.add(Core.ownedCopy(delta));
+            outputs.add(deltas.isEmpty() ? null : Core.asMap(deltas.get(deltas.size() - 1)).get("delta"));
+            deltasPerCall.add(deltas);
+          } else {
+            outputs.add(fl.forward(client, input, callOptions));
+            deltasPerCall.add(null);
+          }
+        } catch (RuntimeException error) {
+          errors.set(errors.size() - 1, String.valueOf(error.getMessage()).split("\n", -1)[0]);
+          outputs.add(null);
+          deltasPerCall.add(null);
+        }
+        requests.add(client.requests.size() - before);
+      }
+    } finally {
+      AxGlobals.setCachingFunction(previousGlobal);
+    }
+    if (errors.stream().anyMatch(java.util.Objects::nonNull) || fixture.containsKey("expected_errors")) assertEqual(errors, fixture.get("expected_errors"), "flow cache sequence errors");
+    assertEqual(outputs, fixture.get("expected_outputs"), "flow cache sequence outputs");
+    assertEqual(deltasPerCall, fixture.get("expected_deltas"), "flow cache sequence deltas");
+    assertEqual(requests, fixture.get("expected_requests"), "flow cache sequence requests per call");
+    if (client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected " + fixture.get("expected_request_count") + " requests, got " + client.requests.size());
+    if (reads.size() != Core.asInt(fixture.get("expected_cache_gets"))) throw new FixtureError("expected " + fixture.get("expected_cache_gets") + " cache reads, got " + reads.size());
+    assertEqual(new ArrayList<>(writes), fixture.get("expected_cache_sets"), "flow cache writes");
   }
 
   static Object flowStateValue(Map<String, Object> state, Object field, Object fallback) {
@@ -1458,23 +1583,11 @@ public final class Conformance {
   static void runFlow(Map<String, Object> fixture) {
     try {
       AxFlow fl = buildFlow(fixture);
-      if ("cache_key".equals(fixture.get("operation"))) {
-        List<Object> keys = new ArrayList<>();
-        for (Object item : Core.asList(fixture.getOrDefault("cache_key_inputs", List.of()))) keys.add(Core._flow_cache_key(item));
-        if (Boolean.TRUE.equals(fixture.get("expected_cache_keys_equal")) && new java.util.HashSet<>(keys).size() != 1) throw new FixtureError("expected equal flow cache keys, got " + keys);
-        if (Boolean.TRUE.equals(fixture.get("expected_cache_keys_distinct")) && new java.util.HashSet<>(keys).size() != keys.size()) throw new FixtureError("expected distinct flow cache keys, got " + keys);
-        return;
-      }
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
       if (fixture.containsKey("expected_plan_subset")) assertListSubset(fl.getPlan(), fixture.get("expected_plan_subset"), "flow plan");
       if ("plan".equals(fixture.get("operation"))) return;
       ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-      if (fixture.containsKey("cache_seed_value")) {
-        Map<String, Object> cacheStore = Core.asMap(forwardOptions.getOrDefault("cache_store", new LinkedHashMap<>()));
-        cacheStore.put(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of()))), fixture.get("cache_seed_value"));
-        forwardOptions.put("cache_store", cacheStore);
-      }
       Object output = "streaming".equals(fixture.get("operation"))
         ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
         : fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
@@ -1493,8 +1606,6 @@ public final class Conformance {
       }
       if (fixture.containsKey("expected_trace_subset")) assertListSubset(fl.getTraces(), fixture.get("expected_trace_subset"), "flow traces");
       if (fixture.containsKey("expected_usage_subset")) assertSubset(fl.getUsage(), fixture.get("expected_usage_subset"), "flow usage");
-      if (fixture.containsKey("expected_cache_store_subset")) assertSubset(Core.asMap(forwardOptions.getOrDefault("cache_store", forwardOptions.getOrDefault("cacheStore", Map.of()))), fixture.get("expected_cache_store_subset"), "flow cache store");
-      if (fixture.containsKey("expected_cache_value_for_input")) assertEqual(Core.asMap(forwardOptions.getOrDefault("cache_store", forwardOptions.getOrDefault("cacheStore", Map.of()))).get(String.valueOf(Core._flow_cache_key(fixture.getOrDefault("input", Map.of())))), fixture.get("expected_cache_value_for_input"), "flow cache value");
       if (fixture.containsKey("expected_components_subset")) assertListSubset(fl.getOptimizableComponents(), fixture.get("expected_components_subset"), "flow components");
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected flow fixture to fail");
     } catch (RuntimeException e) {
