@@ -1,10 +1,9 @@
 {
-  "name": "agent-flat-function-namespace-own-with-child",
+  "name": "agent-flat-function-namespace-with-child",
   "kind": "agent_forward",
   "signature": "question:string -> answer:string",
   "options": {
     "directResponse": "off",
-    "flatFunctionNamespace": "own",
     "functions": [
       {
         "name": "lookup",
@@ -173,7 +172,7 @@
     "crm.lookup",
     "team.researcher"
   ],
-  "description": "Port-only: with flatFunctionNamespace 'own' a flat function keeps its own namespace (crm.lookup) after a child agent is registered, which turns the flat functions into modules; the actor calls crm.lookup and team.researcher (owned-child-delegation-preserves-existing-tools with the function namespaced crm).",
+  "description": "Port-only: a flat function keeps its own namespace (crm.lookup) after a child agent is registered, which turns the flat functions into modules; the actor calls crm.lookup and team.researcher (owned-child-delegation-preserves-existing-tools with the function namespaced crm).",
   "expected_stage_request_not_contains": [
     {
       "index": 1,

@@ -6806,7 +6806,7 @@ def _normalize_agent_callable_inventory(options: Any) -> Any:
             else:
                 pass
             flat_namespace = _agent_flat_function_namespace(item, options)
-            _agent_check_flat_function_namespace(item, flat_mode, flat_namespace)
+            _agent_check_flat_function_namespace(flat_mode, flat_namespace)
             callable = _normalize_agent_callable(item, flat_namespace)
             seen_namespace = _core_contains(flat_namespaces, flat_namespace)
             if seen_namespace:
@@ -13541,14 +13541,15 @@ def _agent_flat_function_namespace(item: Any, options: Any) -> str:
     _core_coverage_mark("_agent_flat_function_namespace")
     mode_snake = _core_get(options, "flat_function_namespace", None)
     mode = _core_get(options, "flatFunctionNamespace", mode_snake)
-    use_own = _core_eq(mode, "own")
-    if use_own:
-        own = _agent_flat_function_own_namespace(item)
-        has_own = _core_ne(own, "")
-        if has_own:
-            return own
-        else:
-            pass
+    use_tools = _core_eq(mode, "tools")
+    if use_tools:
+        return "tools"
+    else:
+        pass
+    own = _agent_flat_function_own_namespace(item)
+    has_own = _core_ne(own, "")
+    if has_own:
+        return own
     else:
         pass
     return "tools"
@@ -13583,17 +13584,16 @@ def _agent_flat_function_namespace_mode(options: Any) -> str:
             raise mode_error
         else:
             pass
-        if is_own:
-            return "own"
+        if is_tools:
+            return "tools"
         else:
             pass
-        return "tools"
     else:
         pass
-    return "default"
+    return "own"
 
 
-def _agent_check_flat_function_namespace(item: Any, mode: str, namespace: str) -> None:
+def _agent_check_flat_function_namespace(mode: str, namespace: str) -> None:
     _core_coverage_mark("_agent_check_flat_function_namespace")
     is_own = _core_eq(mode, "own")
     if is_own:
@@ -13603,19 +13603,6 @@ def _agent_check_flat_function_namespace(item: Any, mode: str, namespace: str) -
             shadow_message = _core_string_format("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", namespace)
             shadow_error = _core_runtime_error(shadow_message)
             raise shadow_error
-        else:
-            pass
-        return None
-    else:
-        pass
-    is_default = _core_eq(mode, "default")
-    if is_default:
-        own = _agent_flat_function_own_namespace(item)
-        named = _core_ne(own, "")
-        elsewhere = _core_ne(own, namespace)
-        ignored = _core_and(named, elsewhere)
-        if ignored:
-            _core_axgen_deprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")
         else:
             pass
     else:

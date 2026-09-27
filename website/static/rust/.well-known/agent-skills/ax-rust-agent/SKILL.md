@@ -71,8 +71,8 @@ Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rus
 
 ## Flat Function Namespaces
 
-- A flat function (one in the agent's `functions` outside a module) is called `tools.<name>` by default, even when it names its own namespace. TypeScript's agent calls it `<namespace>.<name>` (and `utils.<name>` when it names none).
-- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'` calls each flat function by its own namespace now, as TypeScript does (one without a namespace stays `tools.<name>`), and a namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error; `'tools'` keeps `tools.<name>`. Left unset, a flat function that names another namespace warns once. `'own'` becomes the default in the next major version.
+- A flat function (one in the agent's `functions` outside a module) that names its own namespace is called `<namespace>.<name>`, as in TypeScript; one without a namespace is `tools.<name>` (TypeScript's is `utils.<name>`). A namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error.
+- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'`, the default since 25.0.0, is the above; `'tools'` calls every flat function `tools.<name>`, as the ports did before 25.0.0.
 - Host `Tool`s go under a namespace with `with_tool_module("crm", tools)`, which needs no option; `'own'` reads a function spec's `"namespace"` key.
 
 ## Streaming An Agent Run

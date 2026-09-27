@@ -34999,7 +34999,7 @@ Value Core::_normalize_agent_callable_inventory(Value options) {
         Core::raise_error(error);
       }
       Value flat_namespace = Core::_agent_flat_function_namespace(item, options);
-      Core::_agent_check_flat_function_namespace(item, flat_mode, flat_namespace);
+      Core::_agent_check_flat_function_namespace(flat_mode, flat_namespace);
       Value callable = Core::_normalize_agent_callable(item, flat_namespace);
       Value seen_namespace = Core::contains(flat_namespaces, flat_namespace);
       if (Core::truthy(seen_namespace)) {
@@ -41708,13 +41708,14 @@ Value Core::_agent_flat_function_namespace(Value item, Value options) {
   axir_coverage_mark("_agent_flat_function_namespace");
   Value mode_snake = Core::get(options, Value("flat_function_namespace"), Value());
   Value mode = Core::get(options, Value("flatFunctionNamespace"), mode_snake);
-  Value use_own = Core::eq(mode, Value("own"));
-  if (Core::truthy(use_own)) {
-    Value own = Core::_agent_flat_function_own_namespace(item);
-    Value has_own = Core::ne(own, Value(""));
-    if (Core::truthy(has_own)) {
-      return own;
-    }
+  Value use_tools = Core::eq(mode, Value("tools"));
+  if (Core::truthy(use_tools)) {
+    return Value("tools");
+  }
+  Value own = Core::_agent_flat_function_own_namespace(item);
+  Value has_own = Core::ne(own, Value(""));
+  if (Core::truthy(has_own)) {
+    return own;
   }
   return Value("tools");
 }
@@ -41746,15 +41747,14 @@ Value Core::_agent_flat_function_namespace_mode(Value options) {
       Value mode_error = Core::validation_error(mode_message);
       Core::raise_error(mode_error);
     }
-    if (Core::truthy(is_own)) {
-      return Value("own");
+    if (Core::truthy(is_tools)) {
+      return Value("tools");
     }
-    return Value("tools");
   }
-  return Value("default");
+  return Value("own");
 }
 
-Value Core::_agent_check_flat_function_namespace(Value item, Value mode, Value namespace_) {
+Value Core::_agent_check_flat_function_namespace(Value mode, Value namespace_) {
   axir_coverage_mark("_agent_check_flat_function_namespace");
   Value is_own = Core::eq(mode, Value("own"));
   if (Core::truthy(is_own)) {
@@ -41764,17 +41764,6 @@ Value Core::_agent_check_flat_function_namespace(Value item, Value mode, Value n
       Value shadow_message = Core::string_format(Value("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved"), namespace_);
       Value shadow_error = Core::runtime_error(shadow_message);
       Core::raise_error(shadow_error);
-    }
-    return Value();
-  }
-  Value is_default = Core::eq(mode, Value("default"));
-  if (Core::truthy(is_default)) {
-    Value own = Core::_agent_flat_function_own_namespace(item);
-    Value named = Core::ne(own, Value(""));
-    Value elsewhere = Core::ne(own, namespace_);
-    Value ignored = Core::and_(named, elsewhere);
-    if (Core::truthy(ignored)) {
-      Core::axgen_deprecation(Value("agent-flat-function-namespace"), Value("An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version."));
     }
   }
   return Value();

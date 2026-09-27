@@ -4,8 +4,8 @@
   "emitted_functions": 970,
   "files": {
     "dev/axllm/ax/Core.java": {
-      "emitted_lines": 43400,
-      "total_lines": 45643
+      "emitted_lines": 43389,
+      "total_lines": 45632
     }
   }
 }

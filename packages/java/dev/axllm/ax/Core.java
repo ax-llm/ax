@@ -33374,7 +33374,7 @@ final class Core {
           throw Core.asRuntime(error);
         }
         Object flat_namespace = Core._agent_flat_function_namespace(item, options);
-        Core._agent_check_flat_function_namespace(item, flat_mode, flat_namespace);
+        Core._agent_check_flat_function_namespace(flat_mode, flat_namespace);
         Object callable = Core._normalize_agent_callable(item, flat_namespace);
         Object seen_namespace = Core.contains(flat_namespaces, flat_namespace);
         if (Core.truthy(seen_namespace)) {
@@ -40074,13 +40074,14 @@ final class Core {
     axirCoverageMark("_agent_flat_function_namespace");
     Object mode_snake = Core.get(options, "flat_function_namespace", null);
     Object mode = Core.get(options, "flatFunctionNamespace", mode_snake);
-    Object use_own = Core.eq(mode, "own");
-    if (Core.truthy(use_own)) {
-      Object own = Core._agent_flat_function_own_namespace(item);
-      Object has_own = Core.ne(own, "");
-      if (Core.truthy(has_own)) {
-        return own;
-      }
+    Object use_tools = Core.eq(mode, "tools");
+    if (Core.truthy(use_tools)) {
+      return "tools";
+    }
+    Object own = Core._agent_flat_function_own_namespace(item);
+    Object has_own = Core.ne(own, "");
+    if (Core.truthy(has_own)) {
+      return own;
     }
     return "tools";
   }
@@ -40112,15 +40113,14 @@ final class Core {
         Object mode_error = Core.validationError(mode_message);
         throw Core.asRuntime(mode_error);
       }
-      if (Core.truthy(is_own)) {
-        return "own";
+      if (Core.truthy(is_tools)) {
+        return "tools";
       }
-      return "tools";
     }
-    return "default";
+    return "own";
   }
 
-  static Object _agent_check_flat_function_namespace(Object item, Object mode, Object namespace) {
+  static Object _agent_check_flat_function_namespace(Object mode, Object namespace) {
     axirCoverageMark("_agent_check_flat_function_namespace");
     Object is_own = Core.eq(mode, "own");
     if (Core.truthy(is_own)) {
@@ -40130,17 +40130,6 @@ final class Core {
         Object shadow_message = Core.stringFormat("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", namespace);
         Object shadow_error = Core.runtimeError(shadow_message);
         throw Core.asRuntime(shadow_error);
-      }
-      return null;
-    }
-    Object is_default = Core.eq(mode, "default");
-    if (Core.truthy(is_default)) {
-      Object own = Core._agent_flat_function_own_namespace(item);
-      Object named = Core.ne(own, "");
-      Object elsewhere = Core.ne(own, namespace);
-      Object ignored = Core.and(named, elsewhere);
-      if (Core.truthy(ignored)) {
-        Core.axgenDeprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.");
       }
     }
     return null;

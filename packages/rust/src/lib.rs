@@ -103736,11 +103736,7 @@ fn _normalize_agent_callable_inventory(args: &[CoreValue]) -> Result<CoreValue, 
             }
             v_flat_namespace =
                 _agent_flat_function_namespace(&[v_item.clone(), v_options.clone()])?;
-            _agent_check_flat_function_namespace(&[
-                v_item.clone(),
-                v_flat_mode.clone(),
-                v_flat_namespace.clone(),
-            ])?;
+            _agent_check_flat_function_namespace(&[v_flat_mode.clone(), v_flat_namespace.clone()])?;
             v_callable = _normalize_agent_callable(&[v_item.clone(), v_flat_namespace.clone()])?;
             v_seen_namespace =
                 core_contains(&[v_flat_namespaces.clone(), v_flat_namespace.clone()])?;
@@ -119841,7 +119837,7 @@ fn _agent_flat_function_namespace(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_mode = CoreValue::Null;
     let mut v_mode_snake = CoreValue::Null;
     let mut v_own = CoreValue::Null;
-    let mut v_use_own = CoreValue::Null;
+    let mut v_use_tools = CoreValue::Null;
     v_mode_snake = core_get(
         &v_options,
         &CoreValue::from("flat_function_namespace"),
@@ -119852,13 +119848,14 @@ fn _agent_flat_function_namespace(args: &[CoreValue]) -> Result<CoreValue, AxErr
         &CoreValue::from("flatFunctionNamespace"),
         v_mode_snake.clone(),
     );
-    v_use_own = core_eq(&[v_mode.clone(), CoreValue::from("own")])?;
-    if core_truthy(&v_use_own) {
-        v_own = _agent_flat_function_own_namespace(&[v_item.clone()])?;
-        v_has_own = core_ne(&[v_own.clone(), CoreValue::from("")])?;
-        if core_truthy(&v_has_own) {
-            return Ok(v_own.clone());
-        }
+    v_use_tools = core_eq(&[v_mode.clone(), CoreValue::from("tools")])?;
+    if core_truthy(&v_use_tools) {
+        return Ok(CoreValue::from("tools"));
+    }
+    v_own = _agent_flat_function_own_namespace(&[v_item.clone()])?;
+    v_has_own = core_ne(&[v_own.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_has_own) {
+        return Ok(v_own.clone());
     }
     return Ok(CoreValue::from("tools"));
 }
@@ -119930,12 +119927,11 @@ fn _agent_flat_function_namespace_mode(args: &[CoreValue]) -> Result<CoreValue, 
             v_mode_error = core_validation_error(&[v_mode_message.clone()])?;
             return Err(core_as_error(&v_mode_error));
         }
-        if core_truthy(&v_is_own) {
-            return Ok(CoreValue::from("own"));
+        if core_truthy(&v_is_tools) {
+            return Ok(CoreValue::from("tools"));
         }
-        return Ok(CoreValue::from("tools"));
     }
-    return Ok(CoreValue::from("default"));
+    return Ok(CoreValue::from("own"));
 }
 
 #[allow(
@@ -119947,15 +119943,9 @@ fn _agent_flat_function_namespace_mode(args: &[CoreValue]) -> Result<CoreValue, 
 )]
 fn _agent_check_flat_function_namespace(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_check_flat_function_namespace");
-    let mut v_item = core_arg(args, 0);
-    let mut v_mode = core_arg(args, 1);
-    let mut v_namespace = core_arg(args, 2);
-    let mut v_elsewhere = CoreValue::Null;
-    let mut v_ignored = CoreValue::Null;
-    let mut v_is_default = CoreValue::Null;
+    let mut v_mode = core_arg(args, 0);
+    let mut v_namespace = core_arg(args, 1);
     let mut v_is_own = CoreValue::Null;
-    let mut v_named = CoreValue::Null;
-    let mut v_own = CoreValue::Null;
     let mut v_reserved_names = CoreValue::Null;
     let mut v_shadow_error = CoreValue::Null;
     let mut v_shadow_message = CoreValue::Null;
@@ -119968,17 +119958,6 @@ fn _agent_check_flat_function_namespace(args: &[CoreValue]) -> Result<CoreValue,
             v_shadow_message = core_string_format(&[CoreValue::from("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved"), v_namespace.clone()])?;
             v_shadow_error = core_runtime_error(&[v_shadow_message.clone()])?;
             return Err(core_as_error(&v_shadow_error));
-        }
-        return Ok(CoreValue::Null);
-    }
-    v_is_default = core_eq(&[v_mode.clone(), CoreValue::from("default")])?;
-    if core_truthy(&v_is_default) {
-        v_own = _agent_flat_function_own_namespace(&[v_item.clone()])?;
-        v_named = core_ne(&[v_own.clone(), CoreValue::from("")])?;
-        v_elsewhere = core_ne(&[v_own.clone(), v_namespace.clone()])?;
-        v_ignored = core_and(&[v_named.clone(), v_elsewhere.clone()])?;
-        if core_truthy(&v_ignored) {
-            core_axgen_deprecation(&[CoreValue::from("agent-flat-function-namespace"), CoreValue::from("An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")])?;
         }
     }
     return Ok(CoreValue::Null);

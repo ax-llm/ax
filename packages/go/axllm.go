@@ -70351,7 +70351,7 @@ func _normalize_agent_callable_inventory(args ...Value) (Value, error) {
 			// empty
 			}
 			{ v, err := _agent_flat_function_namespace(v_item, v_options); if err != nil { return nil, err }; v_flat_namespace = v }
-			if _, err := _agent_check_flat_function_namespace(v_item, v_flat_mode, v_flat_namespace); err != nil { return nil, err }
+			if _, err := _agent_check_flat_function_namespace(v_flat_mode, v_flat_namespace); err != nil { return nil, err }
 			{ v, err := _normalize_agent_callable(v_item, v_flat_namespace); if err != nil { return nil, err }; v_callable = v }
 			v_seen_namespace = _core_contains(v_flat_namespaces, v_flat_namespace)
 			if coreTruthy(v_seen_namespace) {
@@ -84485,7 +84485,7 @@ func _agent_flat_function_namespace(args ...Value) (Value, error) {
 	var v_mode Value
 	var v_mode_snake Value
 	var v_own Value
-	var v_use_own Value
+	var v_use_tools Value
 	if len(args) > 0 { v_item = args[0] }
 	_ = v_item
 	if len(args) > 1 { v_options = args[1] }
@@ -84494,18 +84494,19 @@ func _agent_flat_function_namespace(args ...Value) (Value, error) {
 	_ = v_mode
 	_ = v_mode_snake
 	_ = v_own
-	_ = v_use_own
+	_ = v_use_tools
 	v_mode_snake = coreGet(v_options, "flat_function_namespace", nil)
 	v_mode = coreGet(v_options, "flatFunctionNamespace", v_mode_snake)
-	v_use_own = _core_eq(v_mode, "own")
-	if coreTruthy(v_use_own) {
-		{ v, err := _agent_flat_function_own_namespace(v_item); if err != nil { return nil, err }; v_own = v }
-		v_has_own = _core_ne(v_own, "")
-		if coreTruthy(v_has_own) {
-			return v_own, nil
-		} else {
-		// empty
-		}
+	v_use_tools = _core_eq(v_mode, "tools")
+	if coreTruthy(v_use_tools) {
+		return "tools", nil
+	} else {
+	// empty
+	}
+	{ v, err := _agent_flat_function_own_namespace(v_item); if err != nil { return nil, err }; v_own = v }
+	v_has_own = _core_ne(v_own, "")
+	if coreTruthy(v_has_own) {
+		return v_own, nil
 	} else {
 	// empty
 	}
@@ -84575,45 +84576,31 @@ func _agent_flat_function_namespace_mode(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
-		if coreTruthy(v_is_own) {
-			return "own", nil
+		if coreTruthy(v_is_tools) {
+			return "tools", nil
 		} else {
 		// empty
 		}
-		return "tools", nil
 	} else {
 	// empty
 	}
-	return "default", nil
+	return "own", nil
 }
 
 func _agent_check_flat_function_namespace(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_check_flat_function_namespace")
-	var v_item Value
 	var v_mode Value
 	var v_namespace Value
-	var v_elsewhere Value
-	var v_ignored Value
-	var v_is_default Value
 	var v_is_own Value
-	var v_named Value
-	var v_own Value
 	var v_reserved_names Value
 	var v_shadow_error Value
 	var v_shadow_message Value
 	var v_shadows Value
-	if len(args) > 0 { v_item = args[0] }
-	_ = v_item
-	if len(args) > 1 { v_mode = args[1] }
+	if len(args) > 0 { v_mode = args[0] }
 	_ = v_mode
-	if len(args) > 2 { v_namespace = args[2] }
+	if len(args) > 1 { v_namespace = args[1] }
 	_ = v_namespace
-	_ = v_elsewhere
-	_ = v_ignored
-	_ = v_is_default
 	_ = v_is_own
-	_ = v_named
-	_ = v_own
 	_ = v_reserved_names
 	_ = v_shadow_error
 	_ = v_shadow_message
@@ -84626,21 +84613,6 @@ func _agent_check_flat_function_namespace(args ...Value) (Value, error) {
 			v_shadow_message = _core_string_format("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", v_namespace)
 			v_shadow_error = _core_runtime_error(v_shadow_message)
 			return nil, asError(v_shadow_error)
-		} else {
-		// empty
-		}
-		return nil, nil
-	} else {
-	// empty
-	}
-	v_is_default = _core_eq(v_mode, "default")
-	if coreTruthy(v_is_default) {
-		{ v, err := _agent_flat_function_own_namespace(v_item); if err != nil { return nil, err }; v_own = v }
-		v_named = _core_ne(v_own, "")
-		v_elsewhere = _core_ne(v_own, v_namespace)
-		v_ignored = _core_and(v_named, v_elsewhere)
-		if coreTruthy(v_ignored) {
-			_core_axgen_deprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")
 		} else {
 		// empty
 		}

@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:0c124bf6cb70b8159c292dbb137d74f28811f841026feb20a27e022e5794c29f"
+      "digest": "sha256:5c87af93184a6bd91259443c22df8fa4f6c78d3a2349ef3dd491436caf8c8581"
     },
     {
       "name": "ax-cpp-agent-rlm",

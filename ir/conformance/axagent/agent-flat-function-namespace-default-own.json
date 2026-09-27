@@ -1,6 +1,6 @@
 {
-  "name": "agent-flat-function-namespace-default-tools",
-  "description": "Port-only: without flatFunctionNamespace an agent files every flat function under tools, as the ports always have, and warns once that a function naming its own namespace (crm, web) is filed under it in the next major version, as TypeScript does (agent-first-requests-flat-namespace).",
+  "name": "agent-flat-function-namespace-default-own",
+  "description": "Port-only: by default an agent files each flat function under its own namespace (crm, web), as TypeScript does (agent-first-requests-flat-namespace), with no deprecation warning.",
   "kind": "agent_forward",
   "signature": "question:string -> answer:string",
   "input": {
@@ -98,21 +98,19 @@
     "answer": "Refunds take 30 days."
   },
   "expected_request_contains": [
-    "`tools.fetch(args: { url: string })`",
-    "`tools.lookup(args: { id: string })`",
-    "`tools.search(args: { query: string })`"
+    "`crm.lookup(args: { id: string })`",
+    "`web.fetch(args: { url: string })`",
+    "`web.search(args: { query: string })`"
   ],
   "expected_stage_request_not_contains": [
     {
       "index": 0,
-      "absent": ["crm.lookup", "web.fetch", "web.search"]
+      "absent": ["tools.fetch", "tools.lookup", "tools.search"]
     },
     {
       "index": 1,
-      "absent": ["crm.lookup", "web.fetch", "web.search"]
+      "absent": ["tools.fetch", "tools.lookup", "tools.search"]
     }
   ],
-  "expected_deprecations": [
-    "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version."
-  ]
+  "expected_deprecations": []
 }

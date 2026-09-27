@@ -1,7 +1,7 @@
 {
   "kind": "agent_runtime_real",
   "name": "agent-runtime-real-flat-namespace-call",
-  "description": "Port-only real-engine antidote: with flatFunctionNamespace 'own' a flat function filed under its own namespace (TS fn().namespace('crm')) is a crm global in the runtime, so the executor's crm.lookup call runs and its scripted result reaches the responder. The engine computes the evidence from the call's result (r.tier + ':' + 6 * 7), so only an executed call can put gold:42 in a request.",
+  "description": "Port-only real-engine antidote: a flat function filed under its own namespace (TS fn().namespace('crm')) is a crm global in the runtime, so the executor's crm.lookup call runs and its scripted result reaches the responder. The engine computes the evidence from the call's result (r.tier + ':' + 6 * 7), so only an executed call can put gold:42 in a request.",
   "runtime_engine": "javascript",
   "signature": "question:string -> answer:string",
   "input": {
@@ -11,7 +11,6 @@
     "runtime": {
       "language": "JavaScript"
     },
-    "flatFunctionNamespace": "own",
     "functions": [
       {
         "name": "lookup",

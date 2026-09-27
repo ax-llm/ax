@@ -1,5 +1,4 @@
 {
-  "description": "The ports run this TS golden with the port-only options {\"flatFunctionNamespace\":\"own\"}, their opt-in to what TS always does.",
   "expected_output": {
     "answer": "Refunds take 30 days."
   },
@@ -70,7 +69,6 @@
   "name": "agent-first-requests-flat-namespace",
   "options": {
     "directResponse": "off",
-    "flatFunctionNamespace": "own",
     "functions": [
       {
         "description": "Search public pages",

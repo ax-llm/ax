@@ -247,9 +247,6 @@ type Case = {
   first_requests?: boolean;
   // Why the fixture leaves out expected_request_roles.
   no_request_roles?: string;
-  // Port-only agent options, added to the fixture's options but not passed
-  // to TS: a port's opt-in to what TS always does.
-  port_options?: JsonMap;
   // Port-only: TS passes a forward timeout (milliseconds) to every stage's
   // ai.chat. TS runs the case with that timeout, and the extractor checks each
   // chat call got it; the fixture gives the ports' forward timeoutMs, their
@@ -395,12 +392,8 @@ async function record(name: string, spec: Case): Promise<void> {
     signature,
     input,
     options: spec.runtime_on_forward
-      ? { ...clone(spec.options ?? {}), ...clone(spec.port_options ?? {}) }
-      : {
-          ...clone(spec.options ?? {}),
-          ...clone(spec.port_options ?? {}),
-          runtime: { language: 'JavaScript' },
-        },
+      ? clone(spec.options ?? {})
+      : { ...clone(spec.options ?? {}), runtime: { language: 'JavaScript' } },
     features,
     responses: spec.responses,
     runtime_script: spec.runtime_script,
@@ -429,9 +422,6 @@ async function record(name: string, spec: Case): Promise<void> {
       throw new Error(`${name}: keeps_date_text supports agent_forward only`);
     }
     fixture.description = spec.keeps_date_text;
-  }
-  if (spec.port_options && fixture.description === undefined) {
-    fixture.description = `The ports run this TS golden with the port-only options ${JSON.stringify(spec.port_options)}, their opt-in to what TS always does.`;
   }
   for (const key of [
     ...(spec.call_timeout_ms === undefined
@@ -734,13 +724,9 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
     first_requests: true,
   },
-  // The ports file a flat function under its own namespace, as TS does, with
-  // flatFunctionNamespace 'own'; their default keeps tools.<name> until the
-  // next major version.
   'agent-first-requests-flat-namespace': {
     kind: 'agent_forward',
     options: { directResponse: 'off', functions: FLAT_NAMESPACED },
-    port_options: { flatFunctionNamespace: 'own' },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
