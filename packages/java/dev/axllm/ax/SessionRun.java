@@ -139,8 +139,8 @@ final class SessionRun implements AiClient,AutoCloseable {
     for(String id:applied){Core.chat_session_transition(state,Map.of("type","update.applied","id",id));emit("applied",Map.of("update_id",id,"timing","next-response"));}applied.clear();
   }
   void finish(Throwable failure) { finish(failure,false); }
-  // A run its streaming consumer stopped early ends as aborted, as
-  // control.abort() reports it; any other run as failed or completed.
+  // A run its streaming consumer stopped early ends with an aborted event
+  // rather than failed; any other run as failed or completed.
   void finish(Throwable failure,boolean consumerStopped) {
     if(state!=null)Core.chat_session_record_unresolved(gen,state);
     Object pending=state==null?List.of():Core.chat_session_close_state(state);close();

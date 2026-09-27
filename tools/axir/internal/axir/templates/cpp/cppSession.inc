@@ -253,8 +253,8 @@ class SessionRun final:public AIClient {
       Value action=Core::chat_session_boundary_action(state_);std::string type=display(Core::get(action,"type"));if(type=="submit")submit(Core::get(action,"results",Value::array()));else if(type=="continue")submit(Value::array());else if(type=="validate"&&!last_.is_null())return Core::chat_session_result(last_,Core::get(state_,"response_id"));
     }
   }
-  // Ends the run. A run its streaming consumer stopped early ends as aborted,
-  // as control.abort() reports it; any other run as failed or completed.
+  // Ends the run. A run its streaming consumer stopped early ends with an
+  // aborted event rather than failed; any other run as failed or completed.
   void finish(std::optional<std::string> error=std::nullopt,bool consumer_stopped=false){if(finished_)return;finished_=true;results_->close();Value pending=Value::array();if(session_){Core::chat_session_record_unresolved(gen_,state_);pending=Core::chat_session_close_state(state_);session_->close();}if(consumer_stopped)emit("aborted");else if(!error)emit("completed");else emit("failed",object({{"error",*error},{"pending_call_ids",pending}}));}
 };
 

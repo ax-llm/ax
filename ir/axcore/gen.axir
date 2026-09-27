@@ -402,6 +402,35 @@ module @ax.gen version "0.1" {
     }
   }
 
+  op ax.gen.semantic @apply_model_config_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json, json) -> void"
+    body @entry(%runtime_options: json, %base_options: json, %options: json) {
+      // modelConfig merges key by key: the constructor's keys, then the
+      // call's, whichever of modelConfig and model_config each one uses.
+      %empty = core.map
+      %gen_options = core.call intrinsic.map.merge(%empty, %base_options)
+      %call_options = core.call intrinsic.map.merge(%empty, %options)
+      %gen_snake = core.get %gen_options["model_config"] default %empty
+      %gen_camel = core.get %gen_options["modelConfig"] default %empty
+      %call_snake = core.get %call_options["model_config"] default %empty
+      %call_camel = core.get %call_options["modelConfig"] default %empty
+      %gen_config = core.call intrinsic.map.merge(%gen_snake, %gen_camel)
+      %call_config = core.call intrinsic.map.merge(%call_snake, %call_camel)
+      %merged = core.call intrinsic.map.merge(%gen_config, %call_config)
+      %merged_count = core.call intrinsic.len(%merged)
+      %has_config = core.call intrinsic.gt(%merged_count, 0)
+      core.if %has_config {
+        core.call intrinsic.map.delete(%runtime_options, "model_config")
+        core.set %runtime_options["modelConfig"] = %merged
+      }
+      core.return
+    }
+  }
+
   op ax.gen.semantic @build_gen_chat_request {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -728,6 +757,7 @@ module @ax.gen version "0.1" {
     body @entry(%gen: AxGen, %client: AIClient, %values: json, %options: json) {
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      core.call @apply_model_config_option_impl(%runtime_options, %base_options, %options)
       // TS forward reads its cachingFunction first: a stored output comes
       // back without a request, and an error from the read propagates.
       %cache_fn = core.call @caching_function_option_impl(%gen, %options)
@@ -1915,6 +1945,7 @@ module @ax.gen version "0.1" {
       // carries the thought so far.
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
+      core.call @apply_model_config_option_impl(%runtime_options, %base_options, %options)
       core.set %runtime_options["stream"] = true
       // TS streamingForward reads its cachingFunction first and ignores an
       // error from the read; a stored output comes back as one delta.

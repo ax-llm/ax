@@ -713,8 +713,8 @@ func (p *genSessionClient) close(err error) {
 	p.finish(err, false)
 }
 
-// finish ends the run. A run the consumer stopped early ends as aborted, as
-// control.abort() reports it; any other run as failed or completed.
+// finish ends the run. A run the consumer stopped early ends with an aborted
+// event rather than failed; any other run as failed or completed.
 func (p *genSessionClient) finish(err error, consumerStopped bool) {
 	if p.cancel != nil {
 		p.cancel()
