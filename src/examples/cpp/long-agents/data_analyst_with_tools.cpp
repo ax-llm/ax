@@ -95,14 +95,24 @@ int main() {
       "  - Compare like-for-like: always group by region AND product, not either alone.\n"
       "\n"
       "TOOLS AVAILABLE (call them, never invent figures)\n"
-      "  query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}\n"
-      "  top    rank a metric (\"revenue\"|\"units\") grouped by \"product\"|\"region\" -> [{key, value}]\n"
-      "  trend  monthly revenue series (Jan..Dec) for one region + product";
+      "  warehouse.query  filter + aggregate a slice -> {matched, totalUnits, totalRevenue, avgReturnRate}\n"
+      "  warehouse.top    rank a metric (\"revenue\"|\"units\") grouped by \"product\"|\"region\" -> [{key, value}]\n"
+      "  warehouse.trend  monthly revenue series (Jan..Dec) for one region + product";
 
   // --- Host tool handlers over the warehouse (the model never sees the rows) ---
-  axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
-  runtime
-      .register_callable("query", [&warehouse](axllm::Value p) -> axllm::Value {
+  // The agent advertises and calls them as warehouse.query, warehouse.top and
+  // warehouse.trend, each with its handler, as the TypeScript twin wires them.
+  axllm::Tool query(
+      "query", "Filter the sales table and return aggregates for the matching rows.",
+      axllm::object({
+          {"type", "object"},
+          {"properties", axllm::object({
+              {"region", axllm::object({{"type", "string"}, {"description", "Optional region filter"}})},
+              {"product", axllm::object({{"type", "string"}, {"description", "Optional product filter"}})},
+              {"month", axllm::object({{"type", "string"}, {"description", "Optional month filter, e.g. Jan"}})},
+          })},
+      }),
+      [&warehouse](axllm::Value p) -> axllm::Value {
         std::string region = axllm::display(axllm::Core::get(p, "region", ""));
         std::string product = axllm::display(axllm::Core::get(p, "product", ""));
         std::string month = axllm::display(axllm::Core::get(p, "month", ""));
@@ -124,8 +134,19 @@ int main() {
             {"totalRevenue", static_cast<double>(total_revenue)},
             {"avgReturnRate", avg_return},
         });
-      })
-      .register_callable("top", [&warehouse](axllm::Value p) -> axllm::Value {
+      });
+  axllm::Tool top(
+      "top", "Rank a metric grouped by product or region, highest first.",
+      axllm::object({
+          {"type", "object"},
+          {"properties", axllm::object({
+              {"metric", axllm::object({{"type", "string"}, {"description", "revenue or units"}})},
+              {"groupBy", axllm::object({{"type", "string"}, {"description", "product or region"}})},
+              {"limit", axllm::object({{"type", "number"}, {"description", "How many groups to return"}})},
+          })},
+          {"required", axllm::array({"metric", "groupBy"})},
+      }),
+      [&warehouse](axllm::Value p) -> axllm::Value {
         std::string metric = axllm::display(axllm::Core::get(p, "metric", "revenue"));
         std::string group_by = axllm::display(axllm::Core::get(p, "groupBy", "product"));
         double limit_raw = 5;
@@ -157,8 +178,18 @@ int main() {
                                       }));
         }
         return ranked;
-      })
-      .register_callable("trend", [&warehouse](axllm::Value p) -> axllm::Value {
+      });
+  axllm::Tool trend(
+      "trend", "Monthly revenue series (Jan..Dec) for one region and product.",
+      axllm::object({
+          {"type", "object"},
+          {"properties", axllm::object({
+              {"region", axllm::object({{"type", "string"}})},
+              {"product", axllm::object({{"type", "string"}})},
+          })},
+          {"required", axllm::array({"region", "product"})},
+      }),
+      [&warehouse](axllm::Value p) -> axllm::Value {
         std::string region = axllm::display(axllm::Core::get(p, "region", ""));
         std::string product = axllm::display(axllm::Core::get(p, "product", ""));
         std::vector<long> series(12, 0);
@@ -175,49 +206,13 @@ int main() {
       axllm::object({
           // Big data dictionary stays out of the prompt.
           {"contextFields", axllm::array({"schema"})},
-          // Tool specs advertised to the model; handlers are registered on the runtime above.
-          {"functions", axllm::array({
-              axllm::object({
-                  {"name", "query"},
-                  {"description", "Filter the sales table and return aggregates for the matching rows."},
-                  {"parameters", axllm::object({
-                      {"type", "object"},
-                      {"properties", axllm::object({
-                          {"region", axllm::object({{"type", "string"}})},
-                          {"product", axllm::object({{"type", "string"}})},
-                          {"month", axllm::object({{"type", "string"}})},
-                      })},
-                  })},
-              }),
-              axllm::object({
-                  {"name", "top"},
-                  {"description", "Rank a metric (revenue|units) grouped by product|region, highest first."},
-                  {"parameters", axllm::object({
-                      {"type", "object"},
-                      {"properties", axllm::object({
-                          {"metric", axllm::object({{"type", "string"}})},
-                          {"groupBy", axllm::object({{"type", "string"}})},
-                          {"limit", axllm::object({{"type", "number"}})},
-                      })},
-                      {"required", axllm::array({"metric", "groupBy"})},
-                  })},
-              }),
-              axllm::object({
-                  {"name", "trend"},
-                  {"description", "Monthly revenue series (Jan..Dec) for one region and product."},
-                  {"parameters", axllm::object({
-                      {"type", "object"},
-                      {"properties", axllm::object({
-                          {"region", axllm::object({{"type", "string"}})},
-                          {"product", axllm::object({{"type", "string"}})},
-                      })},
-                      {"required", axllm::array({"region", "product"})},
-                  })},
-              }),
-          })},
           {"contextPolicy", axllm::object({{"preset", "lean"}, {"budget", "balanced"}})},
           {"runtime", axllm::object({{"language", "JavaScript"}})},
       }));
+  // Tools reach the data the prompt never sees.
+  analyst.add_tool_module("warehouse", {query, top, trend});
+
+  axllm::runtime::quickjs::QuickJsCodeRuntime runtime;
 
   axllm::Value result = analyst.forward(
       client,

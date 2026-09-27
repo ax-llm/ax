@@ -2456,6 +2456,12 @@ static void run_agent_forward(Value fixture) {
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected agent request count mismatch");
   }
+  // Every chat call's options carry these (a forward option each stage gets).
+  Value expected_all_chat_options = Core::get(fixture, "expected_chat_options_all_subset");
+  if (!expected_all_chat_options.is_null()) {
+    if (client.chat_options.empty()) throw AxError("fixture", "fixture expected chat options but none were recorded");
+    for (size_t index = 0; index < client.chat_options.size(); ++index) assert_subset(client.chat_options[index], expected_all_chat_options, "chat options " + std::to_string(index));
+  }
   Value exact_projection = Core::get(fixture, "exact_observable_projection", Value::object());
   if (!Core::get(exact_projection, "stateRoundtrip").is_null()) assert_equal(state_roundtrip_projection, Core::get(exact_projection, "stateRoundtrip"), "exact agent state roundtrip projection");
   if (!Core::get(exact_projection, "ranking").is_null()) {
@@ -3220,6 +3226,14 @@ static void run_ai_chat(Value fixture) {
   restore_fixture_env(saved);
   Value expected_warnings = Core::get(fixture, "expected_warnings");
   if (!expected_warnings.is_null()) assert_equal(captured, expected_warnings, "ai chat warnings");
+  // Each fragment appears in a warning the call logged (a port's wording may differ).
+  for (const auto& fragment : as_array(Core::get(fixture, "expected_warnings_containing", Value::array()))) {
+    bool found = false;
+    for (const auto& message : as_array(captured)) {
+      if (display(message).find(display(fragment)) != std::string::npos) { found = true; break; }
+    }
+    if (!found) throw AxError("fixture", "no ai chat warning contains " + display(fragment) + ": " + stringify(captured));
+  }
 }
 
 static void run_ai_chat_request(Value fixture) {

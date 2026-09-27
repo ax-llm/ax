@@ -424,7 +424,9 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         AxAIServiceError error = failure instanceof AxAIServiceError serviceError
             ? serviceError
             : new AxAIServiceNetworkError(failure.getMessage() == null ? failure.toString() : failure.getMessage());
-        boolean retryable = !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
+        // As in TS apiCall, a call's timeoutMs is not retried here.
+        boolean callTimedOut = error instanceof AxAIServiceTimeoutError && Core.provider_call_timeout_ms(errorOptions) != null;
+        boolean retryable = !callTimedOut && !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
             || error instanceof AxAIServiceResponseError
             || error instanceof AxAIServiceStreamTerminatedError
             || error instanceof AxAIServiceTimeoutError
@@ -477,7 +479,24 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
 
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
 
+  // TS reads a per-call timeout in milliseconds; this port ignores it until the
+  // next major version and warns once, naming timeoutMs.
+  private static void warnCallTimeout(Map<String, Object> callOptions) {
+    Core.provider_warn_call_timeout(AxRuntimeHooks.strip(callOptions == null ? Map.of() : callOptions), false);
+  }
+
+  @Override public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
+    warnCallTimeout(callOptions);
+    return super.chat(request, callOptions);
+  }
+
+  @Override public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
+    warnCallTimeout(callOptions);
+    return super.embed(request, callOptions);
+  }
+
   @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception {
+    warnCallTimeout(options);
     Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), options, false);
     request = Core.asMap(resolved.get("request"));
     Map<String,Object> callOptions=new LinkedHashMap<>(Core.asMap(resolved.get("options")));
@@ -982,7 +1001,10 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Map<String, Object> call = new LinkedHashMap<>();
     method = method == null || method.isBlank() ? "POST" : method.toUpperCase(Locale.ROOT);
     call.put("method", method);
-    String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : baseUrl + endpoint;
+    String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : callBaseUrl(errorOptions) + endpoint;
+    // TS applies the call's timeout to chat, embed and cache requests, not to
+    // speech or transcription.
+    Object timeoutMs = "transcribe".equals(operation) || "speak".equals(operation) ? null : Core.provider_call_timeout_ms(errorOptions == null ? Map.of() : errorOptions);
     call.put("url", requestUrl);
     Map<String, Object> resolvedHeaders = headers();
     if ("meta".equals(profile) && "transcribe".equals(operation)) resolvedHeaders.put("Accept", "text/event-stream");
@@ -997,12 +1019,14 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
     if (!method.equals("GET") && !method.equals("HEAD")) call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
+    // The call's timeoutMs, for a custom transport to honor.
+    if (timeoutMs != null) call.put("timeout_ms", timeoutMs);
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
     if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return binaryResponse?binaryTransportResult(value,errorRequest):transportResult(value,errorRequest);}
     if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, errorRequest);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
-      .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
+      .timeout(requestTimeout(timeoutMs));
     Map<String, Object> requestHeaders = new LinkedHashMap<>(resolvedHeaders);
     HttpRequest.BodyPublisher bodyPublisher;
     if (method.equals("GET") || method.equals("HEAD")) {
@@ -1019,7 +1043,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (binaryResponse) {
       // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not be UTF-8
       // decoded; read the response as bytes and return them as a base64 String.
-      HttpResponse<byte[]> res = sendCancellable(req, HttpResponse.BodyHandlers.ofByteArray(), cancellation);
+      HttpResponse<byte[]> res = sendTimed(req, HttpResponse.BodyHandlers.ofByteArray(), cancellation, timeoutMs, errorRequest);
       if (res.statusCode() >= 400) {
         String errorBody = new String(res.body(), StandardCharsets.UTF_8);
         Object parsed;
@@ -1032,7 +1056,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       if (contentType.contains("application/json")) return Json.parse(new String(res.body(), StandardCharsets.UTF_8));
       return new BinaryBody(Base64.getEncoder().encodeToString(res.body()), contentType);
     }
-    HttpResponse<String> res = sendCancellable(req, HttpResponse.BodyHandlers.ofString(), cancellation);
+    HttpResponse<String> res = sendTimed(req, HttpResponse.BodyHandlers.ofString(), cancellation, timeoutMs, errorRequest);
     String responseBody = res.body();
     if (res.statusCode() >= 400) {
       Object parsed;
@@ -1056,7 +1080,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if(cancellation!=null)cancellation.throwIfCancelled();
     Map<String, Object> call = new LinkedHashMap<>();
     String method = operationMethod("stream_chat").toUpperCase(Locale.ROOT);
-    String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : baseUrl + endpoint;
+    String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : callBaseUrl(errorOptions) + endpoint;
+    Object timeoutMs = Core.provider_call_timeout_ms(errorOptions == null ? Map.of() : errorOptions);
     Map<String, Object> resolvedHeaders = headers();
     if (credentialProvider != null) {
       Map<String, String> fresh = credentialProvider.credentials(new CredentialRequest(profile, "stream_chat", method, requestUrl));
@@ -1068,15 +1093,17 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     call.put("headers", resolvedHeaders);
     call.put("json", payload);
     call.put("stream", true);
+    // The call's timeoutMs, for a custom transport to honor.
+    if (timeoutMs != null) call.put("timeout_ms", timeoutMs);
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
     if (transport != null) return RawSseStream.from(transportResult(transport.stream(call,cancellation), errorRequest));
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, errorRequest);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
-      .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
+      .timeout(requestTimeout(timeoutMs));
     for (Map.Entry<String, Object> header : resolvedHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
     HttpRequest req = builder.method(method, HttpRequest.BodyPublishers.ofString(Json.stringify(payload))).build();
-    HttpResponse<InputStream> res = sendCancellable(req, HttpResponse.BodyHandlers.ofInputStream(), cancellation);
+    HttpResponse<InputStream> res = sendTimed(req, HttpResponse.BodyHandlers.ofInputStream(), cancellation, timeoutMs, errorRequest);
     if (res.statusCode() >= 400) {
       try (InputStream body = res.body()) {
         String errorBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
@@ -1094,6 +1121,65 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if(milliseconds<=0){if(cancellation!=null)cancellation.throwIfCancelled();return;}
     if(cancellation==null){Thread.sleep(milliseconds);return;}
     if(cancellation.await(milliseconds))cancellation.throwIfCancelled();
+  }
+
+  // The call's options can move the provider's base URL (a Vertex beta selects
+  // v1beta1), as TS resolves it for each call. An explicit base_url or
+  // OPENAI_BASE_URL still wins.
+  private String callBaseUrl(Map<String, Object> callOptions) {
+    Object descriptorBase = descriptor.get("baseUrl");
+    if (callOptions == null || callOptions.isEmpty() || descriptorBase == null) return baseUrl;
+    if (!baseUrl.equals(String.valueOf(descriptorBase).replaceAll("/+$", ""))) return baseUrl;
+    Object resolved = Core.asMap(Core.provider_resolve_descriptor(profile, callOptions)).get("baseUrl");
+    return resolved == null ? baseUrl : String.valueOf(resolved).replaceAll("/+$", "");
+  }
+
+  // The client's timeout stays the request's timeout; a longer timeoutMs
+  // raises it.
+  private Duration requestTimeout(Object timeoutMs) {
+    long clientMillis = (long) (timeoutSeconds * 1000);
+    if (timeoutMs instanceof Number ms) return Duration.ofMillis(Math.max(clientMillis, (long) Math.ceil(ms.doubleValue())));
+    return Duration.ofMillis(clientMillis);
+  }
+
+  // A call's timeoutMs bounds the wait for the response headers, as TS
+  // apiCall's timer does: the body handler sees them arrive, and a request
+  // without them in time is cancelled with TS's AxAIServiceTimeoutError.
+  // (HttpRequest.timeout can't do it: newer JDKs apply it to the body too.)
+  private <T> HttpResponse<T> sendTimed(HttpRequest request, HttpResponse.BodyHandler<T> handler, AxCancellationToken cancellation, Object timeoutMs, Map<String, Object> errorRequest) throws Exception {
+    if (!(timeoutMs instanceof Number ms)) return sendCancellable(request, handler, cancellation);
+    if (cancellation != null) cancellation.throwIfCancelled();
+    java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+    HttpResponse.BodyHandler<T> timed = info -> {
+      started.countDown();
+      return handler.apply(info);
+    };
+    CompletableFuture<HttpResponse<T>> future = http.sendAsync(request, timed);
+    future.whenComplete((response, error) -> started.countDown());
+    AxCancellationToken.Subscription subscription = cancellation == null ? () -> {} : cancellation.subscribe(() -> future.cancel(true));
+    try {
+      if (!started.await(Math.max(1L, (long) Math.ceil(ms.doubleValue())), java.util.concurrent.TimeUnit.MILLISECONDS)) {
+        future.cancel(true);
+        if (cancellation != null) cancellation.throwIfCancelled();
+        throw new AxAIServiceTimeoutError(String.valueOf(Core.provider_call_timeout_message(timeoutMs)), null, null, null, errorRequest, true);
+      }
+      return future.get();
+    } catch (CancellationException error) {
+      if (cancellation != null) cancellation.throwIfCancelled();
+      throw error;
+    } catch (ExecutionException error) {
+      if (cancellation != null && cancellation.cancelled()) cancellation.throwIfCancelled();
+      Throwable cause = error.getCause();
+      if (cause instanceof Exception exception) throw exception;
+      if (cause instanceof Error fatal) throw fatal;
+      throw new RuntimeException(cause);
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      if (cancellation != null && cancellation.cancelled()) cancellation.throwIfCancelled();
+      throw error;
+    } finally {
+      subscription.close();
+    }
   }
 
   private <T> HttpResponse<T> sendCancellable(HttpRequest request,HttpResponse.BodyHandler<T> handler,AxCancellationToken cancellation)throws Exception{

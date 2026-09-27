@@ -1728,6 +1728,26 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     ) -> std::io::Result<()> {
         writer.write_all(js_number_text(value).as_bytes())
     }
+    // A lone surrogate's mark (see LONE_SURROGATE_MARK) is written as JS's
+    // JSON.stringify writes a lone surrogate: its \u escape.
+    fn write_string_fragment<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        fragment: &str,
+    ) -> std::io::Result<()> {
+        if !fragment.chars().any(|ch| lone_surrogate_unit(ch).is_some()) {
+            return self.0.write_string_fragment(writer, fragment);
+        }
+        for ch in fragment.chars() {
+            match lone_surrogate_unit(ch) {
+                Some(unit) => writer.write_all(format!("\\u{unit:04x}").as_bytes())?,
+                None => self
+                    .0
+                    .write_string_fragment(writer, ch.encode_utf8(&mut [0u8; 4]))?,
+            }
+        }
+        Ok(())
+    }
     fn write_f32<W: ?Sized + std::io::Write>(
         &mut self,
         writer: &mut W,
@@ -2341,9 +2361,31 @@ impl Iterator for CancellableProviderIterator {
     }
 }
 
-// JSON text with each \u escape of a lone surrogate replaced by the escape of
-// U+FFFD; a high surrogate escape followed by a low one stays a pair.
-fn replace_lone_surrogate_escapes(text: &str) -> String {
+// A provider can split a surrogate pair across stream events, leaving a lone
+// surrogate escape ("\ud83d", then "\ude00") in each event's JSON. JS's
+// JSON.parse keeps each half, and the stream-text intrinsics join them again.
+// A Rust string can't hold a lone surrogate, so each half reads as its mark:
+// the private-use code point LONE_SURROGATE_MARK plus the half's offset from
+// U+D800. core_string_concat_stream_text joins a high mark and a low mark into
+// the character they make, and the JSON writer writes a mark as JS writes the
+// lone surrogate, as its \u escape.
+const LONE_SURROGATE_MARK: u32 = 0x10F800;
+
+fn lone_surrogate_mark(unit: u32) -> char {
+    char::from_u32(LONE_SURROGATE_MARK + unit - 0xD800).unwrap_or('\u{fffd}')
+}
+
+/// The lone surrogate (U+D800 to U+DFFF) a mark stands for.
+fn lone_surrogate_unit(ch: char) -> Option<u32> {
+    let code = ch as u32;
+    (LONE_SURROGATE_MARK..=LONE_SURROGATE_MARK + 0x7FF)
+        .contains(&code)
+        .then(|| code - LONE_SURROGATE_MARK + 0xD800)
+}
+
+// JSON text with each \u escape of a lone surrogate replaced by its mark; a
+// high surrogate escape followed by a low one stays a pair.
+fn mark_lone_surrogate_escapes(text: &str) -> String {
     let surrogate = |escape: &str| -> Option<u32> {
         let unit = u32::from_str_radix(escape.strip_prefix("\\u")?.get(..4)?, 16).ok()?;
         (0xD800..=0xDFFF).contains(&unit).then_some(unit)
@@ -2360,8 +2402,8 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
                 out.push_str(&rest[..12]);
                 rest = &rest[12..];
             }
-            Some(_) => {
-                out.push_str("\\ufffd");
+            Some(unit) => {
+                out.push(lone_surrogate_mark(unit));
                 rest = &rest[6..];
             }
             None => {
@@ -2380,18 +2422,23 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
     out
 }
 
-// Parses one stream event's JSON. A provider can split a surrogate pair
-// across two events, leaving a lone surrogate escape in each, which JS's
-// JSON.parse accepts and serde_json refuses. A Rust string can't hold half a
-// pair, so each lone half reads as U+FFFD instead of failing the stream.
-fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
-    serde_json::from_str(payload).or_else(|error| {
-        let replaced = replace_lone_surrogate_escapes(payload);
-        if replaced == payload {
-            return Err(AxError::from(error));
+// serde_json::from_str, except that a lone surrogate escape, which JS's
+// JSON.parse accepts and serde_json refuses, reads as its mark (see
+// LONE_SURROGATE_MARK). Other invalid JSON fails with serde_json's error.
+fn serde_json_keeping_lone_surrogates(text: &str) -> serde_json::Result<Value> {
+    serde_json::from_str(text).or_else(|error| {
+        let marked = mark_lone_surrogate_escapes(text);
+        if marked == text {
+            return Err(error);
         }
-        serde_json::from_str(&replaced).map_err(AxError::from)
+        serde_json::from_str(&marked).map_err(|_| error)
     })
+}
+
+// Parses one stream event's JSON, keeping each half of a surrogate pair a
+// provider split across two events.
+fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
+    serde_json_keeping_lone_surrogates(payload).map_err(AxError::from)
 }
 
 struct SseJsonStream {
@@ -3072,9 +3119,16 @@ impl OpenAICompatibleClient {
         let mut attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
+            // As in TS apiCall, a call's timeoutMs is not retried here.
+            let call_timeout = call_header_timeout_ms(&call).is_some();
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                Err(error)
+                    if is_retryable_ai_error(&error)
+                        && !(call_timeout
+                            && error.error_type.as_deref() == Some("AxAIServiceTimeoutError"))
+                        && attempt < max_retries =>
+                {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
                     cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
@@ -3385,6 +3439,17 @@ impl OpenAICompatibleClient {
         if method != "GET" && method != "HEAD" {
             out[body_key] = payload.clone();
         }
+        // The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds
+        // the wait for the response headers.
+        if matches!(operation, "chat" | "stream_chat" | "embed") {
+            let timeout_ms =
+                core_value_to_json(&provider_call_timeout_ms(&[core_value_from_json(
+                    &self.options,
+                )])?);
+            if !timeout_ms.is_null() {
+                out["timeout_ms"] = timeout_ms;
+            }
+        }
         Ok(out)
     }
 
@@ -3412,6 +3477,11 @@ impl OpenAICompatibleClient {
             .unwrap_or(60.0);
         if let Some(token) = &cancellation {
             return cancellable_http_json(&call, timeout, token);
+        }
+        // A call's timeoutMs bounds only the wait for the response headers (TS
+        // apiCall's timer), which the async client can time on its own.
+        if call_header_timeout_ms(&call).is_some() {
+            return cancellable_http_json(&call, timeout, &AxCancellationToken::default());
         }
         let url = call
             .get("url")
@@ -3516,36 +3586,47 @@ impl OpenAICompatibleClient {
                     .stream(call)?,
             );
         }
-        let url = call
-            .get("url")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let method = call
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or("POST")
-            .parse::<reqwest::Method>()
-            .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
-        let mut builder = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
-            .build()?
-            .request(method, url);
-        if let Some(headers) = call.get("headers").and_then(Value::as_object) {
-            for (key, value) in headers {
-                builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
+        // The per-call or client timeout in seconds, as for non-streaming
+        // requests, else 60 s.
+        let timeout = self
+            .options
+            .get("timeout")
+            .and_then(Value::as_f64)
+            .unwrap_or(60.0);
+        let (status, body): (u16, Box<dyn Read>) = match call_header_timeout_ms(&call) {
+            Some(header_ms) => open_timed_stream(&call, header_ms, timeout)?,
+            None => {
+                let url = call
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let method = call
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .unwrap_or("POST")
+                    .parse::<reqwest::Method>()
+                    .map_err(|error| {
+                        AxError::new("validation", format!("invalid HTTP method: {error}"))
+                    })?;
+                let mut builder = HttpClient::builder()
+                    .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+                    .build()?
+                    .request(method, url);
+                if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+                    for (key, value) in headers {
+                        builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
+                    }
+                }
+                let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+                let response = builder.js_json(&body).send()?;
+                (response.status().as_u16(), Box::new(response))
             }
-        }
-        let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-        let response = builder.js_json(&body).send()?;
+        };
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
         }
-        let status = response.status().as_u16();
-        let inner = Self::transport_stream_iter(AxTransportStream::Reader {
-            status,
-            body: Box::new(response),
-        })?;
+        let inner = Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
         Ok(match cancellation {
             Some(token) => Box::new(CancellableProviderIterator { inner, token })
                 as Box<dyn Iterator<Item = AxResult<Value>>>,
@@ -3594,13 +3675,16 @@ impl OpenAICompatibleClient {
                     .to_string()
             });
         let headers_call = self.provider_transport_request("chat", &json!({}), model, false)?;
-        let call = json!({
+        let mut call = json!({
             "method": operation.get("method").and_then(Value::as_str).unwrap_or("POST"),
             "url": format!("{}{}", base.trim_end_matches('/'), operation.get("path").and_then(Value::as_str).unwrap_or_default()),
             "headers": headers_call.get("headers").cloned().unwrap_or_else(|| json!({})),
             "json": operation.get("request").cloned().unwrap_or_else(|| json!({})),
             "stream": false,
         });
+        if let Some(timeout_ms) = headers_call.get("timeout_ms") {
+            call["timeout_ms"] = timeout_ms.clone();
+        }
         self.send_json_call(call)
     }
 
@@ -4890,14 +4974,17 @@ impl WsRealtimeTransport {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
                     return Ok(Some(Some(
-                        serde_json::from_str(text.as_str())
+                        serde_json_keeping_lone_surrogates(text.as_str())
                             .map_err(|e| AxError::runtime(e.to_string()))?,
                     )));
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
+                    let parsed = match std::str::from_utf8(&data) {
+                        Ok(text) => serde_json_keeping_lone_surrogates(text),
+                        Err(_) => serde_json::from_slice(&data),
+                    };
                     return Ok(Some(Some(
-                        serde_json::from_slice(&data)
-                            .map_err(|e| AxError::runtime(e.to_string()))?,
+                        parsed.map_err(|e| AxError::runtime(e.to_string()))?,
                     )));
                 }
                 Ok(tungstenite::Message::Close(frame)) => {
@@ -5155,6 +5242,7 @@ impl AxAIClient for OpenAICompatibleClient {
         OpenAICompatibleClient::speak(self, request)
     }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        warn_call_timeout(&options);
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
@@ -5176,6 +5264,7 @@ impl AxAIClient for OpenAICompatibleClient {
         request: Value,
         options: Value,
     ) -> AxResult<AxChatStream> {
+        warn_call_timeout(&options);
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
@@ -15070,7 +15159,7 @@ impl ProtocolChild {
 }
 
 pub fn parse_json(text: &str) -> AxResult<Value> {
-    Ok(serde_json::from_str(text)?)
+    Ok(serde_json_keeping_lone_surrogates(text)?)
 }
 
 pub fn stable_stringify(value: &Value) -> String {
@@ -15151,20 +15240,16 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
 }
 
 // Rust strings are UTF-8, which can't hold a lone surrogate (half of a
-// surrogate pair a provider split across stream events; a provider stream
-// reads each half as U+FFFD), so this runner skips the fixtures that require
-// one.
-const SUPPORTS_LONE_SURROGATES: bool = false;
+// surrogate pair a provider split across stream events), so JSON decoding
+// reads one as its mark (see LONE_SURROGATE_MARK), which the stream-text
+// intrinsics join again; this runner runs the fixtures that split a pair.
+const SUPPORTS_LONE_SURROGATES: bool = true;
 
 /// The conformance runner's skip for a fixture's JSON text: its name and the
-/// reason, when this runner skips it. serde_json refuses a lone surrogate
-/// escape, so a fixture that has one is read with U+FFFD in its place to
-/// find its `requires_lone_surrogates` flag.
+/// reason, when this runner skips it.
 #[doc(hidden)]
 pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
-    let fixture = parse_json(text)
-        .or_else(|_| parse_json(&replace_lone_surrogate_escapes(text)))
-        .ok()?;
+    let fixture = parse_json(text).ok()?;
     if SUPPORTS_LONE_SURROGATES
         || fixture
             .get("requires_lone_surrogates")
@@ -19720,6 +19805,17 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                     client.requests.len()
                 ),
             ));
+        }
+    }
+    // Every chat call's options carry these (a forward option each stage gets).
+    if let Some(expected) = fixture.get("expected_chat_options_all_subset") {
+        if client.chat_options.is_empty() {
+            return Err(AxError::runtime(
+                "fixture expected chat options but none were recorded",
+            ));
+        }
+        for (index, options) in client.chat_options.iter().enumerate() {
+            expect_json_subset(&format!("chat options {index}"), options, expected)?;
         }
     }
     let exact_projection = fixture.get("exact_observable_projection");
@@ -25209,6 +25305,21 @@ fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_warnings") {
         expect_json_equal("ai chat warnings", &json!(captured), expected)?;
     }
+    // Each fragment appears in a warning the call logged (a port's wording may differ).
+    for fragment in fixture
+        .get("expected_warnings_containing")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let fragment = fragment.as_str().unwrap_or_default();
+        if !captured.iter().any(|message| message.contains(fragment)) {
+            return Err(AxError::new(
+                "fixture",
+                format!("no ai chat warning contains {fragment:?}: {captured:?}"),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -27098,11 +27209,18 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
 }
 
 fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    let units = core_arg(args, 0)
-        .text()
-        .encode_utf16()
-        .map(|unit| CoreValue::Num(unit as f64))
-        .collect();
+    // A lone surrogate's mark is the one UTF-16 unit it stands for.
+    let mut units = Vec::new();
+    for ch in core_arg(args, 0).text().chars() {
+        match lone_surrogate_unit(ch) {
+            Some(unit) => units.push(CoreValue::Num(unit as f64)),
+            None => units.extend(
+                ch.encode_utf16(&mut [0u16; 2])
+                    .iter()
+                    .map(|unit| CoreValue::Num(*unit as f64)),
+            ),
+        }
+    }
     Ok(CoreValue::list_from(units))
 }
 
@@ -27112,24 +27230,53 @@ fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError
     ))
 }
 
-// Appends streamed text. A Rust string is UTF-8 and holds whole characters,
-// so no chunk ends in half of a surrogate pair, and plain concatenation keeps
-// every character whole (Python joins a pair split across two chunks).
+// Appends streamed text. As in a UTF-16 string (TS, Java), a high surrogate
+// ending the text and a low one starting the chunk join into the character
+// they make; here each half is its mark (see LONE_SURROGATE_MARK).
 fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(format!(
-        "{}{}",
-        core_arg(args, 0).text(),
-        core_arg(args, 1).text()
+    Ok(CoreValue::from_string(join_stream_text(
+        &core_arg(args, 0).text(),
+        &core_arg(args, 1).text(),
     )))
 }
 
+/// Appends a streamed chunk to `text`, as the AxGen stream does: half of a
+/// surrogate pair a provider split across chunks (read as its private-use
+/// mark, since a Rust `String` can't hold a lone surrogate) ending `text`, and
+/// the other half starting `chunk`, join into the character. A raw client
+/// `stream` delta can carry such a half, so join raw deltas with
+/// `join_stream_text` rather than `push_str`, which would leave the two
+/// marks instead of the character.
+pub fn join_stream_text(text: &str, chunk: &str) -> String {
+    let last = text.chars().last();
+    let first = chunk.chars().next();
+    let high = last
+        .and_then(lone_surrogate_unit)
+        .filter(|unit| *unit <= 0xDBFF);
+    let low = first
+        .and_then(lone_surrogate_unit)
+        .filter(|unit| *unit >= 0xDC00);
+    if let (Some(last), Some(first), Some(high), Some(low)) = (last, first, high, low) {
+        let joined = char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+            .unwrap_or('\u{fffd}');
+        let head = &text[..text.len() - last.len_utf8()];
+        let tail = &chunk[first.len_utf8()..];
+        return format!("{head}{joined}{tail}");
+    }
+    format!("{text}{chunk}")
+}
+
 // The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
-// holds back until its low half streams in. A UTF-8 Rust string can't end in
-// one, since a lone surrogate isn't a char (a stream event's lone surrogate
-// escape reads as U+FFFD, see parse_stream_event_json), so the value comes
-// back unchanged.
+// holds back until its low half streams in, so no delta ends in half a
+// character.
 fn core_string_drop_trailing_high_surrogate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(core_arg(args, 0))
+    let text = core_arg(args, 0).text();
+    match text.chars().last() {
+        Some(last) if lone_surrogate_unit(last).is_some_and(|unit| unit <= 0xDBFF) => Ok(
+            CoreValue::from_string(text[..text.len() - last.len_utf8()].to_string()),
+        ),
+        _ => Ok(core_arg(args, 0)),
+    }
 }
 
 // ----- intrinsic.date.zone_offset: the platform tz database -----
@@ -53074,6 +53221,10 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_options.clone(),
             ])?;
         } else {
+            v_responses_payload = _openai_responses_apply_prompt_cache_key(&[
+                v_responses_payload.clone(),
+                v_options.clone(),
+            ])?;
             v_responses_payload = _openai_responses_apply_prompt_cache_retention(&[
                 v_responses_payload.clone(),
                 v_sampled_request.clone(),
@@ -66774,6 +66925,127 @@ fn _openai_responses_apply_prompt_cache_retention(
         )?;
     }
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_responses_apply_prompt_cache_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_apply_prompt_cache_key");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_has_key = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_key_snake = CoreValue::Null;
+    let mut v_resolved_key = CoreValue::Null;
+    let mut v_session = CoreValue::Null;
+    let mut v_session_snake = CoreValue::Null;
+    v_key_snake = core_get(
+        &v_options,
+        &CoreValue::from("prompt_cache_key"),
+        CoreValue::Null,
+    );
+    v_key = core_get(
+        &v_options,
+        &CoreValue::from("promptCacheKey"),
+        v_key_snake.clone(),
+    );
+    v_session_snake = core_get(&v_options, &CoreValue::from("session_id"), CoreValue::Null);
+    v_session = core_get(
+        &v_options,
+        &CoreValue::from("sessionId"),
+        v_session_snake.clone(),
+    );
+    v_resolved_key = core_coalesce(&[v_key.clone(), v_session.clone()])?;
+    v_has_key = core_is_not_none(&[v_resolved_key.clone()])?;
+    if core_truthy(&v_has_key) {
+        core_set(
+            &v_payload,
+            CoreValue::from("prompt_cache_key"),
+            v_resolved_key.clone(),
+        )?;
+    }
+    return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_call_timeout_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_call_timeout_ms");
+    let mut v_options = core_arg(args, 0);
+    let mut v_is_number = CoreValue::Null;
+    let mut v_positive = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_value = core_get(&v_options, &CoreValue::from("timeoutMs"), CoreValue::Null);
+    v_is_number = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_positive = core_gt(&[v_value.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_positive) {
+            return Ok(v_value.clone());
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_call_timeout_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_call_timeout_message");
+    let mut v_timeout_ms = core_arg(args, 0);
+    let mut v_message = CoreValue::Null;
+    v_message = core_string_format(&[
+        CoreValue::from("Request timed out after {}ms"),
+        v_timeout_ms.clone(),
+    ])?;
+    return Ok(v_message.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_warn_call_timeout(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_warn_call_timeout");
+    let mut v_options = core_arg(args, 0);
+    let mut v_seconds = core_arg(args, 1);
+    let mut v_has_timeout = CoreValue::Null;
+    let mut v_has_timeout_ms = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_timeout = CoreValue::Null;
+    let mut v_timeout_ms = CoreValue::Null;
+    let mut v_warn = CoreValue::Null;
+    let mut v_without_ms = CoreValue::Null;
+    v_timeout = core_get(&v_options, &CoreValue::from("timeout"), CoreValue::Null);
+    v_timeout_ms = core_get(&v_options, &CoreValue::from("timeoutMs"), CoreValue::Null);
+    v_has_timeout = core_is_not_none(&[v_timeout.clone()])?;
+    v_has_timeout_ms = core_is_not_none(&[v_timeout_ms.clone()])?;
+    v_without_ms = core_not(&[v_has_timeout_ms.clone()])?;
+    v_warn = core_and(&[v_has_timeout.clone(), v_without_ms.clone()])?;
+    if core_truthy(&v_warn) {
+        v_message = CoreValue::from("Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.");
+        if core_truthy(&v_seconds) {
+            v_message = CoreValue::from("Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).");
+        }
+        core_ai_warn_once(&[CoreValue::from("call-timeout"), v_message.clone()])?;
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -128151,7 +128423,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (948 of 948 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (952 of 952 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -128511,7 +128783,125 @@ fn core_flow_dispatch_group(args: &[CoreValue]) -> AxResult<CoreValue> {
     )))
 }
 
+// TS reads a per-call timeout in milliseconds; Rust reads it in seconds until
+// the next major version, so a call that gives it without timeoutMs warns once.
+fn warn_call_timeout(options: &Value) {
+    let _ = provider_warn_call_timeout(&[core_value_from_json(options), CoreValue::Bool(true)]);
+}
+
+// The call's timeoutMs: TS apiCall's timer bounds the wait for the headers.
+fn call_header_timeout_ms(call: &Value) -> Option<f64> {
+    call.get("timeout_ms")
+        .and_then(Value::as_f64)
+        .filter(|ms| *ms > 0.0)
+}
+
+// TS's AxAIServiceTimeoutError for a call's timeoutMs.
+fn call_timeout_error(call: &Value) -> AxError {
+    let message = provider_call_timeout_message(&[core_value_from_json(
+        call.get("timeout_ms").unwrap_or(&Value::Null),
+    )])
+    .map(|value| value.text())
+    .unwrap_or_else(|_| "Request timed out".to_string());
+    let mut error = AxError::new("ai", message);
+    error.error_type = Some("AxAIServiceTimeoutError".to_string());
+    error.retryable = true;
+    error
+}
+
+// A stream body read from an async response: each read waits at most `idle`,
+// as the blocking client's timeout bounds each read.
+struct TimedStreamBody {
+    runtime: tokio::runtime::Runtime,
+    response: reqwest::Response,
+    pending: Vec<u8>,
+    offset: usize,
+    idle: Duration,
+}
+
+impl Read for TimedStreamBody {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        while self.offset >= self.pending.len() {
+            let idle = self.idle;
+            let response = &mut self.response;
+            match self
+                .runtime
+                .block_on(async move { tokio::time::timeout(idle, response.chunk()).await })
+            {
+                Err(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "stream read timed out",
+                    ))
+                }
+                Ok(Err(error)) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, error))
+                }
+                Ok(Ok(None)) => return Ok(0),
+                Ok(Ok(Some(chunk))) => {
+                    self.pending = chunk.to_vec();
+                    self.offset = 0;
+                }
+            }
+        }
+        let count = buf.len().min(self.pending.len() - self.offset);
+        buf[..count].copy_from_slice(&self.pending[self.offset..self.offset + count]);
+        self.offset += count;
+        Ok(count)
+    }
+}
+
+// A stream under a call's timeoutMs: the async client waits at most that long
+// for the response headers (TS apiCall's timer); the body then reads under the
+// client's timeout.
+fn open_timed_stream(
+    call: &Value,
+    header_ms: f64,
+    read_timeout: f64,
+) -> AxResult<(u16, Box<dyn Read>)> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let client = reqwest::Client::builder().build()?;
+    let method = call
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("POST")
+        .parse::<reqwest::Method>()
+        .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
+    let mut request = client.request(
+        method,
+        call.get("url").and_then(Value::as_str).unwrap_or_default(),
+    );
+    if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+        for (key, value) in headers {
+            request = request.header(key.as_str(), value.as_str().unwrap_or_default());
+        }
+    }
+    let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+    let request = request.js_json(&body);
+    let wait = Duration::from_secs_f64(header_ms / 1000.0);
+    let response =
+        match runtime.block_on(async move { tokio::time::timeout(wait, request.send()).await }) {
+            Ok(result) => result?,
+            Err(_) => return Err(call_timeout_error(call)),
+        };
+    let status = response.status().as_u16();
+    Ok((
+        status,
+        Box::new(TimedStreamBody {
+            runtime,
+            response,
+            pending: Vec::new(),
+            offset: 0,
+            idle: Duration::from_secs_f64(read_timeout.max(0.001)),
+        }),
+    ))
+}
+
 // Dropping the async request on cancellation closes both pending headers and bodies.
+// A call's timeoutMs bounds the wait for the response headers (TS apiCall's
+// timer); the client's timeout still caps the request.
 fn cancellable_http_json(
     call: &Value,
     timeout: f64,
@@ -128523,12 +128913,14 @@ fn cancellable_http_json(
         flag.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     token.throw_if_cancelled()?;
+    let header_ms = call_header_timeout_ms(call);
+    let total = header_ms.map_or(timeout, |ms| timeout.max(ms / 1000.0));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     runtime.block_on(async {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+            .timeout(Duration::from_secs_f64(total.max(0.001)))
             .build()?;
         let method = call["method"]
             .as_str()
@@ -128545,7 +128937,16 @@ fn cancellable_http_json(
         } else if let Some(body) = call.get("json") {
             request = request.json(body);
         }
-        let response = session::session_http_wait(request.send(), &cancelled).await?;
+        let send = session::session_http_wait(request.send(), &cancelled);
+        let response = match header_ms {
+            Some(ms) => {
+                match tokio::time::timeout(Duration::from_secs_f64(ms / 1000.0), send).await {
+                    Ok(result) => result?,
+                    Err(_) => return Err(call_timeout_error(call)),
+                }
+            }
+            None => send.await?,
+        };
         token.throw_if_cancelled()?;
         let response = response.ok_or_else(|| AxError::new("aborted", "Request aborted"))?;
         let status = response.status().as_u16();
@@ -130198,10 +130599,10 @@ mod stream_split_surrogate_tests {
     }
 
     #[test]
-    fn a_split_surrogate_pair_reads_as_replacement_characters() -> AxResult<()> {
-        // TS keeps each half and joins them into the emoji. serde_json
-        // refuses a lone surrogate escape, which a Rust string can't hold, so
-        // each half reads as U+FFFD, and the stream goes on.
+    fn a_split_surrogate_pair_joins_into_one_character() -> AxResult<()> {
+        // TS keeps each half and joins them into the emoji, and no delta holds
+        // half of it. Each half reads as its mark, which the stream-text
+        // intrinsics join.
         for buffered in [false, true] {
             let mut client = ai(
                 "openai",
@@ -130209,19 +130610,68 @@ mod stream_split_surrogate_tests {
             )?
             .with_transport(SplitPair { buffered });
             let mut program = ax("question:string -> answer:string")?;
+            let collected = Arc::new(Mutex::new(Vec::<String>::new()));
+            let captured = collected.clone();
             let output = program.streaming_forward(
                 &mut client,
                 json!({"question": "Status?"}),
                 json!({}),
-                |_| Ok(()),
+                move |delta| {
+                    captured.lock().unwrap().push(
+                        delta
+                            .delta
+                            .get("answer")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    );
+                    Ok(())
+                },
             )?;
+            let deltas = collected.lock().unwrap().clone();
             assert_eq!(
                 output,
-                json!({"answer": "hi \u{fffd}\u{fffd} there"}),
+                json!({"answer": "hi \u{1f600} there"}),
                 "buffered {buffered}"
             );
+            assert_eq!(deltas.concat(), "hi \u{1f600} there", "buffered {buffered}");
+            assert!(
+                deltas
+                    .iter()
+                    .all(|delta| !delta.chars().any(|ch| lone_surrogate_unit(ch).is_some())),
+                "a delta holds half a character: {deltas:?}"
+            );
         }
-        // Any other bad escape still fails the event's parse.
+        // Raw client stream deltas carry the halves; join_stream_text joins
+        // them into the character, as the AxGen stream does.
+        for buffered in [false, true] {
+            let mut client = ai(
+                "openai",
+                json!({"api_key": "test", "model": "gpt-5.4-mini"}),
+            )?
+            .with_transport(SplitPair { buffered });
+            let deltas =
+                client.stream(json!({"chat_prompt": [{"role": "user", "content": "Status?"}]}))?;
+            let text = deltas.iter().fold(String::new(), |text, delta| {
+                join_stream_text(
+                    &text,
+                    delta["results"][0]["content"].as_str().unwrap_or_default(),
+                )
+            });
+            assert_eq!(text, "Answer: hi \u{1f600} there", "buffered {buffered}");
+        }
+        // A lone half reads as its mark and is written back as JS writes it.
+        let half = parse_stream_event_json("{\"content\":\"hi \\ud83d\"}")?;
+        assert_eq!(
+            half["content"]
+                .as_str()
+                .and_then(|text| text.chars().last())
+                .and_then(lone_surrogate_unit),
+            Some(0xD83D)
+        );
+        assert_eq!(js_json_string(&half), "{\"content\":\"hi \\ud83d\"}");
+        // Any other bad escape still fails the event's parse, and a pair
+        // stays one character.
         assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
         assert_eq!(
             parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?,

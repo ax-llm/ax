@@ -1,0 +1,33 @@
+{
+  "expected_transport_request": {
+    "url": "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.5-flash:streamGenerateContent?alt=sse"
+  },
+  "kind": "ai_stream",
+  "model": "gemini-3.5-flash",
+  "name": "vertex-gemini-per-call-beta-stream",
+  "options": {
+    "beta": true
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us-central1"
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}
