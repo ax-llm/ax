@@ -122,6 +122,36 @@
             "event listener"
           ],
           "returns": "run controller"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxCachingFunction",
+          "public_name": "axllm::AxCachingFunction",
+          "kind": "type",
+          "description": "TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.",
+          "form": "std::optional\u003cValue\u003e(const std::string\u0026 key, const Value* value)",
+          "important_options": [
+            "read",
+            "store",
+            "SHA-256 key",
+            "streamed hit as one delta"
+          ],
+          "returns": "stored output or miss",
+          "example": "auto qa = axllm::ax(\"question:string -\u003e answer:string\"); qa.set_caching_function(cache);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "set_caching_function",
+          "public_name": "axllm::set_caching_function",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide AxGen caching function.",
+          "form": "axllm::set_caching_function(fn)",
+          "important_options": [
+            "caching function",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "axllm::set_caching_function(cache);"
         }
       ]
     },

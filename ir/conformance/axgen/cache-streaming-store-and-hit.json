@@ -1,0 +1,95 @@
+{
+  "calls": [
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "streaming_forward"
+    },
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "streaming_forward"
+    },
+    {
+      "input": {
+        "question": "Capital of France?"
+      },
+      "kind": "forward"
+    }
+  ],
+  "expected_cache_gets": 3,
+  "expected_cache_sets": [
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_deltas": [
+    [
+      {
+        "delta": {
+          "answer": "Pa"
+        },
+        "index": 0,
+        "version": 0
+      },
+      {
+        "delta": {
+          "answer": "ris"
+        },
+        "index": 0,
+        "version": 0
+      }
+    ],
+    [
+      {
+        "delta": {
+          "answer": "Paris"
+        },
+        "index": 0,
+        "version": 0
+      }
+    ],
+    null
+  ],
+  "expected_outputs": [
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Paris"
+    },
+    {
+      "answer": "Paris"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_requests": [1, 0, 0],
+  "kind": "cache_sequence",
+  "name": "cache-streaming-store-and-hit",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Pa",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "ris",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

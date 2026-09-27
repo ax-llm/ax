@@ -301,6 +301,9 @@ var javaAxFieldProcessorMode string
 //go:embed templates/java/javaAxStreamingAssertion.java
 var javaAxStreamingAssertion string
 
+//go:embed templates/java/javaAxCachingFunction.java
+var javaAxCachingFunction string
+
 //go:embed templates/java/javaAxRunControl.java
 var javaAxRunControl string
 

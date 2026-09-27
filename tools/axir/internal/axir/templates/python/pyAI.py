@@ -229,6 +229,26 @@ def _snapshot_global_runtime_hooks() -> AxRuntimeHooks:
         return _global_runtime_hooks
 
 
+_global_caching_function: Callable[..., Any] | None = None
+
+
+def set_caching_function(caching_function: Callable[..., Any] | None) -> None:
+    """Set the process-wide AxGen caching function; pass None to clear it.
+
+    AxGen uses it when neither the forward call nor the constructor sets
+    ``caching_function``: ``fn(key)`` returns a stored output or None, and
+    ``fn(key, output)`` stores one.
+    """
+    global _global_caching_function
+    with _runtime_hooks_lock:
+        _global_caching_function = caching_function
+
+
+def _snapshot_global_caching_function() -> Callable[..., Any] | None:
+    with _runtime_hooks_lock:
+        return _global_caching_function
+
+
 def _coerce_runtime_hooks(value: Any) -> AxRuntimeHooks:
     if isinstance(value, AxRuntimeHooks):
         return value

@@ -122,6 +122,36 @@
             "event listener"
           ],
           "returns": "run controller"
+        },
+        {
+          "target_name": "python",
+          "canonical_name": "AxCachingFunction",
+          "public_name": "Callable[[str, dict | None], dict | None]",
+          "kind": "type",
+          "description": "TypeScript's cachingFunction: read and store finished AxGen outputs by key. The forward call's function comes first, then the program's, then the process-wide one, and a run control skips the cache.",
+          "form": "caching_function(key, output=None)",
+          "important_options": [
+            "read",
+            "store",
+            "SHA-256 key",
+            "streamed hit as one delta"
+          ],
+          "returns": "stored output or miss",
+          "example": "qa = ax(\"question:string -\u003e answer:string\", {\"caching_function\": cache})"
+        },
+        {
+          "target_name": "python",
+          "canonical_name": "set_caching_function",
+          "public_name": "set_caching_function",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide AxGen caching function.",
+          "form": "set_caching_function(fn)",
+          "important_options": [
+            "caching function",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "set_caching_function(cache)"
         }
       ]
     },

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -169,10 +170,34 @@ struct AxCredentialRequest {
 };
 using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
 
+// TypeScript's cachingFunction for AxGen outputs. fn(key, nullptr) returns
+// the stored output, or std::nullopt for a miss; fn(key, &output) stores an
+// output, and what it returns is ignored. key is the lowercase hex SHA-256 of
+// the signature and the input values.
+using AxCachingFunction = std::function<std::optional<Value>(const std::string& key, const Value* value)>;
+
+// A caching function for a forward or streaming_forward call, passed as a run
+// control is: value() goes in the call options (or in the AxGen options) under
+// "caching_function". The function stays registered while a copy of the
+// handle lives; a value() used after that fails as expired.
+class AxCachingFunctionHandle {
+ public:
+  struct State;
+  explicit AxCachingFunctionHandle(AxCachingFunction fn);
+  Value value() const;
+
+ private:
+  std::shared_ptr<State> state_;
+};
+AxCachingFunctionHandle caching_function(AxCachingFunction fn);
+
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// The process-wide caching function, which AxGen uses when neither the call
+// nor the AxGen sets one; an empty function clears it.
+void set_caching_function(AxCachingFunction fn);
 
 class AxError : public std::runtime_error {
  public:
@@ -371,6 +396,8 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  // The lowercase hex SHA-256 of the text's UTF-8 bytes.
+  static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);
@@ -457,6 +484,12 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // AxGen cachingFunction seams: the call's, else the AxGen's own, else the
+  // process-wide caching function (a caching_function() handle value, or
+  // null); a read, whose errors propagate (null is a miss); and a write.
+  static Value axgen_caching_function(Value gen, Value options);
+  static Value axgen_cache_read(Value fn, Value key);
+  static Value axgen_cache_write(Value fn, Value key, Value value);
   // BEGIN AXIR CORE EMITTED DECLARATIONS
   static Value _signature_value_keys_impl(Value typ);
   static Value parse_signature(Value signature);
@@ -844,71 +877,71 @@ struct Core {
   static Value chat_session_boundary_action(Value state);
   static Value _stream_convert_value_impl(Value field, Value value, Value required);
   static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
-  static Value _set_examples(Value gen, Value examples);
   static Value _regex_alternative(Value s);
-  static Value _set_demos(Value gen, Value demos);
   static Value chat_session_mark_submitted(Value state, Value ids);
-  static Value _render_examples(Value gen);
+  static Value _set_examples(Value gen, Value examples);
   static Value chat_session_queue_update(Value state, Value update);
-  static Value _render_demos(Value gen);
+  static Value _set_demos(Value gen, Value demos);
   static Value _ace_dedupe_playbook(Value playbook);
-  static Value _apply_field_processors(Value gen, Value output);
+  static Value _render_examples(Value gen);
   static Value _stream_field_value_impl(Value field, Value text);
-  static Value _run_assertions(Value gen, Value output);
   static Value _regex_word(Value c);
+  static Value _render_demos(Value gen);
   static Value chat_session_record_unresolved(Value gen, Value state);
+  static Value _apply_field_processors(Value gen, Value output);
+  static Value _run_assertions(Value gen, Value output);
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
   static Value chat_session_close_state(Value state);
-  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value chat_session_transition(Value state, Value event);
   static Value _regex_space(Value c);
+  static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _parse_output_impl(Value content);
-  static Value _is_flexible_json_field(Value typ);
   static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
-  static Value _parse_json_string_value(Value value);
+  static Value _is_flexible_json_field(Value typ);
   static Value _regex_member(Value n, Value c);
+  static Value _parse_json_string_value(Value value);
   static Value _parse_json_string_for_field(Value field, Value value);
   static Value _stream_text_state_impl();
-  static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _stream_text_note_field_impl(Value xstate, Value field, Value init_streamed);
-  static Value _parse_json_string_for_fields(Value fields_map, Value values);
+  static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options);
-  static Value _validate_exact_output_keys(Value fields, Value values, Value context);
+  static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _regex_state(Value pos, Value caps);
   static Value _regex_capture_ids(Value n);
+  static Value _validate_exact_output_keys(Value fields, Value values, Value context);
   static Value _ace_is_noop_acknowledgment(Value content);
-  static Value _tool_spec_impl(Value fn);
   static Value _regex_push(Value stack, Value top, Value value);
-  static Value _function_call_mode_impl(Value mode);
+  static Value _tool_spec_impl(Value fn);
   static Value _regex_task(Value n, Value next);
   static Value _regex_frame(Value todo, Value st);
-  static Value _response_function_calls_impl(Value response);
+  static Value _function_call_mode_impl(Value mode);
   static Value _regex_search(Value n, Value u, Value initial, Value d);
-  static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
   static Value _stream_text_required_check_impl(Value values, Value fields);
-  static Value _completion_call_to_chat_impl(Value call);
+  static Value _response_function_calls_impl(Value response);
+  static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
   static Value _ace_normalize_curator_operations(Value operations);
   static Value _stream_text_missed_fields_impl(Value values, Value content, Value fields);
+  static Value _completion_call_to_chat_impl(Value call);
   static Value _tool_result_message_impl(Value call, Value result);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
   static Value _parse_text_field_value_impl(Value field, Value text);
-  static Value _parse_text_output_fields_impl(Value content, Value fields, Value is_final);
   static Value _stream_text_final_impl(Value xstate, Value values, Value content, Value fields, Value options);
+  static Value _parse_text_output_fields_impl(Value content, Value fields, Value is_final);
   static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
   static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
-  static Value _parse_output_fields_impl(Value content, Value fields);
   static Value _stream_text_extract_values_impl(Value content, Value fields, Value strict_mode);
-  static Value _signature_has_complex_fields(Value signature, Value options);
+  static Value _parse_output_fields_impl(Value content, Value fields);
   static Value _stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete);
+  static Value _signature_has_complex_fields(Value signature, Value options);
   static Value _caller_function_call_impl(Value options);
   static Value _function_call_forces_tool_impl(Value choice);
-  static Value _function_call_names_output_impl(Value choice);
-  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _ace_normalize_reflection_bullet_tags(Value reflection);
   static Value _stream_text_values_impl(Value fields, Value content, Value values, Value xstate, Value held, Value complete);
+  static Value _function_call_names_output_impl(Value choice);
+  static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook);
   static Value _with_output_thought_impl(Value output, Value field, Value prefix, Value thought);
   static Value _streaming_forward_impl(Value gen, Value client, Value values, Value options, Value sink);
@@ -925,21 +958,27 @@ struct Core {
   static Value _regex_id_continue_ranges();
   static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _regex_clear_capture(Value caps, Value key);
-  static Value _parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode);
   static Value _regex_copy_map(Value value);
   static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
+  static Value _parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode);
+  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _generate_failed_impl(Value error);
   static Value _unable_to_fix_impl(Value error, Value output);
   static Value _attempt_output_impl(Value response);
-  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _max_tokens_error_impl(Value response);
-  static Value _strict_mode_option_impl(Value base_options, Value options);
   static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
+  static Value _strict_mode_option_impl(Value base_options, Value options);
+  static Value _caching_function_option_impl(Value gen, Value options);
+  static Value _cache_key_impl(Value gen, Value values);
   static Value _stream_json_select_fields_impl(Value fields, Value values);
   static Value _stream_json_nested_fields_impl(Value fields_map);
+  static Value _cache_store_impl(Value cache_fn, Value key, Value output);
   static Value _stream_json_flexible_impl(Value field);
+  static Value _cache_store_streamed_impl(Value cache_fn, Value key, Value output);
   static Value _stream_json_string_value_impl(Value field, Value value);
+  static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
   static Value _stream_json_strings_for_field_impl(Value field, Value value);
+  static Value _cache_lookup_option_impl(Value options);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _stream_state_impl(Value index);
@@ -1948,6 +1987,17 @@ class AxGen : public AxProgram {
   AxGen& set_demos(Value demos);
   AxGen& set_sample_count(int sample_count);
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
+  // TypeScript's cachingFunction option. forward reads fn(key, nullptr) first,
+  // before the run's span and metrics, and returns a stored output without a
+  // request or telemetry (what the read throws propagates), then stores each
+  // output with fn(key, &output), ignoring what the store throws.
+  // streaming_forward sends a stored output as one {version 0, index 0}
+  // delta, ignores a failed read, and stores a run that yielded output. A
+  // call's "caching_function" option (a caching_function() handle value)
+  // comes before this function, and the process-wide
+  // axllm::set_caching_function() one after it; a run control bypasses the
+  // cache. An empty function clears it.
+  AxGen& set_caching_function(AxCachingFunction fn);
   AxGen& add_assert(Value assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion, std::string message);
@@ -2004,6 +2054,8 @@ class AxGen : public AxProgram {
   Value state_;
   AxMemory memory_;
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
+  // Keeps the caching function the options name registered.
+  std::optional<AxCachingFunctionHandle> caching_function_;
   void refresh_prompt_template();
 };
 
@@ -2285,6 +2337,12 @@ class AxPlaybook {
   void bind_callables();
   void inject();
 };
+
+namespace detail {
+// The SHA-256 digest of input's bytes, for intrinsic.crypto.sha256_hex and the
+// MCP PKCE challenge.
+std::array<unsigned char, 32> sha256(const std::string& input);
+}
 
 namespace detail {
 // Optional owned protocol context; core-only programs need no MCP implementation.

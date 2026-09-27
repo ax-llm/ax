@@ -976,6 +976,104 @@ static void run_streaming_forward(Value fixture) {
   }
 }
 
+// Several forward / streaming_forward calls on one AxGen with one in-memory
+// cache: each call's output, deltas and requests, and every cache read and
+// write. cache_in puts the cache on each call (the default), on the AxGen
+// (its setter) or process-wide.
+static void run_cache_sequence(Value fixture) {
+  struct Cache {
+    std::map<std::string, Value> store;
+    std::size_t reads = 0;
+    Value writes = Value::array();
+  };
+  auto cache = std::make_shared<Cache>();
+  Value read_error = Core::get(fixture, "cache_read_error");
+  Value write_error = Core::get(fixture, "cache_write_error");
+  AxCachingFunction fn = [cache, read_error, write_error](const std::string& key, const Value* value) -> std::optional<Value> {
+    if (value != nullptr) {
+      if (Core::truthy(write_error)) throw std::runtime_error(display(write_error));
+      Core::append(cache->writes, parse_json(stringify(*value)));
+      cache->store[key] = parse_json(stringify(*value));
+      return std::nullopt;
+    }
+    ++cache->reads;
+    if (Core::truthy(read_error)) throw std::runtime_error(display(read_error));
+    auto hit = cache->store.find(key);
+    if (hit == cache->store.end()) return std::nullopt;
+    return parse_json(stringify(hit->second));
+  };
+  std::string cache_in = Core::truthy(Core::get(fixture, "cache_in")) ? display(Core::get(fixture, "cache_in")) : "call";
+  AxGen gen(build_signature(fixture), Core::map_merge(Value::object(), Core::get(fixture, "options", Value::object())));
+  if (cache_in == "constructor") gen.set_caching_function(fn);
+  Value picker_index = Core::get(fixture, "result_picker_index");
+  if (!picker_index.is_null()) {
+    int index = std::stoi(display(picker_index));
+    gen.set_result_picker([index](const Value&) { return index; });
+  }
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
+  AxCachingFunctionHandle call_cache = caching_function(fn);
+  // No other fixture sets a process-wide caching function, so clearing it
+  // restores it, however the sequence ends.
+  struct GlobalCache {
+    explicit GlobalCache(AxCachingFunction global) { set_caching_function(std::move(global)); }
+    ~GlobalCache() { set_caching_function({}); }
+    GlobalCache(const GlobalCache&) = delete;
+    GlobalCache& operator=(const GlobalCache&) = delete;
+  };
+  std::optional<GlobalCache> global;
+  if (cache_in == "global") global.emplace(fn);
+  Value outputs = Value::array();
+  Value deltas_per_call = Value::array();
+  Value requests = Value::array();
+  Value errors = Value::array();
+  bool failed = false;
+  for (const auto& call : Core::iter(Core::get(fixture, "calls", Value::array()))) {
+    std::size_t before = client.requests.size();
+    Value call_options = Core::map_merge(Value::object(), Core::get(call, "forward_options", Value::object()));
+    if (cache_in == "call") Core::set(call_options, "caching_function", call_cache.value());
+    std::optional<AxRunControl> control;
+    if (Core::truthy(Core::get(call, "control", false))) {
+      control = run_control();
+      Core::set(call_options, "control", control->value());
+    }
+    Value input = Core::get(call, "input", Value::object());
+    Value error;
+    if (display(Core::get(call, "kind")) == "streaming_forward") {
+      Value deltas = Value::array();
+      Core::append(outputs, gen.streaming_forward(client, input, call_options, [deltas](const AxGenDelta& delta) mutable {
+        Core::append(deltas, object({{"version", Value(static_cast<double>(delta.version))}, {"index", Value(static_cast<double>(delta.index))}, {"delta", delta.delta}}));
+        return true;
+      }));
+      Core::append(deltas_per_call, deltas);
+    } else {
+      try {
+        Core::append(outputs, gen.forward(client, input, call_options));
+      } catch (const std::exception& e) {
+        if (const auto* ax = dynamic_cast<const AxError*>(&e); ax && ax->category == "fixture") throw;
+        std::string message = e.what();
+        error = Value(message.substr(0, message.find('\n')));
+        failed = true;
+        Core::append(outputs, Value());
+      }
+      Core::append(deltas_per_call, Value());
+    }
+    Core::append(errors, error);
+    Core::append(requests, Value(static_cast<double>(client.requests.size() - before)));
+  }
+  global.reset();
+  if (failed || as_object(fixture).count("expected_errors") > 0) assert_equal(errors, Core::get(fixture, "expected_errors"), "cache sequence errors");
+  assert_equal(outputs, Core::get(fixture, "expected_outputs"), "cache sequence outputs");
+  assert_equal(deltas_per_call, Core::get(fixture, "expected_deltas"), "cache sequence deltas");
+  assert_equal(requests, Core::get(fixture, "expected_requests"), "cache sequence requests per call");
+  if (static_cast<double>(client.requests.size()) != Core::number(Core::get(fixture, "expected_request_count"))) {
+    throw AxError("fixture", "expected " + display(Core::get(fixture, "expected_request_count")) + " requests, got " + std::to_string(client.requests.size()));
+  }
+  if (static_cast<double>(cache->reads) != Core::number(Core::get(fixture, "expected_cache_gets"))) {
+    throw AxError("fixture", "expected " + display(Core::get(fixture, "expected_cache_gets")) + " cache reads, got " + std::to_string(cache->reads));
+  }
+  assert_equal(cache->writes, Core::get(fixture, "expected_cache_sets"), "cache writes");
+}
+
 static void run_stream(Value fixture) {
   if (!Core::get(fixture,"text_signature").is_null()) {
     auto fields=Core::get(Core::parse_signature(display(Core::get(fixture,"text_signature"))),"output_fields");
@@ -3406,6 +3504,8 @@ static void run(Value fixture) {
     run_forward(fixture);
   } else if (kind == "streaming_forward") {
     run_streaming_forward(fixture);
+  } else if (kind == "cache_sequence") {
+    run_cache_sequence(fixture);
   } else if (kind == "agent_forward") {
     run_agent_forward(fixture);
   } else if (kind == "agent_playbook_coverage") {

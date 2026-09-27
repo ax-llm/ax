@@ -75,6 +75,8 @@ Text-contract answers are parsed as TypeScript's `extractValues` parses them: `L
 
 `AddFieldProcessor(field, processor)` follows TypeScript: the `AxFieldProcessor` runs on the parsed field, and a non-empty result goes back to the model as a user message for another step, whose answer replaces the earlier one. `AddStreamingFieldProcessor` does the same on each streamed chunk of a string or code field. `AddFieldTransform` (or the `FieldProcessors` field) rewrites a field's value instead, a port extension; in `StreamingForward` a transformed field is held back and sent once, transformed.
 
+An `AxCachingFunction` (`func(key string, value map[string]Value) (map[string]Value, error)`), passed as the `cachingFunction` (or `caching_function`) option of `NewAx` or of a forward call, caches outputs as TypeScript's `cachingFunction` does: a read passes a nil `value` and gets the stored output back, or a nil map for a miss (an empty map that is not nil is a hit with an empty output), and a store passes the output. `SetCachingFunction(fn)` sets a process-wide function, and `nil` clears it. It may be called from several goroutines at once. The call's function comes first, then the program's, then the process-wide one, and a run with a `control` skips the cache. As in TypeScript, a forward reads the cache before it opens the run's span or records metrics, so a hit sends no request and records neither; an error from the read propagates. A streaming forward yields a hit as one delta (version 0, index 0) and ignores an error from the read. Both store the finished output (the picked sample's, with a result picker) and ignore an error from the store. Keys are lowercase hex SHA-256 digests of the signature and the input values, media included; they differ from other languages' keys, so don't share one store across languages.
+
 Prompts and provider request bodies write numbers as TypeScript's `JSON.stringify` does: shortest round-trip digits, `2` for a float two, exponent form below 1e-6 and from 1e21 up (`1e-7`, `1e+21`), and `null` for NaN and the infinities. `int` and `int64` values keep their exact digits past 2^53, where TypeScript's doubles round them; JSON text parses to `float64`, which rounds as TypeScript does.
 
 `maxSteps` / `max_steps` (default 25) caps the tool loop. Each model turn that calls tools is one step, and validation retries stay inside their step. Reaching the cap raises `Generate failed: Max steps reached: N`. A call to a stop function (`stopFunctions` / `stop_functions`) runs the tool and ends the forward, as in TypeScript: the output is empty apart from the earlier steps' thought, and the tool's result is not the output.
@@ -96,7 +98,7 @@ A failed forward raises `Generate failed: <reason>`, as TypeScript's message rea
 
 ## Relevant API Surface
 
-- AxGen: `axllm.NewAx`, `axllm.AxGen`, `axllm.RunControl`, `axllm.AxRunControl`
+- AxGen: `axllm.NewAx`, `axllm.AxGen`, `axllm.RunControl`, `axllm.AxRunControl`, `axllm.AxCachingFunction`, `axllm.SetCachingFunction`
 - Tools: `axllm.Fn`, `axllm.Tool`
 - MCP: `axllm.AxMCPClient`, `axllm.AxMCPStreamableHTTPTransport`, `axllm.AxMCPWebSocketTransport`, `axllm.AxMCPStdioTransport`
 

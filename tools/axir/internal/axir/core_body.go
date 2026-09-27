@@ -84,6 +84,7 @@ const (
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
 	IntrinsicExceptionRewrap           CoreIntrinsic = "intrinsic.exception.rewrap"
+	IntrinsicCryptoSha256Hex           CoreIntrinsic = "intrinsic.crypto.sha256_hex"
 	IntrinsicRuntimeError              CoreIntrinsic = "intrinsic.error.runtime"
 	IntrinsicJSONParse                 CoreIntrinsic = "intrinsic.json.parse"
 	IntrinsicJSONParseStrict           CoreIntrinsic = "intrinsic.json.parse_strict"
@@ -184,6 +185,9 @@ const (
 	IntrinsicAxGenCallProcessor        CoreIntrinsic = "intrinsic.axgen.call_processor"
 	IntrinsicAxGenCheckStreamAssert    CoreIntrinsic = "intrinsic.axgen.check_streaming_assertion"
 	IntrinsicAxGenDeprecation          CoreIntrinsic = "intrinsic.axgen.deprecation"
+	IntrinsicAxGenCachingFunction      CoreIntrinsic = "intrinsic.axgen.caching_function"
+	IntrinsicAxGenCacheRead            CoreIntrinsic = "intrinsic.axgen.cache_read"
+	IntrinsicAxGenCacheWrite           CoreIntrinsic = "intrinsic.axgen.cache_write"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
@@ -233,6 +237,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
 	IntrinsicExceptionRewrap:           "_core_exception_rewrap",
+	IntrinsicCryptoSha256Hex:           "_core_crypto_sha256_hex",
 	IntrinsicRuntimeError:              "_core_runtime_error",
 	IntrinsicJSONParse:                 "_core_json_parse",
 	IntrinsicJSONParseStrict:           "_core_json_parse_strict",
@@ -333,6 +338,9 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenCallProcessor:        "_core_axgen_call_processor",
 	IntrinsicAxGenCheckStreamAssert:    "_core_axgen_check_streaming_assertion",
 	IntrinsicAxGenDeprecation:          "_core_axgen_deprecation",
+	IntrinsicAxGenCachingFunction:      "_core_axgen_caching_function",
+	IntrinsicAxGenCacheRead:            "_core_axgen_cache_read",
+	IntrinsicAxGenCacheWrite:           "_core_axgen_cache_write",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -381,6 +389,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
 	"intrinsic.exception.rewrap":                      true,
+	"intrinsic.crypto.sha256_hex":                     true,
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
 	"intrinsic.exception.is_refusal":                  true,
@@ -392,6 +401,9 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.call_processor":                  true,
 	"intrinsic.axgen.check_streaming_assertion":       true,
 	"intrinsic.axgen.deprecation":                     true,
+	"intrinsic.axgen.caching_function":                true,
+	"intrinsic.axgen.cache_read":                      true,
+	"intrinsic.axgen.cache_write":                     true,
 	"intrinsic.error.runtime":                         true,
 	"intrinsic.json.parse":                            true,
 	"intrinsic.json.parse_strict":                     true,
@@ -784,6 +796,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.retry.sleep":                     intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
 	"intrinsic.exception.message":               intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
 	"intrinsic.exception.rewrap":                intrinsicInfo("intrinsic.exception.rewrap", 2, 2, true, "error"),
+	"intrinsic.crypto.sha256_hex":               intrinsicInfo("intrinsic.crypto.sha256_hex", 1, 1, true, "string"),
 	"intrinsic.exception.is_aborted":            intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":     intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),
 	"intrinsic.exception.is_refusal":            intrinsicInfo("intrinsic.exception.is_refusal", 1, 1, true, "bool"),
@@ -795,6 +808,9 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.call_processor":            intrinsicInfo("intrinsic.axgen.call_processor", 3, 3, true, "json"),
 	"intrinsic.axgen.check_streaming_assertion": intrinsicInfo("intrinsic.axgen.check_streaming_assertion", 3, 3, true, "json"),
 	"intrinsic.axgen.deprecation":               intrinsicInfo("intrinsic.axgen.deprecation", 2, 2, true, "void"),
+	"intrinsic.axgen.caching_function":          intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
+	"intrinsic.axgen.cache_read":                intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
+	"intrinsic.axgen.cache_write":               intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),
 	"intrinsic.string.format":                   intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
 	"intrinsic.string.join":                     intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
 	"intrinsic.string.slice":                    intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),
