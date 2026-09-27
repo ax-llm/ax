@@ -2168,31 +2168,23 @@ class AxAgent:
 
     def evaluate_optimization_task(self, client, task: dict[str, Any], options: dict[str, Any] | None = None):
         opts = options or {}
+        # A runtime on the evolve or optimize call runs each task, as it runs a
+        # forward call (the agent may hold only a runtime descriptor), unless
+        # forward_options names one.
+        forward_options = dict(opts.get("forward_options") or {})
+        if opts.get("runtime") is not None and forward_options.get("runtime") is None:
+            forward_options["runtime"] = opts["runtime"]
+        # As TS evaluates each task from a fresh state, the prediction carries
+        # only this run's share of the agent's logs.
+        marks = _agent_eval_marks(self.state)
         try:
-            output = self.forward(client, task.get("input") or task, opts.get("forward_options") or {})
-            return _build_agent_eval_prediction(output, self.get_action_log(), self.get_usage(), self.export_trace())
+            output = self.forward(client, task.get("input") or task, forward_options)
+            completion = {"type": "final", "output": output}
         except AxAgentClarificationError as exc:
-            return {
-                "completionType": "askClarification",
-                "clarification": exc.clarification,
-                "actionLog": self.get_action_log(),
-                "functionCalls": _core_get(self.state, "function_call_traces", []) or [],
-                "toolErrors": [],
-                "turnCount": 0,
-                "usage": self.get_usage(),
-                "trace": self.export_trace(),
-            }
+            completion = {"type": "askClarification", "clarification": exc.clarification}
         except Exception as exc:
-            return {
-                "completionType": "error",
-                "error": {"message": str(exc)},
-                "actionLog": self.get_action_log(),
-                "functionCalls": _core_get(self.state, "function_call_traces", []) or [],
-                "toolErrors": [str(exc)],
-                "turnCount": 0,
-                "usage": self.get_usage(),
-                "trace": self.export_trace(),
-            }
+            completion = {"type": "error", "message": str(exc)}
+        return _build_agent_run_prediction(self.state, marks, completion, self.get_usage(), self.export_trace())
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         opts = options or {}
@@ -4779,6 +4771,145 @@ def _resolve_agent_executor_model_policy(options: Any) -> Any:
     return out
 
 
+def _agent_eval_marks(state: Any) -> Any:
+    _core_coverage_mark("_agent_eval_marks")
+    empty_list = []
+    log = _core_get(state, "action_log", empty_list)
+    traces = _core_get(state, "function_call_traces", empty_list)
+    log_count = _core_len(log)
+    trace_count = _core_len(traces)
+    marks = {}
+    marks["action_log"] = log_count
+    marks["function_call_traces"] = trace_count
+    return marks
+
+
+def _agent_eval_function_calls(traces: Any) -> Any:
+    _core_coverage_mark("_agent_eval_function_calls")
+    calls = []
+    empty_map = {}
+    for trace in traces:
+        qualified = _core_get(trace, "qualified_name", "")
+        name = _core_get(trace, "name", "")
+        name_missing = _core_eq(name, "")
+        name_qualified = _core_eq(name, qualified)
+        derive_name = _core_or(name_missing, name_qualified)
+        if derive_name:
+            name_parts = _core_string_split(qualified, ".")
+            for name_part in name_parts:
+                name = name_part
+        else:
+            pass
+        arguments = _core_get(trace, "arguments", None)
+        result = _core_get(trace, "result", empty_map)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            pass
+        else:
+            result = empty_map
+        status = _core_get(trace, "status", "ok")
+        call = {}
+        call["qualifiedName"] = qualified
+        call["name"] = name
+        call["arguments"] = arguments
+        failed = _core_eq(status, "error")
+        if failed:
+            error = _core_get(result, "error", "unknown error")
+            error_text = _core_string_str(error)
+            call["error"] = error_text
+        else:
+            value = _core_get(result, "value", None)
+            has_value = _core_is_not_none(value)
+            if has_value:
+                call["result"] = value
+            else:
+                pass
+        calls.append(call)
+    return calls
+
+
+def _agent_eval_run(state: Any, marks: Any) -> Any:
+    _core_coverage_mark("_agent_eval_run")
+    empty_list = []
+    log = _core_get(state, "action_log", empty_list)
+    traces = _core_get(state, "function_call_traces", empty_list)
+    log_start = _core_get(marks, "action_log", 0)
+    trace_start = _core_get(marks, "function_call_traces", 0)
+    run_log = []
+    log_index = 0
+    for entry in log:
+        entry_in_run = _core_gte(log_index, log_start)
+        if entry_in_run:
+            run_log.append(entry)
+        else:
+            pass
+        next_log_index = _core_add(log_index, 1)
+        log_index = next_log_index
+    run_traces = []
+    trace_index = 0
+    for trace in traces:
+        trace_in_run = _core_gte(trace_index, trace_start)
+        if trace_in_run:
+            run_traces.append(trace)
+        else:
+            pass
+        next_trace_index = _core_add(trace_index, 1)
+        trace_index = next_trace_index
+    calls = _agent_eval_function_calls(run_traces)
+    tool_errors = []
+    for call in calls:
+        call_error = _core_get(call, "error", None)
+        has_error = _core_truthy(call_error)
+        if has_error:
+            call_name = _core_get(call, "qualifiedName", "")
+            tool_error = _core_string_format("{}: {}", call_name, call_error)
+            tool_errors.append(tool_error)
+        else:
+            pass
+    executor_ran = False
+    executor_turns = 0
+    distiller_turns = 0
+    for entry in run_log:
+        stage = _core_get(entry, "stage", "")
+        is_executor = _core_eq(stage, "executor")
+        if is_executor:
+            executor_ran = True
+        else:
+            pass
+        type = _core_get(entry, "type", "")
+        is_step = _core_eq(type, "runtime_step")
+        if is_step:
+            if is_executor:
+                next_executor_turns = _core_add(executor_turns, 1)
+                executor_turns = next_executor_turns
+            else:
+                pass
+            is_distiller = _core_eq(stage, "distiller")
+            if is_distiller:
+                next_distiller_turns = _core_add(distiller_turns, 1)
+                distiller_turns = next_distiller_turns
+            else:
+                pass
+        else:
+            pass
+    turn_count = distiller_turns
+    if executor_ran:
+        turn_count = executor_turns
+    else:
+        pass
+    run_state = {}
+    run_state["action_log"] = run_log
+    run_state["function_call_traces"] = run_traces
+    signals = _agent_build_failure_signals(run_state)
+    run = {}
+    run["actionLog"] = run_log
+    run["functionCalls"] = calls
+    run["toolErrors"] = tool_errors
+    run["turnCount"] = turn_count
+    run["failureSignals"] = signals
+    return run
+
+
 def _select_agent_executor_model(policy: Any, actor_model_state: Any) -> Any:
     _core_coverage_mark("_select_agent_executor_model")
     none = _core_none()
@@ -4862,6 +4993,51 @@ def _agent_action_log_char_count(entries: Any) -> number:
         entry_len = _core_add(code_len, output_len)
         total = _core_add(total, entry_len)
     return total
+
+
+def _build_agent_run_prediction(state: Any, marks: Any, completion: Any, usage: Any, trace: Any) -> Any:
+    _core_coverage_mark("_build_agent_run_prediction")
+    run = _agent_eval_run(state, marks)
+    type = _core_get(completion, "type", "final")
+    out = {}
+    out["completionType"] = type
+    is_final = _core_eq(type, "final")
+    if is_final:
+        output = _core_get(completion, "output", None)
+        out["output"] = output
+        out["finalOutput"] = output
+    else:
+        pass
+    is_clarification = _core_eq(type, "askClarification")
+    if is_clarification:
+        clarification = _core_get(completion, "clarification", None)
+        out["clarification"] = clarification
+    else:
+        pass
+    tool_errors = _core_get(run, "toolErrors", None)
+    is_error = _core_eq(type, "error")
+    if is_error:
+        message = _core_get(completion, "message", "")
+        error = {}
+        error["message"] = message
+        out["error"] = error
+        error_tool_errors = []
+        error_tool_errors.append(message)
+        tool_errors = error_tool_errors
+    else:
+        pass
+    run_log = _core_get(run, "actionLog", None)
+    out["actionLog"] = run_log
+    out["usage"] = usage
+    out["trace"] = trace
+    signals = _core_get(run, "failureSignals", None)
+    out["failureSignals"] = signals
+    calls = _core_get(run, "functionCalls", None)
+    out["functionCalls"] = calls
+    out["toolErrors"] = tool_errors
+    turn_count = _core_get(run, "turnCount", None)
+    out["turnCount"] = turn_count
+    return out
 
 
 def _agent_compute_dynamic_runtime_chars(entries: Any, target_prompt_chars: Any, max_runtime_chars: Any) -> number:
@@ -10169,6 +10345,7 @@ def _agent_playbook_action_log_text(action_log: Any) -> str:
     else:
         pass
     tagged = False
+    executor_ran = False
     for probe in action_log:
         probe_stage = _core_get(probe, "stage", None)
         probe_has_stage = _core_is_not_none(probe_stage)
@@ -10176,15 +10353,25 @@ def _agent_playbook_action_log_text(action_log: Any) -> str:
             tagged = True
         else:
             pass
+        probe_executor = _core_eq(probe_stage, "executor")
+        if probe_executor:
+            executor_ran = True
+        else:
+            pass
+    kept_stage = "distiller"
+    if executor_ran:
+        kept_stage = "executor"
+    else:
+        pass
     parts = []
     for entry in action_log:
         type = _core_get(entry, "type", "")
         is_step = _core_eq(type, "runtime_step")
         if is_step:
             stage = _core_get(entry, "stage", "executor")
-            is_executor = _core_eq(stage, "executor")
+            is_kept_stage = _core_eq(stage, kept_stage)
             untagged = _core_not(tagged)
-            keep = _core_or(is_executor, untagged)
+            keep = _core_or(is_kept_stage, untagged)
             if keep:
                 code = _core_get(entry, "code", "")
                 output = _core_get(entry, "output", "")

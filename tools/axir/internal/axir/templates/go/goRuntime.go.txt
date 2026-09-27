@@ -1464,6 +1464,21 @@ func _core_string_utf16_units(value Value) Value { units:=utf16.Encode([]rune(di
 
 func _core_string_codepoint_length(value Value) Value { return len([]rune(display(value))) }
 
+// _core_string_concat_stream_text appends streamed text. Go strings hold
+// UTF-8, which has no lone surrogates (JSON decoding turns an unpaired half
+// into U+FFFD), so there is no half pair to join and plain concatenation is
+// all there is to do.
+func _core_string_concat_stream_text(left Value, right Value) Value {
+	return display(left) + display(right)
+}
+
+// _core_string_drop_trailing_high_surrogate returns the text unchanged: a
+// UTF-8 Go string cannot end in half of a surrogate pair, so there is nothing
+// to hold back.
+func _core_string_drop_trailing_high_surrogate(value Value) Value {
+	return display(value)
+}
+
 // jsDateMillis is the epoch milliseconds of a time.Time (or *time.Time), which
 // a date or datetime field takes where TypeScript takes a Date.
 func jsDateMillis(value Value) (int64, bool) {
@@ -1735,6 +1750,19 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 		p.ApplyOptimizedComponents(asMap(componentMap))
 	}
 	return Object()
+}
+
+// _core_program_signature is an AxGen's or AxAgent's signature text. Any other
+// program (a nested flow, a custom program) has none, and its undeclared step
+// is a barrier.
+func _core_program_signature(program Value) Value {
+	switch p := program.(type) {
+	case *AxGen:
+		return p.Signature.String()
+	case *AxAgent:
+		return p.Signature.String()
+	}
+	return nil
 }
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
@@ -7753,14 +7781,29 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	if !coreTruthy(input) {
 		input = task
 	}
-	output, err := a.forward(context.Background(), client, asMap(input), asMap(coreGet(opts, "forward_options", Object())))
-	if err == nil {
-		return mustCore(_build_agent_eval_prediction(output, a.GetActionLog(), a.GetUsage(), a.ExportTrace()))
+	// A runtime on the evolve or optimize call runs each task, as it runs a
+	// forward call (the agent may hold only a runtime descriptor), unless
+	// forward_options names one.
+	forwardOptions := Object()
+	for key, value := range asMap(coreGet(opts, "forward_options", Object())) {
+		forwardOptions[key] = value
 	}
-	if clarification, ok := agentClarificationFromError(err); ok {
-		return Object("completionType", "askClarification", "clarification", clarification, "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	if runtime := coreGet(opts, "runtime", nil); runtime != nil && coreGet(forwardOptions, "runtime", nil) == nil {
+		coreSet(forwardOptions, "runtime", runtime)
 	}
-	return Object("completionType", "error", "error", Object("message", err.Error()), "actionLog", a.GetActionLog(), "functionCalls", coreGet(a.State, "function_call_traces", Array()), "toolErrors", Array(err.Error()), "turnCount", float64(0), "usage", a.GetUsage(), "trace", a.ExportTrace())
+	// As TS evaluates each task from a fresh state, the prediction carries
+	// only this run's share of the agent's logs.
+	marks := mustCore(_agent_eval_marks(a.State))
+	output, err := a.forward(context.Background(), client, asMap(input), forwardOptions)
+	completion := Object("type", "final", "output", output)
+	if err != nil {
+		if clarification, ok := agentClarificationFromError(err); ok {
+			completion = Object("type", "askClarification", "clarification", clarification)
+		} else {
+			completion = Object("type", "error", "message", err.Error())
+		}
+	}
+	return mustCore(_build_agent_run_prediction(a.State, marks, completion, a.GetUsage(), a.ExportTrace()))
 }
 func (a *AxAgent) EvaluateOptimization(client AIClient, dataset Value, candidateMap map[string]Value, options map[string]Value) Value {
 	opts := options
@@ -11874,7 +11917,27 @@ func (f *conformanceScriptedAI) Stream(ctx context.Context, request map[string]V
 	return []Value{response}, nil
 }
 
+// supportsLoneSurrogates declares the runner's string model: Go strings hold
+// UTF-8, which cannot represent half of a surrogate pair, so fixtures that
+// split a pair across stream chunks are skipped here.
+const supportsLoneSurrogates = false
+
+// ConformanceSkipReason is why this runner skips a fixture, or "" to run it:
+// a fixture that requires lone surrogates needs a UTF-16 or code point
+// string model.
+func ConformanceSkipReason(fixture Value) string {
+	if !supportsLoneSurrogates && coreTruthy(coreGet(fixture, "requires_lone_surrogates", false)) {
+		return "requires lone surrogates (utf-8 runner)"
+	}
+	return ""
+}
+
+// RunConformanceFixture runs one fixture; a fixture the runner skips
+// (ConformanceSkipReason) passes without running.
 func RunConformanceFixture(fixture Value) error {
+	if ConformanceSkipReason(fixture) != "" {
+		return nil
+	}
 	_, err := safeValue(func() Value {
 		runConformanceFixture(asMap(fixture))
 		return nil
@@ -13153,6 +13216,7 @@ func runConformanceForward(fixture map[string]Value) {
 			assertEqual(controlEvents(), expected, "run control events")
 		}
 		conformanceAssertRequestRoles(fixture, client)
+		conformanceAssertLastRequestTail(fixture, client)
 		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
 			panic(AxError{Category: "fixture", Message: "expected request count mismatch"})
 		}
@@ -13324,6 +13388,35 @@ func conformanceAttachControl(fixture map[string]Value, client *conformanceScrip
 	}
 }
 
+// conformanceAssertLastRequestTail compares expected_last_request_tail with
+// the last messages of the last request's chat_prompt, each by its role and
+// content (text, or a list of parts).
+func conformanceAssertLastRequestTail(fixture map[string]Value, client *conformanceScriptedAI) {
+	expected, ok := fixture["expected_last_request_tail"]
+	if !ok {
+		return
+	}
+	var prompt []Value
+	if len(client.Requests) > 0 {
+		prompt = asSlice(coreGet(client.Requests[len(client.Requests)-1], "chat_prompt", Array()))
+	}
+	start := len(prompt) - len(asSlice(expected))
+	if start < 0 {
+		start = 0
+	}
+	tail := Array()
+	for _, message := range prompt[start:] {
+		kept := Object()
+		for _, key := range []string{"role", "content"} {
+			if value, present := asMap(message)[key]; present {
+				coreSet(kept, key, value)
+			}
+		}
+		tail = append(tail, kept)
+	}
+	assertEqual(tail, expected, "last request tail")
+}
+
 // conformanceAssertRequestRoles compares expected_request_roles with the
 // chat_prompt message roles of every request, in order.
 func conformanceAssertRequestRoles(fixture map[string]Value, client *conformanceScriptedAI) {
@@ -13445,6 +13538,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
 	}
+	conformanceAssertLastRequestTail(fixture, client)
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -14616,7 +14710,12 @@ func runConformanceFlowMermaid(fixture map[string]Value) {
 		built := NewFlow(Object())
 		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
 			step := asMap(raw)
-			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+			// A builder step without "reads" declares none.
+			options := Object()
+			if reads, ok := step["reads"]; ok {
+				options["reads"] = reads
+			}
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), options)
 		}
 		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
 		return
@@ -14847,6 +14946,11 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
 			assertSubset(prediction, expected, "eval prediction")
+		}
+		// Fields that must match exactly: a list compares in full.
+		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
+		for _, key := range orderedKeys(fields) {
+			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
 		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -15330,7 +15434,15 @@ func conformanceBuildProgram(fixture map[string]Value) AxProgram {
 	tools, _ := conformanceBuildTools(coreGet(fixture, "tools", Array()))
 	switch display(coreGet(fixture, "program", "axgen")) {
 	case "agent":
-		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), asMap(coreGet(fixture, "options", Object())))
+		options := asMap(coreGet(fixture, "options", Object()))
+		// An agent's runtime_script runs its actor code, as in the agent fixtures.
+		if script := coreGet(fixture, "runtime_script", nil); script != nil {
+			options = cloneMap(options)
+			runtime := newConformanceScriptedCodeRuntime(script, Object())
+			runtime.LanguageName = display(coreGet(fixture, "runtime_language", "JavaScript"))
+			coreSet(options, "runtime", runtime)
+		}
+		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		ag.Executor.Functions = tools
 		return ag
 	case "flow":
@@ -16464,7 +16576,14 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
 		agentOptions := cloneMap(asMap(coreGet(fixture, "options", Object())))
-		coreSet(agentOptions, "runtime", runtime)
+		// runtime_on_evolve: the agent gets only a runtime descriptor and the
+		// runtime goes on the evolve call, as the examples pass it.
+		runtimeOnEvolve := coreTruthy(coreGet(fixture, "runtime_on_evolve", false))
+		if runtimeOnEvolve {
+			coreSet(agentOptions, "runtime", Object("language", runtime.LanguageName))
+		} else {
+			coreSet(agentOptions, "runtime", runtime)
+		}
 		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
 		playbookOptions := Object("target", "responder", "studentAI", client, "teacherAI", teacher, "maxEpochs", 1)
 		extraPlaybookOptions := asMap(coreGet(testCase, "playbook_options", Object()))
@@ -16479,6 +16598,9 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		evolveOptions := cloneMap(asMap(coreGet(testCase, "options", Object())))
 		if teacherSpec != nil {
 			coreSet(evolveOptions, "teacherAI", teacher)
+		}
+		if runtimeOnEvolve {
+			coreSet(evolveOptions, "runtime", runtime)
 		}
 		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), evolveOptions)
 		if err != nil {

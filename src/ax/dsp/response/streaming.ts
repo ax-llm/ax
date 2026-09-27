@@ -1,9 +1,17 @@
 import type { AxChatResponse, AxModelUsage } from '../../ai/types.js';
 import { mergeFunctionCalls } from '../../ai/util.js';
-import { assertStreamingAssertions } from '../asserts.js';
+import type { AxAIMemory } from '../../mem/types.js';
+import {
+  type AxStreamingAssertion,
+  assertStreamingAssertions,
+} from '../asserts.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractValues, streamValues } from '../extract.js';
-import { processStreamingFieldProcessors } from '../fieldProcessor.js';
+import {
+  type AxFieldProcessor,
+  processStreamingFieldProcessors,
+} from '../fieldProcessor.js';
+import type { AxSignature } from '../sig.js';
 import type { AsyncGenDeltaOut, AxGenOut } from '../types.js';
 import { finalizeStreamingResponse } from './finalize.js';
 import {
@@ -78,7 +86,6 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
           result,
           skipEarlyFail,
           state,
-          debug,
         });
       }
     }
@@ -113,26 +120,35 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
   });
 }
 
-type ProcessStreamingResultArgs = Readonly<
-  Omit<
-    ProcessStreamingResponseArgs,
-    | 'res'
-    | 'states'
-    | 'usage'
-    | 'excludeContentFromTrace'
-    | 'ai'
-    | 'model'
-    | 'traceId'
-    | 'functions'
-    | 'span'
-    | 'fieldProcessors'
-  > & {
-    result: AxChatResponse['results'][number];
-    skipEarlyFail: boolean;
-    state: InternalAxGenState;
-    treatAllFieldsOptional?: boolean;
-  }
->;
+type ProcessStreamingResultArgs = Readonly<{
+  result: AxChatResponse['results'][number];
+  // Without memory the result is only extracted: a chat session's partial
+  // responses are recorded by the session and the final pass.
+  mem?: AxAIMemory;
+  sessionId?: string;
+  strictMode?: boolean;
+  skipEarlyFail: boolean;
+  treatAllFieldsOptional?: boolean;
+  state: InternalAxGenState;
+  signature: AxSignature;
+  streamingFieldProcessors: AxFieldProcessor[];
+  thoughtFieldName: string;
+  streamingAsserts: AxStreamingAssertion[];
+  parseJsonStringFields: boolean;
+  strictStructuredJson: boolean;
+}>;
+
+/**
+ * Streams one partial result of a chat session's response with the same
+ * extraction as a plain stream, on that response's own state, so its deltas
+ * match a plain stream of the same chunks. Memory and streaming field
+ * processors are left to the session and the final pass.
+ */
+export async function* processSessionPartialResult<OUT extends AxGenOut>(
+  args: Omit<ProcessStreamingResultArgs, 'mem' | 'streamingFieldProcessors'>
+): AsyncGenDeltaOut<OUT> {
+  yield* processStreamingResult<OUT>({ ...args, streamingFieldProcessors: [] });
+}
 
 async function* processStreamingResult<OUT extends AxGenOut>({
   result,
@@ -160,7 +176,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
 
   if (result.functionCalls && result.functionCalls.length > 0) {
     mergeFunctionCalls(state.functionCalls, result.functionCalls);
-    mem.updateResult(
+    mem?.updateResult(
       {
         name: result.name,
         content: result.content,
@@ -174,7 +190,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
     );
   } else if (result.content && result.content.length > 0) {
     state.content += result.content;
-    mem.updateResult(
+    mem?.updateResult(
       {
         name: result.name,
         content: state.content,
@@ -264,14 +280,17 @@ async function* processStreamingResult<OUT extends AxGenOut>({
       );
     }
 
-    if (streamingFieldProcessors.length !== 0) {
+    if (streamingFieldProcessors.length !== 0 && mem) {
+      state.pendingFeedback ??= [];
       await processStreamingFieldProcessors(
         streamingFieldProcessors,
         state.content,
         state.xstate,
         mem,
         state.values,
-        sessionId
+        sessionId,
+        false,
+        state.pendingFeedback
       );
     }
 
@@ -283,7 +302,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
       result.index
     );
   } else if (result.thought && result.thought.length > 0) {
-    mem.updateResult(
+    mem?.updateResult(
       {
         name: result.name,
         content: state.content,
@@ -296,7 +315,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
       sessionId
     );
   } else if (result.thoughtBlocks && result.thoughtBlocks.length > 0) {
-    mem.updateResult(
+    mem?.updateResult(
       {
         name: result.name,
         content: state.content,
@@ -308,7 +327,7 @@ async function* processStreamingResult<OUT extends AxGenOut>({
       sessionId
     );
   } else if (result.phase) {
-    mem.updateResult({ index: result.index, phase: result.phase }, sessionId);
+    mem?.updateResult({ index: result.index, phase: result.phase }, sessionId);
   }
 
   if (result.finishReason === 'length') {

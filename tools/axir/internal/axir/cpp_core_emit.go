@@ -372,6 +372,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicObjectCallMethod:          "Core::object_call_method",
 	IntrinsicProgramComponents:         "Core::program_components",
 	IntrinsicProgramApplyComponents:    "Core::program_apply_components",
+	IntrinsicProgramSignature:          "Core::program_signature",
 	IntrinsicAICompleteOnce:            "Core::ai_complete_once",
 	IntrinsicAIControlTakePending:      "Core::ai_control_take_pending",
 	IntrinsicAIControlPendingCount:     "Core::ai_control_pending_count",
@@ -428,6 +429,8 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicStringExtractSuf:          "Core::string_extract_quoted_suffix",
 	IntrinsicStringSplit:               "Core::string_split",
 	IntrinsicStringStartsWith:          "Core::string_starts_with",
+	IntrinsicStringDropHighSurrogate:   "Core::string_drop_trailing_high_surrogate",
+	IntrinsicStringConcatStreamText:    "Core::string_concat_stream_text",
 	IntrinsicStringStr:                 "Core::string_str",
 	IntrinsicRegexReplace:              "Core::regex_replace",
 	IntrinsicSortedStrings:             "Core::sorted_strings",
@@ -528,7 +531,7 @@ func cppLiteral(value interface{}) string {
 func cppName(value string) string {
 	name := strings.TrimPrefix(value, "%")
 	switch name {
-	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline":
+	case "template", "class", "typename", "namespace", "operator", "return", "for", "if", "else", "inline", "explicit":
 		return name + "_"
 	default:
 		return name

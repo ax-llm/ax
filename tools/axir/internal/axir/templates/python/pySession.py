@@ -337,6 +337,14 @@ class _ResponsesChatSession:
                     pass
 
 
+def _steer_text(content):
+    # A steer is text: a message's string content, or the text of its text
+    # parts (a field processor's feedback is [{type: "text", text}]).
+    if isinstance(content, list):
+        return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict) and part.get("type") == "text")
+    return str(content)
+
+
 class _SessionClient:
     """Bridge one AxGen run to a pinned provider without changing final validation."""
     def __init__(self, gen, client, options):
@@ -470,7 +478,7 @@ class _SessionClient:
         else:
             # A validation correction continues the same conversation and cache prefix.
             correction = request.get("chat_prompt", [])[-1].get("content", "")
-            self.session.steer(str(correction))
+            self.session.steer(_steer_text(correction))
             self._send_continuation([])
         while True:
             if self.control and self.control.signal.is_set():

@@ -69,6 +69,17 @@ AxFlow parallelFlow = Ax.flow(Map.of("id", "docs.parallelFlow"))
     .returns(Map.of("briefText", "briefText"));
 ```
 
+### Undeclared steps
+
+A step added with a program and no `reads` or `writes` plans from the program's signature: it reads the input fields and writes `{name}Result` plus the output fields. An output field orders only the later steps that read it, so steps with independent inputs still share a group. A program without a signature (a nested flow, a custom program) runs alone, as a barrier.
+
+```java
+AxFlow outlineFlow = Ax.flow(Map.of("id", "docs.outlineFlow"))
+    .execute("outline", Ax.ax("topic:string -> outline:string"))
+    .execute("polish", Ax.ax("outline:string -> answer:string")) // after outline
+    .returns(Map.of("answer", "answer"));
+```
+
 ### Draft, critique, revise
 
 A linear refinement pipeline makes each dependency explicit.

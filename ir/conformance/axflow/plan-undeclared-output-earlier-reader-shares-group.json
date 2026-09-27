@@ -1,0 +1,94 @@
+{
+  "kind": "flow",
+  "name": "plan-undeclared-output-earlier-reader-shares-group",
+  "operation": "plan",
+  "description": "Port-only. redraft spreads draft, which the earlier critique step reads, and the declared summary step writes notes, which critique spreads. Neither splits the group: every step starts from the group's snapshot and the results merge in step order, as running them one after another would leave them.",
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "critique",
+      "signature": "draft:string -> notes:string"
+    },
+    {
+      "kind": "execute",
+      "name": "redraft",
+      "signature": "topic:string -> draft:string"
+    },
+    {
+      "kind": "execute",
+      "name": "summary",
+      "signature": "topic:string -> notes:string",
+      "options": {
+        "reads": ["topic"],
+        "writes": ["summaryResult", "notes"],
+        "isBarrier": false
+      }
+    }
+  ],
+  "expected_plan": {
+    "totalSteps": 3,
+    "parallelGroups": 1,
+    "maxParallelism": 3,
+    "steps": [
+      {
+        "name": "critique",
+        "kind": "execute",
+        "reads": ["draft"],
+        "writes": ["critiqueResult", "notes"],
+        "outputs": ["notes"],
+        "barrier": false,
+        "stepIndex": 0
+      },
+      {
+        "name": "redraft",
+        "kind": "execute",
+        "reads": ["topic"],
+        "writes": ["redraftResult", "draft"],
+        "outputs": ["draft"],
+        "barrier": false,
+        "stepIndex": 1
+      },
+      {
+        "name": "summary",
+        "kind": "execute",
+        "reads": ["topic"],
+        "writes": ["summaryResult", "notes"],
+        "barrier": false,
+        "stepIndex": 2
+      }
+    ],
+    "groups": [
+      {
+        "level": 0,
+        "steps": [
+          {
+            "name": "critique",
+            "kind": "execute",
+            "reads": ["draft"],
+            "writes": ["critiqueResult", "notes"],
+            "outputs": ["notes"],
+            "barrier": false,
+            "stepIndex": 0
+          },
+          {
+            "name": "redraft",
+            "kind": "execute",
+            "reads": ["topic"],
+            "writes": ["redraftResult", "draft"],
+            "outputs": ["draft"],
+            "barrier": false,
+            "stepIndex": 1
+          },
+          {
+            "name": "summary",
+            "kind": "execute",
+            "reads": ["topic"],
+            "writes": ["summaryResult", "notes"],
+            "barrier": false,
+            "stepIndex": 2
+          }
+        ]
+      }
+    ]
+  }
+}

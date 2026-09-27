@@ -137,6 +137,16 @@ final class Core {
     return units;
   }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
+  // Streamed text appends chunk by chunk. Java strings hold UTF-16 units, so
+  // a surrogate pair a provider split across two chunks joins back into one
+  // character by plain concatenation.
+  static Object stringConcatStreamText(Object left, Object right) { return String.valueOf(left) + String.valueOf(right); }
+  // A streamed delta never ends in half of a surrogate pair: a trailing high
+  // surrogate waits for its low half, or for the end of the stream.
+  static Object stringDropTrailingHighSurrogate(Object value) {
+    String text = String.valueOf(value);
+    return !text.isEmpty() && Character.isHighSurrogate(text.charAt(text.length() - 1)) ? text.substring(0, text.length() - 1) : text;
+  }
   /**
    * The epoch milliseconds of a java.time or java.util.Date value, read as
    * TypeScript reads a Date: Instant, OffsetDateTime, ZonedDateTime and Date
@@ -854,6 +864,13 @@ final class Core {
   static Object programApplyComponents(Object program, Object componentMap) {
     if (program instanceof AxProgram axProgram) axProgram.applyOptimizedComponents(asMap(componentMap));
     return Map.of();
+  }
+  // An AxGen's or AxAgent's signature text. Any other program (a nested flow,
+  // a custom program) has none, and its undeclared step is a barrier.
+  static Object programSignature(Object program) {
+    if (program instanceof AxGen gen) return gen.signature.toString();
+    if (program instanceof AxAgent agent) return String.valueOf(signature_to_string(agent.signature));
+    return null;
   }
   static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {

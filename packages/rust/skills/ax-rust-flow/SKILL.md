@@ -71,6 +71,17 @@ let mut parallel_flow = axllm::flow("docs.parallelFlow")
     .returns(json!({"briefText": "briefText"}));
 ```
 
+### Undeclared steps
+
+A step added with a program and no `reads` or `writes` plans from the program's signature: it reads the input fields and writes `{name}Result` plus the output fields. An output field orders only the later steps that read it, so steps with independent inputs still share a group. A program without a signature (a nested flow, or an `execute_program` program whose `signature_text` is `None`) runs alone, as a barrier.
+
+```rust
+let mut outline_flow = axllm::flow("docs.outlineFlow")
+    .execute("outline", axllm::ax("topic:string -> outline:string")?)
+    .execute("polish", axllm::ax("outline:string -> answer:string")?) // after outline
+    .returns(json!({"answer": "answer"}));
+```
+
 ### Draft, critique, revise
 
 A linear refinement pipeline makes each dependency explicit.

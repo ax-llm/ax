@@ -48,6 +48,8 @@ int main() {
   auto assistant = axllm::agent(
       "question:string -> answer:string",
       axllm::object({
+          // The playbook learns with the agent's own client.
+          {"ai", axllm::Core::client_ref(*client)},
           {"contextFields", axllm::array({})},
           {"runtime", axllm::object({{"language", "JavaScript"}})},
           {"playbook", axllm::object({{"seed", seed}})},
@@ -89,7 +91,22 @@ int main() {
           {"runtime", axllm::Core::code_runtime_ref(runtime)},
       }));
 
+  // Each train task replays on the runtime. A replay that fails scores 0 and
+  // would be mined as the weakness, so stop instead.
+  axllm::Value replays = axllm::array({});
+  for (const auto& record : axllm::Core::iter(axllm::Core::get(evolution, "records", axllm::array({})))) {
+    axllm::Value prediction = axllm::Core::get(record, "prediction", axllm::object({}));
+    axllm::Value completion = axllm::Core::get(prediction, "completionType");
+    if (!axllm::Core::get(record, "error").is_null() || axllm::display(completion) == "error") {
+      std::cerr << "evolve replay failed: " << axllm::stringify(axllm::Core::get(record, "error"))
+                << " " << axllm::stringify(axllm::Core::get(prediction, "error")) << "\n";
+      return 1;
+    }
+    axllm::Core::append(replays, completion);
+  }
+
   std::cout << axllm::stringify(answer) << "\n";
+  std::cout << "replays: " << axllm::stringify(replays) << "\n";
   std::cout << "citations: " << axllm::stringify(observed_citations) << "\n";
   std::cout << "run-end update observed: " << (!last_playbook_update.is_null()) << "\n";
   std::cout << "outcomes: " << axllm::stringify(axllm::Core::get(evolution, "outcomes")) << "\n";
