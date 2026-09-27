@@ -2407,7 +2407,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
 				"- `python examples/cancellation_no_key.py`: one-shot provider cancellation with no transport attempt",
-				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
+				"- `python examples/axflow_program_graph.py`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip",
 				"- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding",

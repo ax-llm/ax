@@ -332,15 +332,18 @@ module @ax.flow version "0.1" {
     }
   }
 
-  op ax.flow.semantic @flow_cache_read_write {
+  op ax.flow.semantic @flow_cache_lookup_impl {
     attr core_kind = "func"
     attr emit_module = "flow"
     attr private = true
-    type signature = "(flow:json, values:json, options:json, mode:string, cachedValue:json) -> json"
-    body @entry(%flow: json, %values: json, %options: json, %mode: string, %cached_value: json) {
-      // TS AxFlow's cachingFunction: the call's, else the process-wide one
-      // (the flow's constructor takes none). A run control skips it, and the
-      // flow ignores errors from its own reads and writes.
+    type signature = "(flow:json, values:json, options:json) -> json"
+    body @entry(%flow: json, %values: json, %options: json) {
+      // TS AxFlow's cache read: {fn, key, hit, value}, fn none when the run
+      // does not cache. The function is the call's, else the process-wide one
+      // (the flow's constructor takes none); a run control skips it, and a
+      // read error is ignored. Hosts call this before they open the flow's
+      // span and metrics, as TS reads first, and pass the result to the
+      // forward as its _ax_flow_cache_lookup option.
       %empty_map = core.map
       %opts_missing = core.call intrinsic.is_none(%options)
       %opts = core.let %options
@@ -348,39 +351,54 @@ module @ax.flow version "0.1" {
         %opts = core.let %empty_map
       }
       %none = core.call intrinsic.none()
-      %result = core.map
-      core.set %result["hit"] = false
-      core.set %result["value"] = %none
+      %lookup = core.map
+      core.set %lookup["fn"] = %none
+      core.set %lookup["key"] = ""
+      core.set %lookup["hit"] = false
       %controller = core.get %opts["control"] default null
       %controlled = core.call intrinsic.is_not_none(%controller)
       core.if %controlled {
-        core.return %result
+        core.return %lookup
       }
       %cache_fn = core.call intrinsic.flow.caching_function(%opts)
       %no_cache = core.call intrinsic.is_none(%cache_fn)
       core.if %no_cache {
-        core.return %result
+        core.return %lookup
       }
       %key = core.call @flow_cache_key(%flow, %values)
-      %is_read = core.call intrinsic.eq(%mode, "read")
-      core.if %is_read {
-        %cached = core.call intrinsic.none()
-        core.try {
-          %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %key)
-        } catch %read_error {
-        }
-        %hit = core.call intrinsic.is_not_none(%cached)
-        core.if %hit {
-          core.set %result["hit"] = true
-          core.set %result["value"] = %cached
-        }
-        core.return %result
+      core.set %lookup["fn"] = %cache_fn
+      core.set %lookup["key"] = %key
+      %cached = core.call intrinsic.none()
+      core.try {
+        %cached = core.call intrinsic.axgen.cache_read(%cache_fn, %key)
+      } catch %read_error {
+      }
+      %hit = core.call intrinsic.is_not_none(%cached)
+      core.if %hit {
+        core.set %lookup["hit"] = true
+        core.set %lookup["value"] = %cached
+      }
+      core.return %lookup
+    }
+  }
+
+  op ax.flow.semantic @flow_cache_store_impl {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(cacheFn:json, key:string, output:json) -> void"
+    body @entry(%cache_fn: json, %key: string, %output: json) {
+      // As in TS, the flow stores its returned output and ignores a write
+      // error.
+      %no_cache = core.call intrinsic.is_none(%cache_fn)
+      core.if %no_cache {
+        core.return
       }
       core.try {
-        core.call intrinsic.axgen.cache_write(%cache_fn, %key, %cached_value)
+        core.call intrinsic.axgen.cache_write(%cache_fn, %key, %output)
       } catch %write_error {
       }
-      core.return %result
+      core.return
     }
   }
 
@@ -1028,12 +1046,27 @@ module @ax.flow version "0.1" {
       core.if %opts_missing {
         %opts = core.let %empty_map
       }
-      %cache_read = core.call @flow_cache_read_write(%flow, %values, %opts, "read", null)
-      %cache_hit = core.get %cache_read["hit"] default false
-      core.if %cache_hit {
-        %cached_value = core.get %cache_read["value"]
-        core.return %cached_value
+      // As in TS, the flow reads its cache before it runs; a host that read
+      // it before opening the flow's telemetry passes that lookup.
+      %opts = core.call intrinsic.map.merge(%empty_map, %opts)
+      %cache_fn = core.call intrinsic.none()
+      %flow_cache_key = core.let ""
+      %host_lookup = core.get %opts["_ax_flow_cache_lookup"] default null
+      %looked_up = core.call intrinsic.is_not_none(%host_lookup)
+      core.if %looked_up {
+        %cache_fn = core.get %host_lookup["fn"]
+        %flow_cache_key = core.get %host_lookup["key"] default ""
+      } else {
+        %cache_read = core.call @flow_cache_lookup_impl(%flow, %values, %opts)
+        %cache_hit = core.get %cache_read["hit"] default false
+        core.if %cache_hit {
+          %cached_value = core.get %cache_read["value"]
+          core.return %cached_value
+        }
+        %cache_fn = core.get %cache_read["fn"]
+        %flow_cache_key = core.get %cache_read["key"] default ""
       }
+      core.call intrinsic.map.delete(%opts, "_ax_flow_cache_lookup")
       %fresh_traces = core.list
       %fresh_chat_log = core.list
       %fresh_usage = core.map
@@ -1049,7 +1082,7 @@ module @ax.flow version "0.1" {
       %state = core.call @flow_execute_steps(%flow, %client, %state, %opts)
       %returns = core.get %flow["returns"] default %empty_map
       %output = core.call @flow_project_returns(%state, %returns)
-      core.call @flow_cache_read_write(%flow, %values, %opts, "write", %output)
+      core.call @flow_cache_store_impl(%cache_fn, %flow_cache_key, %output)
       %done_payload = core.map
       core.set %done_payload["cache_key"] = %cache_key
       core.set %done_payload["output"] = %output
