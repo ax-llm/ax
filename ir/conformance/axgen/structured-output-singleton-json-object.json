@@ -22,7 +22,7 @@
     "Javascript Code (wire key: `javascriptCode`)",
     "javascriptCode",
     "<complete source>",
-    "no prose or Markdown fences"
+    "do not invent, rename, or wrap them"
   ],
   "expected_chat_log_subset": [
     {

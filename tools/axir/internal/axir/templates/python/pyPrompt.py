@@ -466,11 +466,13 @@ def _core_prompt_input_fields_section(signature, values=None) -> str:
     return "**Input Fields**: The following fields will be provided to you:\n\n" + fields
 
 
-def _core_prompt_output_fields_section(signature) -> str:
+def _core_prompt_output_fields_section(signature, structured=None) -> str:
     output_fields = _core_prompt_get_output_fields(signature)
     fields = _core_prompt_render_output_fields(output_fields, _core_prompt_field_name_to_title(signature))
     shape = ""
-    if _core_prompt_has_complex_fields(signature):
+    if structured is None:
+        structured = _core_prompt_has_complex_fields(signature)
+    if structured:
         value = {field.name: _core_prompt_output_type_placeholder(field.type) for field in output_fields}
         shape = "\n\n**Exact JSON shape**: " + BT + _js_json_dumps(value) + BT
     return "**Output Fields**: You must generate the following fields:\n\n" + fields + shape
@@ -501,7 +503,10 @@ def _core_prompt_output_type_placeholder(field_type):
 def _core_prompt_structured(signature, values, functions, options) -> str:
     values = values or {}
     options = options or {}
-    has_complex_fields = _core_prompt_has_complex_fields(signature)
+    # As TS's structuredOutput option: AxGen renders with it set when a
+    # structured-output rung is selected; otherwise the signature decides.
+    structured = options.get("structured_output", options.get("structuredOutput"))
+    has_complex_fields = _core_prompt_has_complex_fields(signature) if structured is None else bool(structured)
     task_definition = _core_prompt_task_definition_section(signature, options)
     funcs = _core_prompt_function_descriptors(functions)
     template_vars = {
@@ -515,7 +520,7 @@ def _core_prompt_structured(signature, values, functions, options) -> str:
         "taskDefinitionText": task_definition,
         "functionsList": _core_prompt_render_functions_section(funcs) if funcs else "",
         "inputFieldsSection": _core_prompt_input_fields_section(signature, values),
-        "outputFieldsSection": _core_prompt_output_fields_section(signature),
+        "outputFieldsSection": _core_prompt_output_fields_section(signature, has_complex_fields),
         "structuredOutputFunctionName": options.get("structured_output_function_name") or "",
     }
     source = options.get("custom_template")
@@ -767,11 +772,16 @@ class AxPromptTemplate:
         self.instruction = None
 
     def render(self, values: dict, options: dict | None = None):
+        # A render's own options (AxGen passes the selected rung's) win over
+        # the template's.
         render_options = dict(options or {})
         if self.instruction is not None:
             render_options["instruction"] = self.instruction
         if self.structured_output_function_name is not None:
-            render_options["structured_output_function_name"] = self.structured_output_function_name
+            render_options.setdefault("structured_output_function_name", self.structured_output_function_name)
         if self.custom_template is not None:
             render_options["custom_template"] = self.custom_template
-        return render_prompt(self.signature, values or {}, self.functions, render_options)
+        # extra_functions are listed after the template's own, as TS lists
+        # the __axOutput function of the function rung.
+        functions = list(self.functions) + list(render_options.pop("extra_functions", None) or [])
+        return render_prompt(self.signature, values or {}, functions, render_options)

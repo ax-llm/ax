@@ -1,7 +1,7 @@
 {
   "target": "python",
   "enforced": true,
-  "emitted_functions": 933,
+  "emitted_functions": 930,
   "files": {
     "axllm/agent.py": {
       "emitted_lines": 9613,
@@ -16,8 +16,8 @@
       "total_lines": 3153
     },
     "axllm/gen.py": {
-      "emitted_lines": 13862,
-      "total_lines": 15520
+      "emitted_lines": 13717,
+      "total_lines": 15375
     },
     "axllm/mcp.py": {
       "emitted_lines": 2328,
@@ -25,7 +25,7 @@
     },
     "axllm/prompt.py": {
       "emitted_lines": 79,
-      "total_lines": 856
+      "total_lines": 866
     },
     "axllm/schema.py": {
       "emitted_lines": 918,

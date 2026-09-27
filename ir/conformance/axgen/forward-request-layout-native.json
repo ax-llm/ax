@@ -1,0 +1,45 @@
+{
+  "expected_chat_prompt": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Question`. Your task is to generate new fields: `User`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nQuestion:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nUser (wire key: `user`): (This object { name: string } field must be included)\n\n**Exact JSON shape**: `{\"user\":{\"name\":\"<string>\"}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Question: Status?\n",
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request": {
+    "response_format": {
+      "type": "json_schema"
+    }
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-request-layout-native",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"user\":{\"name\":\"Ada\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

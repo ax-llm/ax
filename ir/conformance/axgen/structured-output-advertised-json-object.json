@@ -23,7 +23,7 @@
   "expected_chat_prompt_contains": [
     "Answer (wire key: `answer`)",
     "Confidence (wire key: `confidence`)",
-    "no prose or Markdown fences"
+    "do not invent, rename, or wrap them"
   ],
   "expected_request_count": 1
 }
