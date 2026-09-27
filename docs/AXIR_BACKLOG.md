@@ -951,6 +951,24 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `44bb2306d4a4794442415e0164f44118c1092279`
   - Verification: `TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran.`
+- `axir-2026-09-27-media-input-parts-carry-declared-keys` [axgen] Media inputs become TypeScript's parts, with their declared keys, in the ports
+  - Status: done
+  - Source commit: `67b2e78e8`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/dsp/prompt.test.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/sigtypes.test-d.ts`, `src/ax/index.test-d.ts`
+  - Impact: TypeScript AxGen builds image, file, url and audio input parts with only their type's keys, now including the optional keys the part type declares (an image's details, cache, optimize and altText; a file's filename, cache and extractedText; a url's cachedContent and cache; audio's mimeType, sampleRate, channels, cache, transcription and duration), and joins consecutive text parts in every multimodal message. It used to drop details and filename, so OpenAI ignored low detail and rejected inline files. On origin/main Go and C++ sent image, file and url inputs as JSON text, Java did not join text parts, and Python, Java and Rust copied every key and sent image and file arrays as JSON text.
+  - Suggested AxIR work: Build TypeScript's media parts in every port and pin the part shapes with prompt goldens; Turn the snake_case aliases the provider mappings read into the declared keys
+  - Completed at: 2026-09-27
+  - Completed by: `67b2e78e8`
+  - Verification: `TS: prompt.test.ts carries details, filename and each part type's declared keys (4 new tests fail on d023f6756); api.test.ts pins an AxGen file input's filename on the OpenAI wire. Ports: 13 media prompt goldens (TS-derived; 4 snake_case alias goldens port-side with TS's camelCase render) and axai/openai-file-part-filename pass in python, go, java, cpp and rust; the media goldens fail on origin/main in the ports named in the PR.`
+- `axir-2026-09-27-openai-image-detail-pcm-and-input-audio-wire` [axai] OpenAI image detail, speech pcm and input_audio keys on the wire
+  - Status: done
+  - Source commit: `67b2e78e8`
+  - TS paths: `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/audio.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/openai/api.test.ts`, `src/ax/ai/openai/caching.test.ts`
+  - Impact: TypeScript's OpenAI Chat mapping sent image_url.details, which OpenAI ignores (gpt-4.1 counted 779 prompt tokens for details low and 99 for detail low), asked the speech API for pcm16, which it rejects with HTTP 400, and put mimeType, sampleRate and channels in input_audio, which Chat rejects with HTTP 400. TypeScript now sends detail, pcm, and only data and format. The ports already sent detail and pcm; their Chat audio parts now take the format from the mime type with TypeScript's error when there is none, and their Responses audio parts send no format when the part has none.
+  - Suggested AxIR work: Send detail and pcm and keep input_audio to data and format in TypeScript; Infer a Chat audio part's format from its mime type in the ports
+  - Completed at: 2026-09-27
+  - Completed by: `67b2e78e8`
+  - Verification: `Live: detail vs details prompt tokens on gpt-4.1 and gpt-4o-mini, pcm16 HTTP 400, input_audio mimeType and sampleRate HTTP 400, no Responses model takes audio input. TS: api.test.ts detail, pcm and pcm16, and input_audio tests fail on d023f6756 and pass. Ports: axai openai-audio-part-format-from-mime-type, openai-audio-part-unknown-format and responses-audio-part-without-format fail on origin/main in all five ports and pass in all five.`
 - `axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys` [axai] Port speak() results carry TypeScript's AxSpeechResponse keys
   - Status: done
   - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
@@ -978,6 +996,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `94cd7049eb4ab244410f175fc0779cf1e275ec39`
   - Verification: `renderAudio (or render_audio) true renders through @render_audio_outputs_impl in ir/axcore/audio_output.axir at every @forward exit, on forward and streaming cache hits and on the streamingForward result-picker delta; unset keeps the text and warns once per process, and false keeps it silently. The 16 TS-derived axgen audio-output-* goldens and axflow/audio-output-flow-speaker-to-summarizer check speak requests and outputs; the 10 goldens that render fail on origin/main in all five ports. verify --mode release passes 1138 fixtures in python, java, cpp and rust; the Go conformance passes the whole tree after the load-flaky axai/portable-cancellation fixture passed 5/5 alone.`
+- `axir-2026-09-27-speak-requests-and-responses-match-typescript` [axai] Speak requests and responses match TypeScript in the ports
+  - Status: done
+  - Source commit: `67b2e78e8`
+  - TS paths: `src/ax/ai/audio/api.ts`, `src/ax/ai/google-gemini/api.ts`
+  - Impact: The ports' OpenAI speak defaulted to tts-1 (TypeScript gpt-4o-mini-tts), sent a voice object whole, dropped speed and sent pcm16; Mistral went through the OpenAI builder (TypeScript's mistral-speech dialect sends voxtral-mini-tts-2603 and voice_id); Grok dropped speed. JSON speech bodies were read from their audio key or passed through whole, binary bodies lost their Content-Type, and Gemini audio without a mime type was labelled wav. TypeScript's axFetchJsonSpeech reads the audio_data, audioData, data, audio.data, output.audio.data and inline data keys, raises when none holds audio, and takes the mime type from the Content-Type.
+  - Suggested AxIR work: Match TypeScript's speak request builders and read speech bodies with its key chain; Hand binary speech bodies to the normalizer with their Content-Type
+  - Completed at: 2026-09-27
+  - Completed by: `67b2e78e8`
+  - Verification: `13 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback.`
 - `axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths` [axagent] Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths
   - Status: done
   - Source commit: `c3662628d8916a174fc1ef3bd0484f7b3ffd989c`
