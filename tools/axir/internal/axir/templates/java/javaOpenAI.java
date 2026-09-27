@@ -557,8 +557,18 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
     Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak",cancellation);
-    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
+    // As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary one
+    // as base64 with its Content-Type, which names its mime type.
+    Object contentType = null;
+    if (raw instanceof BinaryBody body) {
+      raw = body.data();
+      contentType = body.contentType().isEmpty() ? null : body.contentType();
+    }
+    return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request, contentType));
   }
+
+  /** A binary response body as base64 text, with its Content-Type. */
+  record BinaryBody(String data, String contentType) {}
 
   public Iterable<Map<String, Object>> realtime(Iterable<?> events) {
     List<Map<String, Object>> out = new ArrayList<>();
@@ -929,7 +939,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
     if (!method.equals("GET") && !method.equals("HEAD")) call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
-    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return transportResult(value,call);}
+    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return binaryResponse?binaryTransportResult(value,call):transportResult(value,call);}
     if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
@@ -957,7 +967,11 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         try { parsed = Json.parse(errorBody); } catch (RuntimeException ex) { parsed = errorBody; }
         throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, call));
       }
-      return Base64.getEncoder().encodeToString(res.body());
+      // The bytes go on as base64 with their Content-Type; a JSON body (as TS
+      // reads one by its Content-Type) goes on parsed.
+      String contentType = res.headers().firstValue("content-type").orElse("");
+      if (contentType.contains("application/json")) return Json.parse(new String(res.body(), StandardCharsets.UTF_8));
+      return new BinaryBody(Base64.getEncoder().encodeToString(res.body()), contentType);
     }
     HttpResponse<String> res = sendCancellable(req, HttpResponse.BodyHandlers.ofString(), cancellation);
     String responseBody = res.body();
@@ -1135,6 +1149,25 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       for (Map.Entry<?, ?> entry : rawHeaders.entrySet()) headers.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
     }
     return headers;
+  }
+
+  // A transport's binary answer: `body` (base64 text or bytes) with its
+  // headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+  // body JSON, as TS reads it.
+  private Object binaryTransportResult(Object result, Map<String, Object> request) {
+    String contentType = "";
+    if (result instanceof Map<?, ?> raw && raw.get("headers") instanceof Map<?, ?> headers) {
+      for (Map.Entry<?, ?> header : headers.entrySet()) {
+        if ("content-type".equalsIgnoreCase(String.valueOf(header.getKey()))) contentType = String.valueOf(header.getValue());
+      }
+    }
+    Object body = transportResult(result, request);
+    if (body instanceof byte[] bytes) body = Base64.getEncoder().encodeToString(bytes);
+    if (body instanceof String text) {
+      if (contentType.contains("application/json")) return Json.parse(text);
+      return new BinaryBody(text, contentType);
+    }
+    return body;
   }
 
   private Object transportResult(Object result, Map<String, Object> request) {

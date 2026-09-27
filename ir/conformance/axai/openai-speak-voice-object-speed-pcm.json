@@ -1,0 +1,37 @@
+{
+  "expected_output": {
+    "audio": "AAAAAA==",
+    "data": "AAAAAA==",
+    "format": "pcm",
+    "mimeType": "audio/pcm",
+    "transcript": "Hello there"
+  },
+  "expected_transport_json_absent": ["voice_id", "language"],
+  "expected_transport_request": {
+    "json": {
+      "input": "Hello there",
+      "model": "gpt-4o-mini-tts",
+      "response_format": "pcm",
+      "speed": 1.25,
+      "voice": "verse"
+    },
+    "url": "https://api.openai.com/v1/audio/speech"
+  },
+  "kind": "ai_speak",
+  "name": "openai-speak-voice-object-speed-pcm",
+  "provider": "openai",
+  "request": {
+    "format": "pcm",
+    "speed": 1.25,
+    "text": "Hello there",
+    "voice": {
+      "id": "verse"
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "AAAAAA==",
+      "status": 200
+    }
+  ]
+}

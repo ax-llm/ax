@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-cpp-audio/SKILL.md",
-      "digest": "sha256:46c107f599978486ff69ad7c29875486639a27269523fd5ffa6887eec4496066"
+      "digest": "sha256:721ee4bd592608acc316241b07de73a9b5cdc58b4bb53163632159e859f1cf1d"
     },
     {
       "name": "ax-cpp-signature",

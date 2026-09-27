@@ -2837,13 +2837,24 @@ impl OpenAICompatibleClient {
             .send()?
             .error_for_status()?;
         // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-        // be UTF-8 decoded or parsed as JSON; return the bytes as a base64 string
-        // so the speak normalizer can pass it through to the `audio` field.
-        let response: Value = if binary {
-            Value::String(encode_base64(&raw.bytes()?))
-        } else {
-            raw.json()?
-        };
+        // be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+        // which names their mime type. A JSON body (as TS reads one by its
+        // Content-Type) goes on parsed.
+        if binary {
+            let content_type = raw
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let response: Value = if content_type.contains("application/json") {
+                raw.json()?
+            } else {
+                Value::String(encode_base64(&raw.bytes()?))
+            };
+            return Ok(json!({"status": 200, "json": response, "headers": {"content-type": content_type}}));
+        }
+        let response: Value = raw.json()?;
         Ok(json!({"status": 200, "json": response}))
     }
 
@@ -3061,11 +3072,25 @@ impl OpenAICompatibleClient {
             "mistral" => self.post_json("/audio/speech", body, binary, "speak")?,
             _ => self.post_json("/audio/speech", body, binary, "speak")?,
         };
-        let payload = normalize_passthrough_response(raw)?;
+        // As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+        // as JSON, and a binary one as base64 with its Content-Type.
+        let content_type = transport_content_type(&raw);
+        let mut payload = normalize_passthrough_response(raw)?;
+        if content_type.contains("application/json") {
+            if let Value::String(text) = &payload {
+                payload = serde_json::from_str(text).map_err(AxError::from)?;
+            }
+        }
+        let content_type_value = if content_type.is_empty() {
+            CoreValue::Null
+        } else {
+            CoreValue::from(content_type.as_str())
+        };
         let normalized = provider_normalize_speak_response(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&payload),
             core_value_from_json(&request),
+            content_type_value,
         ])?;
         Ok(core_value_to_json(&normalized))
     }
@@ -3941,6 +3966,20 @@ fn normalize_openai_response(profile: &str, model: &str, response: Value, contex
 
 // python: _transport_result. Raises openai_normalize_error for status >= 400
 // and unwraps {status, json|body|data} transport envelopes otherwise.
+/// The Content-Type header of a transport response, if it names one.
+fn transport_content_type(response: &Value) -> String {
+    response
+        .get("headers")
+        .and_then(Value::as_object)
+        .and_then(|headers| {
+            headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("content-type"))
+                .and_then(|(_, value)| value.as_str().map(str::to_string))
+        })
+        .unwrap_or_default()
+}
+
 fn normalize_passthrough_response(response: Value) -> AxResult<Value> {
     // Responses objects have a string status (for example "completed"). Only
     // numeric HTTP statuses identify a transport envelope.
@@ -12812,7 +12851,8 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let mut client = FixtureClient::scripted(
         responses,
         fixture.get("features").cloned().unwrap_or_else(router_default_features),
-    );
+    )
+    .with_speak_responses(fixture);
     client.transcribe_responses = fixture
         .get("transcribe_responses")
         .and_then(Value::as_array)
@@ -13154,6 +13194,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
     }
+    expect_fixture_speak_requests(fixture, &client.speak_requests)?;
     if let Some(expected) = fixture.get("expected_run_state_projections") {
         expect_json_equal(
             "agent run state projections",
@@ -20277,6 +20318,8 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
             _ => None,
         };
         if let Some(prev) = merge_target {
+            // TS combineConsecutiveStrings: the joined part is cached when any
+            // of its text parts is.
             let prev_text = core_get(&prev, &CoreValue::from("text"), CoreValue::from("")).text();
             let part_text = core_get(&part, &CoreValue::from("text"), CoreValue::from("")).text();
             core_set(
@@ -20284,6 +20327,9 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
                 CoreValue::from("text"),
                 CoreValue::from_string(format!("{prev_text}{separator}{part_text}")),
             )?;
+            if core_truthy(&core_get(&part, &CoreValue::from("cache"), CoreValue::Null)) {
+                core_set(&prev, CoreValue::from("cache"), CoreValue::Bool(true))?;
+            }
         } else {
             core_append(&out, part)?;
         }
@@ -20291,17 +20337,169 @@ fn core_prompt_combine_consecutive_text(parts: &CoreValue, separator: &str) -> R
     Ok(out)
 }
 
+// JavaScript's !value for a JSON value: objects and arrays are truthy.
+#[allow(dead_code)]
+fn core_prompt_js_falsy(value: &CoreValue) -> bool {
+    match value {
+        CoreValue::Null => true,
+        CoreValue::Bool(b) => !*b,
+        CoreValue::Str(s) => s.is_empty(),
+        CoreValue::Num(n) => *n == 0.0 || n.is_nan(),
+        _ => false,
+    }
+}
+
+// Checks a media value as TS's validators do.
+#[allow(dead_code)]
+fn core_prompt_media_object(value: &CoreValue, label: &str, required_key: &str) -> Result<(), AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime(format!("{label} field value is required.")));
+    }
+    let has_key = match value {
+        CoreValue::Map(map) => map.borrow().contains(required_key),
+        CoreValue::List(_) => false,
+        _ => return Err(AxError::runtime(format!("{label} field value must be an object."))),
+    };
+    if !has_key {
+        return Err(AxError::runtime(format!("{label} field must have {required_key}")));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn core_prompt_has_key(value: &CoreValue, key: &str) -> bool {
+    matches!(value, CoreValue::Map(map) if map.borrow().contains(key))
+}
+
+// The optional keys a media part type declares (TS AxChatRequest) that the
+// value sets go on the part, so the provider or router that reads them gets
+// them; other keys stay behind.
+#[allow(dead_code)]
+fn core_prompt_declared_keys(part: CoreValue, value: &CoreValue, keys: &[&str]) -> Result<CoreValue, AxError> {
+    for key in keys {
+        if core_prompt_has_key(value, key) {
+            core_set(&part, CoreValue::from(*key), core_get(value, &CoreValue::from(*key), CoreValue::Null))?;
+        }
+    }
+    Ok(part)
+}
+
+// TS defaultRenderInField: an image part carries the mime type, the data as
+// `image`, and the details the provider reads (OpenAI's image detail).
+#[allow(dead_code)]
+fn core_prompt_image_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "Image", "mimeType")?;
+    if !core_prompt_has_key(value, "data") {
+        return Err(AxError::runtime("Image field must have data"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("image"))?;
+    core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
+    core_set(&part, CoreValue::from("image"), core_get(value, &CoreValue::from("data"), CoreValue::Null))?;
+    core_prompt_declared_keys(part, value, &["details", "cache", "optimize", "altText"])
+}
+
+// TS defaultRenderInField: a file part carries the mime type and either its
+// data or its fileUri.
+#[allow(dead_code)]
+fn core_prompt_file_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    core_prompt_media_object(value, "File", "mimeType")?;
+    let has_data = core_prompt_has_key(value, "data");
+    let has_file_uri = core_prompt_has_key(value, "fileUri");
+    if !has_data && !has_file_uri {
+        return Err(AxError::runtime("File field must have either data or fileUri"));
+    }
+    if has_data && has_file_uri {
+        return Err(AxError::runtime("File field cannot have both data and fileUri"));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("file"))?;
+    core_set(&part, CoreValue::from("mimeType"), core_get(value, &CoreValue::from("mimeType"), CoreValue::Null))?;
+    let key = if has_file_uri { "fileUri" } else { "data" };
+    core_set(&part, CoreValue::from(key), core_get(value, &CoreValue::from(key), CoreValue::Null))?;
+    core_prompt_declared_keys(part, value, &["filename", "cache", "extractedText"])
+}
+
+// TS defaultRenderInField: a url part carries the url, and the title and
+// description when they are set; a plain string is the url.
+#[allow(dead_code)]
+fn core_prompt_url_part(value: &CoreValue) -> Result<CoreValue, AxError> {
+    if core_prompt_js_falsy(value) {
+        return Err(AxError::runtime("URL field value is required."));
+    }
+    let part = CoreValue::new_map();
+    core_set(&part, CoreValue::from("type"), CoreValue::from("url"))?;
+    if matches!(value, CoreValue::Str(_)) {
+        core_set(&part, CoreValue::from("url"), value.clone())?;
+        return Ok(part);
+    }
+    if !matches!(value, CoreValue::Map(_) | CoreValue::List(_)) {
+        return Err(AxError::runtime("URL field value must be a string or object."));
+    }
+    if !core_prompt_has_key(value, "url") {
+        return Err(AxError::runtime("URL field must have url property"));
+    }
+    core_set(&part, CoreValue::from("url"), core_get(value, &CoreValue::from("url"), CoreValue::Null))?;
+    for key in ["title", "description"] {
+        let item = core_get(value, &CoreValue::from(key), CoreValue::Null);
+        if !core_prompt_js_falsy(&item) {
+            core_set(&part, CoreValue::from(key), item)?;
+        }
+    }
+    core_prompt_declared_keys(part, value, &["cachedContent", "cache"])
+}
+
+// The snake_case aliases the provider mappings read become the part type's
+// declared camelCase keys (a camelCase key wins), so inputs written with them
+// keep working.
+#[allow(dead_code)]
+fn core_prompt_media_aliases(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let CoreValue::Map(map) = value else {
+        return Ok(value.clone());
+    };
+    let aliases: &[(&str, &str)] = match kind {
+        "image" => &[("mime_type", "mimeType")],
+        "audio" => &[("audio", "data"), ("mime_type", "mimeType"), ("sample_rate", "sampleRate")],
+        "file" => &[("mime_type", "mimeType"), ("file_uri", "fileUri"), ("extracted_text", "extractedText")],
+        _ => &[("cached_content", "cachedContent")],
+    };
+    let mut out: Option<CoreValue> = None;
+    for (alias, key) in aliases {
+        let (has_alias, has_key) = {
+            let borrowed = map.borrow();
+            (borrowed.contains(alias), borrowed.contains(key))
+        };
+        if has_alias && !has_key {
+            if out.is_none() {
+                let copy = CoreValue::new_map();
+                for (entry_key, item) in map.borrow().entries.clone() {
+                    core_set(&copy, CoreValue::from(entry_key.as_str()), item)?;
+                }
+                out = Some(copy);
+            }
+            let item = core_get(value, &CoreValue::from(*alias), CoreValue::Null);
+            core_set(out.as_ref().unwrap(), CoreValue::from(*key), item)?;
+        }
+    }
+    Ok(out.unwrap_or_else(|| value.clone()))
+}
+
+#[allow(dead_code)]
+fn core_prompt_media_part(kind: &str, value: &CoreValue) -> Result<CoreValue, AxError> {
+    let value = &core_prompt_media_aliases(kind, value)?;
+    match kind {
+        "image" => core_prompt_image_part(value),
+        "audio" => core_prompt_audio_part(value),
+        "file" => core_prompt_file_part(value),
+        _ => core_prompt_url_part(value),
+    }
+}
+
 // TS defaultRenderInField: an audio part carries only its format (wav when it
 // has none) and its data.
 #[allow(dead_code)]
 fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
-    let has_data = match value {
-        CoreValue::Map(map) => map.borrow().contains("data"),
-        _ => return Err(AxError::runtime("Audio field value must be an object.")),
-    };
-    if !has_data {
-        return Err(AxError::runtime("Audio field must have data"));
-    }
+    core_prompt_media_object(value, "Audio", "data")?;
     let format = core_get(value, &CoreValue::from("format"), CoreValue::Null);
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("audio"))?;
@@ -20315,7 +20513,11 @@ fn core_prompt_audio_part(value: &CoreValue) -> Result<CoreValue, AxError> {
         CoreValue::from("data"),
         core_get(value, &CoreValue::from("data"), CoreValue::Null),
     )?;
-    Ok(part)
+    core_prompt_declared_keys(
+        part,
+        value,
+        &["mimeType", "sampleRate", "channels", "cache", "transcription", "duration"],
+    )
 }
 
 #[allow(dead_code)]
@@ -20327,9 +20529,18 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         "string".to_string()
     };
     let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
-    if typ == "audio" && !matches!(value, CoreValue::Str(_)) {
-        // A string (a plain one, or an audio object's transcript) renders as
-        // text below, like any text field.
+    // As TS: image, file and url values, and audio that is not text (a plain
+    // string or an audio object's transcript renders as text below), go out
+    // as media parts after a text part with the title.
+    let media = matches!(typ.as_str(), "image" | "file" | "url")
+        || (typ == "audio" && !matches!(value, CoreValue::Str(_)));
+    if media {
+        let label = match typ.as_str() {
+            "image" => "Image",
+            "audio" => "Audio",
+            "file" => "File",
+            _ => "URL",
+        };
         let parts = CoreValue::new_list();
         let text_part = CoreValue::new_map();
         core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -20341,50 +20552,15 @@ fn core_prompt_default_render_in_field(field: &CoreValue, value: &CoreValue) -> 
         core_append(&parts, text_part)?;
         if core_truthy(&core_get(&field_type, &CoreValue::from("is_array"), CoreValue::Null)) {
             if !matches!(value, CoreValue::List(_)) {
-                return Err(AxError::runtime("Audio field value must be an array."));
+                return Err(AxError::runtime(format!("{label} field value must be an array.")));
             }
             for item in core_iter(value)? {
-                core_append(&parts, core_prompt_audio_part(&item)?)?;
+                core_append(&parts, core_prompt_media_part(&typ, &item)?)?;
             }
         } else {
-            core_append(&parts, core_prompt_audio_part(value)?)?;
+            core_append(&parts, core_prompt_media_part(&typ, value)?)?;
         }
         return Ok(parts);
-    }
-    if matches!(typ.as_str(), "image" | "audio" | "file" | "url") {
-        if matches!(value, CoreValue::List(_)) {
-            let parts = CoreValue::new_list();
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            core_append(&parts, text_part)?;
-            for item in core_iter(value)? {
-                core_append(&parts, item)?;
-            }
-            return Ok(parts);
-        }
-        if let CoreValue::Map(map) = value {
-            let part = CoreValue::new_map();
-            for (key, item) in map.borrow().entries.clone() {
-                core_set(&part, CoreValue::from(key.as_str()), item)?;
-            }
-            let has_type = matches!(&part, CoreValue::Map(m) if m.borrow().contains("type"));
-            if !has_type {
-                core_set(&part, CoreValue::from("type"), CoreValue::from_string(typ.clone()))?;
-            }
-            let text_part = CoreValue::new_map();
-            core_set(&text_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(
-                &text_part,
-                CoreValue::from("text"),
-                CoreValue::from_string(format!("{title}: ")),
-            )?;
-            return Ok(CoreValue::list_from(vec![text_part, part]));
-        }
     }
     let part = CoreValue::new_map();
     core_set(&part, CoreValue::from("type"), CoreValue::from("text"))?;
@@ -20720,8 +20896,10 @@ fn core_prompt_process_value(field: &CoreValue, value: &CoreValue) -> Result<Cor
                 return Ok(value.clone());
             }
         }
-        if matches!(name.as_str(), Some("image") | Some("audio") | Some("file") | Some("url"))
-            && matches!(value, CoreValue::Map(_))
+        // As TS processValue: image, file and url objects (and arrays of
+        // them) reach the field renderer as they are.
+        if matches!(name.as_str(), Some("image") | Some("file") | Some("url"))
+            && matches!(value, CoreValue::Map(_) | CoreValue::List(_))
         {
             return Ok(value.clone());
         }

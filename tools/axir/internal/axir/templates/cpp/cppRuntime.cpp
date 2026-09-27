@@ -689,9 +689,15 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   Core::set(out, "contentType", content_type);
   Core::set(out, "headers", response_headers);
   if (binary_response) {
-    // Base64-encode the full (binary-safe) body; response may contain NULs, so
-    // axir_base64_encode reads its whole .size() rather than a c_str().
-    Core::set(out, "body", Value(axir_base64_encode(response)));
+    // A JSON body (as TS reads one by its Content-Type) goes on parsed.
+    // Otherwise base64-encode the full (binary-safe) body; response may
+    // contain NULs, so axir_base64_encode reads its whole .size() rather than
+    // a c_str(). The Content-Type goes on beside it.
+    if (content_type.find("application/json") != std::string::npos) {
+      Core::set(out, "json", Core::json_parse(response));
+    } else {
+      Core::set(out, "body", Value(axir_base64_encode(response)));
+    }
   } else if (stream) {
     Core::set(out, "body", response);
   } else {
@@ -2720,16 +2726,111 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   if (!get_key(options, "custom_template").is_null()) { source = str(get_key(options, "custom_template")); context = "inline-template"; }
   return string_trim(render_template_content(source, Value(vars), context));
 }
+// The optional keys a media part type declares (TS AxChatRequest) that the
+// value sets go on the part, so the provider or router that reads them gets
+// them; other keys stay behind.
+static Value prompt_declared_keys(Value part, const Value& value, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    if (object_ref(value).count(key) > 0) Core::set(part, key, get_key(value, key));
+  }
+  return part;
+}
+// JavaScript's !value for a JSON value: objects and arrays are truthy.
+static bool prompt_js_falsy(const Value& value) {
+  if (value.is_null()) return true;
+  if (value.is_bool()) return !std::get<bool>(value.data);
+  if (value.is_string()) return std::get<std::string>(value.data).empty();
+  if (value.is_number()) {
+    double number = std::get<double>(value.data);
+    return number == 0 || number != number;
+  }
+  return false;
+}
+// Checks a media value as TS's validators do.
+static void prompt_media_object(const Value& value, const std::string& label, const std::string& required_key) {
+  if (prompt_js_falsy(value)) throw AxError("runtime", label + " field value is required.");
+  if (!value.is_object() && !value.is_array()) throw AxError("runtime", label + " field value must be an object.");
+  if (!value.is_object() || object_ref(value).count(required_key) == 0) throw AxError("runtime", label + " field must have " + required_key);
+}
+// TS's image part: the mime type, the data as `image`, and the details the
+// provider reads (OpenAI's image detail).
+static Value prompt_image_part(const Value& value) {
+  prompt_media_object(value, "Image", "mimeType");
+  if (object_ref(value).count("data") == 0) throw AxError("runtime", "Image field must have data");
+  Value part(Object{{"type", "image"}, {"mimeType", get_key(value, "mimeType")}, {"image", get_key(value, "data")}});
+  return prompt_declared_keys(part, value, {"details", "cache", "optimize", "altText"});
+}
 // TS's audio part: only the format (wav when there is none) and the data.
 static Value prompt_audio_part(const Value& value) {
-  if (!value.is_object()) throw AxError("runtime", "Audio field value must be an object.");
-  if (object_ref(value).count("data") == 0) throw AxError("runtime", "Audio field must have data");
+  prompt_media_object(value, "Audio", "data");
   Value format = get_key(value, "format");
-  return Value(Object{{"type", "audio"}, {"format", format.is_null() ? Value("wav") : format}, {"data", get_key(value, "data")}});
+  Value part(Object{{"type", "audio"}, {"format", format.is_null() ? Value("wav") : format}, {"data", get_key(value, "data")}});
+  return prompt_declared_keys(part, value, {"mimeType", "sampleRate", "channels", "cache", "transcription", "duration"});
+}
+// TS's file part: the mime type and either the data or the fileUri.
+static Value prompt_file_part(const Value& value) {
+  prompt_media_object(value, "File", "mimeType");
+  bool has_data = object_ref(value).count("data") > 0;
+  bool has_file_uri = object_ref(value).count("fileUri") > 0;
+  if (!has_data && !has_file_uri) throw AxError("runtime", "File field must have either data or fileUri");
+  if (has_data && has_file_uri) throw AxError("runtime", "File field cannot have both data and fileUri");
+  Value part = has_file_uri
+      ? Value(Object{{"type", "file"}, {"mimeType", get_key(value, "mimeType")}, {"fileUri", get_key(value, "fileUri")}})
+      : Value(Object{{"type", "file"}, {"mimeType", get_key(value, "mimeType")}, {"data", get_key(value, "data")}});
+  return prompt_declared_keys(part, value, {"filename", "cache", "extractedText"});
+}
+// TS's url part: the url, and the title and description when they are set; a
+// plain string is the url.
+static Value prompt_url_part(const Value& value) {
+  if (prompt_js_falsy(value)) throw AxError("runtime", "URL field value is required.");
+  if (value.is_string()) return Value(Object{{"type", "url"}, {"url", value}});
+  if (!value.is_object() && !value.is_array()) throw AxError("runtime", "URL field value must be a string or object.");
+  if (!value.is_object() || object_ref(value).count("url") == 0) throw AxError("runtime", "URL field must have url property");
+  Value part(Object{{"type", "url"}, {"url", get_key(value, "url")}});
+  Value title = get_key(value, "title");
+  if (!prompt_js_falsy(title)) Core::set(part, "title", title);
+  Value description = get_key(value, "description");
+  if (!prompt_js_falsy(description)) Core::set(part, "description", description);
+  return prompt_declared_keys(part, value, {"cachedContent", "cache"});
+}
+static std::string prompt_media_label(const std::string& kind) {
+  if (kind == "image") return "Image";
+  if (kind == "audio") return "Audio";
+  if (kind == "file") return "File";
+  return "URL";
+}
+// The snake_case aliases the provider mappings read become the part type's
+// declared camelCase keys (a camelCase key wins), so inputs written with them
+// keep working.
+static Value prompt_media_aliases(const std::string& kind, const Value& value) {
+  if (!value.is_object()) return value;
+  std::vector<std::pair<std::string, std::string>> aliases;
+  if (kind == "image") aliases = {{"mime_type", "mimeType"}};
+  else if (kind == "audio") aliases = {{"audio", "data"}, {"mime_type", "mimeType"}, {"sample_rate", "sampleRate"}};
+  else if (kind == "file") aliases = {{"mime_type", "mimeType"}, {"file_uri", "fileUri"}, {"extracted_text", "extractedText"}};
+  else aliases = {{"cached_content", "cachedContent"}};
+  Value out = value;
+  bool copied = false;
+  for (const auto& alias : aliases) {
+    if (object_ref(value).count(alias.first) > 0 && object_ref(value).count(alias.second) == 0) {
+      if (!copied) {
+        out = Value(Object(object_ref(value)));
+        copied = true;
+      }
+      Core::set(out, alias.second, get_key(value, alias.first));
+    }
+  }
+  return out;
+}
+static Value prompt_media_part(const std::string& kind, const Value& raw) {
+  Value value = prompt_media_aliases(kind, raw);
+  if (kind == "image") return prompt_image_part(value);
+  if (kind == "audio") return prompt_audio_part(value);
+  if (kind == "file") return prompt_file_part(value);
+  return prompt_url_part(value);
 }
 Value Core::prompt_user_content(Value signature, Value values) {
   Array parts;
-  bool audio_parts = false;
   for (const auto& field : prompt_inputs_for_values(signature, values)) {
     std::string name = str(get_key(field, "name"));
     Value value = get_key(values, name);
@@ -2738,22 +2839,21 @@ Value Core::prompt_user_content(Value signature, Value values) {
       throw AxError("runtime", "Value for input field '" + name + "' is required.");
     }
     Value type = get_key(field, "type");
-    if (str(get_key(type, "name")) == "audio") {
-      // As TS: an audio object with a transcript (what an AxGen audio output
-      // renders to), like a plain string, reaches the model as text; other
-      // audio goes as audio parts.
-      if (value.is_object() && get_key(value, "transcript").is_string()) value = get_key(value, "transcript");
-      if (!value.is_string()) {
-        parts.emplace_back(Value(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": \n"}}));
-        if (truthy(get_key(type, "isArray"))) {
-          if (!value.is_array()) throw AxError("runtime", "Audio field value must be an array.");
-          for (const auto& item : array_ref(value)) parts.emplace_back(prompt_audio_part(item));
-        } else {
-          parts.emplace_back(prompt_audio_part(value));
-        }
-        audio_parts = true;
-        continue;
+    std::string kind = str(get_key(type, "name"));
+    // As TS: an audio object with a transcript (what an AxGen audio output
+    // renders to), like a plain string, reaches the model as text.
+    if (kind == "audio" && value.is_object() && get_key(value, "transcript").is_string()) value = get_key(value, "transcript");
+    // As TS defaultRenderInField: image, file and url values, and audio that
+    // is not text, go out as media parts after a text part with the title.
+    if (kind == "image" || kind == "file" || kind == "url" || (kind == "audio" && !value.is_string())) {
+      parts.emplace_back(Value(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": \n"}}));
+      if (truthy(get_key(type, "isArray"))) {
+        if (!value.is_array()) throw AxError("runtime", prompt_media_label(kind) + " field value must be an array.");
+        for (const auto& item : array_ref(value)) parts.emplace_back(prompt_media_part(kind, item));
+      } else {
+        parts.emplace_back(prompt_media_part(kind, value));
       }
+      continue;
     }
     std::string rendered = value.is_string() ? str(value) : pretty_stringify(value);
     Value part(Object{{"type", "text"}, {"text", str(get_key(field, "title")) + ": " + rendered + "\n"}});
@@ -2762,9 +2862,9 @@ Value Core::prompt_user_content(Value signature, Value values) {
   }
   bool all_text = true;
   for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
-  if (!all_text && !audio_parts) return Value(parts);
   if (!all_text) {
-    // As TS: consecutive text parts join with a newline.
+    // As TS combineConsecutiveStrings: in a message with media, each run of
+    // text parts joins with a newline and is cached when any of them is.
     Array combined;
     for (const auto& part : parts) {
       if (str(get_key(part, "type")) == "text" && !combined.empty() && str(get_key(combined.back(), "type")) == "text") {
@@ -4867,10 +4967,33 @@ Value OpenAICompatibleClient::speak(Value request) {
   Value model = Core::get(request, "model", Core::get(descriptor, "defaultModel", model_));
   std::string body_key = str(Core::get(descriptor, "body", "json")) == "multipart" ? "data" : "json";
   // OpenAI /audio/speech returns raw binary audio (mp3); the transport returns
-  // it as base64 instead of JSON-parsing, and the normalizer reads raw["audio"].
+  // it as base64 with its Content-Type, as TS's axFetchJsonSpeech reads it,
+  // and a JSON body (by its Content-Type) parsed.
   bool binary = str(Core::get(descriptor, "response", Value(""))) == "binary";
-  Value raw = request_json(operation_path("speak", model), payload, false, body_key, binary, operation_method("speak"));
-  return Core::provider_normalize_speak_response(profile_, raw, request);
+  Value call = build_request(operation_path("speak", model), payload, false, body_key, binary, operation_method("speak"));
+  if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  Value result = transport_->call(call, current_cancellation_token());
+  std::string content_type = transport_content_type(result);
+  Value raw = transport_result(result, call);
+  if (raw.is_string() && content_type.find("application/json") != std::string::npos) raw = Core::json_parse(raw);
+  return Core::provider_normalize_speak_response(profile_, raw, request, content_type.empty() ? Value() : Value(content_type));
+}
+
+// The Content-Type a transport response names: the curl transport's
+// contentType, or a Content-Type header.
+std::string OpenAICompatibleClient::transport_content_type(Value result) {
+  if (!result.is_object()) return "";
+  Value direct = Core::get(result, "contentType");
+  if (direct.is_string() && !str(direct).empty()) return str(direct);
+  Value headers = Core::get(result, "headers");
+  if (!headers.is_object()) return "";
+  for (const auto& entry : object_ref(headers)) {
+    if (entry.first == "__order") continue;
+    std::string key = entry.first;
+    for (auto& ch : key) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    if (key == "content-type") return str(entry.second);
+  }
+  return "";
 }
 
 std::vector<Value> OpenAICompatibleClient::realtime(Value events) {

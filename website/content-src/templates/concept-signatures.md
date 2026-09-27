@@ -127,6 +127,8 @@ Validation happens after parsing complete fields. For streaming generation, stre
 
 Media fields let a program receive images, audio, or files when the provider supports them. In agent flows, audio inputs are usually transcribed before planner/executor/responder stages; direct `ax(...)` programs can pass native media to compatible providers.
 
+An image input is `{ mimeType, data }`, a file input carries `mimeType` and either `data` or `fileUri`, and a url input is a string or `{ url, title, description }`. Each also carries the optional keys its chat part declares to the provider or router: an image's `details` (`high`, `low`, or `auto`; OpenAI's image detail), `cache`, `optimize`, and `altText`; a file's `filename` (OpenAI rejects inline file data without one), `cache`, and `extractedText`; a url's `cachedContent` and `cache`; and an audio input's `mimeType`, `sampleRate`, `channels`, `cache`, `transcription`, and `duration`. Other keys stay behind. OpenAI and Anthropic-style providers read a url input as text: its cached content, or else its title, description, and url, each on its own line.
+
 {{audioFieldsSection}}
 
 Cache hints mark stable context so provider prefix caching can reuse expensive prompt regions. Internal fields let a program ask the model to produce private scratch structure without exposing it in the final typed output.

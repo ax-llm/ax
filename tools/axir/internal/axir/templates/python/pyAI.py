@@ -24,6 +24,18 @@ import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
 from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text
+import warnings
+
+_CORE_DEPRECATIONS_SHOWN: set[str] = set()
+
+
+def _core_axgen_deprecation(key, message):
+    # Deprecated port behavior warns once per process.
+    if key in _CORE_DEPRECATIONS_SHOWN:
+        return None
+    _CORE_DEPRECATIONS_SHOWN.add(key)
+    warnings.warn(str(message), DeprecationWarning, stacklevel=4)
+    return None
 
 def _core_validation_error(message):
     return ValueError(str(message))
@@ -1455,7 +1467,12 @@ class ProviderOperationClient(AxBaseAI):
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
         raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak", cancellation=cancellation)
-        return provider_normalize_speak_response(self.profile, raw, request)
+        # As TS's axFetchJsonSpeech: a JSON body arrives parsed, and a binary
+        # one as base64 with its Content-Type, which names its mime type.
+        content_type = None
+        if isinstance(raw, _BinaryBody):
+            raw, content_type = raw.data, raw.content_type
+        return provider_normalize_speak_response(self.profile, raw, request, content_type)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
         state: dict[str, Any] = {}
@@ -1702,6 +1719,8 @@ class ProviderOperationClient(AxBaseAI):
                 cancellable = getattr(self.transport, cancellable_name, None)
                 result = cancellable(call, cancellation) if callable(cancellable) else self.transport(call)
                 if cancellation is not None: cancellation.throw_if_cancelled()
+                if binary_response:
+                    return _binary_transport_result(result, call)
                 return _transport_result(result, call)
             except AxAIServiceAbortedError:
                 raise
@@ -1787,8 +1806,15 @@ class ProviderOperationClient(AxBaseAI):
                 with res:
                     if binary_response:
                         # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
-                        # must not be UTF-8 decoded; return the bytes as base64.
-                        value = base64.b64encode(res.read()).decode()
+                        # must not be UTF-8 decoded: the bytes go on as base64 with
+                        # their Content-Type. A JSON body (as TS reads one by its
+                        # Content-Type) goes on parsed.
+                        content_type = res.headers.get("content-type") or ""
+                        body_bytes = res.read()
+                        if "application/json" in content_type:
+                            value = json.loads(body_bytes.decode())
+                        else:
+                            value = _BinaryBody(base64.b64encode(body_bytes).decode(), content_type)
                     else:
                         response_text = res.read().decode()
                         try:
@@ -3355,6 +3381,36 @@ def _tools_to_functions(tools):
         fn = tool.get("function", tool)
         out.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters")})
     return out
+
+
+class _BinaryBody:
+    """A binary response body as base64 text, with its Content-Type."""
+
+    __slots__ = ("data", "content_type")
+
+    def __init__(self, data: str, content_type: str):
+        self.data = data
+        self.content_type = content_type
+
+
+def _binary_transport_result(result: Any, request: dict[str, Any]):
+    # A transport's binary answer: `body` (base64 text or bytes) with its
+    # headers' Content-Type, or parsed `json`. A JSON Content-Type makes a text
+    # body JSON, as TS reads it.
+    headers = result.get("headers") if isinstance(result, dict) else None
+    content_type = ""
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if str(key).lower() == "content-type":
+                content_type = str(value or "")
+    body = _transport_result(result, request)
+    if isinstance(body, (bytes, bytearray)):
+        body = base64.b64encode(bytes(body)).decode()
+    if isinstance(body, str):
+        if "application/json" in content_type:
+            return json.loads(body)
+        return _BinaryBody(body, content_type)
+    return body
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

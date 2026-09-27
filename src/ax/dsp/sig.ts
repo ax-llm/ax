@@ -1487,19 +1487,57 @@ type InferFieldValueType<
                     : AxDateRangeValue
                   : T['type'] extends 'image'
                     ? T['isArray'] extends true
-                      ? { mimeType: string; data: string }[]
-                      : { mimeType: string; data: string }
+                      ? {
+                          mimeType: string;
+                          data: string;
+                          details?: 'high' | 'low' | 'auto';
+                          cache?: boolean;
+                          optimize?: 'quality' | 'size' | 'auto';
+                          altText?: string;
+                        }[]
+                      : {
+                          mimeType: string;
+                          data: string;
+                          details?: 'high' | 'low' | 'auto';
+                          cache?: boolean;
+                          optimize?: 'quality' | 'size' | 'auto';
+                          altText?: string;
+                        }
                     : T['type'] extends 'audio'
                       ? InferAudioValueType<T, TMode>
                       : T['type'] extends 'file'
                         ? T['isArray'] extends true
                           ? (
-                              | { mimeType: string; data: string }
-                              | { mimeType: string; fileUri: string }
+                              | {
+                                  mimeType: string;
+                                  data: string;
+                                  filename?: string;
+                                  cache?: boolean;
+                                  extractedText?: string;
+                                }
+                              | {
+                                  mimeType: string;
+                                  fileUri: string;
+                                  filename?: string;
+                                  cache?: boolean;
+                                  extractedText?: string;
+                                }
                             )[]
                           :
-                              | { mimeType: string; data: string }
-                              | { mimeType: string; fileUri: string }
+                              | {
+                                  mimeType: string;
+                                  data: string;
+                                  filename?: string;
+                                  cache?: boolean;
+                                  extractedText?: string;
+                                }
+                              | {
+                                  mimeType: string;
+                                  fileUri: string;
+                                  filename?: string;
+                                  cache?: boolean;
+                                  extractedText?: string;
+                                }
                         : T['type'] extends 'url'
                           ? T['isArray'] extends true
                             ? string[]
@@ -1634,19 +1672,57 @@ type InferFluentType<
                   : AxDateRangeValue
                 : T['type'] extends 'image'
                   ? T['isArray'] extends true
-                    ? { mimeType: string; data: string }[]
-                    : { mimeType: string; data: string }
+                    ? {
+                        mimeType: string;
+                        data: string;
+                        details?: 'high' | 'low' | 'auto';
+                        cache?: boolean;
+                        optimize?: 'quality' | 'size' | 'auto';
+                        altText?: string;
+                      }[]
+                    : {
+                        mimeType: string;
+                        data: string;
+                        details?: 'high' | 'low' | 'auto';
+                        cache?: boolean;
+                        optimize?: 'quality' | 'size' | 'auto';
+                        altText?: string;
+                      }
                   : T['type'] extends 'audio'
                     ? InferAudioValueType<T, TMode>
                     : T['type'] extends 'file'
                       ? T['isArray'] extends true
                         ? (
-                            | { mimeType: string; data: string }
-                            | { mimeType: string; fileUri: string }
+                            | {
+                                mimeType: string;
+                                data: string;
+                                filename?: string;
+                                cache?: boolean;
+                                extractedText?: string;
+                              }
+                            | {
+                                mimeType: string;
+                                fileUri: string;
+                                filename?: string;
+                                cache?: boolean;
+                                extractedText?: string;
+                              }
                           )[]
                         :
-                            | { mimeType: string; data: string }
-                            | { mimeType: string; fileUri: string }
+                            | {
+                                mimeType: string;
+                                data: string;
+                                filename?: string;
+                                cache?: boolean;
+                                extractedText?: string;
+                              }
+                            | {
+                                mimeType: string;
+                                fileUri: string;
+                                filename?: string;
+                                cache?: boolean;
+                                extractedText?: string;
+                              }
                       : T['type'] extends 'url'
                         ? T['isArray'] extends true
                           ? string[]

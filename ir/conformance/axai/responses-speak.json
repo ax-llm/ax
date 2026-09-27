@@ -9,7 +9,7 @@
   "expected_transport_request": {
     "json": {
       "input": "hello",
-      "model": "tts-1",
+      "model": "gpt-4o-mini-tts",
       "response_format": "mp3",
       "voice": "alloy"
     },
