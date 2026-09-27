@@ -12,6 +12,7 @@ import warnings
 from typing import Any
 
 from .ai import (
+    _core_axgen_deprecation,
     _core_math_floor,
     AIClient,
     AxAIRefusalError,
@@ -1213,16 +1214,8 @@ def _core_ai_stream_close(handle):
     return None
 
 
-_CORE_DEPRECATIONS_SHOWN: set[str] = set()
-
-
-def _core_axgen_deprecation(key, message):
-    # Deprecated port behavior warns once per process.
-    if key in _CORE_DEPRECATIONS_SHOWN:
-        return None
-    _CORE_DEPRECATIONS_SHOWN.add(key)
-    warnings.warn(str(message), DeprecationWarning, stacklevel=4)
-    return None
+# _core_axgen_deprecation (warn once per process) comes from the ai module,
+# which shares it with the provider functions.
 
 
 def _core_axgen_emit_delta(sink, envelope):

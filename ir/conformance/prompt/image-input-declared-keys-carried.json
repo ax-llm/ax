@@ -1,0 +1,41 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Photo`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nPhoto:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "text": "Photo: \n",
+          "type": "text"
+        },
+        {
+          "altText": "A red square",
+          "cache": true,
+          "details": "low",
+          "image": "aW1hZ2U=",
+          "mimeType": "image/png",
+          "optimize": "size",
+          "type": "image"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "input": {
+    "photo": {
+      "mimeType": "image/png",
+      "data": "aW1hZ2U=",
+      "details": "low",
+      "cache": true,
+      "optimize": "size",
+      "altText": "A red square",
+      "caption": "A square"
+    }
+  },
+  "kind": "prompt",
+  "name": "image-input-declared-keys-carried",
+  "signature": "photo:image -> answer:string"
+}

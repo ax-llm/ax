@@ -479,6 +479,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicStreamEventParts:          "Core::stream_event_content_parts",
 	IntrinsicDescriptionAppend:         "Core::description_append",
 	IntrinsicURLValid:                  "Core::url_valid",
+	IntrinsicURLEncodeComponent:        "Core::url_encode_component",
 	IntrinsicSignatureError:            "Core::signature_error",
 	IntrinsicValidationError:           "Core::validation_error",
 	IntrinsicListGet:                   "Core::list_get",

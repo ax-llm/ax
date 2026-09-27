@@ -2145,6 +2145,7 @@ static void assert_agent_run_projections(const Value& fixture, AxAgent* ag, cons
 
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
+  client.script_speak(fixture);
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
   Value semantic_observer_transcript = Value::array();
@@ -2337,6 +2338,7 @@ static void run_agent_forward(Value fixture) {
     }
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
+    assert_speak_requests(fixture, client);
     if (!Core::get(fixture, "expected_run_state_projections").is_null()) assert_equal(run_state_projections, Core::get(fixture, "expected_run_state_projections"), "agent run state projections");
     if (!Core::get(fixture, "expected_state_roundtrip_projection").is_null()) assert_equal(state_roundtrip_projection, Core::get(fixture, "expected_state_roundtrip_projection"), "agent state roundtrip projection");
     if (!Core::get(fixture, "expected_observer_transcript").is_null()) assert_equal(semantic_observer_transcript, Core::get(fixture, "expected_observer_transcript"), "agent observer transcript");
@@ -3015,7 +3017,9 @@ static void assert_transport(Value fixture, const ScriptedTransport& transport, 
   if (!expected_wire.is_null()) assert_wire_json(request_json, expected_wire);
 }
 
-static void assert_ai_error(const AxError& error, Value fixture, const ScriptedTransport& transport) {
+// An AI error's message, type, status, the strings it must never carry, and the
+// request it keeps (TypeScript's url and body, AxError::url and request_body).
+static void assert_ai_error_attributes(const AxError& error, Value fixture) {
   Value expected = Core::get(fixture, "expected_error_contains");
   if (!expected.is_null() && std::string(error.what()).find(display(expected)) == std::string::npos) {
     throw AxError("fixture", "expected error containing " + display(expected) + ", got " + error.what());
@@ -3028,15 +3032,47 @@ static void assert_ai_error(const AxError& error, Value fixture, const ScriptedT
   if (!expected_status.is_null() && error.status != static_cast<int>(std::stoul(display(expected_status)))) {
     throw AxError("fixture", "expected status " + display(expected_status) + ", got " + std::to_string(error.status));
   }
-  // C++ AI errors keep no request (AxError has no request field), so there is
-  // no expected_error_request to compare. This is everything a logger or JSON
-  // dump could read off the error and its causes.
+  // Everything a logger or JSON dump could read off the error and its causes.
   std::string text = std::string(error.what()) + "\n" + error.category + "\n" + error.type + "\n" + error.code + "\n" +
-                     stringify(error.response_body) + "\n" + stringify(Core::exception_value(error));
+                     stringify(error.response_body) + "\n" + error.url + "\n" + stringify(error.request_body) + "\n" +
+                     stringify(Core::exception_value(error));
   for (const auto& needle : Core::iter(Core::get(fixture, "expected_error_excludes", Value::array()))) {
     if (text.find(display(needle)) != std::string::npos) throw AxError("fixture", "error unexpectedly carries " + display(needle) + ": " + text);
   }
+  Value expected_request = Core::get(fixture, "expected_error_request");
+  if (!expected_request.is_null()) {
+    std::string url = display(Core::get(expected_request, "url", Value("")));
+    if (error.url != url) throw AxError("fixture", "expected error request url " + url + ", got " + error.url);
+    Value body = Core::get(expected_request, "json", Core::get(expected_request, "data"));
+    if (body.is_null() && !error.request_body.is_null()) throw AxError("fixture", "error unexpectedly keeps the request body: " + stringify(error.request_body));
+    if (!body.is_null()) {
+      if (error.request_body.is_null()) throw AxError("fixture", "error dropped the request body");
+      assert_subset(error.request_body, body, "error request body");
+    }
+  }
+}
+
+static void assert_ai_error(const AxError& error, Value fixture, const ScriptedTransport& transport) {
+  assert_ai_error_attributes(error, fixture);
   assert_transport(fixture, transport);
+}
+
+// Core's error-request view called directly ("view"), and the provider error
+// normalizer given a raw call ("normalize").
+static void run_ai_error_request(Value fixture) {
+  std::string operation = display(Core::get(fixture, "operation", "view"));
+  auto cases = Core::iter(Core::get(fixture, "cases", Value::array()));
+  for (std::size_t index = 0; index < cases.size(); ++index) {
+    Value item = cases[index];
+    if (operation == "view") {
+      assert_equal(Core::_ai_error_request(Core::get(item, "call"), Core::get(item, "options")), Core::get(item, "expected"), "error request view case " + std::to_string(index));
+    } else if (operation == "normalize") {
+      AxError error = Core::as_error(Core::openai_normalize_error(Core::get(item, "status"), Core::get(item, "body"), Core::get(item, "call"), Core::get(item, "options")));
+      assert_ai_error_attributes(error, item);
+    } else {
+      throw AxError("fixture", "unsupported error-request operation " + operation);
+    }
+  }
 }
 
 struct SavedEnvVar {
@@ -3124,7 +3160,9 @@ static void run_ai_credential_wrapper(Value fixture) {
 
 static void run_ai_embed(Value fixture) {
   ClientFixture cf(fixture);
-  Value result = cf.client->embed(Core::get(fixture, "request", Value::object()));
+  Value call_options = Core::get(fixture, "options");
+  Value request = Core::get(fixture, "request", Value::object());
+  Value result = call_options.is_null() ? cf.client->embed(request) : cf.client->embed(request, call_options);
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai embed output");
   assert_transport(fixture, cf.transport, *cf.credential_requests);
@@ -3296,22 +3334,23 @@ static void run_ai_runtime_hooks(Value fixture) {
 
 static void run_ai_error(Value fixture) {
   ClientFixture cf(fixture);
-  // Fixture "options" are the call options when service_options configure the client.
-  Value call_options = Core::get(fixture, "service_options").is_null() ? Value() : Core::get(fixture, "options");
+  // Fixture "options" are the call options (service_options configure the client).
+  Value call_options = Core::get(fixture, "options");
   try {
     std::string method = display(Core::get(fixture, "method", "chat"));
+    Value request = Core::get(fixture, "request", Value::object());
     if (method == "stream") {
-      for (const auto& ignored : cf.client->stream(Core::get(fixture, "request", Value::object()))) (void)ignored;
+      for (const auto& ignored : call_options.is_null() ? cf.client->stream(request) : cf.client->stream(request, call_options)) (void)ignored;
     } else if (method == "embed") {
-      cf.client->embed(Core::get(fixture, "request", Value::object()));
+      if (call_options.is_null()) cf.client->embed(request); else cf.client->embed(request, call_options);
     } else if (method == "transcribe") {
-      cf.client->transcribe(Core::get(fixture, "request", Value::object()));
+      if (call_options.is_null()) cf.client->transcribe(request); else cf.client->transcribe(request, call_options);
     } else if (method == "speak") {
-      cf.client->speak(Core::get(fixture, "request", Value::object()));
+      if (call_options.is_null()) cf.client->speak(request); else cf.client->speak(request, call_options);
     } else if (call_options.is_null()) {
-      cf.client->chat(Core::get(fixture, "request", Value::object()));
+      cf.client->chat(request);
     } else {
-      cf.client->chat(Core::get(fixture, "request", Value::object()), call_options);
+      cf.client->chat(request, call_options);
     }
   } catch (const AxError& error) {
     assert_ai_error(error, fixture, cf.transport);
@@ -3586,7 +3625,9 @@ static void run_ai_balancer(Value fixture) {
 
 static void run_ai_transcribe(Value fixture) {
   ClientFixture cf(fixture);
-  Value result = cf.client->transcribe(Core::get(fixture, "request", Value::object()));
+  Value call_options = Core::get(fixture, "options");
+  Value request = Core::get(fixture, "request", Value::object());
+  Value result = call_options.is_null() ? cf.client->transcribe(request) : cf.client->transcribe(request, call_options);
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai transcribe output");
   assert_transport(fixture, cf.transport);
@@ -3594,7 +3635,9 @@ static void run_ai_transcribe(Value fixture) {
 
 static void run_ai_speak(Value fixture) {
   ClientFixture cf(fixture);
-  Value result = cf.client->speak(Core::get(fixture, "request", Value::object()));
+  Value call_options = Core::get(fixture, "options");
+  Value request = Core::get(fixture, "request", Value::object());
+  Value result = call_options.is_null() ? cf.client->speak(request) : cf.client->speak(request, call_options);
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai speak output");
   assert_transport(fixture, cf.transport);
@@ -3604,6 +3647,14 @@ static void run_ai_realtime(Value fixture) {
   ClientFixture cf(fixture);
   try {
     Value request = Core::get(fixture, "request", Value::object());
+    Value expected_ws_url = Core::get(fixture, "expected_ws_url");
+    if (!expected_ws_url.is_null()) {
+      Value profile = Core::provider_normalize_profile(Core::get(fixture, "provider", "openai"));
+      Value model = Core::get(fixture, "model", Core::get(request, "model", Value("")));
+      Value options = Core::get(fixture, "service_options", Core::get(fixture, "options", Value::object()));
+      Value target = Core::provider_realtime_ws_url(profile, model, Core::get(fixture, "api_key", "test-key"), options);
+      assert_equal(Core::get(target, "url"), expected_ws_url, "realtime WebSocket URL");
+    }
     Value expected_setup = Core::get(fixture, "expected_setup");
     if (!expected_setup.is_null()) assert_equal(cf.client->realtime_audio_setup(request), expected_setup, "ai realtime setup");
     Value expected_input = Core::get(fixture, "expected_input");
@@ -4145,6 +4196,8 @@ static void run(Value fixture) {
     run_ai_credential_wrapper(fixture);
   } else if (kind == "ai_error") {
     run_ai_error(fixture);
+  } else if (kind == "ai_error_request") {
+    run_ai_error_request(fixture);
   } else if (kind == "ai_unsupported") {
     run_ai_unsupported(fixture);
   } else if (kind == "ai_provider_descriptor") {

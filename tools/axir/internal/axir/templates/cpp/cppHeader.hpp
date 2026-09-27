@@ -207,6 +207,11 @@ class AxError : public std::runtime_error {
   std::string code;
   bool retryable;
   Value response_body;
+  // A provider error's request URL and body, as TypeScript's AxAIServiceError
+  // keeps them. The body is null when includeRequestBodyInErrors is false, and
+  // request headers are never kept.
+  std::string url;
+  Value request_body;
   AxError(std::string category, std::string message);
   AxError(std::string category, std::string message, std::string type, int status = 0,
           std::string code = "", bool retryable = false, Value response_body = Value());
@@ -442,6 +447,7 @@ struct Core {
   static Value fields_from_map(Value fields);
   static Value description_append(Value base, Value hint);
   static Value url_valid(Value value);
+  static Value url_encode_component(Value value);
   static Value valid_image(Value value);
   static Value valid_audio(Value value);
   static Value valid_file(Value value);
@@ -1001,12 +1007,16 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  // error_options are the call's merged options; their includeRequestBodyInErrors
+  // decides whether a provider error keeps the request body.
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
-  Value transport_result(Value result, Value request);
+  Value transport_result(Value result, Value request, Value options);
+  std::string transport_content_type(Value result);
   std::vector<Value> iter_sse_json(Value raw);
 };
 

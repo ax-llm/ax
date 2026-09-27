@@ -1,0 +1,33 @@
+{
+  "expected_output": {
+    "audio": "UklGRg==",
+    "data": "UklGRg==",
+    "format": "wav",
+    "mimeType": "audio/wav",
+    "transcript": "Hello there"
+  },
+  "expected_transport_json_absent": ["voice", "speed", "language"],
+  "expected_transport_request": {
+    "json": {
+      "input": "Hello there",
+      "model": "voxtral-mini-tts-2603",
+      "response_format": "wav",
+      "voice_id": "Paul"
+    },
+    "url": "https://api.mistral.ai/v1/audio/speech"
+  },
+  "kind": "ai_speak",
+  "name": "mistral-speak-voice-id",
+  "provider": "mistral",
+  "request": {
+    "format": "wav",
+    "text": "Hello there",
+    "voice": "Paul"
+  },
+  "transport_responses": [
+    {
+      "body": "UklGRg==",
+      "status": 200
+    }
+  ]
+}

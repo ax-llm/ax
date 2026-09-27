@@ -52,4 +52,5 @@ output = program.forward(
     client,
     {"topicText": "Why typed contracts make multi-step LLM systems easier to maintain"},
 )
+assert all(output.get(key) for key in ("briefText",)), output
 print(json.dumps(output, indent=2, sort_keys=True))

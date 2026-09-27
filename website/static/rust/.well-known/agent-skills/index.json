@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-rust-audio/SKILL.md",
-      "digest": "sha256:c7e7ddb316f27548b8e218c5d83f43e993f5bcc70b4a12999d42294ac028c671"
+      "digest": "sha256:4654ee77b6de6bd1163523219b8b91f14fe9d6bd7147e3929c13658cf7ff4ba2"
     },
     {
       "name": "ax-rust-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:09d7b105f28495472e673b51f1c236a06d1c81a51f32cfee558a0dd207933f8f"
+      "digest": "sha256:a8b0f80255c3635e3f36441aad9e536ad85dfecb6df4aaf86388e3d9326a6705"
     },
     {
       "name": "ax-rust-flow",

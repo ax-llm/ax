@@ -28,5 +28,9 @@ int main() {
   axllm::Value output = program.forward(
       *client,
       axllm::object({{"topic", "how Ax composes typed LLM programs"}}));
+  for (const char* key : {"outline", "summary"}) {
+    std::string text = axllm::stringify(axllm::Core::get(output, key));
+    if (text == "null" || text == "\"\"" || text == "[]") throw std::runtime_error(std::string("flow output field ") + key + " is empty: " + axllm::stringify(output));
+  }
   std::cout << axllm::stringify(output) << "\n";
 }

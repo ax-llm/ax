@@ -24,6 +24,11 @@ public final class FlowOpenAIExample {
             .returns(Map.of("outline", "outline", "summary", "summary"));
     Map<String, Object> output =
         program.forward(client, Map.of("topic", "how Ax composes typed LLM programs"));
+    for (String key : List.of("outline", "summary")) {
+      if (List.of("null", "\"\"", "[]").contains(Json.stringify(output.get(key)))) {
+        throw new AssertionError("flow output field " + key + " is empty: " + Json.stringify(output));
+      }
+    }
     System.out.println(Json.stringify(output));
   }
 }

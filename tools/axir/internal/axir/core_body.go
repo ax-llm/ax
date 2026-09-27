@@ -173,6 +173,7 @@ const (
 	IntrinsicStreamEventParts          CoreIntrinsic = "intrinsic.stream.event_content_parts"
 	IntrinsicDescriptionAppend         CoreIntrinsic = "intrinsic.description.append"
 	IntrinsicURLValid                  CoreIntrinsic = "intrinsic.url.valid"
+	IntrinsicURLEncodeComponent        CoreIntrinsic = "intrinsic.url.encode_component"
 	IntrinsicSignatureError            CoreIntrinsic = "intrinsic.error.signature"
 	IntrinsicValidationError           CoreIntrinsic = "intrinsic.error.validation"
 	IntrinsicListGet                   CoreIntrinsic = "intrinsic.list.get"
@@ -336,6 +337,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicStreamEventParts:          "_core_stream_event_content_parts",
 	IntrinsicDescriptionAppend:         "_core_description_append",
 	IntrinsicURLValid:                  "_core_url_valid",
+	IntrinsicURLEncodeComponent:        "_core_url_encode_component",
 	IntrinsicSignatureError:            "_core_signature_error",
 	IntrinsicValidationError:           "_core_validation_error",
 	IntrinsicListGet:                   "_core_list_get",
@@ -523,6 +525,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.callable.invoke":                 true,
 	"intrinsic.stream.event_content_parts":            true,
 	"intrinsic.url.valid":                             true,
+	"intrinsic.url.encode_component":                  true,
 	"intrinsic.type.is_json":                          true,
 	"intrinsic.record.new":                            true,
 }
@@ -857,6 +860,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.string.split_top_level":              intrinsicInfo("intrinsic.string.split_top_level", 2, 2, false, "list<string>"),
 	"intrinsic.string.extract_leading_group":        intrinsicInfo("intrinsic.string.extract_leading_group", 3, 3, false, "json"),
 	"intrinsic.url.valid":                           intrinsicInfo("intrinsic.url.valid", 1, 1, false, "bool"),
+	"intrinsic.url.encode_component":                intrinsicInfo("intrinsic.url.encode_component", 1, 1, false, "string"),
 	"intrinsic.stream.event_content_parts":          intrinsicInfo("intrinsic.stream.event_content_parts", 1, 1, false, "list<string>"),
 	"intrinsic.string.drop_trailing_high_surrogate": intrinsicInfo("intrinsic.string.drop_trailing_high_surrogate", 1, 1, false, "string"),
 	"intrinsic.string.concat_stream_text":           intrinsicInfo("intrinsic.string.concat_stream_text", 2, 2, false, "string"),

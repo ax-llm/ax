@@ -699,6 +699,7 @@ public final class Conformance {
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
       case "ai_context_cache" -> runAIContextCache(fixture);
+      case "ai_error_request" -> runAIErrorRequest(fixture);
       case "agent_forward" -> runAgentForward(fixture);
       case "agent_streaming_forward" -> runAgentForward(fixture);
       case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
@@ -2402,7 +2403,7 @@ public final class Conformance {
   }
 
   static void runAgentForward(Map<String, Object> fixture) {
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of()))).scriptSpeak(fixture);
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     List<Object> semanticObserverTranscript = new ArrayList<>();
@@ -2584,6 +2585,7 @@ public final class Conformance {
       }
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
+      assertSpeakRequests(fixture, client);
       if (fixture.containsKey("expected_run_state_projections")) assertEqual(runStateProjections, fixture.get("expected_run_state_projections"), "agent run state projections");
       if (fixture.containsKey("expected_state_roundtrip_projection")) assertEqual(stateRoundtripProjection, fixture.get("expected_state_roundtrip_projection"), "agent state roundtrip projection");
       if (fixture.containsKey("expected_observer_transcript")) assertEqual(semanticObserverTranscript, fixture.get("expected_observer_transcript"), "agent observer transcript");
@@ -3063,10 +3065,37 @@ public final class Conformance {
     assertTransport(fixture, cf.transport);
   }
 
+  // Fixture "options" are the call options; the client takes "service_options",
+  // falling back to "options" (openaiClient). Every runner reads them this way.
+  static Map<String, Object> callOptions(Map<String, Object> fixture) {
+    return new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+  }
+
+  // Core's error-request view called directly ("view"), and the provider error
+  // normalizer given a raw call ("normalize").
+  static void runAIErrorRequest(Map<String, Object> fixture) {
+    String operation = String.valueOf(fixture.getOrDefault("operation", "view"));
+    List<Object> cases = Core.asList(fixture.getOrDefault("cases", List.of()));
+    for (int index = 0; index < cases.size(); index++) {
+      Map<String, Object> item = Core.asMap(cases.get(index));
+      if ("view".equals(operation)) {
+        assertEqual(Core._ai_error_request(item.get("call"), item.get("options")), item.get("expected"), "error request view case " + index);
+      } else if ("normalize".equals(operation)) {
+        Object raw = Core.openai_normalize_error(item.get("status"), item.get("body"), item.get("call"), item.get("options"));
+        if (!(raw instanceof AxAIServiceError error)) throw new FixtureError("case " + index + ": normalizer returned " + raw);
+        if (item.get("expected_error_type") != null && !error.getClass().getSimpleName().equals(item.get("expected_error_type"))) throw new FixtureError("case " + index + ": expected error type " + item.get("expected_error_type") + ", got " + error.getClass().getSimpleName());
+        if (item.get("expected_status") != null && !java.util.Objects.equals(error.status, Core.asInt(item.get("expected_status")))) throw new FixtureError("case " + index + ": status mismatch");
+        assertErrorAttributes(error, item);
+      } else {
+        throw new FixtureError("unsupported error-request operation " + operation);
+      }
+    }
+  }
+
   static void runAIEmbed(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     Object result;
-    try { result = cf.client.embed(Core.asMap(fixture.get("request"))); } catch (Exception e) { throw Core.asRuntime(e); }
+    try { result = cf.client.embed(Core.asMap(fixture.get("request")), callOptions(fixture)); } catch (Exception e) { throw Core.asRuntime(e); }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai embed output");
     assertTransport(fixture, cf.transport);
   }
@@ -3213,8 +3242,7 @@ public final class Conformance {
 
   static void runAIError(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
-    // Fixture "options" are the call options when service_options configure the client.
-    Map<String, Object> callOptions = fixture.containsKey("service_options") ? Core.asMap(fixture.getOrDefault("options", Map.of())) : Map.of();
+    Map<String, Object> callOptions = callOptions(fixture);
     try {
       String method = String.valueOf(fixture.getOrDefault("method", "chat"));
       if ("stream".equals(method)) for (Object ignored : cf.client.openStream(Core.asMap(fixture.get("request")), callOptions, null)) {}
@@ -3532,7 +3560,7 @@ public final class Conformance {
   static void runAITranscribe(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     Object result;
-    try { result = cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of()))); } catch (Exception e) { throw Core.asRuntime(e); }
+    try { result = cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of())), callOptions(fixture)); } catch (Exception e) { throw Core.asRuntime(e); }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai transcribe output");
     assertTransport(fixture, cf.transport);
   }
@@ -3540,7 +3568,7 @@ public final class Conformance {
   static void runAISpeak(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     Object result;
-    try { result = cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of()))); } catch (Exception e) { throw Core.asRuntime(e); }
+    try { result = cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of())), callOptions(fixture)); } catch (Exception e) { throw Core.asRuntime(e); }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai speak output");
     assertTransport(fixture, cf.transport);
   }
@@ -3549,6 +3577,12 @@ public final class Conformance {
     ClientFixture cf = openaiClient(fixture);
     try {
       Map<String, Object> request = Core.asMap(fixture.getOrDefault("request", Map.of()));
+      if (fixture.containsKey("expected_ws_url")) {
+        Object profile = Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai")));
+        Object model = fixture.getOrDefault("model", request.getOrDefault("model", ""));
+        Object target = Core.provider_realtime_ws_url(profile, model, fixture.getOrDefault("api_key", "test-key"), fixture.getOrDefault("service_options", fixture.getOrDefault("options", Map.of())));
+        assertEqual(Core.asMap(target).get("url"), fixture.get("expected_ws_url"), "realtime WebSocket URL");
+      }
       if (fixture.containsKey("expected_setup")) assertEqual(cf.client.realtimeAudioSetup(request), fixture.get("expected_setup"), "ai realtime setup");
       if (fixture.containsKey("expected_input")) assertEqual(cf.client.realtimeAudioInput(request), fixture.get("expected_input"), "ai realtime input");
       List<Object> result = new ArrayList<>();

@@ -76,8 +76,13 @@ fn main() -> AxResult<()> {
         let mut workflow = flow("examples.runtimeHooks")
             .execute("outline", ax("topic:string -> outline:string")?)
             .execute("polish", ax("outline:string -> answer:string")?)
-            .returns(json!({"answer": "polish"}));
-        println!("{}", workflow.forward_with_hooks(&mut client, json!({"topic": "Ax runtime hooks"}), Value::Null, override_hooks)?);
+            .returns(json!({"answer": "answer"}));
+        let output = workflow.forward_with_hooks(&mut client, json!({"topic": "Ax runtime hooks"}), Value::Null, override_hooks)?;
+        for key in ["answer"] {
+            let value = &output[key];
+            assert!(!value.is_null() && value != "" && *value != json!([]), "flow output field {key} is empty: {output}");
+        }
+        println!("{output}");
         Ok(())
     })();
     set_rate_limiter(None);
