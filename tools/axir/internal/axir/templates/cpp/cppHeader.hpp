@@ -1001,6 +1001,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;
   Value transport_result(Value result, Value request);
+  std::string transport_content_type(Value result);
   std::vector<Value> iter_sse_json(Value raw);
 };
 

@@ -24,12 +24,14 @@ version: "__VERSION__"
 | DateTime | `:datetime` | `Date` | `timestamp:datetime` |
 | DateRange | `:dateRange` | `{ start: Date; end: Date }` | `travelDates:dateRange` |
 | DateTimeRange | `:datetimeRange` | `{ start: Date; end: Date }` | `meetingWindow:datetimeRange` |
-| Image | `:image` | `{mimeType, data}` | `photo:image` (input only) |
+| Image | `:image` | `{mimeType, data, details?}` | `photo:image` (input only) |
 | Audio | `:audio` | input: `AxAudioInput`; output: `AxChatAudioOutput` | `recording:audio`, `speech:audio` |
-| File | `:file` | `{mimeType, data}` | `document:file` (input only) |
+| File | `:file` | `{mimeType, data \| fileUri, filename?}` | `document:file` (input only) |
 | URL | `:url` | `string` | `website:url` |
 | Code | `:code` | `string` | `pythonScript:code` |
 | Class | `:class "a, b, c"` | `"a" \| "b" \| "c"` | `mood:class "happy, sad"` |
+
+Media inputs carry the optional keys their chat part declares to the provider or router: an image's `details` (`'high'`, `'low'`, or `'auto'`; OpenAI's image `detail`), `cache`, `optimize`, and `altText`; a file's `filename` (OpenAI rejects inline file data without one), `cache`, and `extractedText`; a url's `cachedContent` and `cache`; and an audio input's `mimeType`, `sampleRate`, `channels`, `cache`, `transcription`, and `duration`. Other keys stay behind.
 
 Date, datetime, and range fields are AI-friendly but strict. They accept ISO-style values, trim minor whitespace/casing issues, and parse ranges as `{ "start": "...", "end": "..." }`, `[start, end]`, `start/end`, or natural delimiters like `start to end`; invalid values and reversed ranges should fail validation rather than being silently autocorrected. A datetime's zone can be `Z`, an offset, `UTC`/`GMT`, an IANA name (`2024-05-09 14:30 America/New_York`), or an abbreviation read at its literal offset all year (`PST` is -08:00 even in July, `EDT` is -04:00); ambiguous abbreviations (`BST`, `IST`, `CST`, `AST`, `SST`, `NST`, `ECT`, `GST`) and ICU's legacy short IDs are rejected with a correction that asks for an IANA name or an offset. `PST`/`PDT` and `CDT` follow US usage; for Philippine time (`PST`) or Cuban daylight time (`CDT`), give an IANA name (`Asia/Manila`, `America/Havana`) or a UTC offset. A wall time inside a DST gap is invalid, and one in an overlap takes the earlier instant.
 

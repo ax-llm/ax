@@ -2375,7 +2375,7 @@ public final class Conformance {
   }
 
   static void runAgentForward(Map<String, Object> fixture) {
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of()))).scriptSpeak(fixture);
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     List<Object> semanticObserverTranscript = new ArrayList<>();
@@ -2557,6 +2557,7 @@ public final class Conformance {
       }
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
+      assertSpeakRequests(fixture, client);
       if (fixture.containsKey("expected_run_state_projections")) assertEqual(runStateProjections, fixture.get("expected_run_state_projections"), "agent run state projections");
       if (fixture.containsKey("expected_state_roundtrip_projection")) assertEqual(stateRoundtripProjection, fixture.get("expected_state_roundtrip_projection"), "agent state roundtrip projection");
       if (fixture.containsKey("expected_observer_transcript")) assertEqual(semanticObserverTranscript, fixture.get("expected_observer_transcript"), "agent observer transcript");

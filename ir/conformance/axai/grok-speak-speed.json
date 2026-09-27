@@ -1,0 +1,35 @@
+{
+  "expected_output": {
+    "audio": "SUQzBAA=",
+    "data": "SUQzBAA=",
+    "format": "mp3",
+    "mimeType": "audio/mpeg",
+    "transcript": "Hello there"
+  },
+  "expected_transport_json_absent": ["model", "voice", "response_format"],
+  "expected_transport_request": {
+    "json": {
+      "language": "auto",
+      "output_format": {
+        "codec": "mp3"
+      },
+      "speed": 1.2,
+      "text": "Hello there",
+      "voice_id": "eve"
+    },
+    "url": "https://api.x.ai/v1/tts"
+  },
+  "kind": "ai_speak",
+  "name": "grok-speak-speed",
+  "provider": "grok",
+  "request": {
+    "speed": 1.2,
+    "text": "Hello there"
+  },
+  "transport_responses": [
+    {
+      "body": "SUQzBAA=",
+      "status": 200
+    }
+  ]
+}

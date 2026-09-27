@@ -3342,9 +3342,20 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	out := Object("status", float64(resp.StatusCode))
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
-		// be UTF-8 decoded / JSON-parsed; return the bytes as a base64 string so
-		// the speak normalizer's `raw["audio"] default raw` picks it up.
-		coreSet(out, "json", base64.StdEncoding.EncodeToString(data))
+		// be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
+		// which names their mime type. A JSON body (as TS reads one by its
+		// Content-Type) goes on parsed.
+		contentType := resp.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			parsed, parseErr := parseJSONErr(string(data))
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			coreSet(out, "json", parsed)
+		} else {
+			coreSet(out, "json", base64.StdEncoding.EncodeToString(data))
+		}
+		coreSet(out, "headers", Object("content-type", contentType))
 	} else if coreTruthy(coreGet(req, "stream", false)) {
 		coreSet(out, "body", string(data))
 	} else if len(data) > 0 {
@@ -4429,6 +4440,21 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	return out
 }
 
+// transportContentType is the Content-Type header of a transport response, if
+// it names one.
+func transportContentType(raw Value) string {
+	headers, ok := coreGet(raw, "headers", nil).(map[string]Value)
+	if !ok {
+		return ""
+	}
+	for key, value := range headers {
+		if key != "__order" && strings.EqualFold(key, "content-type") {
+			return display(value)
+		}
+	}
+	return ""
+}
+
 func normalizeTransportPayload(raw Value) Value {
 	status := int(num(coreGet(raw, "status", 200)))
 	body := coreGet(raw, "json", coreGet(raw, "body", coreGet(raw, "data", raw)))
@@ -4462,7 +4488,22 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
-		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw), request))
+		// As TS's axFetchJsonSpeech: a JSON body (by its Content-Type) is read
+		// as JSON, and a binary one as base64 with its Content-Type.
+		payload := normalizeTransportPayload(raw)
+		contentType := transportContentType(raw)
+		if text, ok := payload.(string); ok && strings.Contains(contentType, "application/json") {
+			parsed, parseErr := parseJSONErr(text)
+			if parseErr != nil {
+				panic(AxError{Category: "response", Message: parseErr.Error()})
+			}
+			payload = parsed
+		}
+		var contentTypeValue Value
+		if contentType != "" {
+			contentTypeValue = contentType
+		}
+		return mustCore(provider_normalize_speak_response(c.Profile, payload, request, contentTypeValue))
 	})
 	return value, normalizeContextError(ctx, err)
 }
@@ -15750,7 +15791,7 @@ func conformanceAgentRequestStage(request map[string]Value) string {
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
+	client := conformanceScriptSpeak(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, fixture)
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	observerTranscript := MutableArray()
 	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
@@ -16019,6 +16060,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
 	}
+	conformanceAssertSpeakRequests(fixture, client)
 	assertRunProjections()
 	if expected := coreGet(fixture, "expected_run_state_projections", nil); expected != nil {
 		assertEqual(runStateProjections, expected, "agent run state projections")
@@ -17164,7 +17206,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	fields := goPromptInputFields(sig, values)
 	parts := []Value{}
 	allText := true
-	audioParts := false
 	for _, field := range fields {
 		value := coreGet(values, field.Name, nil)
 		// As TS renders an input field (src/ax/dsp/prompt.ts): a required input
@@ -17175,7 +17216,8 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			}
 			panic(AxError{Category: "runtime", Message: "Value for input field '" + field.Name + "' is required."})
 		}
-		if field.Type.Name == "audio" {
+		kind := field.Type.Name
+		if kind == "audio" {
 			// As TS: an audio object with a transcript (what an AxGen audio
 			// output renders to), like a plain string, reaches the model as
 			// text; other audio goes as audio parts.
@@ -17184,23 +17226,25 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 					value = transcript
 				}
 			}
-			if _, isText := value.(string); !isText {
-				parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
-				if field.Type.IsArray {
-					items, ok := value.([]Value)
-					if !ok {
-						panic(AxError{Category: "runtime", Message: "Audio field value must be an array."})
-					}
-					for _, item := range items {
-						parts = append(parts, goPromptAudioPart(item))
-					}
-				} else {
-					parts = append(parts, goPromptAudioPart(value))
+		}
+		_, isText := value.(string)
+		// As TS defaultRenderInField: image, file and url values, and audio
+		// that is not text, go out as media parts after a text part with the
+		// field's title.
+		if kind == "image" || kind == "file" || kind == "url" || (kind == "audio" && !isText) {
+			parts = append(parts, Object("type", "text", "text", field.Title+": \n"))
+			if field.Type.IsArray {
+				if !goPromptIsList(value) {
+					panic(AxError{Category: "runtime", Message: goPromptMediaLabel(kind) + " field value must be an array."})
 				}
-				allText = false
-				audioParts = true
-				continue
+				for _, item := range asSlice(value) {
+					parts = append(parts, goPromptMediaPart(kind, item))
+				}
+			} else {
+				parts = append(parts, goPromptMediaPart(kind, value))
 			}
+			allText = false
+			continue
 		}
 		valueText := goPromptValueText(value)
 		// A time.Time in a date-typed field reads as TS renders a Date.
@@ -17214,9 +17258,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 			allText = false
 		}
 		parts = append(parts, part)
-		if field.Type.Name == "image" || field.Type.Name == "file" || field.Type.Name == "url" {
-			allText = false
-		}
 	}
 	if allText {
 		lines := []string{}
@@ -17225,10 +17266,8 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		}
 		return strings.Join(lines, "\n")
 	}
-	if !audioParts {
-		return parts
-	}
-	// As TS: consecutive text parts join with a newline.
+	// As TS combineConsecutiveStrings: in a message with media, each run of
+	// text parts joins with a newline and is cached when any of them is.
 	combined := []Value{}
 	for _, part := range parts {
 		if display(coreGet(part, "type", "")) == "text" && len(combined) > 0 && display(coreGet(combined[len(combined)-1], "type", "")) == "text" {
@@ -17244,22 +17283,197 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 	return combined
 }
 
+func goPromptMediaLabel(kind string) string {
+	switch kind {
+	case "image":
+		return "Image"
+	case "audio":
+		return "Audio"
+	case "file":
+		return "File"
+	}
+	return "URL"
+}
+
+// goPromptMediaAliases turns the snake_case aliases the provider mappings
+// read into the part type's declared camelCase keys (a camelCase key wins),
+// so inputs written with them keep working.
+func goPromptMediaAliases(kind string, value Value) Value {
+	object, ok := value.(map[string]Value)
+	if !ok {
+		return value
+	}
+	var aliases [][2]string
+	switch kind {
+	case "image":
+		aliases = [][2]string{{"mime_type", "mimeType"}}
+	case "audio":
+		aliases = [][2]string{{"audio", "data"}, {"mime_type", "mimeType"}, {"sample_rate", "sampleRate"}}
+	case "file":
+		aliases = [][2]string{{"mime_type", "mimeType"}, {"file_uri", "fileUri"}, {"extracted_text", "extractedText"}}
+	default:
+		aliases = [][2]string{{"cached_content", "cachedContent"}}
+	}
+	var out map[string]Value
+	for _, alias := range aliases {
+		item, hasAlias := object[alias[0]]
+		_, hasKey := object[alias[1]]
+		if hasAlias && !hasKey {
+			if out == nil {
+				out = cloneMap(object)
+			}
+			coreSet(out, alias[1], item)
+		}
+	}
+	if out == nil {
+		return value
+	}
+	return out
+}
+
+func goPromptMediaPart(kind string, value Value) Value {
+	value = goPromptMediaAliases(kind, value)
+	switch kind {
+	case "image":
+		return goPromptImagePart(value)
+	case "audio":
+		return goPromptAudioPart(value)
+	case "file":
+		return goPromptFilePart(value)
+	}
+	return goPromptURLPart(value)
+}
+
+func goPromptIsList(value Value) bool {
+	switch value.(type) {
+	case []Value, *AxArray:
+		return true
+	}
+	return false
+}
+
+// goPromptJSFalsy is JavaScript's !value for a JSON value: objects and arrays
+// are truthy.
+func goPromptJSFalsy(value Value) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case bool:
+		return !v
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case int64:
+		return v == 0
+	case float64:
+		return v == 0 || v != v
+	}
+	return false
+}
+
+// goPromptMediaObject checks a media value as TS's validators do and returns
+// it as a map.
+func goPromptMediaObject(value Value, label string, requiredKey string) map[string]Value {
+	if goPromptJSFalsy(value) {
+		panic(AxError{Category: "runtime", Message: label + " field value is required."})
+	}
+	object, isObject := value.(map[string]Value)
+	if !isObject && !goPromptIsList(value) {
+		panic(AxError{Category: "runtime", Message: label + " field value must be an object."})
+	}
+	if !isObject {
+		panic(AxError{Category: "runtime", Message: label + " field must have " + requiredKey})
+	}
+	if _, ok := object[requiredKey]; !ok {
+		panic(AxError{Category: "runtime", Message: label + " field must have " + requiredKey})
+	}
+	return object
+}
+
+// goPromptImagePart is TS's image part: the mime type, the data as `image`,
+// and the details the provider reads (OpenAI's image detail).
+func goPromptImagePart(value Value) Value {
+	image := goPromptMediaObject(value, "Image", "mimeType")
+	data, hasData := image["data"]
+	if !hasData {
+		panic(AxError{Category: "runtime", Message: "Image field must have data"})
+	}
+	part := Object("type", "image", "mimeType", image["mimeType"], "image", data)
+	return goPromptDeclaredKeys(part, image, "details", "cache", "optimize", "altText")
+}
+
+// goPromptDeclaredKeys copies the optional keys a media part type declares
+// (TS AxChatRequest) that the value sets onto the part, so the provider or
+// router that reads them gets them; other keys stay behind.
+func goPromptDeclaredKeys(part map[string]Value, value map[string]Value, keys ...string) Value {
+	for _, key := range keys {
+		if item, ok := value[key]; ok {
+			coreSet(part, key, item)
+		}
+	}
+	return part
+}
+
 // goPromptAudioPart is TS's audio part: only the format (wav when there is
 // none) and the data.
 func goPromptAudioPart(value Value) Value {
-	audio, ok := value.(map[string]Value)
-	if !ok {
-		panic(AxError{Category: "runtime", Message: "Audio field value must be an object."})
-	}
-	data, hasData := audio["data"]
-	if !hasData {
-		panic(AxError{Category: "runtime", Message: "Audio field must have data"})
-	}
+	audio := goPromptMediaObject(value, "Audio", "data")
 	format := audio["format"]
 	if format == nil {
 		format = "wav"
 	}
-	return Object("type", "audio", "format", format, "data", data)
+	part := Object("type", "audio", "format", format, "data", audio["data"])
+	return goPromptDeclaredKeys(part, audio, "mimeType", "sampleRate", "channels", "cache", "transcription", "duration")
+}
+
+// goPromptFilePart is TS's file part: the mime type and either the data or
+// the fileUri.
+func goPromptFilePart(value Value) Value {
+	file := goPromptMediaObject(value, "File", "mimeType")
+	data, hasData := file["data"]
+	fileURI, hasFileURI := file["fileUri"]
+	if !hasData && !hasFileURI {
+		panic(AxError{Category: "runtime", Message: "File field must have either data or fileUri"})
+	}
+	if hasData && hasFileURI {
+		panic(AxError{Category: "runtime", Message: "File field cannot have both data and fileUri"})
+	}
+	part := Object("type", "file", "mimeType", file["mimeType"], "data", data)
+	if hasFileURI {
+		part = Object("type", "file", "mimeType", file["mimeType"], "fileUri", fileURI)
+	}
+	return goPromptDeclaredKeys(part, file, "filename", "cache", "extractedText")
+}
+
+// goPromptURLPart is TS's url part: the url, and the title and description
+// when they are set; a plain string is the url.
+func goPromptURLPart(value Value) Value {
+	if goPromptJSFalsy(value) {
+		panic(AxError{Category: "runtime", Message: "URL field value is required."})
+	}
+	if url, ok := value.(string); ok {
+		return Object("type", "url", "url", url)
+	}
+	link, isObject := value.(map[string]Value)
+	if !isObject && !goPromptIsList(value) {
+		panic(AxError{Category: "runtime", Message: "URL field value must be a string or object."})
+	}
+	if !isObject {
+		panic(AxError{Category: "runtime", Message: "URL field must have url property"})
+	}
+	url, hasURL := link["url"]
+	if !hasURL {
+		panic(AxError{Category: "runtime", Message: "URL field must have url property"})
+	}
+	part := Object("type", "url", "url", url)
+	if title := link["title"]; !goPromptJSFalsy(title) {
+		coreSet(part, "title", title)
+	}
+	if description := link["description"]; !goPromptJSFalsy(description) {
+		coreSet(part, "description", description)
+	}
+	return goPromptDeclaredKeys(part, link, "cachedContent", "cache")
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
 	// As TypeScript's structuredOutput option: AxGen renders with it set when
