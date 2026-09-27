@@ -867,7 +867,7 @@ module @ax.gen version "0.1" {
         core.if %starts_step {
           %control_step = core.let %step
           %control_updates = core.call intrinsic.ai.control_take_pending(%client)
-          core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
+          %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
         }
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
         %response = core.map
@@ -2149,7 +2149,7 @@ module @ax.gen version "0.1" {
         // As in TS, run control updates queued for this run apply when a step
         // starts, and each one starts a new version.
         %control_updates = core.call intrinsic.ai.control_take_pending(%client)
-        core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
+        %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
         core.for %control_update in %control_updates {
           %update_held_version = core.get %run["current_version"] default 0
           %update_behind = core.call intrinsic.lt(%control_version, %update_held_version)
@@ -2920,11 +2920,13 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/generate.ts"
-    type signature = "(AxGen, list<json>, json, json) -> i64"
+    type signature = "(AxGen, list<json>, json, json) -> list<json>"
     body @entry(%gen: AxGen, %messages: list<json>, %runtime_options: json, %updates: json) {
       // TS applies run control updates when a step starts: a steer joins the
       // conversation as a user message and stays in memory, and a thinking
       // level sets the thinking token budget of the requests that follow.
+      // Returns the conversation, which callers reassign: a port's list need
+      // not share the caller's.
       %steers = core.list
       core.for %update in %updates {
         %kind = core.get %update["type"] default ""
@@ -2946,8 +2948,7 @@ module @ax.gen version "0.1" {
       core.if %has_steers {
         core.call intrinsic.axgen.memory_add_request(%gen, %steers)
       }
-      %count = core.call intrinsic.len(%updates)
-      core.return %count
+      core.return %messages
     }
   }
 }
