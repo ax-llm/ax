@@ -4406,8 +4406,8 @@ module @ax.stream version "0.1" {
         %sent_is_text = core.type_is %sent type "string"
         %both_text = core.call intrinsic.and(%final_is_text, %sent_is_text)
         core.if %both_text {
-          %extends = core.call intrinsic.string.starts_with(%final_value, %sent)
-          %taken_back = core.call intrinsic.not(%extends)
+          %extends_sent = core.call intrinsic.string.starts_with(%final_value, %sent)
+          %taken_back = core.call intrinsic.not(%extends_sent)
           core.if %taken_back {
             %diverged = core.let true
           }
