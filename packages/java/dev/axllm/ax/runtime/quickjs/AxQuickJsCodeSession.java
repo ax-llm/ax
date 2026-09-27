@@ -68,7 +68,19 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
         if (preservedReserved.containsKey(name)) bindings.put(name, preservedReserved.get(name));
         else bindings.remove(name);
       }
-      return response.get("result");
+      Object result = response.get("result");
+      if (response.get("logs") instanceof List<?> logs && !logs.isEmpty()) {
+        Map<String, Object> withLogs = new LinkedHashMap<>();
+        if (result instanceof Map<?, ?>) {
+          withLogs.putAll(Json.asObject(result));
+        } else {
+          withLogs.put("kind", "result");
+          withLogs.put("result", result);
+        }
+        withLogs.put("logs", List.copyOf(logs));
+        return withLogs;
+      }
+      return result;
     } catch (Exception ex) {
       return Map.of("kind", "error", "is_error", true, "error_category", errorCategory(ex), "error", ex.getMessage());
     }
@@ -302,6 +314,17 @@ async function __ax_run(payloadJson) {
     }
   }
   for (const name of __ax_bind_host_namespaces()) reserved.add(name);
+  // console: the actor inspects intermediate values with console.log. Each
+  // run's lines come back as the result's logs, which the action log shows, as
+  // the TS runtime returns console output as the execution result.
+  const logs = [];
+  function log() {
+    logs.push(Array.prototype.slice.call(arguments).map(function(value) {
+      if (typeof value === "string") return value;
+      try { return JSON.stringify(value); } catch (_) { return String(value); }
+    }).join(" "));
+  }
+  globalThis.console = {log: log, error: log, warn: log, info: log, debug: log};
   function complete(value) { globalThis.__ax_completion = value; return value; }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
   globalThis.respond = function() { return complete({type: "respond", args: Array.from(arguments)}); };
@@ -343,7 +366,7 @@ async function __ax_run(payloadJson) {
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
   }
-  return JSON.stringify({ok: true, result, bindings: out});
+  return JSON.stringify({ok: true, result, bindings: out, logs});
 }
 """;
 }
