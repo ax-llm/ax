@@ -3143,22 +3143,61 @@ public final class Conformance {
 
   static void runAIError(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
+    // Fixture "options" are the call options when service_options configure the client.
+    Map<String, Object> callOptions = fixture.containsKey("service_options") ? Core.asMap(fixture.getOrDefault("options", Map.of())) : Map.of();
     try {
       String method = String.valueOf(fixture.getOrDefault("method", "chat"));
-      if ("stream".equals(method)) for (Object ignored : cf.client.stream(Core.asMap(fixture.get("request")))) {}
-      else if ("embed".equals(method)) cf.client.embed(Core.asMap(fixture.get("request")));
-      else if ("transcribe".equals(method)) cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of())));
-      else if ("speak".equals(method)) cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of())));
-      else cf.client.chat(Core.asMap(fixture.get("request")));
+      if ("stream".equals(method)) for (Object ignored : cf.client.openStream(Core.asMap(fixture.get("request")), callOptions, null)) {}
+      else if ("embed".equals(method)) cf.client.embed(Core.asMap(fixture.get("request")), callOptions);
+      else if ("transcribe".equals(method)) cf.client.transcribe(Core.asMap(fixture.getOrDefault("request", Map.of())), callOptions);
+      else if ("speak".equals(method)) cf.client.speak(Core.asMap(fixture.getOrDefault("request", Map.of())), callOptions);
+      else cf.client.chat(Core.asMap(fixture.get("request")), callOptions);
     } catch (Exception e) {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
       if (fixture.get("expected_error_type") != null && !e.getClass().getSimpleName().equals(fixture.get("expected_error_type"))) throw new FixtureError("expected error type " + fixture.get("expected_error_type") + ", got " + e.getClass().getSimpleName());
       if (fixture.get("expected_status") != null && e instanceof AxAIServiceError ai && !java.util.Objects.equals(ai.status, Core.asInt(fixture.get("expected_status")))) throw new FixtureError("status mismatch");
+      assertErrorAttributes(e, fixture);
       assertTransport(fixture, cf.transport);
       return;
     }
     throw new FixtureError("expected AxAI call to fail");
+  }
+
+  // Everything a logger, tracer or JSON dump could read off an error and its causes.
+  static String errorText(Throwable error) {
+    StringBuilder out = new StringBuilder();
+    java.util.Set<Throwable> seen = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    for (Throwable current = error; current != null && seen.add(current); current = current.getCause()) {
+      out.append(current).append('\n');
+      for (Class<?> type = current.getClass(); type != null && AxAIServiceError.class.isAssignableFrom(type); type = type.getSuperclass()) {
+        for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+          if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+          try { field.setAccessible(true); out.append(field.getName()).append('=').append(field.get(current)).append('\n'); }
+          catch (ReflectiveOperationException | RuntimeException unreadable) { throw new FixtureError("cannot read error field " + field.getName() + ": " + unreadable); }
+        }
+      }
+    }
+    return out.toString();
+  }
+
+  static void assertErrorAttributes(Throwable error, Map<String, Object> fixture) {
+    String text = errorText(error);
+    for (Object needle : Core.asList(fixture.getOrDefault("expected_error_excludes", List.of()))) {
+      if (text.contains(String.valueOf(needle))) throw new FixtureError("error unexpectedly carries " + needle + ": " + text);
+    }
+    if (fixture.containsKey("expected_error_request")) {
+      // Exactly the expected keys, as TypeScript keeps the URL and, when
+      // includeRequestBodyInErrors allows it, the body; values subset-matched.
+      Object request = error instanceof AxAIServiceError ai ? ai.request : null;
+      Map<String, Object> expected = Core.asMap(fixture.get("expected_error_request"));
+      List<String> expectedKeys = new ArrayList<>(expected.keySet());
+      Collections.sort(expectedKeys);
+      List<String> actualKeys = request instanceof Map<?, ?> actual ? new ArrayList<>(stringList(new ArrayList<>(actual.keySet()))) : null;
+      if (actualKeys != null) Collections.sort(actualKeys);
+      if (!expectedKeys.equals(actualKeys)) throw new FixtureError("expected error request keys " + expectedKeys + ", got " + request);
+      assertSubset(request, expected, "error request");
+    }
   }
 
   static void runAIUnsupported(Map<String, Object> fixture) {
@@ -3602,7 +3641,7 @@ public final class Conformance {
     String defaultEmbedModel = String.valueOf(descriptor.getOrDefault("defaultEmbedModel", ""));
     options.put("model", fixture.getOrDefault("model", defaultModel));
     options.put("embed_model", fixture.getOrDefault("embed_model", defaultEmbedModel));
-    options.put("api_key", "test-key");
+    options.put("api_key", fixture.getOrDefault("api_key", "test-key"));
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
     options.put("options", fixture.getOrDefault("service_options", fixture.getOrDefault("options", Map.of())));
