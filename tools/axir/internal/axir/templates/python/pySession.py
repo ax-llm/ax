@@ -459,9 +459,11 @@ class _SessionClient:
                 self._boundary_updates.append(update["id"])
 
     def _select(self, request):
-        # The run's client is pinned on its first request.
+        # The run's client is pinned on its first request. As in TS, the run
+        # has started before its first request goes out.
         if self._selected:
             return
+        self._emit_started()
         if self.control and self.control.signal.is_set():raise RuntimeError("Run aborted before selecting a provider")
         visited = set()
         while callable(getattr(self.client, "_pin_chat_run", None)):
@@ -471,7 +473,6 @@ class _SessionClient:
         self._selected = True
         features = getattr(self.client,"get_features",lambda model=None:{})(request.get("model"))
         self._fallback = not (features.get("asyncTools") and callable(getattr(self.client,"open_chat_session",None)))
-        if self._fallback:self._emit_started()
 
     def _fallback_request(self, request):
         # A pinned client without sessions takes the run's updates at the
@@ -537,7 +538,6 @@ class _SessionClient:
         self.session = session
         limit = int(self.options.get("max_steps", self.options.get("maxSteps", 10)))
         self.state = core.chat_session_create_state(getattr(session,"model",request.get("model") or getattr(self.client,"model","")), self.path, limit)
-        self._emit_started()
         threading.Thread(target=self._bridge, args=(session, self._queue, self._cancel), daemon=True).start()
         try:
             while True:
