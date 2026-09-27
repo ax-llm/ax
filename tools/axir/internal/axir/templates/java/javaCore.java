@@ -928,6 +928,16 @@ final class Core {
       throw new RuntimeException(error.getMessage(), error);
     }
   }
+  // The run control updates pending for this run, which the forward applies
+  // when a step starts, as TypeScript does: a steer, a thinking budget. Only
+  // the run's request boundary (SessionRun without a native chat session)
+  // tracks them; any other client has none.
+  static Object aiControlTakePending(Object client) {
+    return client instanceof SessionRun run ? run.takeControlUpdates() : new ArrayList<>();
+  }
+  static Object aiControlPendingCount(Object client) {
+    return client instanceof SessionRun run ? run.pendingControlCount() : 0;
+  }
   static Object aiClientFeatures(Object client, Object model) {
     if (client instanceof SessionRun session) return aiClientFeatures(session.client, model);
     if (client instanceof ChatRunFeatures features) return features.getFeatures(model == null ? null : String.valueOf(model));
