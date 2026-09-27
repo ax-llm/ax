@@ -157,8 +157,9 @@ func snapshotGlobalRuntimeHooks() AxRuntimeHooks {
 // AxFlow caches its returned output the same way, keyed by its steps and
 // input values, with the forward call's "cachingFunction" or the
 // process-wide one (NewFlow takes none); it ignores errors from its own reads
-// and writes. The call's function also reaches the flow's AxGen nodes, which
-// cache their own outputs.
+// and writes, and a hit runs no node and records no ax_gen_flow_forward span
+// or ax_gen_flow metric. The call's function also reaches the flow's AxGen
+// nodes, which cache their own outputs.
 type AxCachingFunction func(key string, value map[string]Value) (map[string]Value, error)
 
 var cachingFunctionState struct {
@@ -7590,10 +7591,26 @@ func (f *AxFlow) forward(ctx context.Context, client AIClient, values map[string
 	return f.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
 func (f *AxFlow) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+	options = stripRuntimeHooks(options)
+	// As in TypeScript, the flow reads its cache before its span and metrics,
+	// so a hit runs no node and records neither (@flow_cache_lookup_impl). On
+	// a miss the lookup goes to the forward as _ax_flow_cache_lookup, which
+	// then only stores.
+	if _, looked := options["_ax_flow_cache_lookup"]; !looked {
+		lookup, lookupErr := safeValue(func() Value {
+			return mustCore(_flow_cache_lookup_impl(f.State, values, options))
+		})
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		if coreTruthy(coreGet(lookup, "hit", false)) {
+			return coreGet(lookup, "value", nil), nil
+		}
+		options["_ax_flow_cache_lookup"] = lookup
+	}
 	attributes := Object("ax.program.id", display(coreGet(f.State, "program_id", "root.flow")), "ax.program.type", "AxFlow")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, f.RuntimeHooks, "ax_gen_flow_forward", "ax_gen_flow", attributes)
 	defer func() { finish(err) }()
-	options = stripRuntimeHooks(options)
 	if f.ExecutionContextError != nil {
 		return nil, f.ExecutionContextError
 	}
@@ -12696,6 +12713,16 @@ func runConformanceFlowCacheSequence(fixture map[string]Value) {
 			callOptions["control"] = RunControl()
 		}
 		input := asMap(coreGet(call, "input", Object()))
+		if coreTruthy(coreGet(call, "reverse_input_keys", false)) {
+			// The runtime keeps a map's key order ("__order"), so the flow
+			// sees the input with its keys reversed.
+			keys := orderedKeys(input)
+			reversed := Object()
+			for i := len(keys) - 1; i >= 0; i-- {
+				coreSet(reversed, keys[i], input[keys[i]])
+			}
+			input = reversed
+		}
 		var output, deltas Value
 		var err error
 		if display(coreGet(call, "kind", "forward")) == "streaming_forward" {
