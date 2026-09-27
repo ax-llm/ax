@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-27-give-a-native-chat-session-typescript-s-response-budget-in-the-p` [axgen] Give a native chat session TypeScript's response budget in the ports: maxSteps (default 25) minus the step index, with TypeScript's error
+  - Status: open
+  - Source commit: `a0db9f007391c0cabc498eeafcaa308341032a2d`
+  - TS paths: `src/ax/dsp/chatSession.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript's axRunChatSession lets one model request's native session make (maxSteps ?? 25) - stepIndex responses (generate.ts maxResponses) and then fails with 'Chat session failed: Maximum steps reached with unincorporated tool results (N); unresolved calls: ...'. The ports cap a session at the max_steps option or 10, without the step index, and fail with 'Maximum model steps exhausted before final completion'. Reproduced with a scripted session of 10 sequential tool-call responses and a final answer (11 responses): TypeScript completes with {answer: done} after 10 continues; Python on the 3b-2 branch fails with 'Generate failed: Maximum model steps exhausted before final completion'. At 26 responses TypeScript fails with its message. Go, Java, Rust and C++ create the session state with the same max_steps default of 10 (read, not run). Affects session-capable providers only, for a request whose session makes 11 to 25 responses.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
   - Status: open
   - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`

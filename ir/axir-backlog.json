@@ -2315,6 +2315,25 @@
       "verification": "@agent_eval_marks and @build_agent_run_prediction build every port's evaluated prediction (final, askClarification and the ports' error prediction) from the run's own share of the logs, with TS-shaped functionCalls, toolErrors, failure signals and turn count; @agent_playbook_action_log_text renders the distiller's steps when the executor did not run. TS goldens axoptimize/eval-prediction-function-calls and -clarification-function-calls (TS's forwardPipelineForEvaluation through a scripted tool runtime; new runner keys runtime_script for optimize eval and expected_prediction_fields for exact fields, in all five runners) and axagent/agent-playbook-evolve-miner-function-calls (two tasks) and -miner-direct-respond (TS's mineWeakness over TS's evaluated predictions) fail on main in all five ports and pass in all five; 10 negative copies fail in all five (50 of 50). The Rust runner's eval operation now runs the agent. Full suites 1229/1229 in python, go, java, cpp and rust."
     },
     {
+      "id": "axir-2026-09-27-give-a-native-chat-session-typescript-s-response-budget-in-the-p",
+      "status": "open",
+      "title": "Give a native chat session TypeScript's response budget in the ports: maxSteps (default 25) minus the step index, with TypeScript's error",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "a0db9f007391c0cabc498eeafcaa308341032a2d",
+      "tsPaths": ["src/ax/dsp/chatSession.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript's axRunChatSession lets one model request's native session make (maxSteps ?? 25) - stepIndex responses (generate.ts maxResponses) and then fails with 'Chat session failed: Maximum steps reached with unincorporated tool results (N); unresolved calls: ...'. The ports cap a session at the max_steps option or 10, without the step index, and fail with 'Maximum model steps exhausted before final completion'. Reproduced with a scripted session of 10 sequential tool-call responses and a final answer (11 responses): TypeScript completes with {answer: done} after 10 continues; Python on the 3b-2 branch fails with 'Generate failed: Maximum model steps exhausted before final completion'. At 26 responses TypeScript fails with its message. Go, Java, Rust and C++ create the session state with the same max_steps default of 10 (read, not run). Affects session-capable providers only, for a request whose session makes 11 to 25 responses.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event",
       "status": "open",
       "title": "Keep a surrogate pair that a provider splits across stream events in Go and Rust",
