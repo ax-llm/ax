@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-09-27-count-utf-16-code-units-trim-with-javascript-s-whitespace-set-an` [axgen] Count UTF-16 code units, trim with JavaScript's whitespace set, and send TypeScript's retry messages in the ports
+  - Status: open
+  - Source commit: `eff7fd4ef847d94e80c60894e44946afb8930fe1`
+  - TS paths: `src/ax/dsp/validators.ts`, `src/ax/dsp/response/structuredDelta.ts`, `src/ax/dsp/asserts.ts`, `src/ax/dsp/errors.ts`, `src/ax/dsp/prompt.ts`
+  - Impact: TypeScript measures string length constraints and the structured stream re-parse cadence with String.prototype.length (UTF-16 code units), trims with String.prototype.trim (JS white space and line terminators only), and sends a retry as one user message with a text part: 'Invalid Field: <message>' for a validation error, 'Follow these instructions: <message>.' for an assertion, and a fixed message when a json_object answer isn't one JSON object. The ports counted code points (Python, Rust) or bytes (Go, C++), trimmed with each language's own whitespace set, and sent 'The previous response failed validation: <error>. Return only corrected JSON.' as a string (with the parser's error for json_object).
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event` [axgen] Keep a surrogate pair that a provider splits across stream events in Go and Rust
   - Status: open
   - Source commit: `af38cd35839a83461ac28242a01a10fd9ff1632c`
