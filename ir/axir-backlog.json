@@ -2183,7 +2183,7 @@
     },
     {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
-      "status": "open",
+      "status": "done",
       "title": "Match TypeScript's ACE teacher prompts, required-input errors, field titles and agent playbook seed in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2201,9 +2201,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "4d3de802f2d630154427b72cc5579830d9dbb337",
+      "verification": "All five ports build the ACE reflector and curator signatures with their field builders and TS descriptions; the TS golden axoptimize/playbook-evolve-teacher-inputs pins every teacher system prompt byte for byte (expected_teacher_system_prompts). Eight TS goldens (axgen forward/streaming-forward required-input cases) pin TS's required-input errors and renders; prompt/field-titles-snake-and-camel-case pins Rust titles; prompt/json-and-array-outputs-text-contract pins Go's text contract for json and array outputs; axagent/playbook-config-empty-seed-clock pins the agent seed snapshot under an injected clock (expected_playbook_state). Every new or changed fixture passes in all five ports; each one that differs on main fails there in the ports named in the PR (the whitespace and optional-empty input cases pass on main and pin the inputs TS accepts); mutated copies fail in all five. verify --mode release passes in python, go, java, rust and cpp (1099 fixtures each); Go and Python perturbation gates pass (239 response mutations across 99 fixtures)."
     }
   ],
   "nonPortableExemptions": [
