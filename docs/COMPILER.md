@@ -32,6 +32,17 @@ adding Send/Sync requirements to the client trait. Adaptive balancer workers
 share their accounting store. Group failures retain completed diagnostics and
 return before noncooperative work finishes; late results are discarded.
 
+Each AxGen model request opens its own native session with the whole prompt,
+as TypeScript's `axRunChatSession` does, and closes it once that request's
+response completes. A correction or a later step opens a fresh session whose
+prompt carries the earlier sessions' tool calls, results and continued
+responses, and every session applies the run's updates again. A streamed request
+hands Core the session's partial events, continued responses and final response.
+Core streams each response like a plain stream on its own state, starts a new
+version for each later response, and sends only what the partial events did not.
+TypeScript-derived `*native-session*` fixtures pin the session log, prompts,
+control events, deltas and output in all five targets.
+
 Coordinated native tests prove overlap and failure isolation in all five
 languages. Provider-backed generation, agent, dependent-flow, concurrent-flow,
 and cancellation examples have also run successfully against Astra. These are

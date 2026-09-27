@@ -2277,6 +2277,26 @@ const sessionCases: Record<string, Case> = {
     responses: [],
     request_tail: 2,
   },
+  // A forward with stream: true returns the completed response's output
+  // once, however the session's partial events split it.
+  'forward-native-session-stream-option': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, reason:string',
+    control: true,
+    forward_options: { stream: true },
+    native_session: [
+      [
+        [
+          sessionPartial('r1', { content: 'Answer: Pa' }),
+          sessionPartial('r1', { content: 'ris\nRea' }),
+          sessionPartial('r1', { content: 'son: big ' }),
+          sessionPartial('r1', { content: 'city' }),
+          sessionAnswer('r1', 'Answer: Paris\nReason: big city'),
+        ],
+      ],
+    ],
+    responses: [],
+  },
   // A forward does not stream, so streaming assertions do not apply.
   'forward-native-session-no-streaming-assertions': {
     kind: 'forward',
