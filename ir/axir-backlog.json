@@ -2182,6 +2182,33 @@
       "verification": "Java AxGen.streamingForward returns an AxGenDeltaStream, C++ streaming_forward takes a delta handler and Rust streaming_forward an on_delta callback, beside the Python and Go APIs from #724; Go and Rust AxFlow stream the flow output as one update. A consumer that stops early ends a controlled run as aborted in TS and all five ports (streaming-forward-control-* TS goldens; runner keys control, stop_after_deltas, expected_control_events), with TS and per-port mutation checks. verify --mode dev 1085/1085 in python, go, java, cpp and rust; npm run test --workspace=@ax-llm/ax passes."
     },
     {
+      "id": "axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and",
+      "status": "open",
+      "title": "Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "911d6a72ec504ee4e6fd70c6581d732b7f1b483b",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/ai/base.ts",
+        "src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts",
+        "src/ax/agent/synthesizer.ts",
+        "src/ax/agent/contextManager.ts",
+        "src/ax/agent/agentInternal/initialization.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "TypeScript AxGen now treats run and service options given to its constructor as defaults for every forward (control, stream, sessionId, abortSignal, timeout, fetch, webSocket, traceContext, executionPath, eventContext, speech, excludeContentFromTrace, serviceTier, verbose, beta, corsProxy, includeRequestBodyInErrors, promptCacheRetention; customLabels merges key by key) and passes the service options to ai.chat; the base AI honors a per-call corsProxy, timeout and fetch. In the ports, Go ignored a constructor run control and the IR's cache skip read only the call's control; Go and Rust read the execution path from the call's options only and Java read only execution_path; Go chose the native chat session from the call's asyncMode and model only, and Rust from the call's asyncMode; Rust had no constructor-level run control; and no port sent prompt_cache_retention on OpenAI Responses.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-09-27-axflow-reads-and-stores-its-own-cachingfunction-entry-in-the-por",
       "status": "done",
       "title": "AxFlow reads and stores its own cachingFunction entry in the ports",

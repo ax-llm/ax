@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-apply-axgen-constructor-run-options-as-defaults-in-the-ports-and` [axgen] Apply AxGen constructor run options as defaults in the ports and send promptCacheRetention on OpenAI Responses
+  - Status: open
+  - Source commit: `911d6a72ec504ee4e6fd70c6581d732b7f1b483b`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/ai/base.ts`, `src/ax/agent/agentInternal/runtimeExecutionLlmQuery.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`, `src/ax/agent/synthesizer.ts`, `src/ax/agent/contextManager.ts`, `src/ax/agent/agentInternal/initialization.ts`
+  - Impact: TypeScript AxGen now treats run and service options given to its constructor as defaults for every forward (control, stream, sessionId, abortSignal, timeout, fetch, webSocket, traceContext, executionPath, eventContext, speech, excludeContentFromTrace, serviceTier, verbose, beta, corsProxy, includeRequestBodyInErrors, promptCacheRetention; customLabels merges key by key) and passes the service options to ai.chat; the base AI honors a per-call corsProxy, timeout and fetch. In the ports, Go ignored a constructor run control and the IR's cache skip read only the call's control; Go and Rust read the execution path from the call's options only and Java read only execution_path; Go chose the native chat session from the call's asyncMode and model only, and Rust from the call's asyncMode; Rust had no constructor-level run control; and no port sent prompt_cache_retention on OpenAI Responses.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
