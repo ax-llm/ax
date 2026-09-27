@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-transport-error-classification` [axai] Real HTTP transport timeouts and connection failures raise TypeScript's typed, retryable errors in every port
+  - Status: open
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/util/apicall.ts`
+  - Impact: TypeScript's apiCall raises AxAIServiceTimeoutError for a timeout and AxAIServiceNetworkError for a failed connection, and AxGen retries both as infrastructure errors (the #703/#707 classification). Rust's reqwest transport maps them to an untyped, non-retryable AxError (category ai_service), as a per-call timeout in seconds shows on origin/main ('error sending request for url', no error type). The other ports' real HTTP clients (urllib, net/http, HttpClient, libcurl) are not yet audited against TypeScript for these two cases.
+  - Suggested AxIR work: Audit the five ports' real HTTP clients for transport-level timeouts and connection failures against TypeScript; Type and mark retryable what TypeScript types and retries
 
 ## Done
 
@@ -996,6 +1001,24 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `67b2e78e8`
   - Verification: `Live: detail vs details prompt tokens on gpt-4.1 and gpt-4o-mini, pcm16 HTTP 400, input_audio mimeType and sampleRate HTTP 400, no Responses model takes audio input. TS: api.test.ts detail, pcm and pcm16, and input_audio tests fail on d023f6756 and pass. Ports: axai openai-audio-part-format-from-mime-type, openai-audio-part-unknown-format and responses-audio-part-without-format fail on origin/main in all five ports and pass in all five.`
+- `axir-2026-09-27-per-call-timeout-ms` [axai] A call's timeoutMs bounds the wait for the response headers in the ports
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/util/apicall.ts`, `src/ax/ai/base.ts`, `src/ax/ai/call_options.test.ts`
+  - Impact: TypeScript reads a per-call timeout in milliseconds (base.ts: options.timeout ?? this.timeout) and apiCall ends a request whose response headers have not arrived by then with AxAIServiceTimeoutError, without a request-layer retry; the timer stops once the headers arrive. On origin/main Python, Go, Java and C++ ignored a per-call timeout, timeoutMs and timeout_ms (a loopback server that never answers kept every call waiting), Rust ignored timeoutMs and read a per-call timeout in seconds for non-streaming requests only, and Rust streams used a fixed 60 s.
+  - Suggested AxIR work: Take TypeScript's per-call timeout as timeoutMs in the ports until the next major version; with the header-wait semantics; and warn once on a per-call timeout; Let Rust streams use the effective timeout
+  - Completed at: 2026-09-27
+  - Completed by: `46b4182cc`
+  - Verification: `TS: src/ax/ai/call_options.test.ts pins the per-call timeout (AxAIServiceTimeoutError 'Request timed out after 50ms', one fetch, a started stream running past it). Ports: axai call-timeout-* (timeout_ms on the transport call for chat, stream and embed, and the one-time warning), axgen call-timeout-ms-* and axagent agent-forward-call-timeout-ms-reaches-each-stage pass in python, go, java, cpp and rust; the timeout_http_roundtrip example (a server that never answers, and a stream whose second event comes after the timeoutMs) passes in all five. Live via the Python port: gemini-3.5-flash and claude-haiku-4-5 complete a chat and a stream with timeoutMs 30000 and time out at timeoutMs 1.`
+- `axir-2026-09-27-per-call-vertex-beta` [axai] A call's beta selects Vertex v1beta1 in Python, Java and C++
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/call_options.test.ts`
+  - Impact: TypeScript resolves the Vertex API version for each call (getVertexApiURL(model, options.beta)), so a call's beta routes onto v1beta1 and a call's beta: false wins over the service's. Go and Rust merged it per call; Python, Java and C++ fixed the base URL at client construction.
+  - Suggested AxIR work: Resolve the Vertex base URL from each call's merged options unless an explicit base URL is set
+  - Completed at: 2026-09-27
+  - Completed by: `46b4182cc`
+  - Verification: `axai vertex-gemini-per-call-beta, -over-service and -stream fail on origin/main in python, java and cpp (they pass in go and rust) and pass in all five; src/ax/ai/call_options.test.ts pins TypeScript's per-call beta.`
 - `axir-2026-09-27-port-speak-results-carry-typescript-speech-response-keys` [axai] Port speak() results carry TypeScript's AxSpeechResponse keys
   - Status: done
   - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
@@ -1041,6 +1064,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `f95ab33cf`
   - Verification: `Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures.`
+- `axir-2026-09-27-responses-prompt-cache-key-every-request` [axai] Every OpenAI Responses request sends prompt_cache_key in the ports
+  - Status: done
+  - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/caching.ts`, `src/ax/ai/call_options.test.ts`
+  - Impact: TypeScript's Responses request builder sends prompt_cache_key on every request: axResolveOpenAIPromptCacheKey gives the call's promptCacheKey, the service's, the call's sessionId, then the service's. The IR sent it only for GPT-6 with prompt caching requested. TypeScript's GPT-6 caching path also dropped a service-level key; it now resolves the key the same way.
+  - Suggested AxIR work: Set prompt_cache_key on the non-Meta Responses request in provider.axir; Resolve the key on TypeScript's GPT-6 caching path with axResolveOpenAIPromptCacheKey
+  - Completed at: 2026-09-27
+  - Completed by: `46b4182cc`
+  - Verification: `Seven axai openai-responses-prompt-cache-key-* fixtures (six send a key, one pins its absence) fail on origin/main in all five ports where a key is expected and pass in all five; openai-responses-prompt-cache-disabled now expects the key. src/ax/ai/call_options.test.ts pins TypeScript, including the GPT-6 cache path test that fails before the TypeScript fix. Live: the Responses API accepts prompt_cache_key on gpt-5.4-mini, gpt-6-luna and gpt-6-astra (HTTP 200, key echoed).`
 - `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
   - Status: done
   - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
