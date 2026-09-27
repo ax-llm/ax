@@ -34,7 +34,13 @@ func main() {
 		"\r\n"
 	sseRest := "data: " + event2
 
+	// Both requests hold the body open and record what the client did in the
+	// meantime: the order proves incremental delivery and prompt cancellation,
+	// so a slow machine cannot fail either check. The 30 s bounds only run out
+	// when the client never gets there.
 	var requests atomic.Int32
+	var incremental, cancelHoldExpired atomic.Bool
+	firstTaken := make(chan struct{})
 	cancelObserved := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.Copy(io.Discard, r.Body)
@@ -45,14 +51,22 @@ func main() {
 			flusher.Flush()
 		}
 		if requests.Add(1) == 2 {
+			// The cancelled request: the body stays open until the client's
+			// cancellation reaches this handler.
 			select {
 			case <-r.Context().Done():
 				cancelObserved <- struct{}{}
-			case <-time.After(5 * time.Second):
+			case <-time.After(30 * time.Second):
+				cancelHoldExpired.Store(true)
 			}
 			return
 		}
-		time.Sleep(300 * time.Millisecond)
+		// The rest of the body waits until the client has taken the first event.
+		select {
+		case <-firstTaken:
+			incremental.Store(true)
+		case <-time.After(30 * time.Second):
+		}
 		io.WriteString(w, sseRest)
 		flusher.Flush()
 	}))
@@ -63,7 +77,6 @@ func main() {
 		"base_url": server.URL,
 		"model":    "gpt-5.4-mini",
 	})
-	started := time.Now()
 	stream, err := client.StreamEvents(context.Background(), map[string]ax.Value{
 		"chat_prompt": ax.Array(ax.Object("role", "user", "content", "stream")),
 	}, nil)
@@ -75,7 +88,7 @@ func main() {
 	if !stream.Next() {
 		panic(fmt.Sprintf("stream ended before first event: %v", stream.Err()))
 	}
-	ttft := time.Since(started)
+	close(firstTaken)
 	events := []ax.Value{stream.Value()}
 	for stream.Next() {
 		events = append(events, stream.Value())
@@ -83,9 +96,8 @@ func main() {
 	if stream.Err() != nil {
 		panic(stream.Err())
 	}
-	completion := time.Since(started)
-	if completion-ttft < 200*time.Millisecond {
-		panic(fmt.Sprintf("first event was not incremental: ttft=%s completion=%s", ttft, completion))
+	if !incremental.Load() {
+		panic("first event was not incremental: the client yielded it only after the server sent the rest of the body")
 	}
 
 	var deltas []string
@@ -122,21 +134,20 @@ func main() {
 	if !cancelStream.Next() {
 		panic(fmt.Sprintf("cancel stream ended before first event: %v", cancelStream.Err()))
 	}
-	cancelStarted := time.Now()
 	cancel(errors.New("loopback stopped"))
 	if cancelStream.Next() {
 		panic("cancelled stream yielded another event")
+	}
+	if cancelHoldExpired.Load() {
+		panic("cancelled stream did not return promptly: it waited for the server to end the body")
 	}
 	var aborted ax.AxAIServiceAbortedError
 	if !errors.As(cancelStream.Err(), &aborted) || aborted.Retryable || !strings.Contains(cancelStream.Err().Error(), "loopback stopped") {
 		panic(fmt.Sprintf("wrong cancellation error: %v", cancelStream.Err()))
 	}
-	if time.Since(cancelStarted) > time.Second {
-		panic("cancelled stream did not return promptly")
-	}
 	select {
 	case <-cancelObserved:
-	case <-time.After(time.Second):
+	case <-time.After(30 * time.Second):
 		panic("server did not observe the cancelled request context")
 	}
 	fmt.Println("stream-http-roundtrip-ok")
