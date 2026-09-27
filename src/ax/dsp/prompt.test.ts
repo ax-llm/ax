@@ -1,3 +1,4 @@
+// cspell:ignore JVBE (the base64 of a PDF's %PDF- header)
 import { describe, expect, it } from 'vitest';
 
 import { countChatPromptContentChars } from '../ai/promptMetrics.js';

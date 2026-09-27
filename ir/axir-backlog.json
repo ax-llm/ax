@@ -2434,7 +2434,7 @@
       ],
       "completedAt": "2026-09-27",
       "completedByCommit": "67b2e78e8",
-      "verification": "13 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback."
+      "verification": "12 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback."
     },
     {
       "id": "axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths",
