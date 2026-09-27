@@ -425,11 +425,13 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         AxAIServiceError error = failure instanceof AxAIServiceError serviceError
             ? serviceError
             : networkError(failure, null);
-        // As in TS apiCall, a timeout is not retried here.
+        // As in TS apiCall, a timeout the request ran out of is not retried
+        // here; a 408 or 504 response, typed as a timeout, is retried by its
+        // status.
         boolean retryable = !(error instanceof AxAIServiceAbortedError) && (error instanceof AxAIServiceNetworkError
             || error instanceof AxAIServiceResponseError
             || error instanceof AxAIServiceStreamTerminatedError
-            || error instanceof AxAIServiceStatusError && error.status != null && Core.truthy(Core.is_retryable_status(error.status)));
+            || (error instanceof AxAIServiceStatusError || error instanceof AxAIServiceTimeoutError) && error.status != null && Core.truthy(Core.is_retryable_status(error.status)));
         if (!retryable || attempt >= maxRetries) throw error;
         attempt++;
         double delay = Math.min(initialDelay * Math.pow(backoff, attempt - 1), maxDelay);

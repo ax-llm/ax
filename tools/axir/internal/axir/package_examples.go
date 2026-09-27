@@ -5869,6 +5869,7 @@ import threading
 import time
 
 from axllm import (
+    AxAIServiceError,
     AxAIServiceNetworkError,
     AxAIServiceTimeoutError,
     OpenAICompatibleClient,
@@ -5876,6 +5877,12 @@ from axllm import (
     typesafe,
 )
 
+GATEWAY_BODY = b'{"error":{"message":"upstream timed out","type":"server_error"}}'
+GATEWAY_RESPONSE = (
+    b"HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\n"
+    + f"Content-Length: {len(GATEWAY_BODY)}\r\nConnection: close\r\n\r\n".encode()
+    + GATEWAY_BODY
+)
 DROP_EVENT = (
     b'data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-5.4-mini",'
     b'"choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
@@ -5905,7 +5912,8 @@ def read_request(connection):
 
 def serve(mode):
     """Accept connections and count them: "close" closes each one without a
-    response, "drop" sends one stream event and drops it, "hold" never answers."""
+    response, "drop" sends one stream event and drops it, "gateway" answers 504,
+    "hold" never answers."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(16)
@@ -5927,6 +5935,8 @@ def serve(mode):
                     head = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
                     connection.sendall(head + f"{len(DROP_EVENT):x}\r\n".encode() + DROP_EVENT + b"\r\n")
                     time.sleep(0.05)
+                elif mode == "gateway":
+                    connection.sendall(GATEWAY_RESPONSE)
             except OSError:
                 pass
             connection.close()
@@ -5975,6 +5985,17 @@ expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client
 before = closed["connections"]
 expect("closed stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(client(closing).stream(request, {"retry": fast_retry})))
 assert closed["connections"] - before == 3, f"closed stream: {closed['connections'] - before} requests"
+
+# A 504 response is retried by its status, as TS apiCall retries it: it is not a
+# timeout the request ran out of.
+gateway, answered = serve("gateway")
+try:
+    list(client(gateway).stream(request, {"retry": fast_retry}))
+except AxAIServiceError:
+    pass
+else:
+    raise AssertionError("gateway stream: no error")
+assert answered["connections"] == 3, f"gateway stream: {answered['connections']} requests"
 
 # The client's own timeout (seconds) ends a chat or a stream whose response has
 # not started, in TS's words, and the request layer does not retry it.
@@ -6052,6 +6073,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 // retries too; streams always throw the typed errors. Exits non-zero on any
 // mismatch so ` + "`" + `axir verify` + "`" + ` fails if it regresses.
 public final class TransportErrorsHTTPRoundtripExample {
+  static final String GATEWAY_BODY = "{\"error\":{\"message\":\"upstream timed out\",\"type\":\"server_error\"}}";
   static final String DROP_EVENT = "data: {\"id\":\"chatcmpl_drop\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}\n\n";
   static final Map<String, Object> REQUEST = Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hi")));
   static final Map<String, Object> FAST_RETRY = Map.of("maxRetries", 2, "initialDelayMs", 10, "maxDelayMs", 20);
@@ -6074,6 +6096,17 @@ public final class TransportErrorsHTTPRoundtripExample {
     int before = closed.get();
     expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(closing, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     expectCount("closed stream", closed.get() - before, 3);
+
+    // A 504 response is retried by its status, as TS apiCall retries it: it is
+    // not a timeout the request ran out of.
+    AtomicInteger answered = new AtomicInteger();
+    int gateway = serve("gateway", answered);
+    try {
+      drain(client(gateway, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null);
+      throw new RuntimeException("gateway stream: no error");
+    } catch (AxAIServiceError error) {
+      expectCount("gateway stream", answered.get(), 3);
+    }
 
     // The client's own timeout (seconds) ends a chat or a stream whose
     // response has not started, in TS's words, and the request layer does not
@@ -6189,7 +6222,8 @@ public final class TransportErrorsHTTPRoundtripExample {
   }
 
   // Accept connections and count them: "close" closes each one without a
-  // response, "drop" sends one stream event and drops it, "hold" never answers.
+  // response, "drop" sends one stream event and drops it, "gateway" answers
+  // 504, "hold" never answers.
   static int serve(String mode, AtomicInteger connections) throws Exception {
     ServerSocket listener = new ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"));
     List<Socket> held = Collections.synchronizedList(new ArrayList<>());
@@ -6209,6 +6243,11 @@ public final class TransportErrorsHTTPRoundtripExample {
             socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
             socket.getOutputStream().flush();
             Thread.sleep(50);
+          } else if ("gateway".equals(mode)) {
+            String response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: "
+                + GATEWAY_BODY.length() + "\r\nConnection: close\r\n\r\n" + GATEWAY_BODY;
+            socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
           }
           socket.close();
         } catch (Exception error) {
@@ -6256,6 +6295,7 @@ const cppTransportErrorsHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 
 namespace {
 
+const std::string kGatewayBody = R"({"error":{"message":"upstream timed out","type":"server_error"}})";
 const std::string kDropEvent =
     "data: {\"id\":\"chatcmpl_drop\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-5.4-mini\","
     "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}\n\n";
@@ -6306,7 +6346,8 @@ void drain_request(int fd) {
 }
 
 // Accept connections and count them: "close" closes each one without a
-// response, "drop" sends one stream event and drops it, "hold" never answers.
+// response, "drop" sends one stream event and drops it, "gateway" answers 504,
+// "hold" never answers.
 std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
   int listener = listen_loopback(port);
   auto connections = std::make_shared<std::atomic<int>>(0);
@@ -6327,6 +6368,10 @@ std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
         std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n") + size + "\r\n" + kDropEvent + "\r\n";
         (void)send(fd, response.data(), response.size(), 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } else if (mode == "gateway") {
+        std::string response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: " +
+                               std::to_string(kGatewayBody.size()) + "\r\nConnection: close\r\n\r\n" + kGatewayBody;
+        (void)send(fd, response.data(), response.size(), 0);
       }
       close(fd);
     }
@@ -6386,6 +6431,19 @@ int main() {
   int before = closed->load();
   expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
   expect_count("closed stream", closed->load() - before, 3);
+
+  // A 504 response is retried by its status, as TS apiCall retries it: it is
+  // not a timeout the request ran out of.
+  int gateway = 0;
+  auto answered = serve("gateway", &gateway);
+  bool gateway_failed = false;
+  try {
+    client(gateway)->stream_each(request, ignore, object({{"retry", fast_retry}}));
+  } catch (const AxError&) {
+    gateway_failed = true;
+  }
+  if (!gateway_failed) throw std::runtime_error("gateway stream: no error");
+  expect_count("gateway stream", answered->load(), 3);
 
   // The client's own timeout (seconds) ends a chat or a stream whose response
   // has not started, in TS's words, and the request layer does not retry it.

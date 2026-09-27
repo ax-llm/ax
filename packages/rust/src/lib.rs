@@ -18630,8 +18630,11 @@ fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
     })
 }
 
+// A timeout the request itself ran out of (the client's own, a call's
+// timeoutMs). TS apiCall does not retry it. A 408 or 504 response, which the
+// ports type as a timeout, carries its status and is retried by it.
 fn is_timeout_error(err: &AxError) -> bool {
-    err.error_type.as_deref() == Some("AxAIServiceTimeoutError")
+    err.error_type.as_deref() == Some("AxAIServiceTimeoutError") && err.status.is_none()
 }
 
 fn is_retryable_ai_error(err: &AxError) -> bool {

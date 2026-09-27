@@ -5273,8 +5273,10 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           // Retry transport/open failures before any SSE event. Once a provider
           // event exists, its normalized error is authoritative unless the
           // explicit transient-status classifier above requested a retry.
-          // As in TS apiCall, a timeout is not retried here.
-          bool timed_out = error.type == "AxAIServiceTimeoutError";
+          // As in TS apiCall, a timeout the request ran out of is not retried
+          // here; a 408 or 504 response, typed as a timeout, is retried by its
+          // status.
+          bool timed_out = error.type == "AxAIServiceTimeoutError" && error.status == 0;
           if (!received_event && !delivered && stream_error_retryable(error) && !timed_out && attempt < max_retries) retry_requested = true;
           else if (delivered) {
             AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
@@ -9292,8 +9294,9 @@ Value AxAITypesafeClient::call(const std::string& method, const std::string& pat
     try {
       return client.request_json(path, payload, false, "json", false, method);
     } catch (const AxError& error) {
-      // As in TS apiCall, a timeout is not retried here.
-      if (!error.retryable || error.type == "AxAIServiceTimeoutError" || attempt >= retries) throw;
+      // As in TS apiCall, a timeout the request ran out of is not retried
+      // here; a 408 or 504 response, typed as a timeout, is retried.
+      if (!error.retryable || (error.type == "AxAIServiceTimeoutError" && error.status == 0) || attempt >= retries) throw;
       double delay = std::min(num(Core::get(retry, "initial_delay_ms")) * std::pow(num(Core::get(retry, "backoff_factor")), attempt), num(Core::get(retry, "max_delay_ms")));
       auto duration = std::chrono::milliseconds(static_cast<long>(delay));
       if (cancellation) { cancellation->wait_for(duration); cancellation->throw_if_cancelled(); }

@@ -46,6 +46,14 @@ func main() {
 	expectType("closed stream", err, "AxAIServiceNetworkError", "Network Error: ")
 	expectCount("closed stream", closed.Load()-before, 3)
 
+	// A 504 response is retried by its status, as TS apiCall retries it: it is
+	// not a timeout the request ran out of.
+	gateway, answered := serve("gateway")
+	if _, err = newClient(gateway, nil).Stream(context.Background(), request, map[string]ax.Value{"retry": fastRetry}); err == nil {
+		panic("gateway stream: no error")
+	}
+	expectCount("gateway stream", answered.Load(), 3)
+
 	// A server that sends one event and drops the connection: the stream ends
 	// in an infrastructure error after the event, and is not retried.
 	dropping, dropped := serve("drop")
@@ -129,11 +137,13 @@ func closedAddress() string {
 	return address
 }
 
+const gatewayBody = `{"error":{"message":"upstream timed out","type":"server_error"}}`
+
 const dropEvent = `data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}` + "\n\n"
 
 // serve accepts connections and counts them. "close" closes each one without
-// a response, "drop" sends one stream event and drops it, and "hold" never
-// answers.
+// a response, "drop" sends one stream event and drops it, "gateway" answers
+// 504, and "hold" never answers.
 func serve(mode string) (string, *atomic.Int32) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -159,6 +169,9 @@ func serve(mode string) (string, *atomic.Int32) {
 			if mode == "drop" {
 				fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n", len(dropEvent), dropEvent)
 				time.Sleep(50 * time.Millisecond)
+			}
+			if mode == "gateway" {
+				fmt.Fprintf(conn, "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(gatewayBody), gatewayBody)
 			}
 			conn.Close()
 		}

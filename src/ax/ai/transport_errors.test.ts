@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ax } from '../dsp/template.js';
 import {
   AxAIServiceNetworkError,
+  AxAIServiceStatusError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
 import { AxAIOpenAIModel } from './openai/chat_types.js';
@@ -122,6 +123,31 @@ describe('a real HTTP failure', () => {
         .catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(AxAIServiceTimeoutError);
       expect(requests()).toBe(1);
+    }
+  });
+
+  it('retries a 408 or 504 response by its status, as it is not a timeout the request ran out of', async () => {
+    for (const [status, text] of [
+      [408, 'Request Timeout'],
+      [504, 'Gateway Timeout'],
+    ] as const) {
+      const body = JSON.stringify({ error: { message: 'upstream timed out' } });
+      const port = await listen((socket) => {
+        socket.once('data', () => {
+          socket.end(
+            `HTTP/1.1 ${status} ${text}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
+          );
+        });
+      });
+      for (const stream of [false, true]) {
+        const { service, requests } = client(port);
+        const error = await service
+          .chat({ chatPrompt }, { stream })
+          .catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(AxAIServiceStatusError);
+        expect((error as AxAIServiceStatusError).status).toBe(status);
+        expect(requests()).toBe(3);
+      }
     }
   });
 

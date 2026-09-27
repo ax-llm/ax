@@ -623,6 +623,13 @@ def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any
     return error_type(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
 
 
+def _is_transport_timeout(error: BaseException) -> bool:
+    # A timeout the request itself ran out of (the client's own, a call's
+    # timeoutMs). TS apiCall does not retry it. A 408 or 504 response, which
+    # the ports type as a timeout, carries its status and is retried by it.
+    return isinstance(error, AxAIServiceTimeoutError) and getattr(error, "status", None) is None
+
+
 def _network_error(exc: BaseException, request: Any) -> AxAIServiceNetworkError:
     # TS's AxAIServiceNetworkError: "Network Error: " and the transport's message.
     return AxAIServiceNetworkError(f"Network Error: {exc}", request=request, retryable=True)
@@ -1507,7 +1514,7 @@ class ProviderOperationClient(AxBaseAI):
                 first = next(events, sentinel)
             except AxAIServiceError as error:
                 # As in TS apiCall, a timeout is not retried here.
-                if _is_retryable_ai_error(error) and not isinstance(error, AxAIServiceTimeoutError) and attempt < max_retries:
+                if _is_retryable_ai_error(error) and not _is_transport_timeout(error) and attempt < max_retries:
                     attempt += 1
                     delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
                     _wait_backoff(delay, cancellation)
@@ -2099,7 +2106,7 @@ class AxAITypesafeClient:
                 return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts)
             except AxAIServiceError as error:
                 # As in TS apiCall, a timeout is not retried here.
-                if not _is_retryable_ai_error(error) or isinstance(error, AxAIServiceTimeoutError) or attempt >= int(retry["max_retries"]):
+                if not _is_retryable_ai_error(error) or _is_transport_timeout(error) or attempt >= int(retry["max_retries"]):
                     raise
                 delay = min(float(retry["initial_delay_ms"]) * float(retry["backoff_factor"]) ** attempt, float(retry["max_delay_ms"])) / 1000
                 attempt += 1

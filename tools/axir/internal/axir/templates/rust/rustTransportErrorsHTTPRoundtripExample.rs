@@ -17,6 +17,7 @@ use std::time::Duration;
 // retries both as infrastructure errors. Panics on any mismatch so
 // `axir verify` fails if it regresses.
 
+const GATEWAY_BODY: &str = r#"{"error":{"message":"upstream timed out","type":"server_error"}}"#;
 const DROP_EVENT: &str = "data: {\"id\":\"chatcmpl_drop\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}\n\n";
 
 fn client(port: u16, options: Value) -> OpenAICompatibleClient {
@@ -94,7 +95,8 @@ fn read_request(stream: &mut TcpStream) {
 }
 
 // Accept connections and count them: "close" closes each one without a
-// response, "drop" sends one stream event and drops it, "hold" never answers.
+// response, "drop" sends one stream event and drops it, "gateway" answers 504,
+// "hold" never answers.
 fn serve(mode: &'static str) -> (u16, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -118,6 +120,14 @@ fn serve(mode: &'static str) -> (u16, Arc<AtomicUsize>) {
                 let _ = stream.write_all(response.as_bytes());
                 let _ = stream.flush();
                 thread::sleep(Duration::from_millis(50));
+            }
+            if mode == "gateway" {
+                let response = format!(
+                    "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{GATEWAY_BODY}",
+                    GATEWAY_BODY.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
             }
         }
     });

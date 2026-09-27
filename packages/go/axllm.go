@@ -93614,6 +93614,15 @@ func isAxTimeoutError(err error) bool {
 	return ok && typed.Type == "AxAIServiceTimeoutError"
 }
 
+// isTransportTimeout is a timeout the request itself ran out of (a call's
+// timeoutMs, the Typesafe client's timeout). TS apiCall does not retry it. A
+// 408 or 504 response, which the ports type as a timeout, carries its status
+// and is retried by it.
+func isTransportTimeout(err error) bool {
+	typed, ok := AsAxError(err)
+	return ok && typed.Type == "AxAIServiceTimeoutError" && typed.Status == 0
+}
+
 // transportCallError keeps a timeout a transport reported as TS's
 // AxAIServiceTimeoutError, with the request view a provider error keeps. Any
 // other Ax error the transport typed (an abort) stays as it is, and any other
@@ -93845,7 +93854,7 @@ func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payl
         })
         if err==nil{return result,nil}
         // As in TS apiCall, a timeout is not retried here.
-        if !IsRetryable(err)||isAxTimeoutError(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
+        if !IsRetryable(err)||isTransportTimeout(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
         if err=waitStreamRetry(ctx,math.Min(initial*math.Pow(factor,float64(attempt)),maxDelay));err!=nil{return nil,err}
     }
 }
@@ -94557,7 +94566,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
 				if err != nil {
 					// As in TS apiCall, a timeout is not retried here.
-					if IsRetryable(err) && !isAxTimeoutError(err) && attempt < maxRetries {
+					if IsRetryable(err) && !isTransportTimeout(err) && attempt < maxRetries {
 						attempt++
 						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
 							panic(waitErr)

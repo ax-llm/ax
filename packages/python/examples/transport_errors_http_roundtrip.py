@@ -13,6 +13,7 @@ import threading
 import time
 
 from axllm import (
+    AxAIServiceError,
     AxAIServiceNetworkError,
     AxAIServiceTimeoutError,
     OpenAICompatibleClient,
@@ -20,6 +21,12 @@ from axllm import (
     typesafe,
 )
 
+GATEWAY_BODY = b'{"error":{"message":"upstream timed out","type":"server_error"}}'
+GATEWAY_RESPONSE = (
+    b"HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\n"
+    + f"Content-Length: {len(GATEWAY_BODY)}\r\nConnection: close\r\n\r\n".encode()
+    + GATEWAY_BODY
+)
 DROP_EVENT = (
     b'data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-5.4-mini",'
     b'"choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
@@ -49,7 +56,8 @@ def read_request(connection):
 
 def serve(mode):
     """Accept connections and count them: "close" closes each one without a
-    response, "drop" sends one stream event and drops it, "hold" never answers."""
+    response, "drop" sends one stream event and drops it, "gateway" answers 504,
+    "hold" never answers."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(16)
@@ -71,6 +79,8 @@ def serve(mode):
                     head = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
                     connection.sendall(head + f"{len(DROP_EVENT):x}\r\n".encode() + DROP_EVENT + b"\r\n")
                     time.sleep(0.05)
+                elif mode == "gateway":
+                    connection.sendall(GATEWAY_RESPONSE)
             except OSError:
                 pass
             connection.close()
@@ -119,6 +129,17 @@ expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client
 before = closed["connections"]
 expect("closed stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(client(closing).stream(request, {"retry": fast_retry})))
 assert closed["connections"] - before == 3, f"closed stream: {closed['connections'] - before} requests"
+
+# A 504 response is retried by its status, as TS apiCall retries it: it is not a
+# timeout the request ran out of.
+gateway, answered = serve("gateway")
+try:
+    list(client(gateway).stream(request, {"retry": fast_retry}))
+except AxAIServiceError:
+    pass
+else:
+    raise AssertionError("gateway stream: no error")
+assert answered["connections"] == 3, f"gateway stream: {answered['connections']} requests"
 
 # The client's own timeout (seconds) ends a chat or a stream whose response has
 # not started, in TS's words, and the request layer does not retry it.

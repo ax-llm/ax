@@ -2621,25 +2621,6 @@
       "verification": "AxAgent::with_playbook_student(Rc<RefCell<C>>) names the client that runs the run-end reflector and curator calls; without one they run on the forward's client, and a student that is already borrowed (for example because it is also the forward's client) is not borrowed again. Four Rust tests (agent_playbook_student_tests) run a failing agent run end to end: the named student gets the 2 learning requests and the forward client only the 4 run requests, the student survives with_tool_module and with_runtime, the forward client learns without a student, and a student that is the forward client does not panic. A mutant that ignores the student fails 2 of them, one that borrows the student while the forward holds it fails 1. Rust lib tests 62/62 and the Rust conformance suites (1215 fixtures) pass."
     },
     {
-      "id": "axir-2026-09-27-non-stream-request-retry",
-      "status": "open",
-      "title": "The ports' request layer retries non-streaming requests as TypeScript's apiCall does",
-      "createdAt": "2026-09-27",
-      "sourcePR": null,
-      "sourceCommit": "c1fc65ba71c8c8aacdc4adddf4b8445e2beab170",
-      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/ai/base.ts"],
-      "portableSurface": "axai",
-      "impact": "TypeScript's apiCall retries a request that fails with a network error or a 408, 429, 500, 502, 503, 504 or 529 status, streaming or not, under the call's retry options, else the client's (maxRetries 3, 1 s backoff doubling to 60 s), and never retries a timeout. The ports retry only a stream's opening: a non-streaming Python chat that gets a 503 is sent once, and a streaming one three times, at maxRetries 2. Their stream-open retry also retries AxAIServiceResponseError and AxAIServiceStreamTerminatedError, which apiCall does not, and a stream whose first event fails to read: Python and Go send three requests at maxRetries 2 when a server drops the connection after the response headers, where TypeScript sends one and surfaces the network error while the stream is read.",
-      "suggestedAxirWork": [
-        "Port apiCall's request-layer retry to non-streaming requests (network errors and retryable statuses under the call's retry options else the client's, with TypeScript's backoff) and pin its request counts with a TS golden",
-        "Retry a stream's opening only for network errors and retryable statuses and not a failed first read, as apiCall's shouldRetry does",
-        "List the added requests under Behavior changes in the release note"
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
       "id": "axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p",
       "status": "open",
       "title": "Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction",
