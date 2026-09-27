@@ -34018,8 +34018,8 @@ final class Core {
     Object expected_output = Core.get(fixtures, "expected_output", null);
     Object has_expected_output = Core.isNotNone(expected_output);
     if (Core.truthy(has_expected_output)) {
-      Object actual_output_text = Core.jsonStringify(output);
-      Object expected_output_text = Core.jsonStringify(expected_output);
+      Object actual_output_text = Core.jsonStableStringify(output);
+      Object expected_output_text = Core.jsonStableStringify(expected_output);
       Object output_matches = Core.eq(actual_output_text, expected_output_text);
       Object output_mismatch = Core.not(output_matches);
       if (Core.truthy(output_mismatch)) {

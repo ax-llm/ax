@@ -1524,7 +1524,81 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     }
 }
 
+/// The array index a JavaScript property key names: "0" to "4294967294" in
+/// canonical form (no sign, no leading zero).
+fn js_array_index(key: &str) -> Option<u64> {
+    if key.is_empty() || key.len() > 10 || !key.bytes().all(|byte| byte.is_ascii_digit()) || (key.len() > 1 && key.starts_with('0')) {
+        return None;
+    }
+    key.parse::<u64>().ok().filter(|index| *index <= 4_294_967_294)
+}
+
+/// Whether an object in the value has an array-index key out of JavaScript's
+/// own-property order (after another key, or after a larger index).
+fn js_needs_key_reorder(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut seen_named = false;
+            let mut last_index: Option<u64> = None;
+            for (key, item) in map {
+                match js_array_index(key) {
+                    Some(index) => {
+                        if seen_named || last_index.is_some_and(|last| index < last) {
+                            return true;
+                        }
+                        last_index = Some(index);
+                    }
+                    None => seen_named = true,
+                }
+                if js_needs_key_reorder(item) {
+                    return true;
+                }
+            }
+            false
+        }
+        Value::Array(items) => items.iter().any(js_needs_key_reorder),
+        _ => false,
+    }
+}
+
+/// The value with each object's keys in JavaScript's own-property order,
+/// which JSON.stringify follows: array-index keys first in ascending numeric
+/// order, then the other keys in insertion order.
+fn js_own_key_order(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut indexed: Vec<(u64, &String, &Value)> = Vec::new();
+            let mut named: Vec<(&String, &Value)> = Vec::new();
+            for (key, item) in map {
+                match js_array_index(key) {
+                    Some(index) => indexed.push((index, key, item)),
+                    None => named.push((key, item)),
+                }
+            }
+            indexed.sort_by_key(|(index, _, _)| *index);
+            let mut out = serde_json::Map::new();
+            for (_, key, item) in indexed {
+                out.insert(key.clone(), js_own_key_order(item));
+            }
+            for (key, item) in named {
+                out.insert(key.clone(), js_own_key_order(item));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(js_own_key_order).collect()),
+        _ => value.clone(),
+    }
+}
+
 fn js_json_write<F: serde_json::ser::Formatter>(value: &Value, formatter: F) -> Vec<u8> {
+    // JSON.stringify writes array-index keys first; reorder only when needed.
+    let reordered;
+    let value = if js_needs_key_reorder(value) {
+        reordered = js_own_key_order(value);
+        &reordered
+    } else {
+        value
+    };
     let mut out = Vec::with_capacity(128);
     let mut serializer = serde_json::Serializer::with_formatter(&mut out, JsNumberFormatter(formatter));
     // Serializing a serde_json::Value into a Vec cannot fail.
@@ -10713,6 +10787,23 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
 }
 
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
+    // A top-level "<key>_json" string holds <key> as JSON text, so a fixture
+    // can carry an object in TS's key order (the canonical fixture sort
+    // reorders the keys of the fixture's own objects).
+    let mut fixture = fixture;
+    if let Some(map) = fixture.as_object_mut() {
+        let texts = map
+            .iter()
+            .filter_map(|(key, value)| Some((key.strip_suffix("_json")?.to_string(), value.as_str()?.to_string())))
+            .collect::<Vec<_>>();
+        for (base, text) in texts {
+            if !map.contains_key(&base) {
+                let parsed: Value = serde_json::from_str(&text)
+                    .map_err(|error| AxError::new("fixture", format!("{base}_json: {error}")))?;
+                map.insert(base, parsed);
+            }
+        }
+    }
     let kind = fixture
         .get("kind")
         .and_then(Value::as_str)
@@ -10726,6 +10817,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "strip_internal" => run_strip_internal_fixture(&fixture)?,
         "prompt" => run_prompt_fixture(&fixture)?,
         "number_format" => run_number_format_fixture(&fixture)?,
+        "json_stringify" => run_json_stringify_fixture(&fixture)?,
         "date_field_value" => run_date_field_value_fixture(&fixture)?,
         "date_input" => run_date_input_fixture(&fixture)?,
         "template" => run_template_fixture(&fixture)?,
@@ -18285,6 +18377,19 @@ fn wire_json_equal(left: &Value, right: &Value) -> bool {
 // text). The JSON form must come out of every encoder: the wire body
 // (js_json_string), the json.stringify, json.stable_stringify and json.pretty
 // intrinsics, and AxGen's value text.
+// Each case's input text, parsed in key order, comes out of json.stringify as
+// TS's JSON.stringify writes it.
+fn run_json_stringify_fixture(fixture: &Value) -> AxResult<()> {
+    for (index, item) in fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().enumerate() {
+        let text = item.get("input").and_then(Value::as_str).unwrap_or_default();
+        let parsed: Value = serde_json::from_str(text).map_err(|error| AxError::new("fixture", format!("json.stringify case {index}: {error}")))?;
+        let actual = core_value_to_json(&core_json_stringify(&[core_value_from_json(&parsed)])?);
+        let expected = item.get("json").cloned().unwrap_or(Value::Null);
+        expect_json_equal(&format!("json.stringify case {index}"), &actual, &expected)?;
+    }
+    Ok(())
+}
+
 fn run_number_format_fixture(fixture: &Value) -> AxResult<()> {
     for case in fixture.get("cases").and_then(Value::as_array).into_iter().flatten() {
         let input = case.get("input").and_then(Value::as_str).unwrap_or_default();
@@ -21642,11 +21747,10 @@ fn core_json_parse_strict(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_json_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    // python _core_json_stringify: json.dumps(value, sort_keys=True,
-    // separators=(",", ":")) — compact and key-sorted.
+    // TS JSON.stringify(value): compact, keys in insertion order, numbers as
+    // JavaScript writes them, null as null.
     let value = core_arg(args, 0);
-    let json = if value.is_null() { json!({}) } else { core_value_to_json(&value) };
-    Ok(CoreValue::from_string(stable_stringify(&json)))
+    Ok(CoreValue::from_string(js_json_string(&core_value_to_json(&value))))
 }
 
 fn core_map_delete(args: &[CoreValue]) -> Result<CoreValue, AxError> {

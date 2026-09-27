@@ -561,7 +561,17 @@ def run_fixture_path(path):
     return run_fixture(data, source=str(path))
 
 
+def _expand_ordered_json_fields(fixture):
+    """A top-level `<key>_json` string holds `<key>` as JSON text, so a
+    fixture can carry an object in TS's key order (the canonical fixture sort
+    reorders the keys of the fixture's own objects)."""
+    for key in [key for key, value in fixture.items() if key.endswith("_json") and isinstance(value, str)]:
+        fixture.setdefault(key[: -len("_json")], json.loads(fixture[key]))
+    return fixture
+
+
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
+    fixture = _expand_ordered_json_fields(fixture)
     name = fixture.get("name") or source or "<fixture>"
     kind = fixture.get("kind", "forward")
     try:
@@ -589,6 +599,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_strip_internal(fixture)
         elif kind == "number_format":
             _run_number_format(fixture)
+        elif kind == "json_stringify":
+            _run_json_stringify(fixture)
         elif kind == "date_field_value":
             _run_date_field_value(fixture)
         elif kind == "date_input":
@@ -1167,6 +1179,18 @@ def _run_date_input(fixture):
         validate_fields(sig.input_fields, values, "input")
         messages = AxPromptTemplate(sig).render(values)
         _assert_equal(messages[-1]["content"], case["expected_user_content"], label)
+
+
+def _run_json_stringify(fixture):
+    """Each case's input text, parsed in key order, comes out of every
+    module's json.stringify as TS's JSON.stringify writes it: array-index keys
+    first in numeric order, then the rest in insertion order; null as null."""
+    modules = {name: importlib.import_module(f".{name}", __package__) for name in ("agent", "ai", "gen", "mcp")}
+    for index, case in enumerate(fixture.get("cases") or []):
+        for name, module in modules.items():
+            actual = module._core_json_stringify(json.loads(case["input"]))
+            if actual != case["json"]:
+                raise FixtureError(f"{name} json.stringify case {index}: expected {case['json']!r}, got {actual!r}")
 
 
 def _run_number_format(fixture):

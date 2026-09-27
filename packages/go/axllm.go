@@ -1145,6 +1145,44 @@ func plainJSONValue(value Value) Value {
 }
 
 // Prompt JSON shapes retain signature declaration order, including nested objects.
+// jsArrayIndex is the array index a JavaScript property key names: "0" to
+// "4294967294" in canonical form (no sign, no leading zero), else -1.
+func jsArrayIndex(key string) int64 {
+	if key == "" || len(key) > 10 || (len(key) > 1 && key[0] == '0') {
+		return -1
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < '0' || key[i] > '9' {
+			return -1
+		}
+	}
+	index, err := strconv.ParseInt(key, 10, 64)
+	if err != nil || index > 4294967294 {
+		return -1
+	}
+	return index
+}
+
+// jsOwnKeyOrder puts keys in JavaScript's own-property order, which
+// JSON.stringify follows: array-index keys first in ascending numeric order,
+// then the other keys in their given order.
+func jsOwnKeyOrder(keys []string) []string {
+	var indexed []string
+	named := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if jsArrayIndex(key) >= 0 {
+			indexed = append(indexed, key)
+		} else {
+			named = append(named, key)
+		}
+	}
+	if len(indexed) == 0 {
+		return keys
+	}
+	sort.SliceStable(indexed, func(i, j int) bool { return jsArrayIndex(indexed[i]) < jsArrayIndex(indexed[j]) })
+	return append(indexed, named...)
+}
+
 func orderedStringify(value Value) string { var out strings.Builder; writeOrderedJSON(&out,value); return out.String() }
 func writeOrderedJSON(b *strings.Builder, value Value) {
 	switch v := value.(type) {
@@ -1177,7 +1215,7 @@ func writeOrderedJSON(b *strings.Builder, value Value) {
 		writeOrderedJSON(b, asSlice(v))
 	case map[string]Value:
 		b.WriteByte('{')
-		keys := orderedKeys(v)
+		keys := jsOwnKeyOrder(orderedKeys(v))
 		first := true
 		for _, key := range keys {
 			if key == "__order" {
@@ -1984,7 +2022,8 @@ func _core_json_parse(value Value) (Value, error) {
 func _core_json_parse_strict(value Value) (Value, error) {
 	return parseJSONErr(strings.TrimSpace(display(value)))
 }
-func _core_json_stringify(value Value) Value        { return stableStringify(value) }
+// TS JSON.stringify(value): keys in insertion order, null as null.
+func _core_json_stringify(value Value) Value        { return orderedStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
 func _core_tool_invoke(fn Value, params Value) (Value, error) {
 	if t, ok := fn.(Tool); ok {
@@ -2206,7 +2245,7 @@ func writePrettyJSON(b *strings.Builder, value Value, indent string) {
 	inner := indent + "  "
 	switch v := value.(type) {
 	case map[string]Value:
-		keys := orderedKeys(v)
+		keys := jsOwnKeyOrder(orderedKeys(v))
 		if len(keys) == 0 {
 			b.WriteString("{}")
 			return
@@ -71361,8 +71400,8 @@ func _agent_replay_trace(args ...Value) (Value, error) {
 	v_expected_output = coreGet(v_fixtures, "expected_output", nil)
 	v_has_expected_output = _core_is_not_none(v_expected_output)
 	if coreTruthy(v_has_expected_output) {
-		v_actual_output_text = _core_json_stringify(v_output)
-		v_expected_output_text = _core_json_stringify(v_expected_output)
+		v_actual_output_text = _core_json_stable_stringify(v_output)
+		v_expected_output_text = _core_json_stable_stringify(v_expected_output)
 		v_output_matches = _core_eq(v_actual_output_text, v_expected_output_text)
 		v_output_mismatch = _core_not(v_output_matches)
 		if coreTruthy(v_output_mismatch) {
@@ -91179,8 +91218,10 @@ func (f AxCredentialProviderFunc) Credentials(ctx context.Context, request AxCre
 }
 
 // wireJSONBody is the JSON the HTTP and MCP transports send for a payload.
+// wireJSONBody is TS JSON.stringify(payload): keys in insertion order, as the
+// payload was built.
 func wireJSONBody(payload Value) []byte {
-	return []byte(stableStringify(payload))
+	return []byte(orderedStringify(payload))
 }
 
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
@@ -99705,6 +99746,18 @@ func RunConformanceFixture(fixture Value) error {
 }
 
 func runConformanceFixture(fixture map[string]Value) {
+	// A top-level "<key>_json" string holds <key> as JSON text, so a fixture
+	// can carry an object in TS's key order (the canonical fixture sort
+	// reorders the keys of the fixture's own objects).
+	for _, key := range orderedKeys(fixture) {
+		text, isText := fixture[key].(string)
+		if !isText || !strings.HasSuffix(key, "_json") {
+			continue
+		}
+		if base := strings.TrimSuffix(key, "_json"); coreGet(fixture, base, nil) == nil {
+			coreSet(fixture, base, parseJSON(text))
+		}
+	}
 	kind := display(coreGet(fixture, "kind", "forward"))
 	switch kind {
 	case "signature_error":
@@ -99738,6 +99791,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		assertEqual(mustCore(strip_internal(sig.Outputs, coreGet(fixture, "values", Object()))), coreGet(fixture, "expected_output", nil), "strip internal")
 	case "prompt":
 		runConformancePrompt(fixture)
+	case "json_stringify":
+		runConformanceJSONStringify(fixture)
 	case "number_format":
 		runConformanceNumberFormat(fixture)
 	case "date_field_value":
@@ -102312,6 +102367,18 @@ func runConformanceFlow(fixture map[string]Value) {
 // streaming extractor's number text). The JSON form must come out of every
 // encoder: the wire body and json.stringify (key-sorted), the ordered prompt
 // writer and json.pretty (prompt values).
+// runConformanceJSONStringify: each case's input text, parsed in key order,
+// comes out of json.stringify as TS's JSON.stringify writes it.
+func runConformanceJSONStringify(fixture map[string]Value) {
+	for index, item := range coreIter(coreGet(fixture, "cases", Array())) {
+		expected := display(coreGet(item, "json", ""))
+		actual := display(_core_json_stringify(parseJSON(display(coreGet(item, "input", "")))))
+		if actual != expected {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("json.stringify case %d: expected %s, got %s", index, expected, actual)})
+		}
+	}
+}
+
 func runConformanceNumberFormat(fixture map[string]Value) {
 	for _, item := range coreIter(coreGet(fixture, "cases", Array())) {
 		input := display(coreGet(item, "input", ""))

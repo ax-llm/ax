@@ -13148,6 +13148,105 @@ writeFixture('openai-wire-json-numbers', {
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
 
+// Tool-call arguments on the wire in TS's key order: JSON.stringify writes an
+// object's keys in its own-property order (array-index keys first in numeric
+// order, then insertion order), for Chat's tool_calls[].function.arguments and
+// Responses' function_call arguments alike. The request goes into the fixture
+// as request_json text: the canonical fixture sort would reorder the params
+// object's keys.
+const keyOrderParams = {
+  zeta: 1,
+  alpha: 'x',
+  '10': 'ten',
+  '2': 'two',
+  nested: { y: 1, x: 2 },
+};
+const keyOrderRequest = {
+  chat_prompt: [
+    { role: 'user', content: 'Look it up' },
+    {
+      role: 'assistant',
+      functionCalls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'lookup', params: keyOrderParams },
+        },
+      ],
+    },
+    { role: 'function', functionId: 'call-1', result: 'found' },
+  ],
+  functions: [
+    {
+      name: 'lookup',
+      description: 'Look something up',
+      parameters: {
+        type: 'object',
+        properties: { zeta: { type: 'number' }, alpha: { type: 'string' } },
+      },
+    },
+  ],
+  model_config: { stream: false },
+};
+const keyOrderNeedle = `"arguments":${JSON.stringify(JSON.stringify(keyOrderParams))}`;
+for (const [name, provider, AIClass, response] of [
+  [
+    'openai-tool-call-arguments-key-order',
+    'openai',
+    AxAIOpenAI,
+    compatibleResponse('chatcmpl_key_order', AxAIOpenAIModel.GPT54Mini).json,
+  ],
+  [
+    'openai-responses-tool-call-arguments-key-order',
+    'openai-responses',
+    AxAIOpenAIResponses,
+    {
+      id: 'resp_key_order',
+      object: 'response',
+      created_at: 0,
+      model: AxAIOpenAIModel.GPT54Mini,
+      status: 'completed',
+      output: [
+        {
+          type: 'message',
+          id: 'msg_key_order',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    },
+  ],
+] as const) {
+  let body = '';
+  await new (AIClass as any)({
+    apiKey: 'test-key',
+    config: { model: AxAIOpenAIModel.GPT54Mini },
+    options: {
+      fetch: async (_url: unknown, init?: RequestInit) => {
+        body = String(init?.body);
+        return Response.json(response);
+      },
+    },
+  }).chat({
+    chatPrompt: keyOrderRequest.chat_prompt,
+    functions: keyOrderRequest.functions,
+    modelConfig: keyOrderRequest.model_config,
+  } as any);
+  if (!body.includes(keyOrderNeedle)) {
+    throw new Error(`${name}: TS wire lacks ${keyOrderNeedle}: ${body}`);
+  }
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider,
+    model: AxAIOpenAIModel.GPT54Mini,
+    request_json: JSON.stringify(keyOrderRequest),
+    transport_responses: [{ status: 200, json: response as unknown as Json }],
+    expected_transport_wire_json_contains: [keyOrderNeedle],
+  });
+}
+
 // Sampling parameters on the wire. Each TS provider class starts from its own
 // default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
 // Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for

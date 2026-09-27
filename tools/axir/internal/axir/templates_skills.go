@@ -612,7 +612,7 @@ func skillTextContractText(target string) string {
 }
 
 func skillNumberFormatText(target string) string {
-	text := "Prompts and provider request bodies write numbers as TypeScript's `JSON.stringify` does: shortest round-trip digits, `2` for a float two, exponent form below 1e-6 and from 1e21 up (`1e-7`, `1e+21`), and `null` for NaN and the infinities. "
+	text := "Prompts and provider request bodies write JSON as TypeScript's `JSON.stringify` does. Object keys come in the object's own order: array-index keys (`\"2\"`, `\"10\"`) first in numeric order, then the rest in insertion order, never sorted; `null` stays `null`. Numbers get shortest round-trip digits, `2` for a float two, exponent form below 1e-6 and from 1e21 up (`1e-7`, `1e+21`), and `null` for NaN and the infinities. "
 	switch target {
 	case "python":
 		return text + "Python ints keep their exact digits past 2^53, where TypeScript's doubles round them."

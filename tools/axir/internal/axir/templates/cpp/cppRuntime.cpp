@@ -3536,6 +3536,33 @@ static std::string escape_json(const std::string& in) {
   return out;
 }
 
+// The array index a JavaScript property key names: "0" to "4294967294" in
+// canonical form (no sign, no leading zero), else -1.
+static long long js_array_index(const std::string& key) {
+  if (key.empty() || key.size() > 10 || (key.size() > 1 && key[0] == '0')) return -1;
+  for (char c : key) {
+    if (c < '0' || c > '9') return -1;
+  }
+  long long index = std::stoll(key);
+  return index <= 4294967294LL ? index : -1;
+}
+
+// Entries in JavaScript's own-property order, which JSON.stringify follows:
+// array-index keys first in ascending numeric order, then the other keys in
+// insertion order.
+static std::vector<std::pair<std::string, Value>> js_own_key_order(std::vector<std::pair<std::string, Value>> items) {
+  std::vector<std::pair<std::string, Value>> indexed;
+  std::vector<std::pair<std::string, Value>> named;
+  for (auto& item : items) {
+    if (js_array_index(item.first) >= 0) indexed.push_back(std::move(item));
+    else named.push_back(std::move(item));
+  }
+  if (indexed.empty()) return named;
+  std::stable_sort(indexed.begin(), indexed.end(), [](const auto& a, const auto& b) { return js_array_index(a.first) < js_array_index(b.first); });
+  for (auto& item : named) indexed.push_back(std::move(item));
+  return indexed;
+}
+
 std::string stringify(const Value& value) {
   if (value.is_null()) return "null";
   if (auto p = std::get_if<bool>(&value.data)) return *p ? "true" : "false";
@@ -3548,7 +3575,7 @@ std::string stringify(const Value& value) {
   }
   std::string out = "{";
   size_t i = 0;
-  for (const auto& kv : entries(value)) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
+  for (const auto& kv : js_own_key_order(entries(value))) { if (i++) out += ","; out += "\"" + escape_json(kv.first) + "\":" + stringify(kv.second); }
   return out + "}";
 }
 
@@ -3577,7 +3604,7 @@ static std::string stable_stringify(const Value& value) {
 static void write_pretty_json(std::string& out, const Value& value, const std::string& indent) {
   const std::string inner = indent + "  ";
   if (value.is_object()) {
-    auto items = entries(value);
+    auto items = js_own_key_order(entries(value));
     if (items.empty()) {
       out += "{}";
       return;
