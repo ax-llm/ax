@@ -2458,7 +2458,7 @@
     },
     {
       "id": "axir-2026-09-27-keep-a-surrogate-pair-that-a-provider-splits-across-stream-event",
-      "status": "open",
+      "status": "done",
       "title": "Keep a surrogate pair that a provider splits across stream events in Go and Rust",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2471,9 +2471,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "2535eae3a",
+      "verification": "Go and Rust run streaming-forward-split-surrogate-pair (their runners declare lone-surrogate support; tools/axir string_model_test.go expects all five to). On main, Go read each half as U+FFFD (deltas 'hi \\ufffd' and '\\ufffd there'; the new Go tests fail with 'hi \\ufffd\\ufffd there' over HTTP SSE) and Rust could not load the golden (serde_json: unexpected end of hex escape) while its SSE parsers pinned 'hi \\ufffd\\ufffd there'. Go keeps a lone surrogate escape as WTF-8 in parseJSON and the streaming SSE reader; Rust reads it as a private-use mark in stream events, parse_json and both WebSocket readers; both join split pairs in the stream-text intrinsics and write a leftover half as JS does. Go TestLoneSurrogateEscapesKeepTheirHalves and TestStreamedSplitSurrogatePairJoins, Rust a_split_surrogate_pair_joins_into_one_character (streamed and buffered SSE). verify --mode release passes for go and rust (1390 fixtures each)."
     },
     {
       "id": "axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age",

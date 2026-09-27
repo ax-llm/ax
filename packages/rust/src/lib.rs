@@ -1700,6 +1700,26 @@ impl<F: serde_json::ser::Formatter> serde_json::ser::Formatter for JsNumberForma
     ) -> std::io::Result<()> {
         writer.write_all(js_number_text(value).as_bytes())
     }
+    // A lone surrogate's mark (see LONE_SURROGATE_MARK) is written as JS's
+    // JSON.stringify writes a lone surrogate: its \u escape.
+    fn write_string_fragment<W: ?Sized + std::io::Write>(
+        &mut self,
+        writer: &mut W,
+        fragment: &str,
+    ) -> std::io::Result<()> {
+        if !fragment.chars().any(|ch| lone_surrogate_unit(ch).is_some()) {
+            return self.0.write_string_fragment(writer, fragment);
+        }
+        for ch in fragment.chars() {
+            match lone_surrogate_unit(ch) {
+                Some(unit) => writer.write_all(format!("\\u{unit:04x}").as_bytes())?,
+                None => self
+                    .0
+                    .write_string_fragment(writer, ch.encode_utf8(&mut [0u8; 4]))?,
+            }
+        }
+        Ok(())
+    }
     fn write_f32<W: ?Sized + std::io::Write>(
         &mut self,
         writer: &mut W,
@@ -2313,9 +2333,31 @@ impl Iterator for CancellableProviderIterator {
     }
 }
 
-// JSON text with each \u escape of a lone surrogate replaced by the escape of
-// U+FFFD; a high surrogate escape followed by a low one stays a pair.
-fn replace_lone_surrogate_escapes(text: &str) -> String {
+// A provider can split a surrogate pair across stream events, leaving a lone
+// surrogate escape ("\ud83d", then "\ude00") in each event's JSON. JS's
+// JSON.parse keeps each half, and the stream-text intrinsics join them again.
+// A Rust string can't hold a lone surrogate, so each half reads as its mark:
+// the private-use code point LONE_SURROGATE_MARK plus the half's offset from
+// U+D800. core_string_concat_stream_text joins a high mark and a low mark into
+// the character they make, and the JSON writer writes a mark as JS writes the
+// lone surrogate, as its \u escape.
+const LONE_SURROGATE_MARK: u32 = 0x10F800;
+
+fn lone_surrogate_mark(unit: u32) -> char {
+    char::from_u32(LONE_SURROGATE_MARK + unit - 0xD800).unwrap_or('\u{fffd}')
+}
+
+/// The lone surrogate (U+D800 to U+DFFF) a mark stands for.
+fn lone_surrogate_unit(ch: char) -> Option<u32> {
+    let code = ch as u32;
+    (LONE_SURROGATE_MARK..=LONE_SURROGATE_MARK + 0x7FF)
+        .contains(&code)
+        .then(|| code - LONE_SURROGATE_MARK + 0xD800)
+}
+
+// JSON text with each \u escape of a lone surrogate replaced by its mark; a
+// high surrogate escape followed by a low one stays a pair.
+fn mark_lone_surrogate_escapes(text: &str) -> String {
     let surrogate = |escape: &str| -> Option<u32> {
         let unit = u32::from_str_radix(escape.strip_prefix("\\u")?.get(..4)?, 16).ok()?;
         (0xD800..=0xDFFF).contains(&unit).then_some(unit)
@@ -2332,8 +2374,8 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
                 out.push_str(&rest[..12]);
                 rest = &rest[12..];
             }
-            Some(_) => {
-                out.push_str("\\ufffd");
+            Some(unit) => {
+                out.push(lone_surrogate_mark(unit));
                 rest = &rest[6..];
             }
             None => {
@@ -2352,18 +2394,23 @@ fn replace_lone_surrogate_escapes(text: &str) -> String {
     out
 }
 
-// Parses one stream event's JSON. A provider can split a surrogate pair
-// across two events, leaving a lone surrogate escape in each, which JS's
-// JSON.parse accepts and serde_json refuses. A Rust string can't hold half a
-// pair, so each lone half reads as U+FFFD instead of failing the stream.
-fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
-    serde_json::from_str(payload).or_else(|error| {
-        let replaced = replace_lone_surrogate_escapes(payload);
-        if replaced == payload {
-            return Err(AxError::from(error));
+// serde_json::from_str, except that a lone surrogate escape, which JS's
+// JSON.parse accepts and serde_json refuses, reads as its mark (see
+// LONE_SURROGATE_MARK). Other invalid JSON fails with serde_json's error.
+fn serde_json_keeping_lone_surrogates(text: &str) -> serde_json::Result<Value> {
+    serde_json::from_str(text).or_else(|error| {
+        let marked = mark_lone_surrogate_escapes(text);
+        if marked == text {
+            return Err(error);
         }
-        serde_json::from_str(&replaced).map_err(AxError::from)
+        serde_json::from_str(&marked).map_err(|_| error)
     })
+}
+
+// Parses one stream event's JSON, keeping each half of a surrogate pair a
+// provider split across two events.
+fn parse_stream_event_json(payload: &str) -> AxResult<Value> {
+    serde_json_keeping_lone_surrogates(payload).map_err(AxError::from)
 }
 
 struct SseJsonStream {
@@ -4862,14 +4909,17 @@ impl WsRealtimeTransport {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
                     return Ok(Some(Some(
-                        serde_json::from_str(text.as_str())
+                        serde_json_keeping_lone_surrogates(text.as_str())
                             .map_err(|e| AxError::runtime(e.to_string()))?,
                     )));
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
+                    let parsed = match std::str::from_utf8(&data) {
+                        Ok(text) => serde_json_keeping_lone_surrogates(text),
+                        Err(_) => serde_json::from_slice(&data),
+                    };
                     return Ok(Some(Some(
-                        serde_json::from_slice(&data)
-                            .map_err(|e| AxError::runtime(e.to_string()))?,
+                        parsed.map_err(|e| AxError::runtime(e.to_string()))?,
                     )));
                 }
                 Ok(tungstenite::Message::Close(frame)) => {
@@ -14936,7 +14986,7 @@ impl ProtocolChild {
 }
 
 pub fn parse_json(text: &str) -> AxResult<Value> {
-    Ok(serde_json::from_str(text)?)
+    Ok(serde_json_keeping_lone_surrogates(text)?)
 }
 
 pub fn stable_stringify(value: &Value) -> String {
@@ -15017,20 +15067,16 @@ fn cache_expiry_millis(value: &Value) -> Option<u64> {
 }
 
 // Rust strings are UTF-8, which can't hold a lone surrogate (half of a
-// surrogate pair a provider split across stream events; a provider stream
-// reads each half as U+FFFD), so this runner skips the fixtures that require
-// one.
-const SUPPORTS_LONE_SURROGATES: bool = false;
+// surrogate pair a provider split across stream events), so JSON decoding
+// reads one as its mark (see LONE_SURROGATE_MARK), which the stream-text
+// intrinsics join again; this runner runs the fixtures that split a pair.
+const SUPPORTS_LONE_SURROGATES: bool = true;
 
 /// The conformance runner's skip for a fixture's JSON text: its name and the
-/// reason, when this runner skips it. serde_json refuses a lone surrogate
-/// escape, so a fixture that has one is read with U+FFFD in its place to
-/// find its `requires_lone_surrogates` flag.
+/// reason, when this runner skips it.
 #[doc(hidden)]
 pub fn conformance_fixture_skip(text: &str) -> Option<(String, &'static str)> {
-    let fixture = parse_json(text)
-        .or_else(|_| parse_json(&replace_lone_surrogate_escapes(text)))
-        .ok()?;
+    let fixture = parse_json(text).ok()?;
     if SUPPORTS_LONE_SURROGATES
         || fixture
             .get("requires_lone_surrogates")
@@ -26945,11 +26991,18 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
 }
 
 fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    let units = core_arg(args, 0)
-        .text()
-        .encode_utf16()
-        .map(|unit| CoreValue::Num(unit as f64))
-        .collect();
+    // A lone surrogate's mark is the one UTF-16 unit it stands for.
+    let mut units = Vec::new();
+    for ch in core_arg(args, 0).text().chars() {
+        match lone_surrogate_unit(ch) {
+            Some(unit) => units.push(CoreValue::Num(unit as f64)),
+            None => units.extend(
+                ch.encode_utf16(&mut [0u16; 2])
+                    .iter()
+                    .map(|unit| CoreValue::Num(*unit as f64)),
+            ),
+        }
+    }
     Ok(CoreValue::list_from(units))
 }
 
@@ -26959,24 +27012,53 @@ fn core_string_codepoint_length(args: &[CoreValue]) -> Result<CoreValue, AxError
     ))
 }
 
-// Appends streamed text. A Rust string is UTF-8 and holds whole characters,
-// so no chunk ends in half of a surrogate pair, and plain concatenation keeps
-// every character whole (Python joins a pair split across two chunks).
+// Appends streamed text. As in a UTF-16 string (TS, Java), a high surrogate
+// ending the text and a low one starting the chunk join into the character
+// they make; here each half is its mark (see LONE_SURROGATE_MARK).
 fn core_string_concat_stream_text(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(CoreValue::from_string(format!(
-        "{}{}",
-        core_arg(args, 0).text(),
-        core_arg(args, 1).text()
+    Ok(CoreValue::from_string(join_stream_text(
+        &core_arg(args, 0).text(),
+        &core_arg(args, 1).text(),
     )))
 }
 
+/// Appends a streamed chunk to `text`, as the AxGen stream does: half of a
+/// surrogate pair a provider split across chunks (read as its private-use
+/// mark, since a Rust `String` can't hold a lone surrogate) ending `text`, and
+/// the other half starting `chunk`, join into the character. A raw client
+/// `stream` delta can carry such a half, so join raw deltas with
+/// `join_stream_text` rather than `push_str`, which would leave the two
+/// marks instead of the character.
+pub fn join_stream_text(text: &str, chunk: &str) -> String {
+    let last = text.chars().last();
+    let first = chunk.chars().next();
+    let high = last
+        .and_then(lone_surrogate_unit)
+        .filter(|unit| *unit <= 0xDBFF);
+    let low = first
+        .and_then(lone_surrogate_unit)
+        .filter(|unit| *unit >= 0xDC00);
+    if let (Some(last), Some(first), Some(high), Some(low)) = (last, first, high, low) {
+        let joined = char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+            .unwrap_or('\u{fffd}');
+        let head = &text[..text.len() - last.len_utf8()];
+        let tail = &chunk[first.len_utf8()..];
+        return format!("{head}{joined}{tail}");
+    }
+    format!("{text}{chunk}")
+}
+
 // The value without a trailing high surrogate (U+D800 to U+DBFF), which TS
-// holds back until its low half streams in. A UTF-8 Rust string can't end in
-// one, since a lone surrogate isn't a char (a stream event's lone surrogate
-// escape reads as U+FFFD, see parse_stream_event_json), so the value comes
-// back unchanged.
+// holds back until its low half streams in, so no delta ends in half a
+// character.
 fn core_string_drop_trailing_high_surrogate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    Ok(core_arg(args, 0))
+    let text = core_arg(args, 0).text();
+    match text.chars().last() {
+        Some(last) if lone_surrogate_unit(last).is_some_and(|unit| unit <= 0xDBFF) => Ok(
+            CoreValue::from_string(text[..text.len() - last.len_utf8()].to_string()),
+        ),
+        _ => Ok(core_arg(args, 0)),
+    }
 }
 
 // ----- intrinsic.date.zone_offset: the platform tz database -----
@@ -131751,10 +131833,10 @@ mod stream_split_surrogate_tests {
     }
 
     #[test]
-    fn a_split_surrogate_pair_reads_as_replacement_characters() -> AxResult<()> {
-        // TS keeps each half and joins them into the emoji. serde_json
-        // refuses a lone surrogate escape, which a Rust string can't hold, so
-        // each half reads as U+FFFD, and the stream goes on.
+    fn a_split_surrogate_pair_joins_into_one_character() -> AxResult<()> {
+        // TS keeps each half and joins them into the emoji, and no delta holds
+        // half of it. Each half reads as its mark, which the stream-text
+        // intrinsics join.
         for buffered in [false, true] {
             let mut client = ai(
                 "openai",
@@ -131762,19 +131844,68 @@ mod stream_split_surrogate_tests {
             )?
             .with_transport(SplitPair { buffered });
             let mut program = ax("question:string -> answer:string")?;
+            let collected = Arc::new(Mutex::new(Vec::<String>::new()));
+            let captured = collected.clone();
             let output = program.streaming_forward(
                 &mut client,
                 json!({"question": "Status?"}),
                 json!({}),
-                |_| Ok(()),
+                move |delta| {
+                    captured.lock().unwrap().push(
+                        delta
+                            .delta
+                            .get("answer")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    );
+                    Ok(())
+                },
             )?;
+            let deltas = collected.lock().unwrap().clone();
             assert_eq!(
                 output,
-                json!({"answer": "hi \u{fffd}\u{fffd} there"}),
+                json!({"answer": "hi \u{1f600} there"}),
                 "buffered {buffered}"
             );
+            assert_eq!(deltas.concat(), "hi \u{1f600} there", "buffered {buffered}");
+            assert!(
+                deltas
+                    .iter()
+                    .all(|delta| !delta.chars().any(|ch| lone_surrogate_unit(ch).is_some())),
+                "a delta holds half a character: {deltas:?}"
+            );
         }
-        // Any other bad escape still fails the event's parse.
+        // Raw client stream deltas carry the halves; join_stream_text joins
+        // them into the character, as the AxGen stream does.
+        for buffered in [false, true] {
+            let mut client = ai(
+                "openai",
+                json!({"api_key": "test", "model": "gpt-5.4-mini"}),
+            )?
+            .with_transport(SplitPair { buffered });
+            let deltas =
+                client.stream(json!({"chat_prompt": [{"role": "user", "content": "Status?"}]}))?;
+            let text = deltas.iter().fold(String::new(), |text, delta| {
+                join_stream_text(
+                    &text,
+                    delta["results"][0]["content"].as_str().unwrap_or_default(),
+                )
+            });
+            assert_eq!(text, "Answer: hi \u{1f600} there", "buffered {buffered}");
+        }
+        // A lone half reads as its mark and is written back as JS writes it.
+        let half = parse_stream_event_json("{\"content\":\"hi \\ud83d\"}")?;
+        assert_eq!(
+            half["content"]
+                .as_str()
+                .and_then(|text| text.chars().last())
+                .and_then(lone_surrogate_unit),
+            Some(0xD83D)
+        );
+        assert_eq!(js_json_string(&half), "{\"content\":\"hi \\ud83d\"}");
+        // Any other bad escape still fails the event's parse, and a pair
+        // stays one character.
         assert!(parse_stream_event_json("{\"content\":\"\\u12\"}").is_err());
         assert_eq!(
             parse_stream_event_json("{\"content\":\"\\ud83d\\ude00\"}")?,
