@@ -243,11 +243,14 @@ async function record(name: string, spec: Case): Promise<void> {
   const forwardOptions: Record<string, unknown> = clone(
     spec.forward_options ?? {}
   );
+  // The run lifecycle events, in order, with their paths.
   const controlEvents: JsonMap[] = [];
   if (spec.control) {
     const control = runControl();
     control.onEvent(({ type, path }) => {
-      controlEvents.push({ type, path });
+      if (['started', 'completed', 'failed', 'aborted'].includes(type)) {
+        controlEvents.push({ type, path });
+      }
     });
     forwardOptions.control = control;
   }
@@ -318,12 +321,10 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_output = output;
   }
   if (spec.chat_log_shape) {
-    fixture.expected_chat_log_shape = ag
-      .getChatLog()
-      .map((entry) => ({
-        name: entry.name ?? null,
-        stage: entry.stage ?? null,
-      }));
+    fixture.expected_chat_log_shape = ag.getChatLog().map((entry) => ({
+      name: entry.name ?? null,
+      stage: entry.stage ?? null,
+    }));
   }
   if (spec.request_contains) {
     fixture.expected_request_contains = spec.request_contains;

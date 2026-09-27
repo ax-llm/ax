@@ -2193,7 +2193,9 @@ def _run_agent_forward(fixture):
     if fixture.get("control"):
         from .session import run_control
         run_control_handle = run_control()
-        run_control_handle.on_event(lambda event: control_events.append({"type": event.get("type"), "path": event.get("path")}))
+        # The run lifecycle events, in order, with their paths.
+        run_control_handle.on_event(lambda event: control_events.append({"type": event.get("type"), "path": event.get("path")})
+            if event.get("type") in ("started", "completed", "failed", "aborted") else None)
     streaming = fixture.get("kind") == "agent_streaming_forward"
     stream_deltas = []
     def _semantic_observer(label, throws=False):
