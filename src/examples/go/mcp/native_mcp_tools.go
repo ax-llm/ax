@@ -38,7 +38,7 @@ func main() {
 	}
 	fmt.Printf("MCP catalog: %d tools, %d resources, %d templates\n", len(catalog.Tools), len(catalog.Resources), len(catalog.ResourceTemplates))
 	program := ax.NewAx("request:string -> answer:string", map[string]ax.Value{"mcp": mcp})
-	llm := ax.NewOpenAICompatibleClient(map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
+	llm := ax.NewAI("openai", map[string]ax.Value{"api_key": key, "model": "gpt-5.4-mini"})
 	output, err := program.Forward(context.Background(), llm, map[string]ax.Value{"request": "Reindex inventory."}, nil)
 	if err != nil {
 		panic(err)

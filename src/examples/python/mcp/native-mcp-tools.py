@@ -10,7 +10,7 @@
 # ax-example:end
 import os
 
-from axllm import AxMCPClient, AxMCPStreamableHTTPTransport, OpenAICompatibleClient, ax
+from axllm import AxMCPClient, AxMCPStreamableHTTPTransport, ai, ax
 
 api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 endpoint = os.getenv("MCP_URL")
@@ -18,7 +18,7 @@ if not api_key or not endpoint:
     raise SystemExit("Set OPENAI_API_KEY and MCP_URL.")
 
 mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {"namespace": "inventory"})
-llm = OpenAICompatibleClient(api_key=api_key, model="gpt-5.4-mini")
+llm = ai("openai", api_key=api_key, model="gpt-5.4-mini")
 program = ax(
     'request:string -> answer:string "Use the inventory MCP tool."',
     {"mcp": mcp},

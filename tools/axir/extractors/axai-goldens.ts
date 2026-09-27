@@ -21,6 +21,7 @@ import {
 import { AxAIOpenAIResponses } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axGetAIProfile } from '../../../src/ax/ai/provider_profiles.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
+import { ai } from '../../../src/ax/ai/wrap.js';
 import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
@@ -3492,6 +3493,7 @@ writeFixture('openai-legacy-reasoning-none-control', {
 writeFixture('responses-simple-chat', {
   kind: 'ai_chat',
   provider: 'openai-responses',
+  model: responsesDefaultModel,
   request: {
     chat_prompt: [
       { role: 'system', content: 'Answer briefly.' },
@@ -3565,12 +3567,14 @@ writeFixture('responses-simple-chat', {
         },
       ],
       stream: false,
-      temperature: 0.2,
       max_output_tokens: 64,
       reasoning: { effort: 'low' },
       include: ['file_search_call.results'],
     },
   },
+  // The default model's info marks temperature notSupported, so the
+  // request's temperature never reaches the wire.
+  expected_transport_json_absent: ['temperature'],
 });
 
 writeFixture('responses-tool-call', {
@@ -12514,3 +12518,218 @@ writeFixture('openai-wire-json-numbers', {
   ),
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
+
+// Sampling parameters on the wire. Each TS provider class starts from its own
+// default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
+// Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for
+// openai-responses (axAIOpenAIResponsesDefaultConfig), nothing for the other
+// Responses profiles. AxBaseAI merges the AI config and then the request's
+// modelConfig over it, and drops temperature and topP when the selected
+// model's info marks them notSupported (resolveChatModelConfig). The OpenAI
+// o-series reasoning models then leave the sampling fields out
+// (isOpenAIThinkingModel, isOpenAIResponsesThinkingModel). Each fixture
+// records what the real TS client sent: the sampling fields it wrote and the
+// ones it left out.
+const samplingWireKeys: Record<string, string[]> = {
+  'openai-chat': [
+    'temperature',
+    'top_p',
+    'max_completion_tokens',
+    'n',
+    'presence_penalty',
+    'frequency_penalty',
+  ],
+  'openai-responses': [
+    'temperature',
+    'top_p',
+    'max_output_tokens',
+    'presence_penalty',
+    'frequency_penalty',
+  ],
+  'anthropic-messages': ['temperature', 'top_p', 'top_k', 'max_tokens'],
+  'gemini-generate-content': [
+    'generationConfig.temperature',
+    'generationConfig.topP',
+    'generationConfig.topK',
+    'generationConfig.maxOutputTokens',
+    'generationConfig.candidateCount',
+  ],
+};
+const samplingResponse = (transport: string, model: string) => {
+  switch (transport) {
+    case 'openai-responses':
+      return {
+        status: 200,
+        json: {
+          id: 'resp_sampling',
+          model,
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          output: [
+            {
+              id: 'msg_sampling',
+              type: 'message',
+              content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+            },
+          ],
+        },
+      };
+    case 'anthropic-messages':
+      return {
+        status: 200,
+        json: {
+          id: 'msg_sampling',
+          type: 'message',
+          role: 'assistant',
+          model,
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      };
+    case 'gemini-generate-content':
+      return {
+        status: 200,
+        json: {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          modelVersion: model,
+          responseId: 'gem_sampling',
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2,
+          },
+        },
+      };
+    default:
+      return compatibleResponse('chatcmpl_sampling', model);
+  }
+};
+const samplingJsonPath = (value: unknown, dotted: string): unknown =>
+  dotted
+    .split('.')
+    .reduce<unknown>(
+      (current, key) =>
+        current && typeof current === 'object'
+          ? (current as Record<string, unknown>)[key]
+          : undefined,
+      value
+    );
+const samplingModels: {
+  provider: string;
+  model: string;
+  base_url?: string;
+  penalties?: boolean;
+}[] = [
+  // GPT-5.x marks temperature and topP notSupported in its model info.
+  { provider: 'openai', model: 'gpt-5.6-luna', penalties: true },
+  { provider: 'openai', model: 'gpt-4.1', penalties: true },
+  { provider: 'openai', model: 'o3', penalties: true },
+  { provider: 'openai-responses', model: 'gpt-5.6-luna', penalties: true },
+  { provider: 'openai-responses', model: 'gpt-4.1', penalties: true },
+  { provider: 'openai-responses', model: 'o3', penalties: true },
+  // A profile carries no model info of its own, so nothing is dropped for
+  // GPT-5.x, but the o-series branch belongs to every OpenAI Chat profile.
+  {
+    provider: 'openai-compatible',
+    model: 'gpt-5.6-luna',
+    base_url: 'https://compatible.test/v1',
+  },
+  {
+    provider: 'openai-compatible',
+    model: 'o3',
+    base_url: 'https://compatible.test/v1',
+    penalties: true,
+  },
+  { provider: 'meta', model: profileDefaultModel('meta') },
+  { provider: 'deepseek-responses', model: deepseekResponsesDefaultModel },
+  { provider: 'anthropic', model: 'claude-sonnet-5' },
+  { provider: 'anthropic', model: anthropicSamplingModel },
+  { provider: 'google-gemini', model: 'gemini-3.6-flash' },
+  { provider: 'google-gemini', model: 'gemini-2.5-flash' },
+];
+const samplingCases: {
+  id: string;
+  aiConfig?: Record<string, number>;
+  requestConfig?: Record<string, number>;
+  penalties?: boolean;
+}[] = [
+  { id: 'defaults' },
+  {
+    id: 'ai-config',
+    aiConfig: { temperature: 0.7, topP: 0.9, maxTokens: 123 },
+  },
+  {
+    id: 'request-config',
+    requestConfig: { temperature: 0.5, topP: 0.8, maxTokens: 77 },
+  },
+  {
+    id: 'ai-and-request-config',
+    aiConfig: { temperature: 0.7, topP: 0.9, maxTokens: 123 },
+    requestConfig: { temperature: 0.5 },
+  },
+  {
+    id: 'request-penalties',
+    requestConfig: { presencePenalty: 0.1, frequencyPenalty: 0.2 },
+    penalties: true,
+  },
+];
+for (const row of samplingModels) {
+  const transport = axGetAIProfile(row.provider as any).transport as string;
+  const wireKeys = samplingWireKeys[transport]!;
+  for (const testCase of samplingCases) {
+    if (testCase.penalties && !row.penalties) continue;
+    const response = samplingResponse(transport, row.model);
+    let body: unknown;
+    await ai({
+      name: row.provider as any,
+      apiKey: 'test-key',
+      ...(row.base_url ? { apiURL: row.base_url } : {}),
+      config: { model: row.model, ...(testCase.aiConfig ?? {}) } as any,
+      options: {
+        fetch: async (_url: unknown, init?: RequestInit) => {
+          body ??= JSON.parse(String(init?.body));
+          return Response.json(response.json);
+        },
+      },
+    } as any).chat({
+      chatPrompt: [{ role: 'user', content: 'Hi' }],
+      modelConfig: { stream: false, ...(testCase.requestConfig ?? {}) },
+    });
+    const sent: Record<string, Json> = {};
+    const absent: string[] = [];
+    for (const key of wireKeys) {
+      const value = samplingJsonPath(body, key);
+      if (value === undefined) {
+        absent.push(key);
+        continue;
+      }
+      const parts = key.split('.');
+      let target = sent;
+      for (const part of parts.slice(0, -1)) {
+        target[part] ??= {};
+        target = target[part] as Record<string, Json>;
+      }
+      target[parts[parts.length - 1]!] = value as Json;
+    }
+    const modelSlug = row.model.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    writeFixture(`sampling-${row.provider}-${modelSlug}-${testCase.id}`, {
+      kind: 'ai_chat',
+      provider: row.provider,
+      model: row.model,
+      ...(row.base_url ? { base_url: row.base_url } : {}),
+      ...(testCase.aiConfig ? { model_config: testCase.aiConfig } : {}),
+      request: {
+        chat_prompt: [{ role: 'user', content: 'Hi' }],
+        model_config: { stream: false, ...(testCase.requestConfig ?? {}) },
+      },
+      transport_responses: [response as unknown as Json],
+      expected_transport_request: { json: sent },
+      ...(absent.length > 0 ? { expected_transport_json_absent: absent } : {}),
+    });
+  }
+}

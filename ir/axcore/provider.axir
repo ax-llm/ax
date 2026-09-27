@@ -290,6 +290,17 @@ module @ax.provider version "0.1" {
         core.call intrinsic.map.delete(%payload, "top_logprobs")
         core.call intrinsic.map.delete(%payload, "n")
       }
+      // The o-series reasoning models take none of the sampling fields or the
+      // token limit on Chat Completions (TS isOpenAIThinkingModel).
+      %o_series = core.call @openai_is_o_series_reasoning_model_impl(%configured_model)
+      core.if %o_series {
+        core.call intrinsic.map.delete(%payload, "max_completion_tokens")
+        core.call intrinsic.map.delete(%payload, "temperature")
+        core.call intrinsic.map.delete(%payload, "top_p")
+        core.call intrinsic.map.delete(%payload, "n")
+        core.call intrinsic.map.delete(%payload, "presence_penalty")
+        core.call intrinsic.map.delete(%payload, "frequency_penalty")
+      }
       core.return
     }
   }
@@ -4441,6 +4452,9 @@ module @ax.provider version "0.1" {
         %payload = core.call @typesafe_build_chat_request(%request, %options)
         core.return %payload
       }
+      // Model info can mark temperature and topP notSupported; they leave the
+      // merged model config before any provider sees it.
+      %sampled_request = core.call @provider_apply_model_sampling_support_impl(%provider_id, %request, %options)
       %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
       %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
@@ -4448,23 +4462,23 @@ module @ax.provider version "0.1" {
       %reasoning_details_mode = core.call @provider_reasoning_details_replay_field(%provider_id, %model)
       %payload = core.map
       core.if %is_responses {
-        %responses_payload = core.call @openai_responses_build_chat_request(%request)
+        %responses_payload = core.call @openai_responses_build_chat_request(%sampled_request)
         %is_meta = core.call intrinsic.eq(%provider_id, "meta")
         core.if %is_meta {
-          %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %request, %options)
+          %responses_payload = core.call @meta_prepare_responses_request(%responses_payload, %sampled_request, %options)
         }
-        %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %request, %options)
+        %payload = core.call @openai_responses_apply_astra_caching(%responses_payload, %sampled_request, %options)
       } else {
         core.if %is_gemini {
           %is_vertex = core.get %descriptor["vertex"] default false
-          %gemini_payload = core.call @gemini_build_chat_request(%request, %options, %is_vertex)
+          %gemini_payload = core.call @gemini_build_chat_request(%sampled_request, %options, %is_vertex)
           %payload = core.let %gemini_payload
         } else {
           core.if %is_anthropic {
             %is_meta_messages = core.call intrinsic.eq(%provider_id, "meta-messages")
-            %anthropic_payload = core.call @anthropic_build_chat_request(%request, %is_meta_messages)
+            %anthropic_payload = core.call @anthropic_build_chat_request(%sampled_request, %is_meta_messages)
             core.if %is_meta_messages {
-              %anthropic_payload = core.call @meta_prepare_messages_request(%anthropic_payload, %request, %options)
+              %anthropic_payload = core.call @meta_prepare_messages_request(%anthropic_payload, %sampled_request, %options)
             }
             %is_vertex = core.get %descriptor["vertex"] default false
             core.if %is_vertex {
@@ -4474,10 +4488,10 @@ module @ax.provider version "0.1" {
             %payload = core.let %anthropic_payload
           } else {
             %is_official_openai = core.call intrinsic.eq(%provider_id, "openai")
-            %compatible_payload = core.call @openai_build_chat_request_impl(%request, %options, %is_official_openai, %reasoning_content_mode, %reasoning_details_mode)
+            %compatible_payload = core.call @openai_build_chat_request_impl(%sampled_request, %options, %is_official_openai, %reasoning_content_mode, %reasoning_details_mode)
             %is_meta_chat = core.call intrinsic.eq(%provider_id, "meta-chat")
             core.if %is_meta_chat {
-              %compatible_payload = core.call @meta_apply_prompt_cache_options(%compatible_payload, %options, %request)
+              %compatible_payload = core.call @meta_apply_prompt_cache_options(%compatible_payload, %options, %sampled_request)
             }
             %payload = core.let %compatible_payload
           }
@@ -4486,15 +4500,15 @@ module @ax.provider version "0.1" {
       %empty_rules = core.map
       %empty_list = core.list
       %profile_rules = core.get %descriptor["request"] default %empty_rules
-      %payload = core.call @provider_apply_request_rules(%payload, %request, %profile_rules, %options)
+      %payload = core.call @provider_apply_request_rules(%payload, %sampled_request, %profile_rules, %options)
       %model_rule = core.call @provider_resolve_model_rule(%provider_id, %model)
       %model_rules = core.get %model_rule["request"] default %empty_rules
-      %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules, %options)
+      %payload = core.call @provider_apply_request_rules(%payload, %sampled_request, %model_rules, %options)
       %features = core.call @provider_resolve_features(%provider_id, %model, %options)
-      %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %request, %options, %features, %profile_rules, %model_rules)
+      %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %sampled_request, %options, %features, %profile_rules, %model_rules)
       %is_meta_messages_final = core.call intrinsic.eq(%provider_id, "meta-messages")
       core.if %is_meta_messages_final {
-        %payload = core.call @meta_prepare_messages_request(%payload, %request, %options)
+        %payload = core.call @meta_prepare_messages_request(%payload, %sampled_request, %options)
       }
       %response_format = core.get %payload["response_format"] default %empty_rules
       %response_format_type = core.get %response_format["type"] default ""
@@ -5954,6 +5968,15 @@ module @ax.provider version "0.1" {
         core.call intrinsic.map.delete(%payload, "logprobs")
         core.call intrinsic.map.delete(%payload, "top_logprobs")
         core.call intrinsic.map.delete(%payload, "n")
+      }
+      // The o-series reasoning models keep only max_output_tokens
+      // (TS isOpenAIResponsesThinkingModel).
+      %o_series = core.call @openai_is_o_series_reasoning_model_impl(%configured_model)
+      core.if %o_series {
+        core.call intrinsic.map.delete(%payload, "temperature")
+        core.call intrinsic.map.delete(%payload, "top_p")
+        core.call intrinsic.map.delete(%payload, "presence_penalty")
+        core.call intrinsic.map.delete(%payload, "frequency_penalty")
       }
       core.return
     }
@@ -10489,6 +10512,132 @@ module @ax.provider version "0.1" {
       %project = core.get %options["projectId"] default %project_snake
       %url = core.call intrinsic.string.format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", %base_url, %project, %model)
       core.return %url
+    }
+  }
+
+  // The model config a client starts from before its own model_config, as each
+  // TS provider class does: axBaseAIDefaultConfig (temperature 0) for the
+  // OpenAI Chat profiles, Anthropic and Gemini; axAIOpenAIResponsesDefaultConfig
+  // (temperature 0.7, topP 1) for openai-responses; nothing for the other
+  // Responses profiles (AxAIOpenAIResponsesBase) or for Typesafe.
+  op ax.provider.semantic @provider_default_model_config {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "src/ax/ai/openai/responses_api_base.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(profile:string) -> json"
+    body @entry(%profile: string) {
+      %config = core.map
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_typesafe = core.call intrinsic.eq(%provider_id, "typesafe")
+      core.if %is_typesafe {
+        core.return %config
+      }
+      %is_openai_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      core.if %is_openai_responses {
+        core.set %config["temperature"] = 0.7
+        core.set %config["topP"] = 1
+        core.return %config
+      }
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_responses_profile = core.call intrinsic.eq(%transport, "openai-responses")
+      core.if %is_responses_profile {
+        core.return %config
+      }
+      core.set %config["temperature"] = 0
+      core.return %config
+    }
+  }
+
+  // AxBaseAI resolveChatModelConfig: after the provider config, the model
+  // key's config and the request's config are merged, temperature and topP
+  // are dropped when the selected model's info marks them notSupported.
+  op ax.provider.semantic @provider_apply_model_sampling_support_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/base.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(provider:string, request:AxChatRequest, options:json) -> AxChatRequest"
+    body @entry(%provider: string, %request: AxChatRequest, %options: json) {
+      %empty_map = core.map
+      %opts = core.call intrinsic.coalesce(%options, %empty_map)
+      %model = core.get %request["model"] default ""
+      %model_info_snake = core.get %opts["model_info"]
+      %model_info = core.get %opts["modelInfo"] default %model_info_snake
+      %info = core.call @provider_find_model_info(%provider, %model, %model_info)
+      %has_info = core.call intrinsic.is_not_none(%info)
+      core.if %has_info {
+      } else {
+        core.return %request
+      }
+      %not_supported_snake = core.get %info["not_supported"] default %empty_map
+      %not_supported_value = core.get %info["notSupported"] default %not_supported_snake
+      %not_supported = core.call intrinsic.coalesce(%not_supported_value, %empty_map)
+      %temperature_flag = core.get %not_supported["temperature"] default false
+      %drop_temperature = core.call intrinsic.truthy(%temperature_flag)
+      %top_p_snake_flag = core.get %not_supported["top_p"] default false
+      %top_p_flag = core.get %not_supported["topP"] default %top_p_snake_flag
+      %drop_top_p = core.call intrinsic.truthy(%top_p_flag)
+      %drop_any = core.call intrinsic.or(%drop_temperature, %drop_top_p)
+      core.if %drop_any {
+      } else {
+        core.return %request
+      }
+      %out = core.call intrinsic.map.merge(%request, %empty_map)
+      %model_config = core.get %request["model_config"]
+      %has_model_config = core.type_is %model_config type "object"
+      core.if %has_model_config {
+        %filtered_model_config = core.call @provider_drop_sampling_keys_impl(%model_config, %drop_temperature, %drop_top_p)
+        core.set %out["model_config"] = %filtered_model_config
+      }
+      %model_config_camel = core.get %request["modelConfig"]
+      %has_model_config_camel = core.type_is %model_config_camel type "object"
+      core.if %has_model_config_camel {
+        %filtered_model_config_camel = core.call @provider_drop_sampling_keys_impl(%model_config_camel, %drop_temperature, %drop_top_p)
+        core.set %out["modelConfig"] = %filtered_model_config_camel
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_drop_sampling_keys_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/base.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(json, bool, bool) -> json"
+    body @entry(%config: json, %drop_temperature: bool, %drop_top_p: bool) {
+      %seed = core.map
+      %copy = core.call intrinsic.map.merge(%config, %seed)
+      core.if %drop_temperature {
+        core.call intrinsic.map.delete(%copy, "temperature")
+      }
+      core.if %drop_top_p {
+        core.call intrinsic.map.delete(%copy, "topP")
+        core.call intrinsic.map.delete(%copy, "top_p")
+      }
+      core.return %copy
+    }
+  }
+
+  // isOpenAIThinkingModel and isOpenAIResponsesThinkingModel: the o-series
+  // reasoning models, matched by exact name. OpenAI Chat leaves every sampling
+  // field and the token limit out for them; Responses keeps max_output_tokens.
+  op ax.provider.semantic @openai_is_o_series_reasoning_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/api.ts"
+    tag "src/ax/ai/openai/responses_api.ts"
+    tag "axai-sampling-defaults"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_o_series = core.regex_match %model pattern "^(?:o1|o1-mini|o1-pro|o3|o3-mini|o3-pro|o4-mini)$"
+      core.return %is_o_series
     }
   }
 }

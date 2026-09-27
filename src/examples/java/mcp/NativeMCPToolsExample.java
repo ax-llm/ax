@@ -18,7 +18,7 @@ public final class NativeMCPToolsExample {
     if (key == null || endpoint == null) throw new IllegalStateException("Set OPENAI_API_KEY and MCP_URL.");
     AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), Map.of("namespace", "inventory"));
     AxGen program = new AxGen(Ax.s("request:string -> answer:string"), Map.of("mcp", mcp));
-    OpenAICompatibleClient llm = new OpenAICompatibleClient(Map.of("api_key", key, "model", "gpt-5.4-mini"));
+    AxAIService llm = Ax.ai("openai", Map.of("api_key", key, "model", "gpt-5.4-mini"));
     try {
       AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();
       System.out.println(Json.stringify(Map.of(

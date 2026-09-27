@@ -3272,7 +3272,9 @@ public final class Conformance {
         return fresh;
       });
     }
-    OpenAICompatibleClient client = geminiProvider ? new GoogleGeminiClient(provider, options)
+    // client_class builds the generic client by its own public constructor.
+    OpenAICompatibleClient client = "OpenAICompatibleClient".equals(fixture.get("client_class")) ? new OpenAICompatibleClient(options)
+      : geminiProvider ? new GoogleGeminiClient(provider, options)
       : anthropicProvider ? new AnthropicClient(provider, options)
       : responsesProvider ? new OpenAIResponsesClient(provider, options)
       : new OpenAICompatibleClient(provider, provider, options, defaultModel, defaultEmbedModel);

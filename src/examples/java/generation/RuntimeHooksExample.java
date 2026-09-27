@@ -45,7 +45,7 @@ public final class RuntimeHooksExample {
     String apiKey = System.getenv("OPENAI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) apiKey = System.getenv("OPENAI_APIKEY");
     if (apiKey == null || apiKey.isBlank()) throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.");
-    OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
+    AxAIService client = Ax.ai("openai", Map.of(
         "api_key", apiKey,
         "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
         "model_config", Map.of("temperature", 0.0)));

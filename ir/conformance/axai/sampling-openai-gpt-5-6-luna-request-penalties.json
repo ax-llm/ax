@@ -1,0 +1,57 @@
+{
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p",
+    "max_completion_tokens",
+    "n"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "frequency_penalty": 0.2,
+      "presence_penalty": 0.1
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "name": "sampling-openai-gpt-5-6-luna-request-penalties",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "frequencyPenalty": 0.2,
+      "presencePenalty": 0.1,
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_sampling",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

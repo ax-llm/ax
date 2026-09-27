@@ -184,13 +184,20 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
+    // The provider's sampling defaults (as its TS class starts from) sit under
+    // the caller's model_config.
+    this.modelConfig = new LinkedHashMap<>(Core.asMap(Core.provider_default_model_config(this.profile)));
+    this.modelConfig.putAll(Core.asMap(options.get("model_config")));
     if (this.profile.equals("typesafe")) {
-      this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
       Core.typesafe_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
     }
     Map<String, Object> resolvedOptions = Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))));
     this.descriptor = Core.asMap(Core.provider_resolve_descriptor(this.profile, resolvedOptions));
-    String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
+    Object rawDescriptorBaseUrl = this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1");
+    // The generic client's descriptor has no base URL; without a base_url it
+    // talks to OpenAI (OpenAICompatibleClient default_base_url).
+    if (rawDescriptorBaseUrl == null && this.profile.equals("openai-compatible")) rawDescriptorBaseUrl = "https://api.openai.com/v1";
+    String descriptorBaseUrl = String.valueOf(rawDescriptorBaseUrl);
     this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", (this.profile.equals("typesafe") ? descriptorBaseUrl : System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl))))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", this.profile.equals("typesafe") ? System.getenv().getOrDefault("TYPESAFE_APIKEY", System.getenv("TYPESAFE_API_KEY")) : System.getenv("OPENAI_API_KEY"))));
     this.apiVersion = String.valueOf(this.descriptor.getOrDefault("apiVersion", options.getOrDefault("api_version", options.getOrDefault("apiVersion", ""))));

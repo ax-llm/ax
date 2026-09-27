@@ -10,7 +10,7 @@
 // ax-example:end
 use axllm::{
     ax, AxEventEnvelope, AxEventRoute, AxEventRuntime, AxEventTarget, AxMCPClient,
-    AxMCPEventSource, AxMCPStreamableHTTPTransport, AxResult, OpenAICompatibleClient,
+    AxMCPEventSource, AxMCPStreamableHTTPTransport, AxResult,
 };
 use serde_json::{json, Map};
 use std::{
@@ -41,7 +41,7 @@ fn main() -> AxResult<()> {
         .unwrap()
         .call_tool("start_reindex", json!({"scope":"all"}))?;
     let task_id = task["task"]["taskId"].as_str().unwrap().to_string();
-    let mut llm = OpenAICompatibleClient::new(key, "gpt-5.4-mini");
+    let mut llm = axllm::ai("openai", json!({"api_key": key, "model": "gpt-5.4-mini"}))?;
     let mut flow = axllm::flow("reindex-flow")
         .execute("status", ax("taskId:string -> status:string")?)
         .returns(json!({"status":"status"}));

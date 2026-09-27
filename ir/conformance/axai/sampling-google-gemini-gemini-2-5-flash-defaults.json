@@ -1,0 +1,57 @@
+{
+  "expected_transport_json_absent": [
+    "generationConfig.topP",
+    "generationConfig.topK",
+    "generationConfig.maxOutputTokens"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "candidateCount": 1,
+        "temperature": 0
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gemini-2.5-flash",
+  "name": "sampling-google-gemini-gemini-2-5-flash-defaults",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "gem_sampling",
+        "usageMetadata": {
+          "candidatesTokenCount": 1,
+          "promptTokenCount": 1,
+          "totalTokenCount": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

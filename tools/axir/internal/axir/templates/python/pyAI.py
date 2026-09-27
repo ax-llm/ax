@@ -1136,8 +1136,10 @@ class ProviderOperationClient(AxBaseAI):
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
+        # The provider's sampling defaults (as its TS class starts from) sit
+        # under the caller's model_config.
+        self.model_config = {**provider_default_model_config(profile), **copy.deepcopy(model_config or {})}
         if profile == "typesafe":
-            self.model_config = copy.deepcopy(model_config or {})
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
         self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")

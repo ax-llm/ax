@@ -3331,9 +3331,12 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	if options["embed_model"] == nil {
 		options["embed_model"] = defaultEmbed
 	}
-	modelConfig := asMap(coreGet(options, "model_config", Object()))
-	if profile != "typesafe" && coreGet(modelConfig, "temperature", nil) == nil {
-		coreSet(modelConfig, "temperature", float64(0))
+	// The provider's sampling defaults (as its TS class starts from) sit under
+	// the caller's model_config.
+	modelConfig := asMap(mustCore(provider_default_model_config(profile)))
+	userConfig := asMap(coreGet(options, "model_config", Object()))
+	for _, key := range orderedKeys(userConfig) {
+		coreSet(modelConfig, key, userConfig[key])
 	}
 	coreSet(options, "model_config", modelConfig)
 	transport, _ := options["transport"].(Transport)
@@ -4137,6 +4140,11 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	path := display(mustCore(provider_chat_operation_path(c.Profile, coreGet(request, "model", ""), operation, coreGet(operationDescriptor, "path", "/chat/completions"))))
 	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
+	if base == "" && c.Profile == "openai-compatible" {
+		// The generic client's descriptor has no base URL; without a base_url
+		// it talks to OpenAI (OpenAICompatibleClient default_base_url).
+		base = "https://api.openai.com/v1"
+	}
 	headers := Object("Content-Type", "application/json")
 	defaultKey:=os.Getenv("OPENAI_API_KEY");if c.Profile=="typesafe" { defaultKey="" }
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", defaultKey)))
@@ -12746,7 +12754,13 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 		coreSet(options, "credential_provider", provider)
 	}
 	coreSet(options, "transport", transport)
-	client := NewAI(provider, options)
+	var client AIClient
+	if display(coreGet(fixture, "client_class", "")) == "OpenAICompatibleClient" {
+		// The generic client built by its own constructor instead of NewAI.
+		client = NewOpenAICompatibleClient(options)
+	} else {
+		client = NewAI(provider, options)
+	}
 	switch c := client.(type) {
 	case *OpenAICompatibleClient:
 		return c, transport

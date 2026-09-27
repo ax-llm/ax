@@ -23,7 +23,7 @@ fn main() -> AxResult<()> {
         .expect("Set OPENAI_APIKEY");
     let mut writer = ai(
         "openai",
-        json!({"api_key":key,"model":"gpt-5.6-luna","model_config":{"temperature":1}}),
+        json!({"api_key":key,"model":"gpt-5.6-luna"}),
     )?;
     let reply = ax("ticket:string, urgent:boolean, team:string -> reply:string")?.forward(&mut writer,json!({"ticket":"Checkout is unavailable for all customers after the latest deployment.","urgent":decision["urgent"],"team":decision["team"]}))?;
     assert!(!reply["reply"].as_str().unwrap().trim().is_empty());

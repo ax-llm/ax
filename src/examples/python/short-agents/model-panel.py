@@ -10,7 +10,7 @@
 import json
 import os
 
-from axllm import AnthropicClient, GoogleGeminiClient, OpenAICompatibleClient, ax
+from axllm import AnthropicClient, GoogleGeminiClient, ai, ax
 
 openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_APIKEY")
 google_key = os.getenv("GOOGLE_APIKEY") or os.getenv("GOOGLE_API_KEY")
@@ -22,7 +22,7 @@ if not (openai_key and google_key and anthropic_key):
 # independently. Plain ax() composition (no agent runtime): fan out to the
 # panel, judge the candidates, then synthesize one grounded answer.
 panel = [
-    ("openai/gpt-5.4-mini", OpenAICompatibleClient(api_key=openai_key, model="gpt-5.4-mini", model_config={"temperature": 0})),
+    ("openai/gpt-5.4-mini", ai("openai", api_key=openai_key, model="gpt-5.4-mini", model_config={"temperature": 0})),
     ("google/gemini-3.5-flash", GoogleGeminiClient(api_key=google_key, model="gemini-3.5-flash")),
     ("anthropic/claude-haiku-4.5", AnthropicClient(api_key=anthropic_key, model="claude-haiku-4-5")),
 ]

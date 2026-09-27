@@ -3925,6 +3925,14 @@ static std::string env_or_default(const char* name, const std::string& fallback)
   return value == nullptr ? fallback : std::string(value);
 }
 
+static std::string descriptor_base_url(const std::string& profile, const Value& descriptor) {
+  Value base = Core::get(descriptor, "baseUrl", "https://api.openai.com/v1");
+  // The generic client's descriptor has no base URL; without a base_url it
+  // talks to OpenAI (OpenAICompatibleClient default_base_url).
+  if (base.is_null() && profile == "openai-compatible") return "https://api.openai.com/v1";
+  return str(base);
+}
+
 static std::string strip_trailing_slashes(std::string value) {
   while (!value.empty() && value.back() == '/') value.pop_back();
   return value;
@@ -3954,14 +3962,16 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1"))))))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", (profile_ == "typesafe" ? str(Core::get(descriptor_, "baseUrl")) : env_or_default("OPENAI_BASE_URL", descriptor_base_url(profile_, descriptor_)))))),
       api_key_(option_string(options, "api_key", "apiKey", (profile_ == "typesafe" ? env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")) : env_or_default("OPENAI_API_KEY", "")))),
       api_version_(str(Core::get(descriptor_, "apiVersion", option_string(options, "api_version", "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
       credential_provider_(std::move(credential_provider)),
       transport_(transport) {
+  // The provider's sampling defaults (as its TS class starts from) sit under
+  // the caller's model_config.
+  model_config_ = Core::map_merge(Core::provider_default_model_config(profile_), Core::get(options, "model_config", Value::object()));
   if (profile_ == "typesafe") {
-    model_config_ = Core::get(options, "model_config", Value::object());
     Core::typesafe_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
   }
   if (transport_ == nullptr) {

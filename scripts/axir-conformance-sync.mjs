@@ -122,17 +122,24 @@ const providerDataFiles = {
   summary: 'provider-model-catalog-summary.json',
 };
 
-// The per-provider model names, aliases and isExpensive flags from the
-// catalog, in catalog order. The chat path reads this small index on every
-// request (the expensive-model gate), so it doesn't parse the full catalog.
+// The per-provider model names, aliases, isExpensive flags and notSupported
+// sampling parameters from the catalog, in catalog order. The chat path reads
+// this small index on every request (the expensive-model gate and the
+// temperature/topP filter), so it doesn't parse the full catalog.
 export function buildProviderModelIndex(catalog) {
   const index = {};
   for (const provider of catalog.all ?? []) {
-    index[provider.name] = (provider.models ?? []).map((model) => ({
-      name: model.name,
-      ...(model.aliases?.length ? { aliases: model.aliases } : {}),
-      ...(model.isExpensive ? { isExpensive: true } : {}),
-    }));
+    index[provider.name] = (provider.models ?? []).map((model) => {
+      const notSupported = Object.fromEntries(
+        Object.entries(model.notSupported ?? {}).filter(([, value]) => value)
+      );
+      return {
+        name: model.name,
+        ...(model.aliases?.length ? { aliases: model.aliases } : {}),
+        ...(model.isExpensive ? { isExpensive: true } : {}),
+        ...(Object.keys(notSupported).length > 0 ? { notSupported } : {}),
+      };
+    });
   }
   return normalizeCatalog(index);
 }

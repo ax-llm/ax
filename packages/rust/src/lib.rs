@@ -3062,13 +3062,18 @@ impl OpenAICompatibleClient {
         {
             req["model"] = json!(self.model.clone());
         }
-        let mut base_config = if self.model_config.is_object() {
-            self.model_config.clone()
-        } else {
-            json!({})
-        };
-        if self.profile != "typesafe" && base_config.get("temperature").is_none() {
-            base_config["temperature"] = json!(0);
+        // The provider's sampling defaults (as its TS class starts from) sit
+        // under the caller's model_config.
+        let mut base_config =
+            core_value_to_json(&provider_default_model_config(&[CoreValue::from(
+                self.profile.as_str(),
+            )])?);
+        if let (Some(target), Some(source)) =
+            (base_config.as_object_mut(), self.model_config.as_object())
+        {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
         }
         let override_config = req
             .get("model_config")
@@ -23908,7 +23913,30 @@ fn fixture_client(
     if options.get("api_key").is_none() {
         options["api_key"] = json!("test-key");
     }
-    let mut client = ai(provider, options)?.with_transport(transport);
+    let mut client =
+        if fixture.get("client_class").and_then(Value::as_str) == Some("OpenAICompatibleClient") {
+            // The generic client built by its own constructor instead of ai().
+            let api_key = options
+                .get("api_key")
+                .and_then(Value::as_str)
+                .unwrap_or("test-key")
+                .to_string();
+            let model = options
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            OpenAICompatibleClient::new(api_key, model)
+                .with_model_config(
+                    options
+                        .get("model_config")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                )
+                .with_transport(transport)
+        } else {
+            ai(provider, options)?.with_transport(transport)
+        };
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
         let header_sets = credential_fixture
             .get("headers")
@@ -37603,6 +37631,7 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     let mut v_has_stop = CoreValue::Null;
     let mut v_is_stream = CoreValue::Null;
     let mut v_model = CoreValue::Null;
+    let mut v_o_series = CoreValue::Null;
     let mut v_stop = CoreValue::Null;
     let mut v_stop_snake = CoreValue::Null;
     let mut v_stream = CoreValue::Null;
@@ -37747,6 +37776,15 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
         core_map_delete(&[v_payload.clone(), CoreValue::from("logprobs")])?;
         core_map_delete(&[v_payload.clone(), CoreValue::from("top_logprobs")])?;
         core_map_delete(&[v_payload.clone(), CoreValue::from("n")])?;
+    }
+    v_o_series = _openai_is_o_series_reasoning_model_impl(&[v_configured_model.clone()])?;
+    if core_truthy(&v_o_series) {
+        core_map_delete(&[v_payload.clone(), CoreValue::from("max_completion_tokens")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("temperature")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("top_p")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("n")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("presence_penalty")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("frequency_penalty")])?;
     }
     return Ok(CoreValue::Null);
 }
@@ -38000,24 +38038,6 @@ fn _openai_is_gpt56_family_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn _openai_is_gpt6_family_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_is_gpt6_family_impl");
-    let mut v_model = core_arg(args, 0);
-    let mut v_is_gpt6 = CoreValue::Null;
-    v_is_gpt6 = core_regex_match(
-        CoreValue::from("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)"),
-        &v_model,
-    )?;
-    return Ok(v_is_gpt6.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _apply_model_key_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_apply_model_key_option_impl");
     let mut v_options = core_arg(args, 0);
@@ -38056,15 +38076,15 @@ fn _apply_model_key_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn _openai_is_gpt6_astra_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_is_gpt6_astra_impl");
+fn _openai_is_gpt6_family_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_is_gpt6_family_impl");
     let mut v_model = core_arg(args, 0);
-    let mut v_is_astra = CoreValue::Null;
-    v_is_astra = core_regex_match(
-        CoreValue::from("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)"),
+    let mut v_is_gpt6 = CoreValue::Null;
+    v_is_gpt6 = core_regex_match(
+        CoreValue::from("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)"),
         &v_model,
     )?;
-    return Ok(v_is_astra.clone());
+    return Ok(v_is_gpt6.clone());
 }
 
 #[allow(
@@ -38074,15 +38094,15 @@ fn _openai_is_gpt6_astra_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _openai_is_bedrock_model_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_is_bedrock_model_impl");
+fn _openai_is_gpt6_astra_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_is_gpt6_astra_impl");
     let mut v_model = core_arg(args, 0);
-    let mut v_is_bedrock = CoreValue::Null;
-    v_is_bedrock = core_regex_match(
-        CoreValue::from("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\."),
+    let mut v_is_astra = CoreValue::Null;
+    v_is_astra = core_regex_match(
+        CoreValue::from("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)"),
         &v_model,
     )?;
-    return Ok(v_is_bedrock.clone());
+    return Ok(v_is_astra.clone());
 }
 
 #[allow(
@@ -38208,6 +38228,24 @@ fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _openai_is_bedrock_model_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_is_bedrock_model_impl");
+    let mut v_model = core_arg(args, 0);
+    let mut v_is_bedrock = CoreValue::Null;
+    v_is_bedrock = core_regex_match(
+        CoreValue::from("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\."),
+        &v_model,
+    )?;
+    return Ok(v_is_bedrock.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_supports_breakpoint_caching_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_supports_breakpoint_caching_impl");
     let mut v_model = core_arg(args, 0);
@@ -38294,75 +38332,6 @@ fn _openai_supports_chat_sessions_impl(args: &[CoreValue]) -> Result<CoreValue, 
     v_on_openai = core_not(&[v_is_bedrock.clone()])?;
     v_supported = core_and(&[v_is_astra.clone(), v_on_openai.clone()])?;
     return Ok(v_supported.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn openai_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_reasoning_effort");
-    let mut v_model = core_arg(args, 0);
-    let mut v_budget = core_arg(args, 1);
-    let mut v_is_astra = CoreValue::Null;
-    let mut v_is_gpt56 = CoreValue::Null;
-    let mut v_is_gpt6 = CoreValue::Null;
-    let mut v_is_highest = CoreValue::Null;
-    let mut v_is_low = CoreValue::Null;
-    let mut v_is_medium = CoreValue::Null;
-    let mut v_is_minimal = CoreValue::Null;
-    let mut v_is_none = CoreValue::Null;
-    let mut v_modern = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    v_is_gpt56 = _openai_is_gpt56_family_impl(&[v_model.clone()])?;
-    v_is_astra = _openai_is_gpt6_astra_impl(&[v_model.clone()])?;
-    v_is_gpt6 = _openai_is_gpt6_family_impl(&[v_model.clone()])?;
-    v_modern = core_or(&[v_is_gpt56.clone(), v_is_gpt6.clone()])?;
-    v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
-    if core_truthy(&v_is_none) {
-        if core_truthy(&v_is_astra) {
-            return Err(AxError::runtime(
-                "GPT-6 Astra does not support disabling reasoning; use low or higher",
-            ));
-        }
-        if core_truthy(&v_modern) {
-            return Ok(CoreValue::from("none"));
-        }
-        v_none = core_none(&[])?;
-        return Ok(v_none.clone());
-    }
-    v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
-    v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
-    v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
-    v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
-    if core_truthy(&v_modern) {
-        if core_truthy(&v_is_minimal) {
-            return Ok(CoreValue::from("low"));
-        }
-        if core_truthy(&v_is_low) {
-            return Ok(CoreValue::from("low"));
-        }
-        if core_truthy(&v_is_medium) {
-            return Ok(CoreValue::from("medium"));
-        }
-        if core_truthy(&v_is_highest) {
-            return Ok(CoreValue::from("max"));
-        }
-        return Ok(CoreValue::from("high"));
-    }
-    if core_truthy(&v_is_minimal) {
-        return Ok(CoreValue::from("minimal"));
-    }
-    if core_truthy(&v_is_low) {
-        return Ok(CoreValue::from("medium"));
-    }
-    if core_truthy(&v_is_highest) {
-        return Ok(CoreValue::from("xhigh"));
-    }
-    return Ok(CoreValue::from("high"));
 }
 
 #[allow(
@@ -38973,6 +38942,75 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn openai_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_reasoning_effort");
+    let mut v_model = core_arg(args, 0);
+    let mut v_budget = core_arg(args, 1);
+    let mut v_is_astra = CoreValue::Null;
+    let mut v_is_gpt56 = CoreValue::Null;
+    let mut v_is_gpt6 = CoreValue::Null;
+    let mut v_is_highest = CoreValue::Null;
+    let mut v_is_low = CoreValue::Null;
+    let mut v_is_medium = CoreValue::Null;
+    let mut v_is_minimal = CoreValue::Null;
+    let mut v_is_none = CoreValue::Null;
+    let mut v_modern = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_is_gpt56 = _openai_is_gpt56_family_impl(&[v_model.clone()])?;
+    v_is_astra = _openai_is_gpt6_astra_impl(&[v_model.clone()])?;
+    v_is_gpt6 = _openai_is_gpt6_family_impl(&[v_model.clone()])?;
+    v_modern = core_or(&[v_is_gpt56.clone(), v_is_gpt6.clone()])?;
+    v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
+    if core_truthy(&v_is_none) {
+        if core_truthy(&v_is_astra) {
+            return Err(AxError::runtime(
+                "GPT-6 Astra does not support disabling reasoning; use low or higher",
+            ));
+        }
+        if core_truthy(&v_modern) {
+            return Ok(CoreValue::from("none"));
+        }
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
+    v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
+    v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
+    v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
+    if core_truthy(&v_modern) {
+        if core_truthy(&v_is_minimal) {
+            return Ok(CoreValue::from("low"));
+        }
+        if core_truthy(&v_is_low) {
+            return Ok(CoreValue::from("low"));
+        }
+        if core_truthy(&v_is_medium) {
+            return Ok(CoreValue::from("medium"));
+        }
+        if core_truthy(&v_is_highest) {
+            return Ok(CoreValue::from("max"));
+        }
+        return Ok(CoreValue::from("high"));
+    }
+    if core_truthy(&v_is_minimal) {
+        return Ok(CoreValue::from("minimal"));
+    }
+    if core_truthy(&v_is_low) {
+        return Ok(CoreValue::from("medium"));
+    }
+    if core_truthy(&v_is_highest) {
+        return Ok(CoreValue::from("xhigh"));
+    }
+    return Ok(CoreValue::from("high"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_chat_reasoning_effort");
     let mut v_model = core_arg(args, 0);
@@ -38985,6 +39023,25 @@ fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError
         return Ok(CoreValue::from("xhigh"));
     }
     return Ok(v_effort.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_chat_request");
+    let mut v_service = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_payload = CoreValue::Null;
+    validate_chat_request(&[v_request.clone()])?;
+    v_payload =
+        openai_build_chat_request(&[v_request.clone(), v_options.clone(), CoreValue::Bool(true)])?;
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -39017,16 +39074,12 @@ fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("build_chat_request");
-    let mut v_service = core_arg(args, 0);
-    let mut v_request = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_payload = CoreValue::Null;
-    validate_chat_request(&[v_request.clone()])?;
-    v_payload =
-        openai_build_chat_request(&[v_request.clone(), v_options.clone(), CoreValue::Bool(true)])?;
-    return Ok(v_payload.clone());
+fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -39242,21 +39295,6 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_message_text = core_string_format(&[CoreValue::from("Invalid role: {}"), v_role.clone()])?;
     v_error = core_ai_error_response(&[v_message_text.clone()])?;
     return Err(core_as_error(&v_error));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
-    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -40811,6 +40849,134 @@ fn _openai_normalize_chat_response_impl(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
+fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_response_to_completion");
+    let mut v_response = core_arg(args, 0);
+    let mut v_calls = CoreValue::Null;
+    let mut v_completion = CoreValue::Null;
+    let mut v_completions = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_completion = CoreValue::Null;
+    let mut v_empty_results = CoreValue::Null;
+    let mut v_finish = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_has_finish = CoreValue::Null;
+    let mut v_has_images = CoreValue::Null;
+    let mut v_has_phase = CoreValue::Null;
+    let mut v_has_response = CoreValue::Null;
+    let mut v_has_routing = CoreValue::Null;
+    let mut v_has_session_id = CoreValue::Null;
+    let mut v_has_thought = CoreValue::Null;
+    let mut v_has_thought_blocks = CoreValue::Null;
+    let mut v_images = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
+    let mut v_next_position = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_phase = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_router_envelope = CoreValue::Null;
+    let mut v_session_id = CoreValue::Null;
+    let mut v_thought = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_has_routing = core_map_contains(&[v_response.clone(), CoreValue::from("routing")])?;
+    v_has_response = core_map_contains(&[v_response.clone(), CoreValue::from("response")])?;
+    v_router_envelope = core_and(&[v_has_routing.clone(), v_has_response.clone()])?;
+    if core_truthy(&v_router_envelope) {
+        v_response = core_get(&v_response, &CoreValue::from("response"), CoreValue::Null);
+    }
+    v_empty_results = CoreValue::new_list();
+    v_results = core_get(
+        &v_response,
+        &CoreValue::from("results"),
+        v_empty_results.clone(),
+    );
+    v_completions = CoreValue::new_list();
+    v_position = CoreValue::Num(0f64);
+    for v_result in core_iter(&v_results)? {
+        let mut v_result = v_result;
+        v_completion = _chat_result_to_completion(&[v_result.clone(), v_position.clone()])?;
+        core_append(&v_completions, v_completion.clone())?;
+        v_next_position = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
+        v_position = v_next_position.clone();
+    }
+    v_empty_completion = CoreValue::new_map();
+    v_first = core_list_get(&[
+        v_completions.clone(),
+        CoreValue::Num(0f64),
+        v_empty_completion.clone(),
+    ])?;
+    v_content = core_get(&v_first, &CoreValue::from("content"), CoreValue::from(""));
+    v_calls = core_get(
+        &v_first,
+        &CoreValue::from("function_calls"),
+        v_empty_results.clone(),
+    );
+    v_model_usage = core_get(
+        &v_response,
+        &CoreValue::from("model_usage"),
+        CoreValue::Null,
+    );
+    v_usage = core_get(&v_model_usage, &CoreValue::from("tokens"), CoreValue::Null);
+    v_thought = core_get(&v_first, &CoreValue::from("thought"), CoreValue::Null);
+    v_has_thought = core_is_not_none(&[v_thought.clone()])?;
+    v_thought_blocks = core_get(
+        &v_first,
+        &CoreValue::from("thought_blocks"),
+        CoreValue::Null,
+    );
+    v_has_thought_blocks = core_is_not_none(&[v_thought_blocks.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+    core_set(&v_out, CoreValue::from("function_calls"), v_calls.clone())?;
+    core_set(&v_out, CoreValue::from("results"), v_completions.clone())?;
+    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
+    if core_truthy(&v_has_thought) {
+        core_set(&v_out, CoreValue::from("thought"), v_thought.clone())?;
+    }
+    if core_truthy(&v_has_thought_blocks) {
+        core_set(
+            &v_out,
+            CoreValue::from("thought_blocks"),
+            v_thought_blocks.clone(),
+        )?;
+    }
+    v_session_id = core_get(
+        &v_response,
+        &CoreValue::from("__session_response_id"),
+        CoreValue::Null,
+    );
+    v_has_session_id = core_is_not_none(&[v_session_id.clone()])?;
+    if core_truthy(&v_has_session_id) {
+        core_set(&v_out, CoreValue::from("remote_id"), v_session_id.clone())?;
+    }
+    v_images = core_get(&v_first, &CoreValue::from("images"), CoreValue::Null);
+    v_has_images = core_is_not_none(&[v_images.clone()])?;
+    if core_truthy(&v_has_images) {
+        core_set(&v_out, CoreValue::from("images"), v_images.clone())?;
+    }
+    v_phase = core_get(&v_first, &CoreValue::from("phase"), CoreValue::Null);
+    v_has_phase = core_is_not_none(&[v_phase.clone()])?;
+    if core_truthy(&v_has_phase) {
+        core_set(&v_out, CoreValue::from("phase"), v_phase.clone())?;
+    }
+    v_finish = core_get(&v_first, &CoreValue::from("finish_reason"), CoreValue::Null);
+    v_has_finish = core_is_not_none(&[v_finish.clone()])?;
+    if core_truthy(&v_has_finish) {
+        core_set(&v_out, CoreValue::from("finish_reason"), v_finish.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_normalize_choice_impl");
     let mut v_choice = core_arg(args, 0);
@@ -40980,134 +41146,6 @@ fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
         CoreValue::from("finish_reason"),
         v_finish_reason.clone(),
     )?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_response_to_completion");
-    let mut v_response = core_arg(args, 0);
-    let mut v_calls = CoreValue::Null;
-    let mut v_completion = CoreValue::Null;
-    let mut v_completions = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_empty_completion = CoreValue::Null;
-    let mut v_empty_results = CoreValue::Null;
-    let mut v_finish = CoreValue::Null;
-    let mut v_first = CoreValue::Null;
-    let mut v_has_finish = CoreValue::Null;
-    let mut v_has_images = CoreValue::Null;
-    let mut v_has_phase = CoreValue::Null;
-    let mut v_has_response = CoreValue::Null;
-    let mut v_has_routing = CoreValue::Null;
-    let mut v_has_session_id = CoreValue::Null;
-    let mut v_has_thought = CoreValue::Null;
-    let mut v_has_thought_blocks = CoreValue::Null;
-    let mut v_images = CoreValue::Null;
-    let mut v_model_usage = CoreValue::Null;
-    let mut v_next_position = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_phase = CoreValue::Null;
-    let mut v_position = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_results = CoreValue::Null;
-    let mut v_router_envelope = CoreValue::Null;
-    let mut v_session_id = CoreValue::Null;
-    let mut v_thought = CoreValue::Null;
-    let mut v_thought_blocks = CoreValue::Null;
-    let mut v_usage = CoreValue::Null;
-    v_has_routing = core_map_contains(&[v_response.clone(), CoreValue::from("routing")])?;
-    v_has_response = core_map_contains(&[v_response.clone(), CoreValue::from("response")])?;
-    v_router_envelope = core_and(&[v_has_routing.clone(), v_has_response.clone()])?;
-    if core_truthy(&v_router_envelope) {
-        v_response = core_get(&v_response, &CoreValue::from("response"), CoreValue::Null);
-    }
-    v_empty_results = CoreValue::new_list();
-    v_results = core_get(
-        &v_response,
-        &CoreValue::from("results"),
-        v_empty_results.clone(),
-    );
-    v_completions = CoreValue::new_list();
-    v_position = CoreValue::Num(0f64);
-    for v_result in core_iter(&v_results)? {
-        let mut v_result = v_result;
-        v_completion = _chat_result_to_completion(&[v_result.clone(), v_position.clone()])?;
-        core_append(&v_completions, v_completion.clone())?;
-        v_next_position = core_add(&[v_position.clone(), CoreValue::Num(1f64)])?;
-        v_position = v_next_position.clone();
-    }
-    v_empty_completion = CoreValue::new_map();
-    v_first = core_list_get(&[
-        v_completions.clone(),
-        CoreValue::Num(0f64),
-        v_empty_completion.clone(),
-    ])?;
-    v_content = core_get(&v_first, &CoreValue::from("content"), CoreValue::from(""));
-    v_calls = core_get(
-        &v_first,
-        &CoreValue::from("function_calls"),
-        v_empty_results.clone(),
-    );
-    v_model_usage = core_get(
-        &v_response,
-        &CoreValue::from("model_usage"),
-        CoreValue::Null,
-    );
-    v_usage = core_get(&v_model_usage, &CoreValue::from("tokens"), CoreValue::Null);
-    v_thought = core_get(&v_first, &CoreValue::from("thought"), CoreValue::Null);
-    v_has_thought = core_is_not_none(&[v_thought.clone()])?;
-    v_thought_blocks = core_get(
-        &v_first,
-        &CoreValue::from("thought_blocks"),
-        CoreValue::Null,
-    );
-    v_has_thought_blocks = core_is_not_none(&[v_thought_blocks.clone()])?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
-    core_set(&v_out, CoreValue::from("function_calls"), v_calls.clone())?;
-    core_set(&v_out, CoreValue::from("results"), v_completions.clone())?;
-    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
-    if core_truthy(&v_has_thought) {
-        core_set(&v_out, CoreValue::from("thought"), v_thought.clone())?;
-    }
-    if core_truthy(&v_has_thought_blocks) {
-        core_set(
-            &v_out,
-            CoreValue::from("thought_blocks"),
-            v_thought_blocks.clone(),
-        )?;
-    }
-    v_session_id = core_get(
-        &v_response,
-        &CoreValue::from("__session_response_id"),
-        CoreValue::Null,
-    );
-    v_has_session_id = core_is_not_none(&[v_session_id.clone()])?;
-    if core_truthy(&v_has_session_id) {
-        core_set(&v_out, CoreValue::from("remote_id"), v_session_id.clone())?;
-    }
-    v_images = core_get(&v_first, &CoreValue::from("images"), CoreValue::Null);
-    v_has_images = core_is_not_none(&[v_images.clone()])?;
-    if core_truthy(&v_has_images) {
-        core_set(&v_out, CoreValue::from("images"), v_images.clone())?;
-    }
-    v_phase = core_get(&v_first, &CoreValue::from("phase"), CoreValue::Null);
-    v_has_phase = core_is_not_none(&[v_phase.clone()])?;
-    if core_truthy(&v_has_phase) {
-        core_set(&v_out, CoreValue::from("phase"), v_phase.clone())?;
-    }
-    v_finish = core_get(&v_first, &CoreValue::from("finish_reason"), CoreValue::Null);
-    v_has_finish = core_is_not_none(&[v_finish.clone()])?;
-    if core_truthy(&v_has_finish) {
-        core_set(&v_out, CoreValue::from("finish_reason"), v_finish.clone())?;
-    }
     return Ok(v_out.clone());
 }
 
@@ -41448,31 +41486,6 @@ fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_normalize_stream_delta");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_ai_name = core_arg(args, 2);
-    let mut v_model = core_arg(args, 3);
-    let mut v_response = CoreValue::Null;
-    v_response = _openai_normalize_stream_delta_impl(&[
-        v_raw.clone(),
-        v_state.clone(),
-        v_ai_name.clone(),
-        v_model.clone(),
-        CoreValue::from("none"),
-        CoreValue::from("none"),
-    ])?;
-    return Ok(v_response.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("ai_context_cache_recovery");
     let mut v_current_entry = core_arg(args, 0);
@@ -41532,6 +41545,31 @@ fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_normalize_stream_delta");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_ai_name = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_response = CoreValue::Null;
+    v_response = _openai_normalize_stream_delta_impl(&[
+        v_raw.clone(),
+        v_state.clone(),
+        v_ai_name.clone(),
+        v_model.clone(),
+        CoreValue::from("none"),
+        CoreValue::from("none"),
+    ])?;
+    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -49269,6 +49307,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_response_format = CoreValue::Null;
     let mut v_response_format_type = CoreValue::Null;
     let mut v_responses_payload = CoreValue::Null;
+    let mut v_sampled_request = CoreValue::Null;
     let mut v_structured_mode = CoreValue::Null;
     let mut v_structured_modes = CoreValue::Null;
     let mut v_supports_json_object = CoreValue::Null;
@@ -49286,6 +49325,11 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
         v_payload = typesafe_build_chat_request(&[v_request.clone(), v_options.clone()])?;
         return Ok(v_payload.clone());
     }
+    v_sampled_request = _provider_apply_model_sampling_support_impl(&[
+        v_provider_id.clone(),
+        v_request.clone(),
+        v_options.clone(),
+    ])?;
     v_is_responses = core_eq(&[v_transport.clone(), CoreValue::from("openai-responses")])?;
     v_is_gemini = core_eq(&[
         v_transport.clone(),
@@ -49298,18 +49342,18 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
         _provider_reasoning_details_replay_field(&[v_provider_id.clone(), v_model.clone()])?;
     v_payload = CoreValue::new_map();
     if core_truthy(&v_is_responses) {
-        v_responses_payload = openai_responses_build_chat_request(&[v_request.clone()])?;
+        v_responses_payload = openai_responses_build_chat_request(&[v_sampled_request.clone()])?;
         v_is_meta = core_eq(&[v_provider_id.clone(), CoreValue::from("meta")])?;
         if core_truthy(&v_is_meta) {
             v_responses_payload = _meta_prepare_responses_request(&[
                 v_responses_payload.clone(),
-                v_request.clone(),
+                v_sampled_request.clone(),
                 v_options.clone(),
             ])?;
         }
         v_payload = openai_responses_apply_astra_caching(&[
             v_responses_payload.clone(),
-            v_request.clone(),
+            v_sampled_request.clone(),
             v_options.clone(),
         ])?;
     } else {
@@ -49320,7 +49364,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 CoreValue::Bool(false),
             );
             v_gemini_payload = _gemini_build_chat_request(&[
-                v_request.clone(),
+                v_sampled_request.clone(),
                 v_options.clone(),
                 v_is_vertex.clone(),
             ])?;
@@ -49330,13 +49374,13 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_is_meta_messages =
                     core_eq(&[v_provider_id.clone(), CoreValue::from("meta-messages")])?;
                 v_anthropic_payload = _anthropic_build_chat_request(&[
-                    v_request.clone(),
+                    v_sampled_request.clone(),
                     v_is_meta_messages.clone(),
                 ])?;
                 if core_truthy(&v_is_meta_messages) {
                     v_anthropic_payload = _meta_prepare_messages_request(&[
                         v_anthropic_payload.clone(),
-                        v_request.clone(),
+                        v_sampled_request.clone(),
                         v_options.clone(),
                     ])?;
                 }
@@ -49358,7 +49402,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                 v_is_official_openai =
                     core_eq(&[v_provider_id.clone(), CoreValue::from("openai")])?;
                 v_compatible_payload = _openai_build_chat_request_impl(&[
-                    v_request.clone(),
+                    v_sampled_request.clone(),
                     v_options.clone(),
                     v_is_official_openai.clone(),
                     v_reasoning_content_mode.clone(),
@@ -49369,7 +49413,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
                     v_compatible_payload = _meta_apply_prompt_cache_options(&[
                         v_compatible_payload.clone(),
                         v_options.clone(),
-                        v_request.clone(),
+                        v_sampled_request.clone(),
                     ])?;
                 }
                 v_payload = v_compatible_payload.clone();
@@ -49385,7 +49429,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     );
     v_payload = _provider_apply_request_rules(&[
         v_payload.clone(),
-        v_request.clone(),
+        v_sampled_request.clone(),
         v_profile_rules.clone(),
         v_options.clone(),
     ])?;
@@ -49397,7 +49441,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     );
     v_payload = _provider_apply_request_rules(&[
         v_payload.clone(),
-        v_request.clone(),
+        v_sampled_request.clone(),
         v_model_rules.clone(),
         v_options.clone(),
     ])?;
@@ -49406,7 +49450,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_payload = _provider_apply_service_tier(&[
         v_provider_id.clone(),
         v_payload.clone(),
-        v_request.clone(),
+        v_sampled_request.clone(),
         v_options.clone(),
         v_features.clone(),
         v_profile_rules.clone(),
@@ -49416,7 +49460,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     if core_truthy(&v_is_meta_messages_final) {
         v_payload = _meta_prepare_messages_request(&[
             v_payload.clone(),
-            v_request.clone(),
+            v_sampled_request.clone(),
             v_options.clone(),
         ])?;
     }
@@ -52541,6 +52585,7 @@ fn _openai_responses_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreV
     let mut v_has_effort = CoreValue::Null;
     let mut v_is_none = CoreValue::Null;
     let mut v_model = CoreValue::Null;
+    let mut v_o_series = CoreValue::Null;
     let mut v_reasoning = CoreValue::Null;
     _openai_copy_config_key_impl(&[
         v_payload.clone(),
@@ -52645,6 +52690,13 @@ fn _openai_responses_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreV
         core_map_delete(&[v_payload.clone(), CoreValue::from("logprobs")])?;
         core_map_delete(&[v_payload.clone(), CoreValue::from("top_logprobs")])?;
         core_map_delete(&[v_payload.clone(), CoreValue::from("n")])?;
+    }
+    v_o_series = _openai_is_o_series_reasoning_model_impl(&[v_configured_model.clone()])?;
+    if core_truthy(&v_o_series) {
+        core_map_delete(&[v_payload.clone(), CoreValue::from("temperature")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("top_p")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("presence_penalty")])?;
+        core_map_delete(&[v_payload.clone(), CoreValue::from("frequency_penalty")])?;
     }
     return Ok(CoreValue::Null);
 }
@@ -61303,7 +61355,7 @@ fn openai_responses_validate_astra_effort(args: &[CoreValue]) -> Result<CoreValu
 fn _provider_model_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_provider_model_index");
     let mut v_index = CoreValue::Null;
-    v_index = core_json_parse(&[CoreValue::from("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\"},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\"},{\"name\":\"gemini-3.7-flash\"},{\"name\":\"gemini-3.8-flash\"},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\"},{\"name\":\"muse-voice-transcribe-1.0\"}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}")])?;
+    v_index = core_json_parse(&[CoreValue::from("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"muse-voice-transcribe-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true}}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}")])?;
     return Ok(v_index.clone());
 }
 
@@ -61685,6 +61737,221 @@ fn provider_embed_url(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_model.clone(),
     ])?;
     return Ok(v_url.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_default_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_default_model_config");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_config = CoreValue::Null;
+    let mut v_descriptor = CoreValue::Null;
+    let mut v_is_openai_responses = CoreValue::Null;
+    let mut v_is_responses_profile = CoreValue::Null;
+    let mut v_is_typesafe = CoreValue::Null;
+    let mut v_provider_id = CoreValue::Null;
+    let mut v_transport = CoreValue::Null;
+    v_config = CoreValue::new_map();
+    v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
+    v_is_typesafe = core_eq(&[v_provider_id.clone(), CoreValue::from("typesafe")])?;
+    if core_truthy(&v_is_typesafe) {
+        return Ok(v_config.clone());
+    }
+    v_is_openai_responses = core_eq(&[v_provider_id.clone(), CoreValue::from("openai-responses")])?;
+    if core_truthy(&v_is_openai_responses) {
+        core_set(
+            &v_config,
+            CoreValue::from("temperature"),
+            CoreValue::Num(0.7f64),
+        )?;
+        core_set(&v_config, CoreValue::from("topP"), CoreValue::Num(1f64))?;
+        return Ok(v_config.clone());
+    }
+    v_descriptor = provider_descriptor(&[v_provider_id.clone()])?;
+    v_transport = core_get(
+        &v_descriptor,
+        &CoreValue::from("transport"),
+        CoreValue::from("openai-chat"),
+    );
+    v_is_responses_profile = core_eq(&[v_transport.clone(), CoreValue::from("openai-responses")])?;
+    if core_truthy(&v_is_responses_profile) {
+        return Ok(v_config.clone());
+    }
+    core_set(
+        &v_config,
+        CoreValue::from("temperature"),
+        CoreValue::Num(0f64),
+    )?;
+    return Ok(v_config.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_apply_model_sampling_support_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_apply_model_sampling_support_impl");
+    let mut v_provider = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_drop_any = CoreValue::Null;
+    let mut v_drop_temperature = CoreValue::Null;
+    let mut v_drop_top_p = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_filtered_model_config = CoreValue::Null;
+    let mut v_filtered_model_config_camel = CoreValue::Null;
+    let mut v_has_info = CoreValue::Null;
+    let mut v_has_model_config = CoreValue::Null;
+    let mut v_has_model_config_camel = CoreValue::Null;
+    let mut v_info = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_config = CoreValue::Null;
+    let mut v_model_config_camel = CoreValue::Null;
+    let mut v_model_info = CoreValue::Null;
+    let mut v_model_info_snake = CoreValue::Null;
+    let mut v_not_supported = CoreValue::Null;
+    let mut v_not_supported_snake = CoreValue::Null;
+    let mut v_not_supported_value = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_temperature_flag = CoreValue::Null;
+    let mut v_top_p_flag = CoreValue::Null;
+    let mut v_top_p_snake_flag = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts = core_coalesce(&[v_options.clone(), v_empty_map.clone()])?;
+    v_model = core_get(&v_request, &CoreValue::from("model"), CoreValue::from(""));
+    v_model_info_snake = core_get(&v_opts, &CoreValue::from("model_info"), CoreValue::Null);
+    v_model_info = core_get(
+        &v_opts,
+        &CoreValue::from("modelInfo"),
+        v_model_info_snake.clone(),
+    );
+    v_info =
+        provider_find_model_info(&[v_provider.clone(), v_model.clone(), v_model_info.clone()])?;
+    v_has_info = core_is_not_none(&[v_info.clone()])?;
+    if core_truthy(&v_has_info) {
+    } else {
+        return Ok(v_request.clone());
+    }
+    v_not_supported_snake = core_get(
+        &v_info,
+        &CoreValue::from("not_supported"),
+        v_empty_map.clone(),
+    );
+    v_not_supported_value = core_get(
+        &v_info,
+        &CoreValue::from("notSupported"),
+        v_not_supported_snake.clone(),
+    );
+    v_not_supported = core_coalesce(&[v_not_supported_value.clone(), v_empty_map.clone()])?;
+    v_temperature_flag = core_get(
+        &v_not_supported,
+        &CoreValue::from("temperature"),
+        CoreValue::Bool(false),
+    );
+    v_drop_temperature = core_truthy_value(&[v_temperature_flag.clone()])?;
+    v_top_p_snake_flag = core_get(
+        &v_not_supported,
+        &CoreValue::from("top_p"),
+        CoreValue::Bool(false),
+    );
+    v_top_p_flag = core_get(
+        &v_not_supported,
+        &CoreValue::from("topP"),
+        v_top_p_snake_flag.clone(),
+    );
+    v_drop_top_p = core_truthy_value(&[v_top_p_flag.clone()])?;
+    v_drop_any = core_or(&[v_drop_temperature.clone(), v_drop_top_p.clone()])?;
+    if core_truthy(&v_drop_any) {
+    } else {
+        return Ok(v_request.clone());
+    }
+    v_out = core_map_merge(&[v_request.clone(), v_empty_map.clone()])?;
+    v_model_config = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        CoreValue::Null,
+    );
+    v_has_model_config = core_type_is(&v_model_config, CoreValue::from("object"));
+    if core_truthy(&v_has_model_config) {
+        v_filtered_model_config = _provider_drop_sampling_keys_impl(&[
+            v_model_config.clone(),
+            v_drop_temperature.clone(),
+            v_drop_top_p.clone(),
+        ])?;
+        core_set(
+            &v_out,
+            CoreValue::from("model_config"),
+            v_filtered_model_config.clone(),
+        )?;
+    }
+    v_model_config_camel = core_get(&v_request, &CoreValue::from("modelConfig"), CoreValue::Null);
+    v_has_model_config_camel = core_type_is(&v_model_config_camel, CoreValue::from("object"));
+    if core_truthy(&v_has_model_config_camel) {
+        v_filtered_model_config_camel = _provider_drop_sampling_keys_impl(&[
+            v_model_config_camel.clone(),
+            v_drop_temperature.clone(),
+            v_drop_top_p.clone(),
+        ])?;
+        core_set(
+            &v_out,
+            CoreValue::from("modelConfig"),
+            v_filtered_model_config_camel.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_drop_sampling_keys_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_drop_sampling_keys_impl");
+    let mut v_config = core_arg(args, 0);
+    let mut v_drop_temperature = core_arg(args, 1);
+    let mut v_drop_top_p = core_arg(args, 2);
+    let mut v_copy = CoreValue::Null;
+    let mut v_seed = CoreValue::Null;
+    v_seed = CoreValue::new_map();
+    v_copy = core_map_merge(&[v_config.clone(), v_seed.clone()])?;
+    if core_truthy(&v_drop_temperature) {
+        core_map_delete(&[v_copy.clone(), CoreValue::from("temperature")])?;
+    }
+    if core_truthy(&v_drop_top_p) {
+        core_map_delete(&[v_copy.clone(), CoreValue::from("topP")])?;
+        core_map_delete(&[v_copy.clone(), CoreValue::from("top_p")])?;
+    }
+    return Ok(v_copy.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_is_o_series_reasoning_model_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_is_o_series_reasoning_model_impl");
+    let mut v_model = core_arg(args, 0);
+    let mut v_is_o_series = CoreValue::Null;
+    v_is_o_series = core_regex_match(
+        CoreValue::from("^(?:o1|o1-mini|o1-pro|o3|o3-mini|o3-pro|o4-mini)$"),
+        &v_model,
+    )?;
+    return Ok(v_is_o_series.clone());
 }
 
 #[allow(
@@ -115943,7 +116210,7 @@ fn mcp_websocket_request_ids(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_ids.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (832 of 832 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (836 of 836 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

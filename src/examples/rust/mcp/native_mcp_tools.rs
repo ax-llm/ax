@@ -10,7 +10,6 @@
 // ax-example:end
 use axllm::{
     ax, AxExecutionContext, AxMCPClient, AxMCPStreamableHTTPTransport, AxResult,
-    OpenAICompatibleClient,
 };
 use serde_json::json;
 use std::{
@@ -37,7 +36,7 @@ fn main() -> AxResult<()> {
         catalog.resource_templates.len()
     );
     let mut program = ax("request:string -> answer:string")?.with_execution_context(context)?;
-    let mut llm = OpenAICompatibleClient::new(key, "gpt-5.4-mini");
+    let mut llm = axllm::ai("openai", json!({"api_key": key, "model": "gpt-5.4-mini"}))?;
     println!(
         "{}",
         program.forward(&mut llm, json!({"request":"Reindex inventory."}))?

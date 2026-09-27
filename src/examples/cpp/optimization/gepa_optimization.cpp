@@ -27,16 +27,16 @@ int main() {
     return 2;
   }
   const char* model = std::getenv("AX_OPENAI_MODEL");
-  axllm::OpenAICompatibleClient client(axllm::object({
+  auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::AxGen program = axllm::ax("emailText:string -> priority:class \"high, normal, low\", rationale:string", axllm::object({{"id", "priority"}, {"instruction", "Classify the email priority."}}));
-  axllm::Value baseline = program.forward(client, axllm::object({{"emailText", "Production checkout is failing for enterprise customers."}}));
+  axllm::Value baseline = program.forward(*client, axllm::object({{"emailText", "Production checkout is failing for enterprise customers."}}));
   axllm::Value request = axllm::object({{"programKind", "axgen"}, {"components", axllm::array({axllm::object({{"id", "priority::instruction"}, {"owner", "priority"}, {"kind", "instruction"}, {"current", "Classify priority clearly."}})})}, {"dataset", axllm::object({{"train", axllm::array({axllm::object({{"emailText", "URGENT: checkout is down"}})})}})}, {"options", axllm::object({{"numTrials", 0}, {"maxMetricCalls", 4}, {"seed", 7}})}});
   LocalEvaluator evaluator;
-  axllm::AxGEPA gepa(axllm::object({{"seed", 7}}));
+  axllm::AxGEPA gepa(nullptr, axllm::object({{"seed", 7}}));
   axllm::Value artifact = gepa.optimize(request, &evaluator);
   std::cout << axllm::stringify(axllm::object({{"baseline", baseline}, {"artifact", artifact}})) << "\n";
 }

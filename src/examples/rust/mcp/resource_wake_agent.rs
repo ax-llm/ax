@@ -12,7 +12,6 @@ use axllm::runtime::quickjs::QuickJsCodeRuntime;
 use axllm::{
     agent_with_options, AxEventRoute, AxEventRuntime, AxEventTarget, AxMCPClient, AxMCPEventSource,
     AxMCPResourceSubscriptionPolicy, AxMCPStreamableHTTPTransport, AxResult,
-    OpenAICompatibleClient,
 };
 use serde_json::{json, Value};
 use std::{
@@ -37,7 +36,7 @@ fn main() -> AxResult<()> {
         Box::new(transport),
         json!({"namespace":"inventory"}),
     )));
-    let mut llm = OpenAICompatibleClient::new(key, "gpt-5.4-mini");
+    let mut llm = axllm::ai("openai", json!({"api_key": key, "model": "gpt-5.4-mini"}))?;
     let mut agent = agent_with_options(
         "uri:string -> summary:string",
         json!({"runtime":{"language":"JavaScript"}}),

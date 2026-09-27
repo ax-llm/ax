@@ -2544,7 +2544,9 @@ struct ClientFixture {
     Value descriptor = Core::provider_descriptor(provider);
     std::string provider_transport = display(Core::get(descriptor, "transport"));
     std::unique_ptr<OpenAICompatibleClient> client;
-    if (provider_transport == "gemini-generate-content") client = std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
+    // client_class builds the generic client by its own public constructor.
+    if (display(Core::get(fixture, "client_class", "")) == "OpenAICompatibleClient") client = std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
+    else if (provider_transport == "gemini-generate-content") client = std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
     else if (provider_transport == "anthropic-messages") client = std::make_unique<AnthropicClient>(provider, options(fixture), transport);
     else if (provider_transport == "openai-responses") client = std::make_unique<OpenAIResponsesClient>(provider, options(fixture), transport);
     else client = std::make_unique<OpenAICompatibleClient>(provider,

@@ -3495,8 +3495,9 @@ def _openai_fixture_client(fixture):
             index = min(credential_calls, len(credential_headers) - 1)
             credential_calls += 1
             return copy.deepcopy(credential_headers[index])
-    client = ai(
-        provider,
+    # The generic client built by its own constructor instead of ai().
+    factory = OpenAICompatibleClient if fixture.get("client_class") == "OpenAICompatibleClient" else (lambda **kwargs: ai(provider, **kwargs))
+    client = factory(
         model=fixture.get("model", default_model),
         embed_model=fixture.get("embed_model", default_embed_model),
         api_key="test-key",

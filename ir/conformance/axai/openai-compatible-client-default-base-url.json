@@ -1,0 +1,44 @@
+{
+  "name": "openai-compatible-client-default-base-url",
+  "kind": "ai_chat",
+  "client_class": "OpenAICompatibleClient",
+  "model": "gpt-4.1-mini",
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "Hi"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_default_base_url",
+        "object": "chat.completion",
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "ok"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions",
+    "json": {
+      "model": "gpt-4.1-mini"
+    }
+  }
+}

@@ -1138,8 +1138,10 @@ class ProviderOperationClient(AxBaseAI):
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
+        # The provider's sampling defaults (as its TS class starts from) sit
+        # under the caller's model_config.
+        self.model_config = {**provider_default_model_config(profile), **copy.deepcopy(model_config or {})}
         if profile == "typesafe":
-            self.model_config = copy.deepcopy(model_config or {})
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
         self.base_url = (base_url or (os.environ.get("OPENAI_BASE_URL") if profile != "typesafe" else None) or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
@@ -3833,6 +3835,16 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
         _core_map_delete(payload, "n")
     else:
         pass
+    o_series = _openai_is_o_series_reasoning_model_impl(configured_model)
+    if o_series:
+        _core_map_delete(payload, "max_completion_tokens")
+        _core_map_delete(payload, "temperature")
+        _core_map_delete(payload, "top_p")
+        _core_map_delete(payload, "n")
+        _core_map_delete(payload, "presence_penalty")
+        _core_map_delete(payload, "frequency_penalty")
+    else:
+        pass
     return None
 
 
@@ -3953,12 +3965,6 @@ def _openai_is_gpt56_family_impl(model: str) -> bool:
     return is_gpt56
 
 
-def _openai_is_gpt6_family_impl(model: str) -> bool:
-    _core_coverage_mark("_openai_is_gpt6_family_impl")
-    is_gpt6 = _core_regex_match("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)", model)
-    return is_gpt6
-
-
 def _apply_model_key_option_impl(options: Any, entry: Any, camel: str, snake: str) -> None:
     _core_coverage_mark("_apply_model_key_option_impl")
     call_camel = _core_get(options, camel, None)
@@ -3980,16 +3986,16 @@ def _apply_model_key_option_impl(options: Any, entry: Any, camel: str, snake: st
     return None
 
 
+def _openai_is_gpt6_family_impl(model: str) -> bool:
+    _core_coverage_mark("_openai_is_gpt6_family_impl")
+    is_gpt6 = _core_regex_match("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)", model)
+    return is_gpt6
+
+
 def _openai_is_gpt6_astra_impl(model: str) -> bool:
     _core_coverage_mark("_openai_is_gpt6_astra_impl")
     is_astra = _core_regex_match("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)", model)
     return is_astra
-
-
-def _openai_is_bedrock_model_impl(model: str) -> bool:
-    _core_coverage_mark("_openai_is_bedrock_model_impl")
-    is_bedrock = _core_regex_match("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.", model)
-    return is_bedrock
 
 
 def merge_model_config(base: Any, override: Any = None, options: Any = None) -> AxModelConfig:
@@ -4037,6 +4043,12 @@ def merge_model_config(base: Any, override: Any = None, options: Any = None) -> 
     return out
 
 
+def _openai_is_bedrock_model_impl(model: str) -> bool:
+    _core_coverage_mark("_openai_is_bedrock_model_impl")
+    is_bedrock = _core_regex_match("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.", model)
+    return is_bedrock
+
+
 def _openai_supports_breakpoint_caching_impl(model: str) -> bool:
     _core_coverage_mark("_openai_supports_breakpoint_caching_impl")
     is_gpt56 = _openai_is_gpt56_family_impl(model)
@@ -4076,65 +4088,6 @@ def _openai_supports_chat_sessions_impl(model: str) -> bool:
     on_openai = _core_not(is_bedrock)
     supported = _core_and(is_astra, on_openai)
     return supported
-
-
-def openai_reasoning_effort(model: str, budget: Any) -> Any:
-    _core_coverage_mark("openai_reasoning_effort")
-    is_gpt56 = _openai_is_gpt56_family_impl(model)
-    is_astra = _openai_is_gpt6_astra_impl(model)
-    is_gpt6 = _openai_is_gpt6_family_impl(model)
-    modern = _core_or(is_gpt56, is_gpt6)
-    is_none = _core_eq(budget, "none")
-    if is_none:
-        if is_astra:
-            raise RuntimeError("GPT-6 Astra does not support disabling reasoning; use low or higher")
-        else:
-            pass
-        if modern:
-            return "none"
-        else:
-            pass
-        none = _core_none()
-        return none
-    else:
-        pass
-    is_minimal = _core_eq(budget, "minimal")
-    is_low = _core_eq(budget, "low")
-    is_medium = _core_eq(budget, "medium")
-    is_highest = _core_eq(budget, "highest")
-    if modern:
-        if is_minimal:
-            return "low"
-        else:
-            pass
-        if is_low:
-            return "low"
-        else:
-            pass
-        if is_medium:
-            return "medium"
-        else:
-            pass
-        if is_highest:
-            return "max"
-        else:
-            pass
-        return "high"
-    else:
-        pass
-    if is_minimal:
-        return "minimal"
-    else:
-        pass
-    if is_low:
-        return "medium"
-    else:
-        pass
-    if is_highest:
-        return "xhigh"
-    else:
-        pass
-    return "high"
 
 
 def typesafe_build_chat_request(request: Any, options: Any) -> Any:
@@ -4421,6 +4374,65 @@ def validate_chat_request(request: AxChatRequest) -> None:
     return None
 
 
+def openai_reasoning_effort(model: str, budget: Any) -> Any:
+    _core_coverage_mark("openai_reasoning_effort")
+    is_gpt56 = _openai_is_gpt56_family_impl(model)
+    is_astra = _openai_is_gpt6_astra_impl(model)
+    is_gpt6 = _openai_is_gpt6_family_impl(model)
+    modern = _core_or(is_gpt56, is_gpt6)
+    is_none = _core_eq(budget, "none")
+    if is_none:
+        if is_astra:
+            raise RuntimeError("GPT-6 Astra does not support disabling reasoning; use low or higher")
+        else:
+            pass
+        if modern:
+            return "none"
+        else:
+            pass
+        none = _core_none()
+        return none
+    else:
+        pass
+    is_minimal = _core_eq(budget, "minimal")
+    is_low = _core_eq(budget, "low")
+    is_medium = _core_eq(budget, "medium")
+    is_highest = _core_eq(budget, "highest")
+    if modern:
+        if is_minimal:
+            return "low"
+        else:
+            pass
+        if is_low:
+            return "low"
+        else:
+            pass
+        if is_medium:
+            return "medium"
+        else:
+            pass
+        if is_highest:
+            return "max"
+        else:
+            pass
+        return "high"
+    else:
+        pass
+    if is_minimal:
+        return "minimal"
+    else:
+        pass
+    if is_low:
+        return "medium"
+    else:
+        pass
+    if is_highest:
+        return "xhigh"
+    else:
+        pass
+    return "high"
+
+
 def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     _core_coverage_mark("openai_chat_reasoning_effort")
     effort = openai_reasoning_effort(model, budget)
@@ -4430,6 +4442,13 @@ def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     else:
         pass
     return effort
+
+
+def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
+    _core_coverage_mark("build_chat_request")
+    validate_chat_request(request)
+    payload = openai_build_chat_request(request, options, True)
+    return payload
 
 
 def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
@@ -4443,11 +4462,10 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     return None
 
 
-def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
-    _core_coverage_mark("build_chat_request")
-    validate_chat_request(request)
-    payload = openai_build_chat_request(request, options, True)
-    return payload
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_chat_response")
+    response = openai_normalize_chat_response(raw)
+    return response
 
 
 def _openai_message_impl(message: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
@@ -4561,12 +4579,6 @@ def _openai_message_impl(message: Any, reasoning_content_mode: str, reasoning_de
     message_text = _core_string_format("Invalid role: {}", role)
     error = _core_ai_error_response(message_text)
     raise error
-
-
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_chat_response")
-    response = openai_normalize_chat_response(raw)
-    return response
 
 
 def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
@@ -5250,6 +5262,74 @@ def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, rea
     return out
 
 
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    _core_coverage_mark("chat_response_to_completion")
+    has_routing = _core_map_contains(response, "routing")
+    has_response = _core_map_contains(response, "response")
+    router_envelope = _core_and(has_routing, has_response)
+    if router_envelope:
+        response = _core_get(response, "response", None)
+    else:
+        pass
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    completions = []
+    position = 0
+    for result in results:
+        completion = _chat_result_to_completion(result, position)
+        completions.append(completion)
+        next_position = _core_add(position, 1)
+        position = next_position
+    empty_completion = {}
+    first = _core_list_get(completions, 0, empty_completion)
+    content = _core_get(first, "content", "")
+    calls = _core_get(first, "function_calls", empty_results)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    thought = _core_get(first, "thought", None)
+    has_thought = _core_is_not_none(thought)
+    thought_blocks = _core_get(first, "thought_blocks", None)
+    has_thought_blocks = _core_is_not_none(thought_blocks)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["results"] = completions
+    out["usage"] = usage
+    if has_thought:
+        out["thought"] = thought
+    else:
+        pass
+    if has_thought_blocks:
+        out["thought_blocks"] = thought_blocks
+    else:
+        pass
+    session_id = _core_get(response, "__session_response_id", None)
+    has_session_id = _core_is_not_none(session_id)
+    if has_session_id:
+        out["remote_id"] = session_id
+    else:
+        pass
+    images = _core_get(first, "images", None)
+    has_images = _core_is_not_none(images)
+    if has_images:
+        out["images"] = images
+    else:
+        pass
+    phase = _core_get(first, "phase", None)
+    has_phase = _core_is_not_none(phase)
+    if has_phase:
+        out["phase"] = phase
+    else:
+        pass
+    finish = _core_get(first, "finish_reason", None)
+    has_finish = _core_is_not_none(finish)
+    if has_finish:
+        out["finish_reason"] = finish
+    else:
+        pass
+    return out
+
+
 def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode: str, reasoning_details_mode: str) -> Any:
     _core_coverage_mark("_openai_normalize_choice_impl")
     empty_message = {}
@@ -5320,74 +5400,6 @@ def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode:
         pass
     out["function_calls"] = function_calls
     out["finish_reason"] = finish_reason
-    return out
-
-
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    _core_coverage_mark("chat_response_to_completion")
-    has_routing = _core_map_contains(response, "routing")
-    has_response = _core_map_contains(response, "response")
-    router_envelope = _core_and(has_routing, has_response)
-    if router_envelope:
-        response = _core_get(response, "response", None)
-    else:
-        pass
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    completions = []
-    position = 0
-    for result in results:
-        completion = _chat_result_to_completion(result, position)
-        completions.append(completion)
-        next_position = _core_add(position, 1)
-        position = next_position
-    empty_completion = {}
-    first = _core_list_get(completions, 0, empty_completion)
-    content = _core_get(first, "content", "")
-    calls = _core_get(first, "function_calls", empty_results)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    thought = _core_get(first, "thought", None)
-    has_thought = _core_is_not_none(thought)
-    thought_blocks = _core_get(first, "thought_blocks", None)
-    has_thought_blocks = _core_is_not_none(thought_blocks)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["results"] = completions
-    out["usage"] = usage
-    if has_thought:
-        out["thought"] = thought
-    else:
-        pass
-    if has_thought_blocks:
-        out["thought_blocks"] = thought_blocks
-    else:
-        pass
-    session_id = _core_get(response, "__session_response_id", None)
-    has_session_id = _core_is_not_none(session_id)
-    if has_session_id:
-        out["remote_id"] = session_id
-    else:
-        pass
-    images = _core_get(first, "images", None)
-    has_images = _core_is_not_none(images)
-    if has_images:
-        out["images"] = images
-    else:
-        pass
-    phase = _core_get(first, "phase", None)
-    has_phase = _core_is_not_none(phase)
-    if has_phase:
-        out["phase"] = phase
-    else:
-        pass
-    finish = _core_get(first, "finish_reason", None)
-    has_finish = _core_is_not_none(finish)
-    if has_finish:
-        out["finish_reason"] = finish
-    else:
-        pass
     return out
 
 
@@ -5561,12 +5573,6 @@ def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: st
     return out
 
 
-def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_stream_delta")
-    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
-    return response
-
-
 def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
     _core_coverage_mark("ai_context_cache_recovery")
     out = {}
@@ -5590,6 +5596,12 @@ def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_regi
     else:
         pass
     return out
+
+
+def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_stream_delta")
+    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none")
+    return response
 
 
 def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
@@ -9012,6 +9024,7 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
         return payload
     else:
         pass
+    sampled_request = _provider_apply_model_sampling_support_impl(provider_id, request, options)
     is_responses = _core_eq(transport, "openai-responses")
     is_gemini = _core_eq(transport, "gemini-generate-content")
     is_anthropic = _core_eq(transport, "anthropic-messages")
@@ -9019,24 +9032,24 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
     reasoning_details_mode = _provider_reasoning_details_replay_field(provider_id, model)
     payload = {}
     if is_responses:
-        responses_payload = openai_responses_build_chat_request(request)
+        responses_payload = openai_responses_build_chat_request(sampled_request)
         is_meta = _core_eq(provider_id, "meta")
         if is_meta:
-            responses_payload = _meta_prepare_responses_request(responses_payload, request, options)
+            responses_payload = _meta_prepare_responses_request(responses_payload, sampled_request, options)
         else:
             pass
-        payload = openai_responses_apply_astra_caching(responses_payload, request, options)
+        payload = openai_responses_apply_astra_caching(responses_payload, sampled_request, options)
     else:
         if is_gemini:
             is_vertex = _core_get(descriptor, "vertex", False)
-            gemini_payload = _gemini_build_chat_request(request, options, is_vertex)
+            gemini_payload = _gemini_build_chat_request(sampled_request, options, is_vertex)
             payload = gemini_payload
         else:
             if is_anthropic:
                 is_meta_messages = _core_eq(provider_id, "meta-messages")
-                anthropic_payload = _anthropic_build_chat_request(request, is_meta_messages)
+                anthropic_payload = _anthropic_build_chat_request(sampled_request, is_meta_messages)
                 if is_meta_messages:
-                    anthropic_payload = _meta_prepare_messages_request(anthropic_payload, request, options)
+                    anthropic_payload = _meta_prepare_messages_request(anthropic_payload, sampled_request, options)
                 else:
                     pass
                 is_vertex = _core_get(descriptor, "vertex", False)
@@ -9048,25 +9061,25 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
                 payload = anthropic_payload
             else:
                 is_official_openai = _core_eq(provider_id, "openai")
-                compatible_payload = _openai_build_chat_request_impl(request, options, is_official_openai, reasoning_content_mode, reasoning_details_mode)
+                compatible_payload = _openai_build_chat_request_impl(sampled_request, options, is_official_openai, reasoning_content_mode, reasoning_details_mode)
                 is_meta_chat = _core_eq(provider_id, "meta-chat")
                 if is_meta_chat:
-                    compatible_payload = _meta_apply_prompt_cache_options(compatible_payload, options, request)
+                    compatible_payload = _meta_apply_prompt_cache_options(compatible_payload, options, sampled_request)
                 else:
                     pass
                 payload = compatible_payload
     empty_rules = {}
     empty_list = []
     profile_rules = _core_get(descriptor, "request", empty_rules)
-    payload = _provider_apply_request_rules(payload, request, profile_rules, options)
+    payload = _provider_apply_request_rules(payload, sampled_request, profile_rules, options)
     model_rule = _provider_resolve_model_rule(provider_id, model)
     model_rules = _core_get(model_rule, "request", empty_rules)
-    payload = _provider_apply_request_rules(payload, request, model_rules, options)
+    payload = _provider_apply_request_rules(payload, sampled_request, model_rules, options)
     features = provider_resolve_features(provider_id, model, options)
-    payload = _provider_apply_service_tier(provider_id, payload, request, options, features, profile_rules, model_rules)
+    payload = _provider_apply_service_tier(provider_id, payload, sampled_request, options, features, profile_rules, model_rules)
     is_meta_messages_final = _core_eq(provider_id, "meta-messages")
     if is_meta_messages_final:
-        payload = _meta_prepare_messages_request(payload, request, options)
+        payload = _meta_prepare_messages_request(payload, sampled_request, options)
     else:
         pass
     response_format = _core_get(payload, "response_format", empty_rules)
@@ -10451,6 +10464,14 @@ def _openai_responses_apply_model_config_impl(payload: Any, model_config: Any) -
         _core_map_delete(payload, "logprobs")
         _core_map_delete(payload, "top_logprobs")
         _core_map_delete(payload, "n")
+    else:
+        pass
+    o_series = _openai_is_o_series_reasoning_model_impl(configured_model)
+    if o_series:
+        _core_map_delete(payload, "temperature")
+        _core_map_delete(payload, "top_p")
+        _core_map_delete(payload, "presence_penalty")
+        _core_map_delete(payload, "frequency_penalty")
     else:
         pass
     return None
@@ -14568,7 +14589,7 @@ def openai_responses_validate_astra_effort(effort: Any) -> None:
 
 def _provider_model_index() -> Any:
     _core_coverage_mark("_provider_model_index")
-    index = _core_json_parse("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\"},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\"},{\"name\":\"gemini-3.7-flash\"},{\"name\":\"gemini-3.8-flash\"},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\"},{\"name\":\"muse-voice-transcribe-1.0\"}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}")
+    index = _core_json_parse("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"muse-voice-transcribe-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true}}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}")
     return index
 
 
@@ -14723,6 +14744,99 @@ def provider_embed_url(profile: str, model: str, options: Any) -> str:
     project = _core_get(options, "projectId", project_snake)
     url = _core_string_format("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", base_url, project, model)
     return url
+
+
+def provider_default_model_config(profile: str) -> Any:
+    _core_coverage_mark("provider_default_model_config")
+    config = {}
+    provider_id = provider_normalize_profile(profile)
+    is_typesafe = _core_eq(provider_id, "typesafe")
+    if is_typesafe:
+        return config
+    else:
+        pass
+    is_openai_responses = _core_eq(provider_id, "openai-responses")
+    if is_openai_responses:
+        config["temperature"] = 0.7
+        config["topP"] = 1
+        return config
+    else:
+        pass
+    descriptor = provider_descriptor(provider_id)
+    transport = _core_get(descriptor, "transport", "openai-chat")
+    is_responses_profile = _core_eq(transport, "openai-responses")
+    if is_responses_profile:
+        return config
+    else:
+        pass
+    config["temperature"] = 0
+    return config
+
+
+def _provider_apply_model_sampling_support_impl(provider: str, request: AxChatRequest, options: Any) -> AxChatRequest:
+    _core_coverage_mark("_provider_apply_model_sampling_support_impl")
+    empty_map = {}
+    opts = _core_coalesce(options, empty_map)
+    model = _core_get(request, "model", "")
+    model_info_snake = _core_get(opts, "model_info", None)
+    model_info = _core_get(opts, "modelInfo", model_info_snake)
+    info = provider_find_model_info(provider, model, model_info)
+    has_info = _core_is_not_none(info)
+    if has_info:
+        pass
+    else:
+        return request
+    not_supported_snake = _core_get(info, "not_supported", empty_map)
+    not_supported_value = _core_get(info, "notSupported", not_supported_snake)
+    not_supported = _core_coalesce(not_supported_value, empty_map)
+    temperature_flag = _core_get(not_supported, "temperature", False)
+    drop_temperature = _core_truthy(temperature_flag)
+    top_p_snake_flag = _core_get(not_supported, "top_p", False)
+    top_p_flag = _core_get(not_supported, "topP", top_p_snake_flag)
+    drop_top_p = _core_truthy(top_p_flag)
+    drop_any = _core_or(drop_temperature, drop_top_p)
+    if drop_any:
+        pass
+    else:
+        return request
+    out = _core_map_merge(request, empty_map)
+    model_config = _core_get(request, "model_config", None)
+    has_model_config = _core_type_is(model_config, "object")
+    if has_model_config:
+        filtered_model_config = _provider_drop_sampling_keys_impl(model_config, drop_temperature, drop_top_p)
+        out["model_config"] = filtered_model_config
+    else:
+        pass
+    model_config_camel = _core_get(request, "modelConfig", None)
+    has_model_config_camel = _core_type_is(model_config_camel, "object")
+    if has_model_config_camel:
+        filtered_model_config_camel = _provider_drop_sampling_keys_impl(model_config_camel, drop_temperature, drop_top_p)
+        out["modelConfig"] = filtered_model_config_camel
+    else:
+        pass
+    return out
+
+
+def _provider_drop_sampling_keys_impl(config: Any, drop_temperature: bool, drop_top_p: bool) -> Any:
+    _core_coverage_mark("_provider_drop_sampling_keys_impl")
+    seed = {}
+    copy = _core_map_merge(config, seed)
+    if drop_temperature:
+        _core_map_delete(copy, "temperature")
+    else:
+        pass
+    if drop_top_p:
+        _core_map_delete(copy, "topP")
+        _core_map_delete(copy, "top_p")
+    else:
+        pass
+    return copy
+
+
+def _openai_is_o_series_reasoning_model_impl(model: str) -> bool:
+    _core_coverage_mark("_openai_is_o_series_reasoning_model_impl")
+    is_o_series = _core_regex_match("^(?:o1|o1-mini|o1-pro|o3|o3-mini|o3-pro|o4-mini)$", model)
+    return is_o_series
 
 # END AXIR CORE EMITTED FUNCTIONS
 

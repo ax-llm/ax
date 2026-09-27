@@ -2389,9 +2389,13 @@ impl OpenAICompatibleClient {
         {
             req["model"] = json!(self.model.clone());
         }
-        let mut base_config = if self.model_config.is_object() { self.model_config.clone() } else { json!({}) };
-        if self.profile != "typesafe" && base_config.get("temperature").is_none() {
-            base_config["temperature"] = json!(0);
+        // The provider's sampling defaults (as its TS class starts from) sit
+        // under the caller's model_config.
+        let mut base_config = core_value_to_json(&provider_default_model_config(&[CoreValue::from(self.profile.as_str())])?);
+        if let (Some(target), Some(source)) = (base_config.as_object_mut(), self.model_config.as_object()) {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
         }
         let override_config = req
             .get("model_config")
@@ -17041,7 +17045,16 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
         options["api_key"] = json!("");
     }
     if options.get("api_key").is_none() {options["api_key"]=json!("test-key");}
-    let mut client = ai(provider, options)?.with_transport(transport);
+    let mut client = if fixture.get("client_class").and_then(Value::as_str) == Some("OpenAICompatibleClient") {
+        // The generic client built by its own constructor instead of ai().
+        let api_key = options.get("api_key").and_then(Value::as_str).unwrap_or("test-key").to_string();
+        let model = options.get("model").and_then(Value::as_str).unwrap_or_default().to_string();
+        OpenAICompatibleClient::new(api_key, model)
+            .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({})))
+            .with_transport(transport)
+    } else {
+        ai(provider, options)?.with_transport(transport)
+    };
     if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
         let header_sets = credential_fixture.get("headers").and_then(Value::as_array).cloned().unwrap_or_default();
         let error = credential_fixture.get("error").and_then(Value::as_str).map(ToString::to_string);

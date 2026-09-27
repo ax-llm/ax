@@ -4389,6 +4389,15 @@ final class Core {
       Core.mapDelete(payload, "top_logprobs");
       Core.mapDelete(payload, "n");
     }
+    Object o_series = Core._openai_is_o_series_reasoning_model_impl(configured_model);
+    if (Core.truthy(o_series)) {
+      Core.mapDelete(payload, "max_completion_tokens");
+      Core.mapDelete(payload, "temperature");
+      Core.mapDelete(payload, "top_p");
+      Core.mapDelete(payload, "n");
+      Core.mapDelete(payload, "presence_penalty");
+      Core.mapDelete(payload, "frequency_penalty");
+    }
     return null;
   }
 
@@ -4511,12 +4520,6 @@ final class Core {
     return is_gpt56;
   }
 
-  static Object _openai_is_gpt6_family_impl(Object model) {
-    axirCoverageMark("_openai_is_gpt6_family_impl");
-    Object is_gpt6 = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)", model);
-    return is_gpt6;
-  }
-
   static Object _apply_model_key_option_impl(Object options, Object entry, Object camel, Object snake) {
     axirCoverageMark("_apply_model_key_option_impl");
     Object call_camel = Core.get(options, camel, null);
@@ -4536,16 +4539,16 @@ final class Core {
     return null;
   }
 
+  static Object _openai_is_gpt6_family_impl(Object model) {
+    axirCoverageMark("_openai_is_gpt6_family_impl");
+    Object is_gpt6 = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)", model);
+    return is_gpt6;
+  }
+
   static Object _openai_is_gpt6_astra_impl(Object model) {
     axirCoverageMark("_openai_is_gpt6_astra_impl");
     Object is_astra = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)", model);
     return is_astra;
-  }
-
-  static Object _openai_is_bedrock_model_impl(Object model) {
-    axirCoverageMark("_openai_is_bedrock_model_impl");
-    Object is_bedrock = Core.regexMatch("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.", model);
-    return is_bedrock;
   }
 
   static Object merge_model_config(Object base, Object override, Object options) {
@@ -4589,6 +4592,12 @@ final class Core {
     return out;
   }
 
+  static Object _openai_is_bedrock_model_impl(Object model) {
+    axirCoverageMark("_openai_is_bedrock_model_impl");
+    Object is_bedrock = Core.regexMatch("^(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.", model);
+    return is_bedrock;
+  }
+
   static Object _openai_supports_breakpoint_caching_impl(Object model) {
     axirCoverageMark("_openai_supports_breakpoint_caching_impl");
     Object is_gpt56 = Core._openai_is_gpt56_family_impl(model);
@@ -4628,54 +4637,6 @@ final class Core {
     Object on_openai = Core.not(is_bedrock);
     Object supported = Core.and(is_astra, on_openai);
     return supported;
-  }
-
-  static Object openai_reasoning_effort(Object model, Object budget) {
-    axirCoverageMark("openai_reasoning_effort");
-    Object is_gpt56 = Core._openai_is_gpt56_family_impl(model);
-    Object is_astra = Core._openai_is_gpt6_astra_impl(model);
-    Object is_gpt6 = Core._openai_is_gpt6_family_impl(model);
-    Object modern = Core.or(is_gpt56, is_gpt6);
-    Object is_none = Core.eq(budget, "none");
-    if (Core.truthy(is_none)) {
-      if (Core.truthy(is_astra)) {
-        throw new RuntimeException("GPT-6 Astra does not support disabling reasoning; use low or higher");
-      }
-      if (Core.truthy(modern)) {
-        return "none";
-      }
-      Object none = Core.none();
-      return none;
-    }
-    Object is_minimal = Core.eq(budget, "minimal");
-    Object is_low = Core.eq(budget, "low");
-    Object is_medium = Core.eq(budget, "medium");
-    Object is_highest = Core.eq(budget, "highest");
-    if (Core.truthy(modern)) {
-      if (Core.truthy(is_minimal)) {
-        return "low";
-      }
-      if (Core.truthy(is_low)) {
-        return "low";
-      }
-      if (Core.truthy(is_medium)) {
-        return "medium";
-      }
-      if (Core.truthy(is_highest)) {
-        return "max";
-      }
-      return "high";
-    }
-    if (Core.truthy(is_minimal)) {
-      return "minimal";
-    }
-    if (Core.truthy(is_low)) {
-      return "medium";
-    }
-    if (Core.truthy(is_highest)) {
-      return "xhigh";
-    }
-    return "high";
   }
 
   static Object typesafe_build_chat_request(Object request, Object options) {
@@ -4951,6 +4912,54 @@ final class Core {
     return null;
   }
 
+  static Object openai_reasoning_effort(Object model, Object budget) {
+    axirCoverageMark("openai_reasoning_effort");
+    Object is_gpt56 = Core._openai_is_gpt56_family_impl(model);
+    Object is_astra = Core._openai_is_gpt6_astra_impl(model);
+    Object is_gpt6 = Core._openai_is_gpt6_family_impl(model);
+    Object modern = Core.or(is_gpt56, is_gpt6);
+    Object is_none = Core.eq(budget, "none");
+    if (Core.truthy(is_none)) {
+      if (Core.truthy(is_astra)) {
+        throw new RuntimeException("GPT-6 Astra does not support disabling reasoning; use low or higher");
+      }
+      if (Core.truthy(modern)) {
+        return "none";
+      }
+      Object none = Core.none();
+      return none;
+    }
+    Object is_minimal = Core.eq(budget, "minimal");
+    Object is_low = Core.eq(budget, "low");
+    Object is_medium = Core.eq(budget, "medium");
+    Object is_highest = Core.eq(budget, "highest");
+    if (Core.truthy(modern)) {
+      if (Core.truthy(is_minimal)) {
+        return "low";
+      }
+      if (Core.truthy(is_low)) {
+        return "low";
+      }
+      if (Core.truthy(is_medium)) {
+        return "medium";
+      }
+      if (Core.truthy(is_highest)) {
+        return "max";
+      }
+      return "high";
+    }
+    if (Core.truthy(is_minimal)) {
+      return "minimal";
+    }
+    if (Core.truthy(is_low)) {
+      return "medium";
+    }
+    if (Core.truthy(is_highest)) {
+      return "xhigh";
+    }
+    return "high";
+  }
+
   static Object openai_chat_reasoning_effort(Object model, Object budget) {
     axirCoverageMark("openai_chat_reasoning_effort");
     Object effort = Core.openai_reasoning_effort(model, budget);
@@ -4959,6 +4968,13 @@ final class Core {
       return "xhigh";
     }
     return effort;
+  }
+
+  static Object build_chat_request(Object service, Object request, Object options) {
+    axirCoverageMark("build_chat_request");
+    Core.validate_chat_request(request);
+    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
+    return payload;
   }
 
   static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
@@ -4971,11 +4987,10 @@ final class Core {
     return null;
   }
 
-  static Object build_chat_request(Object service, Object request, Object options) {
-    axirCoverageMark("build_chat_request");
-    Core.validate_chat_request(request);
-    Object payload = Core.openai_build_chat_request(request, options, Boolean.TRUE);
-    return payload;
+  static Object normalize_chat_response(Object raw) {
+    axirCoverageMark("normalize_chat_response");
+    Object response = Core.openai_normalize_chat_response(raw);
+    return response;
   }
 
   static Object _openai_message_impl(Object message, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -5087,12 +5102,6 @@ final class Core {
     Object message_text = Core.stringFormat("Invalid role: {}", role);
     Object error = Core.aiErrorResponse(message_text);
     throw Core.asRuntime(error);
-  }
-
-  static Object normalize_chat_response(Object raw) {
-    axirCoverageMark("normalize_chat_response");
-    Object response = Core.openai_normalize_chat_response(raw);
-    return response;
   }
 
   static Object normalize_stream_delta(Object raw, Object state) {
@@ -5762,6 +5771,68 @@ final class Core {
     return out;
   }
 
+  static Object chat_response_to_completion(Object response) {
+    axirCoverageMark("chat_response_to_completion");
+    Object has_routing = Core.mapContains(response, "routing");
+    Object has_response = Core.mapContains(response, "response");
+    Object router_envelope = Core.and(has_routing, has_response);
+    if (Core.truthy(router_envelope)) {
+      response = Core.get(response, "response", null);
+    }
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object results = Core.get(response, "results", empty_results);
+    Object completions = new java.util.ArrayList<Object>();
+    Object position = 0;
+    for (Object result : Core.iter(results)) {
+      Object completion = Core._chat_result_to_completion(result, position);
+      Core.append(completions, completion);
+      Object next_position = Core.add(position, 1);
+      position = next_position;
+    }
+    Object empty_completion = new java.util.LinkedHashMap<String, Object>();
+    Object first = Core.listGet(completions, 0, empty_completion);
+    Object content = Core.get(first, "content", "");
+    Object calls = Core.get(first, "function_calls", empty_results);
+    Object model_usage = Core.get(response, "model_usage", null);
+    Object usage = Core.get(model_usage, "tokens", null);
+    Object thought = Core.get(first, "thought", null);
+    Object has_thought = Core.isNotNone(thought);
+    Object thought_blocks = Core.get(first, "thought_blocks", null);
+    Object has_thought_blocks = Core.isNotNone(thought_blocks);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "content", content);
+    Core.set(out, "function_calls", calls);
+    Core.set(out, "results", completions);
+    Core.set(out, "usage", usage);
+    if (Core.truthy(has_thought)) {
+      Core.set(out, "thought", thought);
+    }
+    if (Core.truthy(has_thought_blocks)) {
+      Core.set(out, "thought_blocks", thought_blocks);
+    }
+    Object session_id = Core.get(response, "__session_response_id", null);
+    Object has_session_id = Core.isNotNone(session_id);
+    if (Core.truthy(has_session_id)) {
+      Core.set(out, "remote_id", session_id);
+    }
+    Object images = Core.get(first, "images", null);
+    Object has_images = Core.isNotNone(images);
+    if (Core.truthy(has_images)) {
+      Core.set(out, "images", images);
+    }
+    Object phase = Core.get(first, "phase", null);
+    Object has_phase = Core.isNotNone(phase);
+    if (Core.truthy(has_phase)) {
+      Core.set(out, "phase", phase);
+    }
+    Object finish = Core.get(first, "finish_reason", null);
+    Object has_finish = Core.isNotNone(finish);
+    if (Core.truthy(has_finish)) {
+      Core.set(out, "finish_reason", finish);
+    }
+    return out;
+  }
+
   static Object _openai_normalize_choice_impl(Object choice, Object raw, Object reasoning_content_mode, Object reasoning_details_mode) {
     axirCoverageMark("_openai_normalize_choice_impl");
     Object empty_message = new java.util.LinkedHashMap<String, Object>();
@@ -5831,68 +5902,6 @@ final class Core {
     }
     Core.set(out, "function_calls", function_calls);
     Core.set(out, "finish_reason", finish_reason);
-    return out;
-  }
-
-  static Object chat_response_to_completion(Object response) {
-    axirCoverageMark("chat_response_to_completion");
-    Object has_routing = Core.mapContains(response, "routing");
-    Object has_response = Core.mapContains(response, "response");
-    Object router_envelope = Core.and(has_routing, has_response);
-    if (Core.truthy(router_envelope)) {
-      response = Core.get(response, "response", null);
-    }
-    Object empty_results = new java.util.ArrayList<Object>();
-    Object results = Core.get(response, "results", empty_results);
-    Object completions = new java.util.ArrayList<Object>();
-    Object position = 0;
-    for (Object result : Core.iter(results)) {
-      Object completion = Core._chat_result_to_completion(result, position);
-      Core.append(completions, completion);
-      Object next_position = Core.add(position, 1);
-      position = next_position;
-    }
-    Object empty_completion = new java.util.LinkedHashMap<String, Object>();
-    Object first = Core.listGet(completions, 0, empty_completion);
-    Object content = Core.get(first, "content", "");
-    Object calls = Core.get(first, "function_calls", empty_results);
-    Object model_usage = Core.get(response, "model_usage", null);
-    Object usage = Core.get(model_usage, "tokens", null);
-    Object thought = Core.get(first, "thought", null);
-    Object has_thought = Core.isNotNone(thought);
-    Object thought_blocks = Core.get(first, "thought_blocks", null);
-    Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "content", content);
-    Core.set(out, "function_calls", calls);
-    Core.set(out, "results", completions);
-    Core.set(out, "usage", usage);
-    if (Core.truthy(has_thought)) {
-      Core.set(out, "thought", thought);
-    }
-    if (Core.truthy(has_thought_blocks)) {
-      Core.set(out, "thought_blocks", thought_blocks);
-    }
-    Object session_id = Core.get(response, "__session_response_id", null);
-    Object has_session_id = Core.isNotNone(session_id);
-    if (Core.truthy(has_session_id)) {
-      Core.set(out, "remote_id", session_id);
-    }
-    Object images = Core.get(first, "images", null);
-    Object has_images = Core.isNotNone(images);
-    if (Core.truthy(has_images)) {
-      Core.set(out, "images", images);
-    }
-    Object phase = Core.get(first, "phase", null);
-    Object has_phase = Core.isNotNone(phase);
-    if (Core.truthy(has_phase)) {
-      Core.set(out, "phase", phase);
-    }
-    Object finish = Core.get(first, "finish_reason", null);
-    Object has_finish = Core.isNotNone(finish);
-    if (Core.truthy(has_finish)) {
-      Core.set(out, "finish_reason", finish);
-    }
     return out;
   }
 
@@ -6059,12 +6068,6 @@ final class Core {
     return out;
   }
 
-  static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
-    axirCoverageMark("openai_normalize_stream_delta");
-    Object response = Core._openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none");
-    return response;
-  }
-
   static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
     axirCoverageMark("ai_context_cache_recovery");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -6088,6 +6091,12 @@ final class Core {
       }
     }
     return out;
+  }
+
+  static Object openai_normalize_stream_delta(Object raw, Object state, Object ai_name, Object model) {
+    axirCoverageMark("openai_normalize_stream_delta");
+    Object response = Core._openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none", "none");
+    return response;
   }
 
   static Object _openai_normalize_stream_delta_impl(Object raw, Object state, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -9406,6 +9415,7 @@ final class Core {
       Object payload = Core.typesafe_build_chat_request(request, options);
       return payload;
     }
+    Object sampled_request = Core._provider_apply_model_sampling_support_impl(provider_id, request, options);
     Object is_responses = Core.eq(transport, "openai-responses");
     Object is_gemini = Core.eq(transport, "gemini-generate-content");
     Object is_anthropic = Core.eq(transport, "anthropic-messages");
@@ -9413,25 +9423,25 @@ final class Core {
     Object reasoning_details_mode = Core._provider_reasoning_details_replay_field(provider_id, model);
     Object payload = new java.util.LinkedHashMap<String, Object>();
     if (Core.truthy(is_responses)) {
-      Object responses_payload = Core.openai_responses_build_chat_request(request);
+      Object responses_payload = Core.openai_responses_build_chat_request(sampled_request);
       Object is_meta = Core.eq(provider_id, "meta");
       if (Core.truthy(is_meta)) {
-        responses_payload = Core._meta_prepare_responses_request(responses_payload, request, options);
+        responses_payload = Core._meta_prepare_responses_request(responses_payload, sampled_request, options);
       }
-      payload = Core.openai_responses_apply_astra_caching(responses_payload, request, options);
+      payload = Core.openai_responses_apply_astra_caching(responses_payload, sampled_request, options);
     }
     if (!Core.truthy(is_responses)) {
       if (Core.truthy(is_gemini)) {
         Object is_vertex = Core.get(descriptor, "vertex", Boolean.FALSE);
-        Object gemini_payload = Core._gemini_build_chat_request(request, options, is_vertex);
+        Object gemini_payload = Core._gemini_build_chat_request(sampled_request, options, is_vertex);
         payload = gemini_payload;
       }
       if (!Core.truthy(is_gemini)) {
         if (Core.truthy(is_anthropic)) {
           Object is_meta_messages = Core.eq(provider_id, "meta-messages");
-          Object anthropic_payload = Core._anthropic_build_chat_request(request, is_meta_messages);
+          Object anthropic_payload = Core._anthropic_build_chat_request(sampled_request, is_meta_messages);
           if (Core.truthy(is_meta_messages)) {
-            anthropic_payload = Core._meta_prepare_messages_request(anthropic_payload, request, options);
+            anthropic_payload = Core._meta_prepare_messages_request(anthropic_payload, sampled_request, options);
           }
           Object is_vertex = Core.get(descriptor, "vertex", Boolean.FALSE);
           if (Core.truthy(is_vertex)) {
@@ -9442,10 +9452,10 @@ final class Core {
         }
         if (!Core.truthy(is_anthropic)) {
           Object is_official_openai = Core.eq(provider_id, "openai");
-          Object compatible_payload = Core._openai_build_chat_request_impl(request, options, is_official_openai, reasoning_content_mode, reasoning_details_mode);
+          Object compatible_payload = Core._openai_build_chat_request_impl(sampled_request, options, is_official_openai, reasoning_content_mode, reasoning_details_mode);
           Object is_meta_chat = Core.eq(provider_id, "meta-chat");
           if (Core.truthy(is_meta_chat)) {
-            compatible_payload = Core._meta_apply_prompt_cache_options(compatible_payload, options, request);
+            compatible_payload = Core._meta_apply_prompt_cache_options(compatible_payload, options, sampled_request);
           }
           payload = compatible_payload;
         }
@@ -9454,15 +9464,15 @@ final class Core {
     Object empty_rules = new java.util.LinkedHashMap<String, Object>();
     Object empty_list = new java.util.ArrayList<Object>();
     Object profile_rules = Core.get(descriptor, "request", empty_rules);
-    payload = Core._provider_apply_request_rules(payload, request, profile_rules, options);
+    payload = Core._provider_apply_request_rules(payload, sampled_request, profile_rules, options);
     Object model_rule = Core._provider_resolve_model_rule(provider_id, model);
     Object model_rules = Core.get(model_rule, "request", empty_rules);
-    payload = Core._provider_apply_request_rules(payload, request, model_rules, options);
+    payload = Core._provider_apply_request_rules(payload, sampled_request, model_rules, options);
     Object features = Core.provider_resolve_features(provider_id, model, options);
-    payload = Core._provider_apply_service_tier(provider_id, payload, request, options, features, profile_rules, model_rules);
+    payload = Core._provider_apply_service_tier(provider_id, payload, sampled_request, options, features, profile_rules, model_rules);
     Object is_meta_messages_final = Core.eq(provider_id, "meta-messages");
     if (Core.truthy(is_meta_messages_final)) {
-      payload = Core._meta_prepare_messages_request(payload, request, options);
+      payload = Core._meta_prepare_messages_request(payload, sampled_request, options);
     }
     Object response_format = Core.get(payload, "response_format", empty_rules);
     Object response_format_type = Core.get(response_format, "type", "");
@@ -10803,6 +10813,13 @@ final class Core {
       Core.mapDelete(payload, "logprobs");
       Core.mapDelete(payload, "top_logprobs");
       Core.mapDelete(payload, "n");
+    }
+    Object o_series = Core._openai_is_o_series_reasoning_model_impl(configured_model);
+    if (Core.truthy(o_series)) {
+      Core.mapDelete(payload, "temperature");
+      Core.mapDelete(payload, "top_p");
+      Core.mapDelete(payload, "presence_penalty");
+      Core.mapDelete(payload, "frequency_penalty");
     }
     return null;
   }
@@ -14746,7 +14763,7 @@ final class Core {
 
   static Object _provider_model_index() {
     axirCoverageMark("_provider_model_index");
-    Object index = Core.jsonParse("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\"},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\"},{\"name\":\"gemini-3.7-flash\"},{\"name\":\"gemini-3.8-flash\"},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\"},{\"name\":\"muse-voice-transcribe-1.0\"}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\"},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\"},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\"},{\"name\":\"gpt-5.4-nano\"},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\"},{\"name\":\"gpt-5.1-codex-mini\"},{\"name\":\"gpt-5.4-mini\"},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\"},{\"name\":\"gpt-5-chat\"},{\"name\":\"gpt-5-chat-latest\"},{\"name\":\"gpt-5-codex\"},{\"name\":\"gpt-5.1\"},{\"name\":\"gpt-5.1-chat-latest\"},{\"name\":\"gpt-5.1-codex\"},{\"name\":\"gpt-5.1-codex-max\"},{\"name\":\"gpt-6-sol\"},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\"},{\"name\":\"gpt-5.2\"},{\"name\":\"gpt-5.2-chat-latest\"},{\"name\":\"gpt-5.2-codex\"},{\"name\":\"gpt-5.4\"},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\"},{\"name\":\"gpt-5.5\"},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\"},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\"},{\"name\":\"gpt-5.2-pro\"},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\"},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}");
+    Object index = Core.jsonParse("{\"amazon-bedrock\":[],\"anthropic\":[{\"name\":\"claude-3-haiku-20240307\"},{\"name\":\"claude-3-haiku@20240307\"},{\"name\":\"claude-instant-1.2\"},{\"name\":\"claude-3-5-haiku-latest\"},{\"name\":\"claude-3-5-haiku@20241022\"},{\"name\":\"claude-haiku-4-5\"},{\"name\":\"claude-haiku-4-5@20251001\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-sonnet-5\"},{\"name\":\"claude-3-5-sonnet-latest\"},{\"name\":\"claude-3-5-sonnet-v2@20241022\"},{\"name\":\"claude-3-5-sonnet@20240620\"},{\"name\":\"claude-3-7-sonnet-latest\"},{\"name\":\"claude-3-7-sonnet@20250219\"},{\"name\":\"claude-3-sonnet-20240229\"},{\"name\":\"claude-sonnet-4-20250514\"},{\"name\":\"claude-sonnet-4-5-20250929\"},{\"name\":\"claude-sonnet-4-5@20250929\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4-6\"},{\"name\":\"claude-sonnet-4@20250514\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-5-5\"},{\"name\":\"claude-opus-4-5-20251101\"},{\"name\":\"claude-opus-4-5@20251101\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-6\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-7\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-4-8\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-opus-5\"},{\"name\":\"claude-2.1\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-fable-5-1\"},{\"name\":\"claude-3-opus-latest\"},{\"name\":\"claude-3-opus@20240229\"},{\"name\":\"claude-opus-4-1-20250805\"},{\"name\":\"claude-opus-4-1@20250805\"},{\"name\":\"claude-opus-4-20250514\"},{\"name\":\"claude-opus-4@20250514\"}],\"azure-foundry\":[],\"azure-openai\":[],\"baseten\":[],\"baseten-engine\":[],\"cerebras\":[],\"cloudflare-workers-ai\":[],\"cohere\":[{\"name\":\"embed-english-light-v3.0\"},{\"name\":\"embed-english-v3.0\"},{\"name\":\"embed-multilingual-light-v3.0\"},{\"name\":\"embed-multilingual-v3.0\"},{\"name\":\"command-light\"},{\"name\":\"command\"},{\"name\":\"command-r\"},{\"name\":\"command-r-plus\"}],\"databricks\":[],\"deepinfra\":[],\"deepseek\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"deepseek-responses\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"name\":\"deepseek-v4-flash\"},{\"name\":\"deepseek-v4-pro\"}],\"featherless\":[],\"fireworks\":[],\"friendli\":[],\"google-gemini\":[{\"name\":\"gemini-2.0-flash-thinking-exp-01-21\"},{\"name\":\"gemini-2.0-pro-exp-02-05\"},{\"name\":\"gemini-robotics-er-1.6-preview\"},{\"name\":\"gemini-embedding-001\"},{\"name\":\"gemini-1.5-flash-8b\"},{\"name\":\"gemini-embedding-2\"},{\"name\":\"gemini-1.5-flash\"},{\"name\":\"gemini-2.0-flash-lite\"},{\"name\":\"gemini-2.0-flash\"},{\"name\":\"gemini-2.5-flash-lite\"},{\"name\":\"gemini-flash-lite-latest\"},{\"name\":\"gemini-3.1-flash-lite\"},{\"name\":\"gemini-3.1-flash-lite-image\"},{\"name\":\"gemini-3.1-flash-lite-preview\"},{\"name\":\"gemini-1.0-pro\"},{\"name\":\"gemini-2.5-flash\"},{\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-flash-latest\"},{\"name\":\"gemini-3-flash-preview\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"name\":\"gemini-3.1-flash-image\"},{\"name\":\"nano-banana-2\"},{\"name\":\"gemini-1.5-pro\"},{\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gemini-3.5-flash\"},{\"name\":\"gemini-2.5-pro\"},{\"name\":\"gemini-pro-latest\"},{\"name\":\"gemini-3.8-flash-lite-tts\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"name\":\"gemini-3-pro-image\"},{\"name\":\"gemini-3.1-pro-preview\"},{\"name\":\"gemini-3.5-transcribe\"},{\"name\":\"gemini-3.8-flash-tts\"},{\"name\":\"gemini-3.1-flash-tts-preview\"},{\"name\":\"gemini-3.8-live\"},{\"name\":\"gemini-3.8-live-extended-thinking\"},{\"name\":\"gemini-3.1-flash-live-preview\"},{\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\"}],\"grok\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"name\":\"grok-4-1-fast-non-reasoning\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"name\":\"grok-4-1-fast-reasoning\"},{\"name\":\"grok-3-mini\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"name\":\"grok-4.20-multi-agent\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"name\":\"grok-4.20-non-reasoning\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"name\":\"grok-4.20-reasoning\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"name\":\"grok-4.3\"},{\"name\":\"grok-3-mini-fast\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"name\":\"grok-4.5\"},{\"name\":\"grok-3\"},{\"name\":\"grok-3-fast\"},{\"name\":\"grok-4.6\"},{\"name\":\"grok-voice-think-fast-1.0\"},{\"name\":\"grok-voice-fast-1.0\"}],\"groq\":[],\"huggingface-router\":[],\"hyperbolic\":[],\"llama-cpp\":[],\"lm-studio\":[],\"localai\":[],\"meta\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"},{\"name\":\"muse-image-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"muse-voice-transcribe-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true}}],\"meta-chat\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"meta-messages\":[{\"name\":\"muse-spark-1.3\"},{\"name\":\"muse-spark-1.3-contributor\"},{\"name\":\"muse-spark-1.2\"},{\"name\":\"muse-spark-1.2-contributor\"},{\"name\":\"muse-spark-1.1\"}],\"mistral\":[{\"name\":\"mistral-nemo-latest\"},{\"name\":\"open-codestral-mamba\"},{\"name\":\"open-mistral-7b\"},{\"name\":\"open-mistral-nemo-latest\"},{\"name\":\"codestral-latest\"},{\"name\":\"mistral-small-latest\"},{\"name\":\"open-mixtral-8x7b\"},{\"name\":\"mistral-large-latest\"}],\"nebius\":[],\"novita\":[],\"nscale\":[],\"nvidia-nim\":[],\"ollama\":[],\"openai\":[{\"name\":\"text-embedding-3-small\"},{\"name\":\"text-embedding-ada-002\"},{\"name\":\"text-embedding-3-large\"},{\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-audio\"},{\"name\":\"gpt-audio-mini\"},{\"name\":\"gpt-audio-1.5\"},{\"name\":\"gpt-realtime-1.5\"},{\"name\":\"gpt-realtime-2\"},{\"name\":\"gpt-realtime-2.1\"},{\"name\":\"gpt-realtime-2.1-mini\"},{\"name\":\"gpt-realtime-whisper\"},{\"name\":\"gpt-realtime-translate\"},{\"name\":\"gpt-transcribe\"}],\"openai-compatible\":[],\"openai-responses\":[{\"name\":\"gpt-5-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4.1-nano\"},{\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o-mini\"},{\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-3.5-turbo\"},{\"name\":\"gpt-4.1-mini\"},{\"name\":\"gpt-5-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o3-mini\"},{\"name\":\"o4-mini\"},{\"name\":\"gpt-4.1\"},{\"name\":\"o3\"},{\"name\":\"gpt-5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4o\"},{\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.4\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"chatgpt-4o-latest\"},{\"aliases\":[\"gpt-5.6\"],\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.5\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-4-turbo\"},{\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"o1\"},{\"name\":\"gpt-4\"},{\"isExpensive\":true,\"name\":\"o3-pro\"},{\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true}},{\"isExpensive\":true,\"name\":\"o1-pro\"}],\"openrouter\":[],\"orcarouter\":[],\"ovhcloud\":[],\"reka\":[{\"name\":\"reka-edge\"},{\"name\":\"reka-flash\"},{\"name\":\"reka-core\"}],\"runpod-vllm\":[],\"sagemaker-vllm\":[],\"sambanova\":[],\"scaleway\":[],\"siliconflow\":[],\"together\":[],\"typesafe\":[],\"vertex-ai\":[],\"vllm\":[],\"webllm\":[{\"name\":\"gemma-2-2b-it-q4f32_1-MLC\"},{\"name\":\"gemma-2-9b-it-q4f32_1-MLC\"},{\"isExpensive\":true,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\"},{\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\"},{\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\"},{\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\"},{\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\"}]}");
     return index;
   }
 
@@ -14899,6 +14916,96 @@ final class Core {
     Object project = Core.get(options, "projectId", project_snake);
     Object url = Core.stringFormat("{}/projects/{}/locations/global/publishers/google/models/{}:embedContent", base_url, project, model);
     return url;
+  }
+
+  static Object provider_default_model_config(Object profile) {
+    axirCoverageMark("provider_default_model_config");
+    Object config = new java.util.LinkedHashMap<String, Object>();
+    Object provider_id = Core.provider_normalize_profile(profile);
+    Object is_typesafe = Core.eq(provider_id, "typesafe");
+    if (Core.truthy(is_typesafe)) {
+      return config;
+    }
+    Object is_openai_responses = Core.eq(provider_id, "openai-responses");
+    if (Core.truthy(is_openai_responses)) {
+      Core.set(config, "temperature", 0.7);
+      Core.set(config, "topP", 1);
+      return config;
+    }
+    Object descriptor = Core.provider_descriptor(provider_id);
+    Object transport = Core.get(descriptor, "transport", "openai-chat");
+    Object is_responses_profile = Core.eq(transport, "openai-responses");
+    if (Core.truthy(is_responses_profile)) {
+      return config;
+    }
+    Core.set(config, "temperature", 0);
+    return config;
+  }
+
+  static Object _provider_apply_model_sampling_support_impl(Object provider, Object request, Object options) {
+    axirCoverageMark("_provider_apply_model_sampling_support_impl");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object opts = Core.coalesce(options, empty_map);
+    Object model = Core.get(request, "model", "");
+    Object model_info_snake = Core.get(opts, "model_info", null);
+    Object model_info = Core.get(opts, "modelInfo", model_info_snake);
+    Object info = Core.provider_find_model_info(provider, model, model_info);
+    Object has_info = Core.isNotNone(info);
+    if (Core.truthy(has_info)) {
+      // empty
+    }
+    if (!Core.truthy(has_info)) {
+      return request;
+    }
+    Object not_supported_snake = Core.get(info, "not_supported", empty_map);
+    Object not_supported_value = Core.get(info, "notSupported", not_supported_snake);
+    Object not_supported = Core.coalesce(not_supported_value, empty_map);
+    Object temperature_flag = Core.get(not_supported, "temperature", Boolean.FALSE);
+    Object drop_temperature = Core.truthyValue(temperature_flag);
+    Object top_p_snake_flag = Core.get(not_supported, "top_p", Boolean.FALSE);
+    Object top_p_flag = Core.get(not_supported, "topP", top_p_snake_flag);
+    Object drop_top_p = Core.truthyValue(top_p_flag);
+    Object drop_any = Core.or(drop_temperature, drop_top_p);
+    if (Core.truthy(drop_any)) {
+      // empty
+    }
+    if (!Core.truthy(drop_any)) {
+      return request;
+    }
+    Object out = Core.mapMerge(request, empty_map);
+    Object model_config = Core.get(request, "model_config", null);
+    Object has_model_config = Core.typeIs(model_config, "object");
+    if (Core.truthy(has_model_config)) {
+      Object filtered_model_config = Core._provider_drop_sampling_keys_impl(model_config, drop_temperature, drop_top_p);
+      Core.set(out, "model_config", filtered_model_config);
+    }
+    Object model_config_camel = Core.get(request, "modelConfig", null);
+    Object has_model_config_camel = Core.typeIs(model_config_camel, "object");
+    if (Core.truthy(has_model_config_camel)) {
+      Object filtered_model_config_camel = Core._provider_drop_sampling_keys_impl(model_config_camel, drop_temperature, drop_top_p);
+      Core.set(out, "modelConfig", filtered_model_config_camel);
+    }
+    return out;
+  }
+
+  static Object _provider_drop_sampling_keys_impl(Object config, Object drop_temperature, Object drop_top_p) {
+    axirCoverageMark("_provider_drop_sampling_keys_impl");
+    Object seed = new java.util.LinkedHashMap<String, Object>();
+    Object copy = Core.mapMerge(config, seed);
+    if (Core.truthy(drop_temperature)) {
+      Core.mapDelete(copy, "temperature");
+    }
+    if (Core.truthy(drop_top_p)) {
+      Core.mapDelete(copy, "topP");
+      Core.mapDelete(copy, "top_p");
+    }
+    return copy;
+  }
+
+  static Object _openai_is_o_series_reasoning_model_impl(Object model) {
+    axirCoverageMark("_openai_is_o_series_reasoning_model_impl");
+    Object is_o_series = Core.regexMatch("^(?:o1|o1-mini|o1-pro|o3|o3-mini|o3-pro|o4-mini)$", model);
+    return is_o_series;
   }
 
   static Object chat_session_mode_enabled(Object options) {
