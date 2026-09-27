@@ -521,11 +521,19 @@ class ScriptedClient:
         return {"content": "Answer:  Found Ax docs "}
 
 
+searches = []
+
+
+def search_docs(args):
+    searches.append(args)
+    return {"title": "Ax docs"}
+
+
 search = (
     fn("search")
     .description("Search docs")
     .arg("query", f.string().min(1))
-    .handler(lambda args: {"title": "Ax docs"})
+    .handler(search_docs)
     .build()
 )
 
@@ -534,6 +542,8 @@ qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should me
 qa.add_field_transform("answer", "trim")
 out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
+# The tool ran once, with the model's arguments.
+assert searches == [{"query": "ax docs"}], searches
 assert qa.get_traces()[-1]["output"] == out
 print("python-axgen-ok")
 `
@@ -981,10 +991,14 @@ public final class AxGenScriptedClientToolExample {
   }
 
   public static void main(String[] args) {
+    List<Map<String, Object>> searches = new ArrayList<>();
     Tool search = Ax.fn("search")
       .description("Search docs")
       .arg("query", Ax.f().string().min(1))
-      .handler(values -> Map.of("title", "Ax docs"))
+      .handler(values -> {
+        searches.add(values);
+        return Map.of("title", "Ax docs");
+      })
       .build();
     AxGen qa = Ax.ax("query:string -> answer:string")
       .addTool(search)
@@ -992,6 +1006,8 @@ public final class AxGenScriptedClientToolExample {
       .addFieldTransform("answer", "trim");
     Map<String, Object> out = qa.forward(new ScriptedClient(), Map.of("query", "ax docs"));
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
+    // The tool ran once, with the model's arguments.
+    if (!List.of(Map.of("query", "ax docs")).equals(searches)) throw new RuntimeException("search did not run once: " + searches);
     if (qa.getTraces().isEmpty()) throw new RuntimeException("missing trace");
     System.out.println("java-axgen-ok");
   }
@@ -1491,7 +1507,9 @@ int main() {
     {"properties", axllm::object({{"query", axllm::object({{"type", "string"}})}})},
     {"required", axllm::array({"query"})}
   });
-  axllm::Tool search("search", "Search docs", parameters, [](axllm::Value) {
+  axllm::Value searches = axllm::array({});
+  axllm::Tool search("search", "Search docs", parameters, [&searches](axllm::Value args) {
+    axllm::Core::append(searches, args);
     return axllm::object({{"title", "Ax docs"}});
   });
   auto qa = axllm::ax("query:string -> answer:string")
@@ -1501,6 +1519,11 @@ int main() {
   ScriptedClient client;
   axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;
+  // The tool ran once, with the model's arguments.
+  if (!axllm::equal(searches, axllm::array({axllm::object({{"query", "ax docs"}})}))) {
+    std::cerr << "search did not run once: " << axllm::stringify(searches) << "\n";
+    return 1;
+  }
   if (axllm::Core::truthy(axllm::Core::is_none(axllm::Core::get(qa.get_traces(), 0)))) return 1;
   std::cout << "cpp-axgen-ok\n";
 }

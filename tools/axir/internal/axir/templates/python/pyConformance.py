@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import re
 import warnings
 import os
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -2136,8 +2138,13 @@ def _run_agent_forward(fixture):
     run_state_projections = []
     saved_runtime_state = None
     state_roundtrip_projection = {}
+    wall_clock_start = time.time()
+    playbook_state_before_forward = None
     try:
         ag = agent(fixture.get("signature"), agent_options)
+        if "expected_playbook_state_before_forward" in fixture:
+            handle = ag.get_playbook()
+            playbook_state_before_forward = copy.deepcopy(handle.get_state()) if handle is not None else None
         for child_spec in fixture.get("child_agents") or []:
             child_options = dict(child_spec.get("options") or {})
             owner = child_spec["namespace"]+"."+child_spec["name"]
@@ -2326,6 +2333,23 @@ def _run_agent_forward(fixture):
     if "expected_playbook_state" in fixture:
         handle = ag.get_playbook()
         _assert_equal(handle.get_state() if handle is not None else None, fixture["expected_playbook_state"], "agent playbook state")
+    if "expected_playbook_state_before_forward" in fixture:
+        _assert_equal(playbook_state_before_forward, fixture["expected_playbook_state_before_forward"], "agent playbook state before the first forward")
+    if fixture.get("expected_playbook_wall_clock"):
+        handle = ag.get_playbook()
+        state = handle.get_state() if handle is not None else {}
+        _assert_wall_clock_timestamps(
+            [(state.get("playbook") or {}).get("updatedAt"), ((state.get("artifact") or {}).get("playbook") or {}).get("updatedAt")],
+            wall_clock_start,
+            time.time(),
+            "agent playbook updatedAt",
+        )
+    if fixture.get("expected_playbook_config_unchanged"):
+        # The caller's playbook config, less the student client the runner
+        # added, is what the fixture passed.
+        config = agent_options.get("playbook")
+        config = {key: value for key, value in config.items() if key != "studentAI"} if isinstance(config, dict) else config
+        _assert_equal(config, (fixture.get("options") or {}).get("playbook"), "caller's playbook config")
     exported = ag.export_runtime_state()
     if "expected_runtime_contract_subset" in fixture:
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
@@ -2423,6 +2447,15 @@ def _run_agent_playbook_evolve(fixture):
             _assert_equal(len(outcomes), expected["outcome_count"], f"playbook evolve {case.get('name')} outcome count")
         if "expected_teacher_request_count" in case and len(teacher.requests) != case["expected_teacher_request_count"]:
             raise FixtureError(f"playbook evolve {case.get('name')} expected {case['expected_teacher_request_count']} teacher requests, got {len(teacher.requests)}")
+        if "expected_teacher_system_prompts" in case:
+            # Each teacher request's system prompt, in call order, byte for byte.
+            prompts = [
+                message.get("content")
+                for request in teacher.requests
+                for message in (request.get("chat_prompt") or [])
+                if message.get("role") == "system"
+            ]
+            _assert_equal(prompts, case["expected_teacher_system_prompts"], f"playbook evolve {case.get('name')} teacher system prompts")
         if not outcomes:
             if expected.get("outcome_count") == 0:
                 continue
@@ -3602,6 +3635,21 @@ def _assert_equal(actual, expected, label):
         raise FixtureError(
             f"{label} mismatch\nactual: {json.dumps(actual, sort_keys=True)}\nexpected: {json.dumps(expected, sort_keys=True)}"
         )
+
+
+_ISO_MILLIS_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+
+
+def _assert_wall_clock_timestamps(values, start, end, label):
+    """Each value is a UTC timestamp as JavaScript's toISOString writes it,
+    taken during the run: between start and end (seconds since the epoch),
+    with a second of slack for millisecond rounding."""
+    for value in values:
+        if not isinstance(value, str) or not _ISO_MILLIS_UTC.match(value):
+            raise FixtureError(f"{label} is not an ISO-8601 UTC millisecond timestamp: {value!r}")
+        stamp = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).timestamp()
+        if not start - 1 <= stamp <= end + 1:
+            raise FixtureError(f"{label} {value} is not the wall clock during the run")
 
 
 def _capture_error(errors, callback):

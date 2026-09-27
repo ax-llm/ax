@@ -1209,3 +1209,33 @@ describe('AxSignature.toInputJSONSchema', () => {
     expect(schema.required).not.toContain('outputB');
   });
 });
+
+describe('AxSignature field titles', () => {
+  const title = (name: string) =>
+    AxSignature.create(`${name}:string -> answer:string`).getInputFields()[0]
+      ?.title;
+
+  it('keeps a run of capitals together', () => {
+    expect(title('userID')).toBe('User ID');
+    expect(title('apiURL')).toBe('Api URL');
+    expect(title('orderID')).toBe('Order ID');
+    expect(title('parseHTTPResponse')).toBe('Parse HTTP Response');
+  });
+
+  it('writes one space between words', () => {
+    expect(title('field_2')).toBe('Field 2');
+  });
+
+  it('starts a word at each underscore, capital and run of digits', () => {
+    expect(title('generator_answer')).toBe('Generator answer');
+    expect(title('question_context')).toBe('Question context');
+    expect(title('snake_case_name')).toBe('Snake case name');
+    expect(title('errorIdentification')).toBe('Error Identification');
+    expect(title('keyInsight')).toBe('Key Insight');
+    expect(title('item1')).toBe('Item 1');
+    expect(title('item123')).toBe('Item 123');
+    expect(title('step2Result')).toBe('Step 2 Result');
+    expect(title('x2Y')).toBe('X 2 Y');
+    expect(title('value99Count')).toBe('Value 99 Count');
+  });
+});

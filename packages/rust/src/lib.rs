@@ -1100,26 +1100,27 @@ impl SignatureBuilder {
     }
 }
 
-// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts): each
-// underscore becomes a space, a space goes before each capital letter A-Z and
-// each run of digits, and the trimmed result starts with a capital letter.
-// "generator_answer" is "Generator answer", "keyInsight" "Key Insight" and
-// "item12" "Item 12".
+// A field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+// underscores become spaces, and a word starts at a capital after a lowercase
+// letter or digit, at the last capital of a run that begins a word, and at each
+// run of digits; words are separated by one space. userID is "User ID",
+// parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 fn title_case(name: &str) -> String {
-    let mut spaced = String::with_capacity(name.len() + 4);
-    let mut in_digits = false;
-    for ch in name.chars() {
-        if ch == '_' {
-            spaced.push(' ');
-        } else if ch.is_ascii_uppercase() || (ch.is_ascii_digit() && !in_digits) {
-            spaced.push(' ');
-            spaced.push(ch);
-        } else {
-            spaced.push(ch);
-        }
-        in_digits = ch.is_ascii_digit();
-    }
-    let mut chars = spaced.trim().chars();
+    static BOUNDARIES: OnceLock<[regex::Regex; 4]> = OnceLock::new();
+    let [camel, acronym, digit, spaces] = BOUNDARIES.get_or_init(|| {
+        [
+            regex::Regex::new("([a-z0-9])([A-Z])").expect("valid title regex"),
+            regex::Regex::new("([A-Z])([A-Z][a-z])").expect("valid title regex"),
+            regex::Regex::new("([^0-9])([0-9])").expect("valid title regex"),
+            regex::Regex::new(r"\s+").expect("valid title regex"),
+        ]
+    });
+    let text = name.replace('_', " ");
+    let text = camel.replace_all(&text, "${1} ${2}");
+    let text = acronym.replace_all(&text, "${1} ${2}");
+    let text = digit.replace_all(&text, "${1} ${2}");
+    let text = spaces.replace_all(&text, " ");
+    let mut chars = text.trim().chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
@@ -7130,6 +7131,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         &CoreValue::from("executor_description"),
         CoreValue::from(""),
     ));
+    let base_responder_instruction = core_value_to_json(&core_get(
+        &state,
+        &CoreValue::from("responder_description"),
+        CoreValue::from(""),
+    ));
     let playbook_config = core_value_to_json(&core_get(
         &options,
         &CoreValue::from("playbook"),
@@ -7137,6 +7143,19 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     ));
     let mut playbook_snapshot = Value::Null;
     let mut executor_instruction = base_executor_instruction.clone();
+    let mut responder_instruction = base_responder_instruction.clone();
+    // The configured playbook writes into the actor (executor) prompt, or the
+    // responder's for `{"target":"responder"}`, as TS binds it.
+    let playbook_on_responder =
+        playbook_config.get("target").and_then(Value::as_str) == Some("responder");
+    let playbook_instruction_base = if playbook_on_responder {
+        &base_responder_instruction
+    } else {
+        &base_executor_instruction
+    }
+    .as_str()
+    .unwrap_or_default()
+    .to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
         let seed = config.get("seed").cloned().or_else(|| {
@@ -7167,17 +7186,17 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         .unwrap_or_default()
         .to_string();
         if config.get("apply").and_then(Value::as_bool) != Some(false) {
-            executor_instruction = Value::String(playbook_compose_instruction(
-                base_executor_instruction.as_str().unwrap_or_default(),
+            let composed = Value::String(playbook_compose_instruction(
+                &playbook_instruction_base,
                 &rendered,
             ));
+            if playbook_on_responder {
+                responder_instruction = composed;
+            } else {
+                executor_instruction = composed;
+            }
         }
     }
-    let responder_instruction = core_value_to_json(&core_get(
-        &state,
-        &CoreValue::from("responder_description"),
-        CoreValue::from(""),
-    ));
     let llm_query_signature = core_get(
         &state,
         &CoreValue::from("llm_query_signature"),
@@ -7209,10 +7228,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         execution_context: None,
         playbook_config,
         playbook_snapshot,
-        playbook_instruction_base: base_executor_instruction
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
+        playbook_instruction_base,
         citations_observer: None,
         playbook_observer: None,
         runtime_hooks: AxRuntimeHooks::default(),
@@ -7249,6 +7265,7 @@ impl AxAgent {
         rebuilt.playbook_observer = self.playbook_observer;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
+        rebuilt.refresh_playbook_prompt();
         Ok(rebuilt)
     }
     pub fn with_tool_module(mut self, name: &str, tools: Vec<Tool>) -> AxResult<Self> {
@@ -7280,6 +7297,7 @@ impl AxAgent {
         rebuilt.playbook_observer = self.playbook_observer;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
+        rebuilt.refresh_playbook_prompt();
         Ok(rebuilt)
     }
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
@@ -7311,12 +7329,74 @@ impl AxAgent {
         self
     }
 
-    fn set_executor_instruction(&mut self, instruction: &str) {
-        if let CoreValue::Host(host) = &self.executor {
+    fn write_stage_instruction(stage: &CoreValue, instruction: &str) {
+        if let CoreValue::Host(host) = stage {
             if let Some(gen) = host.stage_gen_rc() {
                 gen.borrow_mut().set_instruction(instruction);
             }
         }
+    }
+
+    fn playbook_configured(&self) -> bool {
+        !self.playbook_config.is_null() && self.playbook_config.as_bool() != Some(false)
+    }
+
+    // The stage the configured playbook writes into: "responder" for
+    // `{"target":"responder"}`, else the actor's "executor".
+    fn playbook_stage_name(&self) -> &'static str {
+        if self.playbook_config.get("target").and_then(Value::as_str) == Some("responder") {
+            "responder"
+        } else {
+            "executor"
+        }
+    }
+
+    // Write an agent stage's instruction ("distiller", "executor" or
+    // "responder"). The configured playbook's stage gets the rendered playbook
+    // composed on top, as TS keeps it in the stage prompt, so a stage
+    // instruction, an actor addendum, optimized components or the run-context
+    // refresh never drop it.
+    fn set_stage_instruction(&mut self, stage: &str, instruction: &str) {
+        if self.playbook_configured() && stage == self.playbook_stage_name() {
+            self.playbook_instruction_base = instruction.to_string();
+            self.refresh_playbook_prompt();
+            return;
+        }
+        let target = match stage {
+            "distiller" => &self.distiller,
+            "responder" => &self.responder,
+            _ => &self.executor,
+        };
+        Self::write_stage_instruction(target, instruction);
+    }
+
+    // Write the configured playbook's stage prompt: its base instruction with
+    // the rendered playbook composed on top, unless `apply` is false.
+    fn refresh_playbook_prompt(&mut self) {
+        if !self.playbook_configured() {
+            return;
+        }
+        let mut instruction = self.playbook_instruction_base.clone();
+        if self.playbook_config.get("apply").and_then(Value::as_bool) != Some(false) {
+            let rendered = self
+                .playbook_snapshot
+                .get("playbook")
+                .and_then(|playbook| _ace_render_playbook(&[core_value_from_json(playbook)]).ok())
+                .map(|value| {
+                    core_value_to_json(&value)
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                })
+                .unwrap_or_default();
+            instruction = playbook_compose_instruction(&instruction, &rendered);
+        }
+        let target = if self.playbook_stage_name() == "responder" {
+            &self.responder
+        } else {
+            &self.executor
+        };
+        Self::write_stage_instruction(target, &instruction);
     }
 
     pub fn get_instruction(&self) -> String {
@@ -7329,14 +7409,14 @@ impl AxAgent {
     pub fn set_instruction(&mut self, instruction: &str) -> AxResult<&mut Self> {
         let composed =
             _agent_set_instruction(&[self.state.clone(), CoreValue::from(instruction)])?.text();
-        self.set_executor_instruction(&composed);
+        self.set_stage_instruction("executor", &composed);
         Ok(self)
     }
 
     pub fn add_actor_instruction(&mut self, addendum: &str) -> AxResult<&mut Self> {
         let composed =
             _agent_add_actor_instruction(&[self.state.clone(), CoreValue::from(addendum)])?.text();
-        self.set_executor_instruction(&composed);
+        self.set_stage_instruction("executor", &composed);
         Ok(self)
     }
 
@@ -7402,22 +7482,17 @@ impl AxAgent {
                             CoreValue::Bool(false),
                         )) {
                             for (field, stage) in [
-                                ("distiller_description", &self.distiller),
-                                ("executor_description", &self.executor),
-                                ("responder_description", &self.responder),
+                                ("distiller_description", "distiller"),
+                                ("executor_description", "executor"),
+                                ("responder_description", "responder"),
                             ] {
-                                if let CoreValue::Host(host) = stage {
-                                    if let Some(gen) = host.stage_gen_rc() {
-                                        gen.borrow_mut().set_instruction(
-                                            &core_get(
-                                                &self.state,
-                                                &CoreValue::from(field),
-                                                CoreValue::from(""),
-                                            )
-                                            .text(),
-                                        );
-                                    }
-                                }
+                                let instruction = core_get(
+                                    &self.state,
+                                    &CoreValue::from(field),
+                                    CoreValue::from(""),
+                                )
+                                .text();
+                                self.set_stage_instruction(stage, &instruction);
                             }
                         }
                     }
@@ -7737,17 +7812,7 @@ impl AxAgent {
                 "playbook": engine.get_playbook(),
                 "artifact": engine.get_artifact(),
             });
-            if config.get("apply").and_then(Value::as_bool) != Some(false) {
-                let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(
-                    &self.playbook_snapshot["playbook"],
-                )])?)
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-                let composed =
-                    playbook_compose_instruction(&self.playbook_instruction_base, &rendered);
-                self.set_executor_instruction(&composed);
-            }
+            self.refresh_playbook_prompt();
             if let Some(observer) = self.playbook_observer.as_mut() {
                 let update = json!({
                     "status": if stable_stringify(&self.playbook_snapshot["playbook"]) == before { "unchanged" } else { "updated" },
@@ -7895,7 +7960,7 @@ impl AxAgent {
         core_program_apply_components(&[self.responder.clone(), component_core.clone()])?;
         let composed =
             _agent_apply_optimized_components(&[self.state.clone(), component_core])?.text();
-        self.set_executor_instruction(&composed);
+        self.set_stage_instruction("executor", &composed);
         Ok(())
     }
 
@@ -8111,6 +8176,7 @@ impl AxAgent {
         rebuilt.playbook_observer = self.playbook_observer;
         rebuilt.playbook_config = self.playbook_config;
         rebuilt.playbook_snapshot = self.playbook_snapshot;
+        rebuilt.refresh_playbook_prompt();
         Ok(rebuilt)
     }
 
@@ -9605,6 +9671,43 @@ fn ax_gepa_pareto_front(candidates: &[AxGEPACandidate], eps: f64) -> Vec<usize> 
 /// Agentic Context Engineering optimizer (Generator -> Reflector -> Curator).
 ///
 /// Deterministic playbook mutations reuse the Core-owned `_ace_*` ops; the
+// The current UTC time as JavaScript's toISOString writes it
+// (YYYY-MM-DDTHH:MM:SS.mmmZ).
+fn ace_wall_clock() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0);
+    let (days, day_millis) = (millis.div_euclid(86_400_000), millis.rem_euclid(86_400_000));
+    // The civil date of a day count since 1970-01-01, proleptic Gregorian.
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        day_millis / 3_600_000,
+        day_millis / 60_000 % 60,
+        day_millis / 1000 % 60,
+        day_millis % 1000
+    )
+}
+
+// An ACE engine's timestamp: the injected clock, else the wall clock.
+fn ace_clock(injected: Option<&str>) -> String {
+    injected.map(str::to_string).unwrap_or_else(ace_wall_clock)
+}
+
 /// LLM-orchestrated reflect/curate steps are delegated to injected callables so
 /// the loop is reproducible under conformance with scripted responses (mirrors
 /// how `AxGEPA` accepts a reflection client).
@@ -9614,7 +9717,8 @@ pub struct AxACE {
     generator: Option<Box<dyn FnMut(&Value) -> Value>>,
     config: Map<String, Value>,
     initial_playbook: Option<Value>,
-    now: String,
+    // The injected clock (the `now` option); None for the wall clock.
+    now: Option<String>,
     playbook: Value,
     generator_history: Vec<Value>,
     delta_history: Vec<Value>,
@@ -9675,16 +9779,18 @@ impl AxACE {
         let now = options
             .get("now")
             .and_then(Value::as_str)
-            .unwrap_or("1970-01-01T00:00:00.000Z")
-            .to_string();
+            .map(str::to_string);
         let initial_playbook = options
             .get("initialPlaybook")
             .cloned()
             .filter(|v| !v.is_null());
         let playbook = match &initial_playbook {
             Some(pb) => pb.clone(),
-            None => ace_call_core(_ace_empty_playbook, &[Value::Null, json!(now)])
-                .unwrap_or_else(|_| json!({})),
+            None => ace_call_core(
+                _ace_empty_playbook,
+                &[Value::Null, json!(ace_clock(now.as_deref()))],
+            )
+            .unwrap_or_else(|_| json!({})),
         };
         Self {
             reflector: None,
@@ -9750,8 +9856,14 @@ impl AxACE {
     }
 
     fn empty_playbook(&self) -> Value {
-        ace_call_core(_ace_empty_playbook, &[Value::Null, json!(self.now)])
+        ace_call_core(_ace_empty_playbook, &[Value::Null, json!(self.clock())])
             .unwrap_or_else(|_| json!({}))
+    }
+
+    // The injected clock (the `now` option), else the wall clock at each call,
+    // as TS's new Date().toISOString() stamps each playbook change.
+    fn clock(&self) -> String {
+        ace_clock(self.now.as_deref())
     }
 
     pub fn reset(&mut self) {
@@ -9966,7 +10078,7 @@ impl AxACE {
                 self.playbook.clone(),
                 Value::Array(resolved.clone()),
                 options,
-                json!(self.now),
+                json!(self.clock()),
             ],
         )?;
         self.playbook = result.get("playbook").cloned().unwrap_or(Value::Null);
@@ -10002,7 +10114,7 @@ impl AxACE {
                         self.playbook.clone(),
                         tag.get("id").cloned().unwrap_or(Value::Null),
                         tag.get("tag").cloned().unwrap_or(Value::Null),
-                        json!(self.now),
+                        json!(self.clock()),
                     ],
                 )?;
             }
@@ -10077,7 +10189,7 @@ impl AxACE {
             "generatorOutput": generator_output,
             "reflection": reflection,
             "curator": curator_result.clone().unwrap_or(Value::Null),
-            "timestamp": self.now.clone(),
+            "timestamp": self.clock(),
         });
         self.generator_history.push(feedback_event);
         let has_ops = curator_result
@@ -10185,7 +10297,7 @@ impl AxACE {
             "generatorOutput": generator_output,
             "reflection": reflection,
             "curator": curator_result.clone().unwrap_or(Value::Null),
-            "timestamp": self.now.clone(),
+            "timestamp": self.clock(),
         });
         self.generator_history.push(feedback_event);
         let has_ops = curator_result
@@ -10357,18 +10469,90 @@ fn ace_curator_signature() -> AxSignature {
     }
 }
 
-const AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE: &str =
-    "clusterSignature:string \"Shared error signature of the cluster\", \
-taskSummaries:string \"One line per failing task\", \
-actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", \
-functionCallSummary?:string \"Digest of runtime/tool calls\", \
-toolErrors?:string \"Tool errors observed\", \
-currentPlaybook?:string \"Current failure-avoidance playbook\" \
--> weaknessDescription:string \"Recurring weakness\", \
-rootCause:string \"Mechanical root cause\", \
-proposedGuidance:string \"One concise imperative avoidance rule\", \
-evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", \
-configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+// The weakness miner's description and signature, as TS builds them
+// (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+const AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION: &str = "You are a failure analyst for an LLM agent harness. \
+You receive one cluster of failed agent runs sharing an error signature, with excerpts of what the agent actually did. \
+Identify the single recurring weakness, its root cause, and one narrow, durable avoidance rule the agent should recall while acting. \
+Ground every claim: evidenceQuotes must be verbatim substrings copied from the excerpts. \
+Keep proposedGuidance concise, imperative, and general to the failure mode (not one task). \
+Use configRecommendations only for setup problems no prompt text can fix (missing tools, timeouts, model choice).";
+
+fn agent_playbook_weakness_miner_signature() -> AxSignature {
+    AxSignature {
+        description: Some(AGENT_PLAYBOOK_WEAKNESS_MINER_DESCRIPTION.to_string()),
+        inputs: vec![
+            ace_field(
+                "clusterSignature",
+                FieldType::string(),
+                "Shared error signature of the cluster.",
+                false,
+            ),
+            ace_field(
+                "taskSummaries",
+                FieldType::string(),
+                "One line per failing task.",
+                false,
+            ),
+            ace_field(
+                "actionLogExcerpts",
+                FieldType::string(),
+                "Excerpts of the failing runs, centered on the failure.",
+                false,
+            ),
+            ace_field(
+                "functionCallSummary",
+                FieldType::string(),
+                "Digest of runtime/tool calls in the failing runs.",
+                true,
+            ),
+            ace_field(
+                "toolErrors",
+                FieldType::string(),
+                "Tool errors observed.",
+                true,
+            ),
+            ace_field(
+                "currentPlaybook",
+                FieldType::string(),
+                "The failure-avoidance playbook currently applied.",
+                true,
+            ),
+        ],
+        outputs: vec![
+            ace_field(
+                "weaknessDescription",
+                FieldType::string(),
+                "The recurring weakness, one sentence.",
+                false,
+            ),
+            ace_field(
+                "rootCause",
+                FieldType::string(),
+                "Why the runs fail, mechanically.",
+                false,
+            ),
+            ace_field(
+                "proposedGuidance",
+                FieldType::string(),
+                "The avoidance rule to add to the playbook \u{2014} concise, imperative.",
+                false,
+            ),
+            ace_field(
+                "evidenceQuotes",
+                FieldType::string().array(),
+                "Verbatim substrings from actionLogExcerpts proving the weakness.",
+                false,
+            ),
+            ace_field(
+                "configRecommendations",
+                FieldType::string().array(),
+                "Setup/config suggestions no prompt text can fix.",
+                true,
+            ),
+        ],
+    }
+}
 
 fn playbook_compose_instruction(base: &str, rendered: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
@@ -11419,11 +11603,8 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             if !current_playbook.trim().is_empty() {
                 request["currentPlaybook"] = json!(current_playbook);
             }
-            let mut miner = match AxGen::new(AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE) {
-                Ok(miner) => miner,
-                Err(_) => continue,
-            };
-            miner.options = json!({"id":"agent.playbook.weakness-miner","instruction":"Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."});
+            let mut miner = AxGen::with_signature(agent_playbook_weakness_miner_signature());
+            miner.options = json!({"id":"agent.playbook.weakness-miner"});
             let mined = match &teacher {
                 Some(teacher) => miner.forward_with_options(
                     &mut *teacher.borrow_mut(),
@@ -15765,6 +15946,30 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
                 ));
             }
         }
+        if let Some(expected_prompts) = test_case.get("expected_teacher_system_prompts") {
+            // Each teacher request's system prompt, in call order, byte for byte.
+            let prompts = teacher
+                .as_ref()
+                .unwrap_or(&playbook_client)
+                .borrow()
+                .requests
+                .iter()
+                .flat_map(|request| {
+                    request
+                        .get("chat_prompt")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .filter(|message| message.get("role").and_then(Value::as_str) == Some("system"))
+                .map(|message| message.get("content").cloned().unwrap_or(Value::Null))
+                .collect::<Vec<_>>();
+            expect_json_equal(
+                &format!("{label} teacher system prompts"),
+                &Value::Array(prompts),
+                expected_prompts,
+            )?;
+        }
         let Some(outcome) = outcomes.first() else {
             if expected.get("outcome_count").and_then(Value::as_u64) == Some(0) {
                 continue;
@@ -17947,6 +18152,10 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         .get("signature")
         .and_then(Value::as_str)
         .unwrap_or("question:string -> answer:string");
+    // The options the agent was given, to check afterwards that the agent left
+    // the caller's playbook config alone.
+    let caller_options = agent_options.clone();
+    let wall_clock_start = SystemTime::now();
     let mut agent = match agent_with_core_options(signature, agent_options) {
         Ok(agent) => agent,
         Err(error) => {
@@ -17961,6 +18170,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    let playbook_state_before_forward = agent.get_playbook_state().unwrap_or(Value::Null);
     agent.execution_context = contexts.get("parent").cloned();
     for child in fixture
         .get("child_agents")
@@ -18476,6 +18686,51 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             "agent playbook state",
             &agent.get_playbook_state().unwrap_or(Value::Null),
             expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_playbook_state_before_forward") {
+        expect_json_equal(
+            "agent playbook state before the first forward",
+            &playbook_state_before_forward,
+            expected,
+        )?;
+    }
+    if fixture
+        .get("expected_playbook_wall_clock")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        let state = agent.get_playbook_state().unwrap_or(Value::Null);
+        expect_wall_clock_timestamps(
+            &[
+                state["playbook"]["updatedAt"].clone(),
+                state["artifact"]["playbook"]["updatedAt"].clone(),
+            ],
+            wall_clock_start,
+            SystemTime::now(),
+            "agent playbook updatedAt",
+        )?;
+    }
+    if fixture
+        .get("expected_playbook_config_unchanged")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        let mut actual = core_value_to_json(&core_get(
+            &caller_options,
+            &CoreValue::from("playbook"),
+            CoreValue::Null,
+        ));
+        if let Some(config) = actual.as_object_mut() {
+            config.remove("studentAI");
+        }
+        expect_json_equal(
+            "caller's playbook config",
+            &actual,
+            fixture
+                .get("options")
+                .and_then(|options| options.get("playbook"))
+                .unwrap_or(&Value::Null),
         )?;
     }
     let exported = agent.export_runtime_state()?;
@@ -23798,6 +24053,86 @@ fn expect_json_equal(label: &str, actual: &Value, expected: &Value) -> AxResult<
                 stable_stringify(actual)
             ),
         ));
+    }
+    Ok(())
+}
+
+// Milliseconds since the Unix epoch of a UTC timestamp written as JavaScript's
+// toISOString writes it (YYYY-MM-DDTHH:MM:SS.mmmZ); None for any other text.
+fn parse_iso_millis_utc(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 24 || text.chars().any(|ch| !ch.is_ascii()) {
+        return None;
+    }
+    for (index, separator) in [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'.'),
+        (23, b'Z'),
+    ] {
+        if bytes[index] != separator {
+            return None;
+        }
+    }
+    let number = |range: std::ops::Range<usize>| -> Option<i64> {
+        let digits = &text[range];
+        if digits.chars().all(|ch| ch.is_ascii_digit()) {
+            digits.parse().ok()
+        } else {
+            None
+        }
+    };
+    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+    let (hour, minute, second, millis) = (
+        number(11..13)?,
+        number(14..16)?,
+        number(17..19)?,
+        number(20..23)?,
+    );
+    // Days from 1970-01-01 to year-month-day in the proleptic Gregorian calendar.
+    let shifted_year = if month <= 2 { year - 1 } else { year };
+    let era = shifted_year.div_euclid(400);
+    let year_of_era = shifted_year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    Some(((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis)
+}
+
+// Each value is a UTC timestamp as JavaScript's toISOString writes it, taken
+// during the run: between start and end, with a second of slack for
+// millisecond rounding.
+fn expect_wall_clock_timestamps(
+    values: &[Value],
+    start: SystemTime,
+    end: SystemTime,
+    label: &str,
+) -> AxResult<()> {
+    let millis = |time: SystemTime| {
+        time.duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    };
+    for value in values {
+        let text = value.as_str().unwrap_or_default();
+        let Some(stamp) = parse_iso_millis_utc(text) else {
+            return Err(AxError::new(
+                "fixture",
+                format!(
+                    "{label} is not an ISO-8601 UTC millisecond timestamp: {}",
+                    stable_stringify(value)
+                ),
+            ));
+        };
+        if stamp < millis(start) - 1000 || stamp > millis(end) + 1000 {
+            return Err(AxError::new(
+                "fixture",
+                format!("{label} {text} is not the wall clock during the run"),
+            ));
+        }
     }
     Ok(())
 }
@@ -40125,6 +40460,8 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_empty_calls = CoreValue::Null;
     let mut v_finish = CoreValue::Null;
     let mut v_finish_snake = CoreValue::Null;
+    let mut v_flat_name = CoreValue::Null;
+    let mut v_flat_params = CoreValue::Null;
     let mut v_fn = CoreValue::Null;
     let mut v_function_calls = CoreValue::Null;
     let mut v_has_finish = CoreValue::Null;
@@ -40152,8 +40489,10 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         let mut v_call = v_call;
         v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
         v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-        v_params = core_get(&v_fn, &CoreValue::from("params"), CoreValue::Null);
+        v_flat_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), v_flat_name.clone());
+        v_flat_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
+        v_params = core_get(&v_fn, &CoreValue::from("params"), v_flat_params.clone());
         v_compat_call = CoreValue::new_map();
         core_set(&v_compat_call, CoreValue::from("id"), v_id.clone())?;
         core_set(&v_compat_call, CoreValue::from("name"), v_name.clone())?;
@@ -40757,29 +41096,6 @@ fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
-fn ai_context_cache_expiry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_context_cache_expiry");
-    let mut v_provider_expire_time = core_arg(args, 0);
-    let mut v_now = core_arg(args, 1);
-    let mut v_future = CoreValue::Null;
-    let mut v_is_number = CoreValue::Null;
-    v_is_number = core_type_is(&v_provider_expire_time, CoreValue::from("number"));
-    if core_truthy(&v_is_number) {
-        v_future = core_gt(&[v_provider_expire_time.clone(), v_now.clone()])?;
-        if core_truthy(&v_future) {
-            return Ok(v_provider_expire_time.clone());
-        }
-    }
-    return Ok(CoreValue::Num(0f64));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_finish_reason_impl");
     let mut v_value = core_arg(args, 0);
@@ -40810,6 +41126,29 @@ fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     }
     v_none = core_none(&[])?;
     return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_context_cache_expiry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_expiry");
+    let mut v_provider_expire_time = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_future = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    v_is_number = core_type_is(&v_provider_expire_time, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_future = core_gt(&[v_provider_expire_time.clone(), v_now.clone()])?;
+        if core_truthy(&v_future) {
+            return Ok(v_provider_expire_time.clone());
+        }
+    }
+    return Ok(CoreValue::Num(0f64));
 }
 
 #[allow(

@@ -7,11 +7,14 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <ctime>
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <regex>
 #include <typeinfo>
 
 using namespace axllm;
@@ -628,6 +631,31 @@ static Value signature_payload(Value sig) {
 
 static void assert_equal(Value actual, Value expected, const std::string& label) {
   if (!equal(actual, expected)) throw AxError("fixture", label + " mismatch actual=" + stringify(actual) + " expected=" + stringify(expected));
+}
+
+// Each value is a UTC timestamp as JavaScript's toISOString writes it, taken
+// during the run: between start and end, with a second of slack for
+// millisecond rounding.
+static void assert_wall_clock_timestamps(std::vector<Value> values, std::chrono::system_clock::time_point start,
+                                         std::chrono::system_clock::time_point end, const std::string& label) {
+  static const std::regex iso_millis_utc("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$");
+  for (const auto& value : values) {
+    if (!value.is_string() || !std::regex_match(display(value), iso_millis_utc)) {
+      throw AxError("fixture", label + " is not an ISO-8601 UTC millisecond timestamp: " + stringify(value));
+    }
+    std::string text = display(value);
+    std::tm parts{};
+    parts.tm_year = std::stoi(text.substr(0, 4)) - 1900;
+    parts.tm_mon = std::stoi(text.substr(5, 2)) - 1;
+    parts.tm_mday = std::stoi(text.substr(8, 2));
+    parts.tm_hour = std::stoi(text.substr(11, 2));
+    parts.tm_min = std::stoi(text.substr(14, 2));
+    parts.tm_sec = std::stoi(text.substr(17, 2));
+    auto stamp = std::chrono::system_clock::from_time_t(timegm(&parts)) + std::chrono::milliseconds(std::stoi(text.substr(20, 3)));
+    if (stamp < start - std::chrono::seconds(1) || stamp > end + std::chrono::seconds(1)) {
+      throw AxError("fixture", label + " " + text + " is not the wall clock during the run");
+    }
+  }
 }
 
 static void assert_subset(Value actual, Value expected, const std::string& label) {
@@ -1685,6 +1713,17 @@ static void run_agent_playbook_evolve(Value fixture) {
     if (!expected_teacher_requests.is_null() && teacher.requests.size() != static_cast<size_t>(std::stoul(display(expected_teacher_requests)))) {
       throw AxError("fixture", label + " expected " + display(expected_teacher_requests) + " teacher requests, got " + std::to_string(teacher.requests.size()));
     }
+    Value expected_teacher_prompts = Core::get(test_case, "expected_teacher_system_prompts");
+    if (!expected_teacher_prompts.is_null()) {
+      // Each teacher request's system prompt, in call order, byte for byte.
+      Array prompts;
+      for (const auto& request : teacher.requests) {
+        for (const auto& message : Core::iter(Core::get(request, "chat_prompt", Value::array()))) {
+          if (display(Core::get(message, "role")) == "system") prompts.push_back(Core::get(message, "content"));
+        }
+      }
+      assert_equal(Value(prompts), expected_teacher_prompts, label + " teacher system prompts");
+    }
     if (outcomes.empty()) {
       if (!Core::get(expected, "outcome_count").is_null() && Core::number(Core::get(expected, "outcome_count")) == 0) continue;
       throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
@@ -1832,13 +1871,27 @@ static void run_agent_forward(Value fixture) {
   std::vector<std::unique_ptr<ScriptedCodeRuntime>> child_scripts;
   for(auto spec:Core::iter(Core::get(fixture,"mcp_clients",Value::array()))){std::string owner=display(Core::get(spec,"owner","parent")),name=display(Core::get(spec,"namespace"));auto transport=std::make_shared<AxMCPScriptedTransport>(Core::get(spec,"responses"));mcp_transports[owner+"/"+name]=transport;context_clients[owner].push_back(std::make_shared<AxMCPClient>(transport,object({{"namespace",name},{"era","modern"}})));}
   for(auto& entry:context_clients)contexts[entry.first]=std::make_shared<AxExecutionContext>(entry.second);
+  // As the other runners do, a playbook config gets the scripted client as
+  // its student, so the agent can attach the playbook at construction.
+  Value playbook_config = Core::get(agent_options, "playbook");
+  Value fixture_playbook_config = parse_json(stringify(playbook_config));
+  if (playbook_config.is_object()) {
+    playbook_config = Core::map_merge(Value::object(), playbook_config);
+    if (Core::get(playbook_config, "studentAI").is_null()) Core::set(playbook_config, "studentAI", Core::client_ref(client));
+    Core::set(agent_options, "playbook", playbook_config);
+  }
   std::unique_ptr<AxAgent> ag;
   bool observer_called = false;
   Value run_state_projections = Value::array();
   Value saved_runtime_state;
   Value state_roundtrip_projection = Value::object();
+  auto wall_clock_start = std::chrono::system_clock::now();
+  Value playbook_state_before_forward;
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
+    if (!Core::get(fixture, "expected_playbook_state_before_forward").is_null() && ag->get_playbook() != nullptr) {
+      playbook_state_before_forward = parse_json(stringify(ag->get_playbook()->get_state()));
+    }
     if(contexts.count("parent"))contexts.at("parent")->attach(*ag);
     for (const auto& child : Core::iter(Core::get(fixture, "child_agents", Value::array()))) {
       Value child_options = Core::get(child, "options", Value::object());
@@ -2020,6 +2073,25 @@ static void run_agent_forward(Value fixture) {
   if (!Core::get(fixture, "expected_playbook_state").is_null()) {
     AxPlaybook* handle = ag->get_playbook();
     assert_equal(handle ? handle->get_state() : Value(), Core::get(fixture, "expected_playbook_state"), "agent playbook state");
+  }
+  if (!Core::get(fixture, "expected_playbook_state_before_forward").is_null()) {
+    assert_equal(playbook_state_before_forward, Core::get(fixture, "expected_playbook_state_before_forward"), "agent playbook state before the first forward");
+  }
+  if (Core::truthy(Core::get(fixture, "expected_playbook_wall_clock", false))) {
+    AxPlaybook* handle = ag->get_playbook();
+    Value state = handle ? handle->get_state() : Value::object();
+    assert_wall_clock_timestamps(
+        {Core::get(Core::get(state, "playbook"), "updatedAt"), Core::get(Core::get(Core::get(state, "artifact"), "playbook"), "updatedAt")},
+        wall_clock_start, std::chrono::system_clock::now(), "agent playbook updatedAt");
+  }
+  if (Core::truthy(Core::get(fixture, "expected_playbook_config_unchanged", false))) {
+    // The caller's playbook config, less the student client the runner added,
+    // is what the fixture passed.
+    Value actual = Value::object();
+    for (const auto& kv : conf_entries(playbook_config)) {
+      if (kv.first != "studentAI") Core::set(actual, kv.first, kv.second);
+    }
+    assert_equal(actual, fixture_playbook_config, "caller's playbook config");
   }
   Value exported = ag->export_runtime_state();
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
