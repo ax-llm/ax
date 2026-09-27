@@ -85,5 +85,7 @@ describe('context-compression baseline sweep', () => {
 
     // error-recovery: an errorPruning preset (lean) tombstones the resolved error.
     expect(get('error-recovery', 'lean').tombstones).toBeGreaterThan(0);
-  });
+    // Every scenario under every preset runs offline: about 1.5-3 s alone,
+    // well past vitest's 5 s default on a loaded CI machine.
+  }, 30_000);
 });
