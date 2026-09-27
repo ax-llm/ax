@@ -2183,7 +2183,7 @@
     },
     {
       "id": "axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi",
-      "status": "open",
+      "status": "done",
       "title": "Continue the AxGen step loop while a run control update is pending in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2196,9 +2196,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "1b6d8b9f84346048f73cad9b255adcb42b950e28",
+      "verification": "node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with forward-control-steer-continues, streaming-forward-control-steer-continues and forward-control-steer-persists-across-tool-steps"
     },
     {
       "id": "axir-2026-09-27-match-typescript-ace-prompts-required-inputs-titles-and-agent-seed",
