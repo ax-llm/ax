@@ -177,6 +177,24 @@ function isManagedContextCacheRejection(
   return namesCachedContent || describesInvalidCache;
 }
 
+// Orders strings by Unicode code point, as the generated ports sort keys, so
+// the result doesn't depend on the host's locale the way localeCompare does
+// (which orders ID/id, userName/username or ä by the default collation).
+function compareCodePoints(a: string, b: string): number {
+  const length = Math.min(a.length, b.length);
+  for (let i = 0; i < length; i++) {
+    const left = a.codePointAt(i) ?? 0;
+    const right = b.codePointAt(i) ?? 0;
+    if (left !== right) {
+      return left - right;
+    }
+    if (left > 0xffff) {
+      i++;
+    }
+  }
+  return a.length - b.length;
+}
+
 function normalizeForStableStringify(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => normalizeForStableStringify(item));
@@ -185,7 +203,7 @@ function normalizeForStableStringify(value: unknown): unknown {
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => compareCodePoints(a, b))
         .map(([key, nestedValue]) => [
           key,
           normalizeForStableStringify(nestedValue),

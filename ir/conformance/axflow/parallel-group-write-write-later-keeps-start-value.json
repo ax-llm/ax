@@ -1,0 +1,48 @@
+{
+  "kind": "flow",
+  "name": "parallel-group-write-write-later-keeps-start-value",
+  "description": "Port-only. Steps left and right share a parallel group and both spread answer; the input already holds answer. left answers something new and right answers the input's own value. Running them one after another leaves right's answer, so the merge takes a program node's written fields, not only the values that differ from the group's start.",
+  "input": {
+    "question": "q",
+    "answer": "same"
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["leftResult"],
+        "isBarrier": false
+      }
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "signature": "question:string -> answer:string",
+      "options": {
+        "reads": ["question"],
+        "writes": ["rightResult"],
+        "isBarrier": false
+      }
+    }
+  ],
+  "returns": {
+    "answer": "answer",
+    "left": "leftResult.answer"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"different\"}"
+    },
+    {
+      "content": "{\"answer\":\"same\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "same",
+    "left": "different"
+  },
+  "expected_request_count": 2
+}

@@ -5496,8 +5496,10 @@ module @ax.agent version "0.1" {
       %expected_output = core.get %fixtures["expected_output"] default null
       %has_expected_output = core.call intrinsic.is_not_none(%expected_output)
       core.if %has_expected_output {
-        %actual_output_text = core.call intrinsic.json.stringify(%output)
-        %expected_output_text = core.call intrinsic.json.stringify(%expected_output)
+        // Canonical (key-sorted) text: the same output in another key order
+        // still matches.
+        %actual_output_text = core.call intrinsic.json.stable_stringify(%output)
+        %expected_output_text = core.call intrinsic.json.stable_stringify(%expected_output)
         %output_matches = core.call intrinsic.eq(%actual_output_text, %expected_output_text)
         %output_mismatch = core.call intrinsic.not(%output_matches)
         core.if %output_mismatch {

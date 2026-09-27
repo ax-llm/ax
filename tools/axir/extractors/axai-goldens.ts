@@ -13149,6 +13149,105 @@ writeFixture('openai-wire-json-numbers', {
   expected_transport_wire_json_contains: wireNumberNeedles,
 });
 
+// Tool-call arguments on the wire in TS's key order: JSON.stringify writes an
+// object's keys in its own-property order (array-index keys first in numeric
+// order, then insertion order), for Chat's tool_calls[].function.arguments and
+// Responses' function_call arguments alike. The request goes into the fixture
+// as request_json text: the canonical fixture sort would reorder the params
+// object's keys.
+const keyOrderParams = {
+  zeta: 1,
+  alpha: 'x',
+  '10': 'ten',
+  '2': 'two',
+  nested: { y: 1, x: 2 },
+};
+const keyOrderRequest = {
+  chat_prompt: [
+    { role: 'user', content: 'Look it up' },
+    {
+      role: 'assistant',
+      functionCalls: [
+        {
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'lookup', params: keyOrderParams },
+        },
+      ],
+    },
+    { role: 'function', functionId: 'call-1', result: 'found' },
+  ],
+  functions: [
+    {
+      name: 'lookup',
+      description: 'Look something up',
+      parameters: {
+        type: 'object',
+        properties: { zeta: { type: 'number' }, alpha: { type: 'string' } },
+      },
+    },
+  ],
+  model_config: { stream: false },
+};
+const keyOrderNeedle = `"arguments":${JSON.stringify(JSON.stringify(keyOrderParams))}`;
+for (const [name, provider, AIClass, response] of [
+  [
+    'openai-tool-call-arguments-key-order',
+    'openai',
+    AxAIOpenAI,
+    compatibleResponse('chatcmpl_key_order', AxAIOpenAIModel.GPT54Mini).json,
+  ],
+  [
+    'openai-responses-tool-call-arguments-key-order',
+    'openai-responses',
+    AxAIOpenAIResponses,
+    {
+      id: 'resp_key_order',
+      object: 'response',
+      created_at: 0,
+      model: AxAIOpenAIModel.GPT54Mini,
+      status: 'completed',
+      output: [
+        {
+          type: 'message',
+          id: 'msg_key_order',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    },
+  ],
+] as const) {
+  let body = '';
+  await new (AIClass as any)({
+    apiKey: 'test-key',
+    config: { model: AxAIOpenAIModel.GPT54Mini },
+    options: {
+      fetch: async (_url: unknown, init?: RequestInit) => {
+        body = String(init?.body);
+        return Response.json(response);
+      },
+    },
+  }).chat({
+    chatPrompt: keyOrderRequest.chat_prompt,
+    functions: keyOrderRequest.functions,
+    modelConfig: keyOrderRequest.model_config,
+  } as any);
+  if (!body.includes(keyOrderNeedle)) {
+    throw new Error(`${name}: TS wire lacks ${keyOrderNeedle}: ${body}`);
+  }
+  writeFixture(name, {
+    kind: 'ai_chat',
+    provider,
+    model: AxAIOpenAIModel.GPT54Mini,
+    request_json: JSON.stringify(keyOrderRequest),
+    transport_responses: [{ status: 200, json: response as unknown as Json }],
+    expected_transport_wire_json_contains: [keyOrderNeedle],
+  });
+}
+
 // Sampling parameters on the wire. Each TS provider class starts from its own
 // default config: temperature 0 for the OpenAI Chat profiles, Anthropic and
 // Gemini (axBaseAIDefaultConfig), temperature 0.7 and topP 1 for
@@ -14002,6 +14101,62 @@ providerErrorFixture(
     transport_responses: [errorResponse(500), errorResponse(500)],
   }
 );
+
+// TS checks each chat prompt message before any request goes out
+// (axValidateChatRequestMessage): a role that is not a non-empty string, an
+// unknown role, and a user content item that is not an object or has no type
+// fail with messages that show the value as JSON.stringify(value, null, 2)
+// writes it, undefined when it is missing. The expected messages are TS's own.
+// TS throws a plain Error; the ports keep their classes: a role error is an
+// AxAIServiceResponseError, and a content-item error stays the
+// AxUnsupportedCapabilityError they raised before (it becomes the response
+// error at the next major).
+async function tsChatPromptError(chatPrompt: unknown[]): Promise<string> {
+  const llm = ai({ name: 'openai', apiKey: 'test-key' });
+  llm.setOptions({
+    fetch: (async () => {
+      throw new Error('chat-prompt check: no request expected');
+    }) as never,
+  });
+  try {
+    await llm.chat({ chatPrompt: chatPrompt as never }, { stream: false });
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error('chat-prompt check: TS accepted the prompt');
+}
+for (const [name, chatPrompt] of [
+  ['chat-message-missing-role', [{ content: 'hi' }]],
+  ['chat-message-null-role', [{ role: null, content: 'hi' }]],
+  ['chat-message-empty-role', [{ role: '', content: 'hi' }]],
+  ['chat-message-number-role', [{ role: 5, content: 'hi' }]],
+  ['chat-message-blank-role', [{ role: '  ', content: 'hi' }]],
+  ['chat-message-unknown-role', [{ role: 'robot', content: 'hi' }]],
+  [
+    'chat-message-content-item-without-type',
+    [{ role: 'user', content: [{ text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-null-type',
+    [{ role: 'user', content: [{ type: null, text: 'hi' }] }],
+  ],
+  [
+    'chat-message-content-item-empty-type',
+    [{ role: 'user', content: [{ type: '', text: 'hi' }] }],
+  ],
+  ['chat-message-content-item-not-object', [{ role: 'user', content: ['hi'] }]],
+  ['chat-message-content-item-null', [{ role: 'user', content: [null] }]],
+  ['chat-message-content-item-list', [{ role: 'user', content: [['hi']] }]],
+] as const) {
+  writeFixture(name, {
+    kind: 'ai_error',
+    request: { chat_prompt: chatPrompt },
+    expected_error_contains: await tsChatPromptError([...chatPrompt]),
+    expected_error_type: name.startsWith('chat-message-content-item')
+      ? 'AxUnsupportedCapabilityError'
+      : 'AxAIServiceResponseError',
+  });
+}
 
 // Core owns the request a provider error keeps (@ai_error_request), and the
 // normalizer and the request-carrying ai.error intrinsics build every error

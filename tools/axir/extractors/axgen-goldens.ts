@@ -104,9 +104,10 @@ writeFixture('assertion-retry', {
     { content: '{"answer":"good"}' },
   ],
   expected_output: { answer: 'good' },
+  // As TS renders an assertion's fixing instructions: the retry asks to
+  // follow the message, closed with a period.
   expected_request_contains: [
-    'answer must contain good',
-    'Return only corrected JSON',
+    'Follow these instructions: answer must contain good.',
   ],
   expected_request_count: 2,
 });

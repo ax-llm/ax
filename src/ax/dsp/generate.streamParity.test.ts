@@ -203,6 +203,35 @@ describe('AxGen stream and non-stream parity', () => {
     }
   });
 
+  it('fails a call without a name the same way streamed or not', async () => {
+    for (const name of [undefined, null, '', '  ']) {
+      const unnamed: Chunk = {
+        index: 0,
+        functionCalls: [
+          {
+            id: 'c1',
+            type: 'function',
+            function: { ...(name === undefined ? {} : { name }), params: '{}' },
+          } as never,
+        ],
+        finishReason: 'function_call',
+      };
+      const received = name === undefined ? 'undefined' : JSON.stringify(name);
+      for (const stream of [false, true]) {
+        const gen = ax('question:string -> answer:string', {
+          functions: [tool('lookup', 'data')],
+        });
+        const ai = scriptedAI([[unnamed], [content('Answer: done')]]);
+
+        await expect(
+          gen.forward(ai, { question: 'q' }, { stream })
+        ).rejects.toThrow(
+          `Function call at index 0 in result 0 must have a non-empty function name, received: ${received}`
+        );
+      }
+    }
+  });
+
   it('stores a streamed result in the cache with or without a result picker', async () => {
     for (const withPicker of [false, true]) {
       const stored: unknown[] = [];

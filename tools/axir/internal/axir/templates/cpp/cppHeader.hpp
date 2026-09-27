@@ -444,6 +444,7 @@ struct Core {
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);
+  static Value exception_is_validation(Value error);
   static AxError as_error(Value error);
   [[noreturn]] static void raise_error(Value error);
   static Value coerce_chat_request(Value request);
@@ -545,6 +546,9 @@ struct Core {
   static Value axgen_call_processor(Value spec, Value value, Value context);
   static Value axgen_check_streaming_assertion(Value spec, Value value, Value done);
   static Value axgen_deprecation(Value key, Value message);
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (an empty sink prints them to stderr again).
+  static void axgen_capture_deprecations(std::function<void(const std::string&)> sink);
   static Value ai_warn_once(Value key, Value message);
   // Conformance hook: forgets the one-time warnings already shown and sends
   // new ones to sink (an empty sink prints them to stderr again).

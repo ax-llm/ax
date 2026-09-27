@@ -63,6 +63,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .signature import (
+    _js_text,
     _core_string_extract_leading_group,
     _core_string_find_outside_quotes,
     _core_string_split_once,
@@ -572,8 +573,7 @@ def _core_string_split_trim_nonempty(value, sep):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
 
 
 def _core_string_starts_with(value, prefix):
@@ -679,7 +679,7 @@ def _program_trace_event(program_id: str, kind: str, payload: Any) -> Any:
 
 def _flow_step(kind: str, name: str, program: Any, options: Any) -> Any:
     _core_coverage_mark("_flow_step")
-    trimmed = str(name).strip()
+    trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     missing_name = _core_eq(trimmed, "")
     if missing_name:
         err = _core_runtime_error("flow step name is required")
@@ -1591,7 +1591,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                     index = _core_get(plan_step, "stepIndex", 0)
                     step = _core_list_get(steps, index, None)
                     result_state = _flow_execute_step(flow, step, plan_step, client, group_start, options)
-                    current = _flow_merge_parallel_results(current, result_state)
+                    current = _flow_merge_group_step(current, step, group_start, result_state)
             else:
                 report_count = _core_len(reports)
                 complete_reports = _core_eq(report_count, group_count)
@@ -1601,6 +1601,7 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                     error = _core_runtime_error("Flow dispatcher omitted node outcomes")
                     raise error
                 failures = []
+                report_position = 0
                 for report in reports:
                     worker_traces = _core_get(report, "traces", empty_list)
                     traces = _core_get(flow, "traces", empty_list)
@@ -1620,7 +1621,11 @@ def _flow_execute_steps(flow: Any, client: Any, state: Any, options: Any) -> Any
                         failures.append(failure)
                     else:
                         result_state = _core_get(report, "state", None)
-                        current = _flow_merge_parallel_results(current, result_state)
+                        report_plan_step = _core_list_get(group_steps, report_position, None)
+                        report_step_index = _core_get(report_plan_step, "stepIndex", 0)
+                        report_step = _core_list_get(steps, report_step_index, None)
+                        current = _flow_merge_group_step(current, report_step, group_start, result_state)
+                    report_position = _core_add(report_position, 1)
                 failure_count = _core_len(failures)
                 failed = _core_gt(failure_count, 0)
                 if failed:
@@ -1978,7 +1983,7 @@ def _flow_mermaid_register_node(ast: Any, id: str, shape: str, label: Any, line:
 
 def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
     _core_coverage_mark("_flow_mermaid_parse_node_ref")
-    source = str(text).strip()
+    source = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     source_len = _core_len(source)
     empty = _core_eq(source_len, 0)
     if empty:
@@ -2000,9 +2005,9 @@ def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
         else:
             pass
     id_raw = _core_string_slice(source, 0, split_at)
-    id = str(id_raw).strip()
+    id = str(id_raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     tail = _core_string_slice(source, split_at)
-    tail = str(tail).strip()
+    tail = str(tail).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     shape = "rect"
     label = _core_none()
     has_tail = _core_truthy(tail)
@@ -2028,7 +2033,7 @@ def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
                     _flow_mermaid_fail("Unexpected content after node id", line)
         balanced = _core_get(group, "balanced", False)
         rest = _core_get(group, "rest", "")
-        rest = str(rest).strip()
+        rest = str(rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         trailing = _core_truthy(rest)
         bad = _core_not(balanced)
         bad = _core_or(bad, trailing)
@@ -2051,7 +2056,7 @@ def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
             label_text = _core_string_slice(label_text, 1, inner_end)
         else:
             pass
-        label_text = str(label_text).strip()
+        label_text = str(label_text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         quoted_double = _core_string_starts_with(label_text, "\"")
         quoted_single = _core_string_starts_with(label_text, "'")
         quoted = _core_or(quoted_double, quoted_single)
@@ -2109,7 +2114,7 @@ def _flow_mermaid_parse(text: str) -> Any:
     line_number = 0
     for raw in lines:
         line_number = _core_add(line_number, 1)
-        line = str(raw).strip()
+        line = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
         is_empty = _core_eq(line, "")
         if is_empty:
             pass
@@ -2127,9 +2132,9 @@ def _flow_mermaid_parse(text: str) -> Any:
                 else:
                     _flow_mermaid_fail("Invalid Ax directive", line_number)
                 id = _core_get(parts, "left", "")
-                id = str(id).strip()
+                id = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 sig = _core_get(parts, "right", "")
-                sig = str(sig).strip()
+                sig = str(sig).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                 valid_id = _core_regex_match("^[A-Za-z_][A-Za-z0-9_]*$", id)
                 invalid_id = _core_not(valid_id)
                 if invalid_id:
@@ -2199,7 +2204,7 @@ def _flow_mermaid_parse(text: str) -> Any:
                             else:
                                 pass
                             segment = _core_list_get(segments, segment_index, "")
-                            segment = str(segment).strip()
+                            segment = str(segment).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                             label = _core_none()
                             has_label = _core_string_starts_with(segment, "|")
                             if has_label:
@@ -2211,9 +2216,9 @@ def _flow_mermaid_parse(text: str) -> Any:
                                 else:
                                     _flow_mermaid_fail("Unterminated edge label", line_number)
                                 label = _core_get(label_parts, "left", "")
-                                label = str(label).strip()
+                                label = str(label).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                                 segment = _core_get(label_parts, "right", "")
-                                segment = str(segment).strip()
+                                segment = str(segment).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                             else:
                                 pass
                             to_ids = _flow_mermaid_parse_group(ast, segment, line_number)
@@ -2773,7 +2778,7 @@ def _flow_mermaid_compile(ast: Any, bindings: Any) -> Any:
                 meta["target"] = to
                 if is_while:
                     condition_name = _core_string_slice(main, 6)
-                    condition_name = str(condition_name).strip()
+                    condition_name = str(condition_name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                     condition = _core_get(conditions, condition_name, None)
                     missing_condition = _core_is_none(condition)
                     if missing_condition:
@@ -2788,7 +2793,7 @@ def _flow_mermaid_compile(ast: Any, bindings: Any) -> Any:
                 else:
                     if is_if:
                         condition_name = _core_string_slice(main, 3)
-                        condition_name = str(condition_name).strip()
+                        condition_name = str(condition_name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
                         condition = _core_get(conditions, condition_name, None)
                         missing_condition = _core_is_none(condition)
                         if missing_condition:
@@ -3072,6 +3077,107 @@ def _flow_to_mermaid(flow: Any, options: Any) -> str:
         pass
     rendered = _flow_mermaid_render_flow(flow, options)
     return rendered
+
+
+def _flow_group_step_changes(step: Any, group_start: Any, result_state: Any) -> list[Any]:
+    _core_coverage_mark("_flow_group_step_changes")
+    empty_map = {}
+    empty_list = []
+    changes = []
+    missing_step = _core_is_none(step)
+    if missing_step:
+        return changes
+    else:
+        pass
+    kind = _core_get(step, "kind", "execute")
+    name = _core_get(step, "name", "")
+    step_options = _core_get(step, "options", empty_map)
+    guard = _core_get(step_options, "guard", None)
+    has_guard = _core_is_not_none(guard)
+    if has_guard:
+        guard_matches = _flow_evaluate_data_predicate(guard, group_start, False)
+        guard_skipped = _core_not(guard_matches)
+        if guard_skipped:
+            return changes
+        else:
+            pass
+    else:
+        pass
+    result_key = _core_string_format("{}Result", name)
+    is_derive = _core_eq(kind, "derive")
+    if is_derive:
+        writes = _core_get(step, "writes", empty_list)
+        output_field = _core_list_get(writes, 0, name)
+        changes.append(output_field)
+        return changes
+    else:
+        pass
+    is_map = _core_eq(kind, "map")
+    is_branch = _core_eq(kind, "branch")
+    is_while = _core_eq(kind, "while")
+    is_feedback = _core_eq(kind, "feedback")
+    is_parallel = _core_eq(kind, "parallel")
+    is_parallel_merge = _core_eq(kind, "parallelMerge")
+    is_loop = _core_or(is_while, is_feedback)
+    is_control = _core_or(is_branch, is_loop)
+    is_explicit_parallel = _core_or(is_parallel, is_parallel_merge)
+    compares_values = _core_or(is_control, is_explicit_parallel)
+    not_program = _core_or(is_map, compares_values)
+    is_program = _core_not(not_program)
+    if is_program:
+        changes.append(result_key)
+        result = _core_get(result_state, result_key, None)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            result_fields = _core_map_keys(result)
+            for result_field in result_fields:
+                field_listed = _core_contains(changes, result_field)
+                if field_listed:
+                    pass
+                else:
+                    changes.append(result_field)
+        else:
+            pass
+        return changes
+    else:
+        pass
+    if is_map:
+        changes.append(result_key)
+    else:
+        pass
+    state_keys = _core_map_keys(result_state)
+    for state_key in state_keys:
+        key_listed = _core_contains(changes, state_key)
+        if key_listed:
+            pass
+        else:
+            in_start = _core_map_contains(group_start, state_key)
+            if in_start:
+                before = _core_get(group_start, state_key, None)
+                after = _core_get(result_state, state_key, None)
+                unchanged = _core_eq(before, after)
+                if unchanged:
+                    pass
+                else:
+                    changes.append(state_key)
+            else:
+                changes.append(state_key)
+    return changes
+
+
+def _flow_merge_group_step(current: Any, step: Any, group_start: Any, result_state: Any) -> Any:
+    _core_coverage_mark("_flow_merge_group_step")
+    empty_map = {}
+    out = _core_map_merge(current, empty_map)
+    changes = _flow_group_step_changes(step, group_start, result_state)
+    for change in changes:
+        present = _core_map_contains(result_state, change)
+        if present:
+            value = _core_get(result_state, change, None)
+            out[change] = value
+        else:
+            pass
+    return out
 
 
 def _flow_step_program_io(kind: str, name: str, program: Any, options: Any) -> Any:

@@ -4,7 +4,7 @@ import os
 import copy
 import re
 from typing import Any
-from .signature import _js_date_millis, _js_number_text
+from .signature import _js_date_millis, _js_number_text, _js_format
 from .signature import (
     _signature_describe_field_values_impl,
 )
@@ -54,6 +54,12 @@ def _core_contains(container, item):
     if container is None:
         return False
     return item in container
+
+
+def _core_string_utf16_units(value):
+    # A string's UTF-16 code units, as TS counts String.prototype.length.
+    raw = str(value).encode("utf-16-le", "surrogatepass")
+    return [raw[index] + 256 * raw[index + 1] for index in range(0, len(raw), 2)]
 
 
 def _core_len(value):
@@ -172,8 +178,7 @@ def _core_string_lower(value):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_description_append(base, hint):
@@ -560,10 +565,11 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
     _core_coverage_mark("_validate_string_constraints_impl")
     typ = _core_get(field, "type", None)
     title = _core_get(field, "title", None)
+    units = _core_string_utf16_units(value)
+    length = _core_len(units)
     min_length = _core_get(typ, "min_length", None)
     has_min = _core_is_not_none(min_length)
     if has_min:
-        length = _core_len(value)
         too_short = _core_lt(length, min_length)
         if too_short:
             message = _core_string_format("Field '{}' failed validation: String must be at least {} characters long.", title, min_length)
@@ -576,7 +582,6 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
     max_length = _core_get(typ, "max_length", None)
     has_max = _core_is_not_none(max_length)
     if has_max:
-        length = _core_len(value)
         too_long = _core_gt(length, max_length)
         if too_long:
             message = _core_string_format("Field '{}' failed validation: String must be at most {} characters long.", title, max_length)

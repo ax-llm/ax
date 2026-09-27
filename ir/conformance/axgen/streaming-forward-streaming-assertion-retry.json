@@ -15,6 +15,21 @@
       "version": 1
     }
   ],
+  "expected_last_request_tail": [
+    {
+      "content": "Answer: this is forbidden text",
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "Follow these instructions: Do not say forbidden.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
   "expected_output": {
     "answer": "this is fine"
   },

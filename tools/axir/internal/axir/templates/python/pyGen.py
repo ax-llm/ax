@@ -37,9 +37,9 @@ from .ai import (
     ai_merge_replay_metadata,
     fold_chat_response_stream,
 )
-from .prompt import AxPromptTemplate, _core_string_split
+from .prompt import AxPromptTemplate, _core_json_pretty, _core_string_split
 from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_internal, validate_fields, validate_output
-from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text
+from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text, _js_format, _js_text
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
 
@@ -1055,7 +1055,8 @@ def _core_json_parse_strict(value):
 
 
 def _core_json_stringify(value):
-    return _js_json_dumps(value, sort_keys=True)
+    # TS JSON.stringify(value): keys in insertion order, null as null.
+    return _js_json_dumps(value)
 
 
 def _core_json_pretty(value):
@@ -1102,8 +1103,7 @@ def _nested_field(name, item):
 
 
 def _core_string_format(template, *args):
-    # "{}" takes String(x): a float two is "2", 1e-7 is "1e-7".
-    return str(template).format(*(_js_number_text(arg) if isinstance(arg, float) else arg for arg in args))
+    return _js_format(template, args)
 
 
 def _core_string_lower(value):
@@ -1343,6 +1343,10 @@ def _core_exception_is_refusal(error):
     return isinstance(error, AxAIRefusalError)
 
 
+def _core_exception_is_validation(error):
+    return isinstance(error, AxValidationError)
+
+
 def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 
@@ -1392,8 +1396,7 @@ def _core_string_join(sep, values):
 
 
 def _core_string_str(value):
-    # String(x): a float two is "2", not "2.0".
-    return _js_number_text(value) if isinstance(value, float) else str(value)
+    return _js_text(value)
 
 
 def _core_axgen_value_text(value, type_name=None):

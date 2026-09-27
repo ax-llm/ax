@@ -286,7 +286,7 @@ final class Core {
   }
   static int asInt(Object value) { return value instanceof Number n ? n.intValue() : Integer.parseInt(String.valueOf(value)); }
   static double asDouble(Object value) { return value instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(value)); }
-  static String stringStr(Object value) { return display(value); }
+  static String stringStr(Object value) { return jsText(value); }
 
   static Object get(Object target, Object key, Object defaultValue) {
     if (target == null) return defaultValue;
@@ -445,7 +445,24 @@ final class Core {
     };
   }
   static boolean regexMatch(Object pattern, Object value) { return value instanceof String s && Pattern.compile(String.valueOf(pattern)).matcher(s).find(); }
-  static Object stringTrim(Object value) { return String.valueOf(value).trim(); }
+  // As JavaScript's String.prototype.trim: white space and line terminators,
+  // not other control characters.
+  static Object stringTrim(Object value) {
+    String text = String.valueOf(value);
+    int start = 0, end = text.length();
+    while (start < end && isJsWhitespace(text.charAt(start))) start++;
+    while (end > start && isJsWhitespace(text.charAt(end - 1))) end--;
+    return text.substring(start, end);
+  }
+  static boolean isJsWhitespace(char c) {
+    switch (c) {
+      case '\t': case '\n': case '\u000b': case '\f': case '\r': case ' ': case '\u00a0': case '\u1680':
+      case '\u2028': case '\u2029': case '\u202f': case '\u205f': case '\u3000': case '\ufeff':
+        return true;
+      default:
+        return c >= '\u2000' && c <= '\u200a';
+    }
+  }
   static Object stringJoin(Object sep, Object values) { List<String> parts = new ArrayList<>(); for (Object item : asList(values)) parts.add(String.valueOf(item)); return String.join(String.valueOf(sep), parts); }
   static Object stringLower(Object value) { return String.valueOf(value).toLowerCase(java.util.Locale.ROOT); }
   static Object stringLowerCamel(Object values) {
@@ -482,19 +499,37 @@ final class Core {
   }
   static Object stringWords(Object value) { return Arrays.asList(String.valueOf(value).split("\\s+")); }
   static Object stringDefaultIfEmpty(Object value, Object fallback) { String text = String.valueOf(value).trim(); return text.isEmpty() ? fallback : text; }
+  // Each {} takes the next argument's jsText, from left to right and inserted
+  // as is (never read as a template); {{ and }} write one brace, any other
+  // brace is kept, and a {} past the last argument stays {}.
   static Object stringFormat(Object template, Object... args) {
-    // Each value fills the next {} after the previous one, so a value that
-    // itself contains {} is not formatted again.
-    String out = String.valueOf(template);
-    int cursor = 0;
-    for (Object arg : args) {
-      int index = out.indexOf("{}", cursor);
-      if (index < 0) break;
-      String text = display(arg);
-      out = out.substring(0, index) + text + out.substring(index + 2);
-      cursor = index + text.length();
+    String text = String.valueOf(template);
+    StringBuilder out = new StringBuilder();
+    int next = 0;
+    for (int i = 0; i < text.length(); ) {
+      if (i + 1 < text.length()) {
+        String pair = text.substring(i, i + 2);
+        if (pair.equals("{{")) { out.append('{'); i += 2; continue; }
+        if (pair.equals("}}")) { out.append('}'); i += 2; continue; }
+        if (pair.equals("{}")) {
+          out.append(next < args.length ? jsText(args[next++]) : "{}");
+          i += 2;
+          continue;
+        }
+      }
+      out.append(text.charAt(i));
+      i++;
     }
-    return out;
+    return out.toString();
+  }
+  // A value's text in string.format and string.str, as every port writes it:
+  // a string as is, null as "null", a boolean as "true" or "false", a number
+  // as JavaScript's String(x), and a list or map as compact JSON with its keys
+  // in insertion order (JSON.stringify).
+  static String jsText(Object value) {
+    if (value == null) return "null";
+    if (value instanceof List<?> || value instanceof Map<?, ?>) return Json.stringify(value);
+    return display(value);
   }
   static String display(Object value) {
     if (value instanceof Number n) return Json.numberText(n);
@@ -710,6 +745,15 @@ final class Core {
     return false;
   }
   // TS AxGen retries a model refusal inside its validation loop.
+  static Object exceptionIsValidation(Object error) {
+    Object current=error;
+    while(current instanceof Throwable throwable){
+      if(throwable instanceof AxValidationError)return true;
+      if(throwable.getCause()==null || throwable.getCause()==throwable)break;
+      current=throwable.getCause();
+    }
+    return false;
+  }
   static Object exceptionIsRefusal(Object error) {
     Object current=error;
     while(current instanceof Throwable throwable){
@@ -1036,15 +1080,27 @@ final class Core {
     aiWarningSink = sink;
   }
   private static final Set<String> AXGEN_DEPRECATIONS_SHOWN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private static volatile java.util.function.Consumer<String> axgenDeprecationSink;
   // Deprecated port behavior warns once per key per process.
   static Object axgenDeprecation(Object key, Object message) {
     if (!AXGEN_DEPRECATIONS_SHOWN.add(String.valueOf(key))) return null;
+    java.util.function.Consumer<String> sink = axgenDeprecationSink;
+    if (sink != null) {
+      sink.accept(String.valueOf(message));
+      return null;
+    }
     try {
       System.getLogger("dev.axllm.ax").log(System.Logger.Level.WARNING, String.valueOf(message));
     } catch (RuntimeException ignored) {
       // a failing logger must not fail the forward
     }
     return null;
+  }
+  // Conformance hook: forgets the deprecations already shown and sends new
+  // ones to sink (null logs them again).
+  static void axgenCaptureDeprecations(java.util.function.Consumer<String> sink) {
+    AXGEN_DEPRECATIONS_SHOWN.clear();
+    axgenDeprecationSink = sink;
   }
   // The lowercase hex SHA-256 of the text's UTF-8 bytes (AxGen cache keys).
   static Object cryptoSha256Hex(Object text) {
