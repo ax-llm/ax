@@ -2229,6 +2229,31 @@
       "verification": "All five ports build the ACE reflector and curator signatures with their field builders and TS descriptions; the TS golden axoptimize/playbook-evolve-teacher-inputs pins every teacher system prompt byte for byte (expected_teacher_system_prompts). Eight TS goldens (axgen forward/streaming-forward required-input cases) pin TS's required-input errors and renders; prompt/field-titles-snake-and-camel-case pins Rust titles; prompt/json-and-array-outputs-text-contract pins Go's text contract for json and array outputs; axagent/playbook-config-empty-seed-clock pins the agent seed snapshot under an injected clock (expected_playbook_state). Every new or changed fixture passes in all five ports; each one that differs on main fails there in the ports named in the PR (the whitespace and optional-empty input cases pass on main and pin the inputs TS accepts); mutated copies fail in all five. verify --mode release passes in python, go, java, rust and cpp (1099 fixtures each); Go and Python perturbation gates pass (239 response mutations across 99 fixtures)."
     },
     {
+      "id": "axir-2026-09-27-match-typescript-field-titles-ace-clock-agent-playbook-and-flat-tool-calls",
+      "status": "done",
+      "title": "Match TypeScript's field titles, ACE clock, agent playbook binding and weakness-miner prompts in the ports, and run flat tool calls",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "2565918347ad33934dc0fdbd6575b909bd8716a3",
+      "tsPaths": [
+        "src/ax/dsp/sig.ts",
+        "src/ax/dsp/optimizers/ace.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts",
+        "src/ax/ai/types.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TS titled userID as User I D and field_2 with two spaces, and the ports differed from TS and from each other (Item 1 2 3, Value 9 9 Count, Step 2Result, Parse HTTPResponse). The ports' ACE engines stamped 1970-01-01 without an injected clock where TS stamps the wall clock. Go and C++ created an agent's configured playbook only on the first forward, and C++ wrote maxReflectorRounds into the caller's config. The configured playbook dropped out of the stage prompt after set_instruction or add_actor_instruction (Java and Rust), the MCP run-context refresh (Go, Java and Rust) or a stage rebuild (Python and Java); attaching it at construction would have added Go and C++ to the first case and C++ to the second. Rust put a responder-target playbook into the actor prompt. The weakness miner's prompt differed from TS in every port. A flat {id, name, params} call in a chat response's results[].function_calls never ran its tool in any port, and C++'s complete() path dropped TS's nested calls.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "44bb2306d4a4794442415e0164f44118c1092279",
+      "verification": "TS: the new sig.test.ts field-title cases fail on main (User I D, Field  2) and pass; npm run test --workspace=@ax-llm/ax passes (a benchmark that timed out under load passes alone). TS goldens prompt/field-titles-snake-and-camel-case and axagent/agent-playbook-evolve-miner-system-prompt; runner keys expected_playbook_state_before_forward, expected_playbook_wall_clock, expected_playbook_config_unchanged and expected_teacher_system_prompts; hand-written axagent/playbook-config-empty-seed-wall-clock, playbook-config-kept-over-actor-instructions, -kept-after-child-agent, -kept-under-run-context, playbook-config-responder-target and axgen/function-call-chat-result-flat-shape and -nested-shape. Each fails on main in the ports named in the PR and passes in all five; 23 mutated copies fail in all five; per-port probes show a flat call runs its tool in every port. Full suites 1120/1120 in python, go, java, cpp and rust; the scripted-client tool examples assert the tool ran."
+    },
+    {
       "id": "axir-2026-09-27-stream-axagent-runs-in-the-ports-with-per-stage-run-control-paths",
       "status": "done",
       "title": "Stream AxAgent runs in the ports with TypeScript's per-stage run-control paths",

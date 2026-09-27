@@ -15,6 +15,10 @@ public final class AxAgent implements AxProgram {
   AxGen responder;
   AxGen llmQuery;
   AxPlaybook playbookHandle;
+  // The stage the playbook targets and whether it writes into that stage's
+  // prompt, kept to rebind the playbook when a stage changes.
+  private String playbookTarget = "actor";
+  private boolean playbookApply = true;
   Object playbookConfig;
   volatile AxRuntimeHooks runtimeHooks;
 
@@ -57,6 +61,7 @@ public final class AxAgent implements AxProgram {
     this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), childOptions(actorValidationRetries, "task.root.actor", Core.get(state, "executor_description", "")));
     this.responder = newResponder();
     this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), childOptions(1, "rlm.llmquery", Core.get(state, "llm_query_description", "")));
+    rebindPlaybook();
   }
 
   // As in TypeScript, the responder's validation budget is maxRetries unless
@@ -107,14 +112,14 @@ public final class AxAgent implements AxProgram {
   public AxAgent setInstruction(String instruction) {
     Object composed = Core._agent_set_instruction(state, instruction == null ? "" : instruction);
     options.put("instruction", Core.get(state, "stage_instruction", ""));
-    executor.setInstruction(String.valueOf(composed));
+    setStageInstruction(executor, String.valueOf(composed));
     return this;
   }
 
   public AxAgent addActorInstruction(String addendum) {
     Object composed = Core._agent_add_actor_instruction(state, addendum == null ? "" : addendum);
     options.put("instructionAddenda", new ArrayList<>(Core.asList(Core.get(state, "instruction_addenda", List.of()))));
-    executor.setInstruction(String.valueOf(composed));
+    setStageInstruction(executor, String.valueOf(composed));
     return this;
   }
 
@@ -210,9 +215,9 @@ public final class AxAgent implements AxProgram {
       callOptions.put("executionContext", callContext);
       Core._agent_apply_run_context(state, options, callOptions, modules);
       if (Core.truthy(state.get("runtime_enabled"))) {
-        distiller.setInstruction(String.valueOf(state.get("distiller_description")));
-        executor.setInstruction(String.valueOf(state.get("executor_description")));
-        responder.setInstruction(String.valueOf(state.get("responder_description")));
+        setStageInstruction(distiller, String.valueOf(state.get("distiller_description")));
+        setStageInstruction(executor, String.valueOf(state.get("executor_description")));
+        setStageInstruction(responder, String.valueOf(state.get("responder_description")));
       }
     }
     // Wire the built-in llmQuery primitive onto the runtime carried in agent
@@ -478,7 +483,7 @@ public final class AxAgent implements AxProgram {
     responder.applyOptimizedComponents(updates);
     Object composed = Core._agent_apply_optimized_components(state, updates);
     options.putAll(Core.asMap(Core.get(state, "options", Map.of())));
-    executor.setInstruction(String.valueOf(composed));
+    setStageInstruction(executor, String.valueOf(composed));
     return this;
   }
 
@@ -591,17 +596,49 @@ public final class AxAgent implements AxProgram {
     if (!(student instanceof AiClient)) {
       throw new IllegalArgumentException("AxAgent.playbook(): studentAI is required when the agent has no default ai.");
     }
-    AxGen stage = "responder".equals(target) ? this.responder : this.executor;
+    this.playbookTarget = target;
+    this.playbookApply = !Boolean.FALSE.equals(opts.get("apply"));
+    AxGen stage = playbookStage();
     opts.put("studentAI", student);
     AxPlaybook handle = new AxPlaybook(stage, opts);
-    if (Boolean.FALSE.equals(opts.get("apply"))) {
-      handle.setApplyHook(rendered -> {});
-    } else {
-      String base = stage.getInstruction();
-      handle.setApplyHook(rendered -> stage.setInstruction(AxPlaybook.composeInstruction(base, rendered)));
-    }
+    bindPlaybookStage(handle, stage);
     this.playbookHandle = handle.bindAgent(this);
     return this.playbookHandle;
+  }
+
+  // The stage the playbook targets: the actor, or the responder.
+  private AxGen playbookStage() {
+    return "responder".equals(playbookTarget) ? responder : executor;
+  }
+
+  // Point the playbook at an agent stage: the program it runs and the hook
+  // that writes the rendered playbook into the stage prompt.
+  private void bindPlaybookStage(AxPlaybook handle, AxGen stage) {
+    handle.rebindProgram(stage);
+    if (!playbookApply) {
+      handle.setApplyHook(rendered -> {});
+      return;
+    }
+    String base = stage.getInstruction();
+    handle.setApplyHook(rendered -> stage.setInstruction(AxPlaybook.composeInstruction(base, rendered)));
+  }
+
+  // Point the playbook at its stage again and write it into that stage's
+  // prompt: setSignature and addChildAgent rebuild the stages, and
+  // setStageInstruction rewrites a stage's instruction.
+  private void rebindPlaybook() {
+    if (playbookHandle == null) return;
+    bindPlaybookStage(playbookHandle, playbookStage());
+    playbookHandle.applyTo(null);
+  }
+
+  // Write an agent stage's instruction. The stage the playbook targets gets
+  // the rendered playbook composed on top, as TS keeps it in the stage prompt,
+  // so a stage instruction, an actor addendum, optimized components or the
+  // run-context refresh never drop it.
+  private void setStageInstruction(AxGen stage, String instruction) {
+    stage.setInstruction(instruction);
+    if (playbookHandle != null && playbookStage() == stage) rebindPlaybook();
   }
 
   public AxPlaybook getPlaybook() { return this.playbookHandle; }

@@ -203,8 +203,11 @@ assert client(recovery).chat(request)["results"][0]["content"] == "uncached reco
 assert [item["method"] for item in recovery.requests] == ["POST", "POST", "POST"]
 assert "cachedContent" in recovery.requests[1]["json"] and "cachedContent" not in recovery.requests[2]["json"]
 
+# The old caches expire in two minutes: inside the 300-second refresh window,
+# so the second chat refreshes them, and far enough out that a slow first chat
+# cannot let them expire first.
 refresh = ScriptedTransport([
-    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(1)}}, chat_response("old"),
+    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
     {"status": 200, "json": {"name": "cachedContents/new", "expireTime": future(3600)}}, chat_response("recreated"),
 ])
@@ -214,7 +217,7 @@ assert refresh_client.chat(request)["results"][0]["content"] == "recreated"
 assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
 
 fallback = ScriptedTransport([
-    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(1)}}, chat_response("old"),
+    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
     {"status": 500, "json": {"error": {"message": "recreate failed"}}}, chat_response("uncached fallback"),
 ])
@@ -261,9 +264,12 @@ func main() {
   request:=map[string]ax.Value{"chat_prompt":ax.Array(ax.Object("role","system","content","stable context"),ax.Object("role","user","content","answer briefly"))}
   recovery:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")})
   out,err:=service(recovery).Chat(context.Background(),request,nil); if err!=nil||out==nil||!same(methods(recovery.Requests),"POST","POST","POST"){panic(fmt.Sprint(out,err,recovery.Requests))}
-  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
+  // The old caches expire in two minutes: inside the 300-second refresh window,
+  // so the second chat refreshes them, and far enough out that a slow first
+  // chat cannot let them expire first.
+  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
   refreshClient:=service(refresh); if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(refresh.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,refresh.Requests))}
-  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")})
+  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")})
   fallbackClient:=service(fallback); if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(fallback.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,fallback.Requests))}
   fmt.Println("go-context-cache-recovery-ok")
 }
@@ -415,8 +421,11 @@ public class ContextCacheRecoveryExample {
   public static void main(String[] args) throws Exception {
     Map<String,Object> request=Map.of("chat_prompt",List.of(Map.of("role","system","content","stable context"),Map.of("role","user","content","answer briefly")));
     Script recovery=new Script(cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")); service(recovery).chat(request); if(!recovery.methods().equals(List.of("POST","POST","POST")))throw new AssertionError(recovery.methods());
-    Script refresh=new Script(cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")); GoogleGeminiClient refreshClient=service(refresh);refreshClient.chat(request);refreshClient.chat(request);if(!refresh.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(refresh.methods());
-    Script fallback=new Script(cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback"));GoogleGeminiClient fallbackClient=service(fallback);fallbackClient.chat(request);fallbackClient.chat(request);if(!fallback.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(fallback.methods());
+    // The old caches expire in two minutes: inside the 300-second refresh window,
+    // so the second chat refreshes them, and far enough out that a slow first
+    // chat cannot let them expire first.
+    Script refresh=new Script(cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")); GoogleGeminiClient refreshClient=service(refresh);refreshClient.chat(request);refreshClient.chat(request);if(!refresh.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(refresh.methods());
+    Script fallback=new Script(cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback"));GoogleGeminiClient fallbackClient=service(fallback);fallbackClient.chat(request);fallbackClient.chat(request);if(!fallback.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(fallback.methods());
     System.out.println("java-context-cache-recovery-ok");
   }
 }
@@ -439,8 +448,11 @@ fn service(script:Script)->OpenAICompatibleClient{OpenAICompatibleClient::new("g
 fn main()->AxResult<()>{
  let request=json!({"chat_prompt":[{"role":"system","content":"stable context"},{"role":"user","content":"answer briefly"}]});
  let recovery=Script::new(vec![cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")]);service(recovery.clone()).chat(request.clone())?;assert_eq!(recovery.methods(),vec!["POST","POST","POST"]);
- let refresh=Script::new(vec![cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")]);let mut refresh_client=service(refresh.clone());refresh_client.chat(request.clone())?;refresh_client.chat(request.clone())?;assert_eq!(refresh.methods(),vec!["POST","POST","PATCH","POST","POST"]);
- let fallback=Script::new(vec![cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")]);let mut fallback_client=service(fallback.clone());fallback_client.chat(request.clone())?;fallback_client.chat(request)?;assert_eq!(fallback.methods(),vec!["POST","POST","PATCH","POST","POST"]);
+ // The old caches expire in two minutes: inside the 300-second refresh window,
+ // so the second chat refreshes them, and far enough out that a slow first
+ // chat cannot let them expire first.
+ let refresh=Script::new(vec![cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")]);let mut refresh_client=service(refresh.clone());refresh_client.chat(request.clone())?;refresh_client.chat(request.clone())?;assert_eq!(refresh.methods(),vec!["POST","POST","PATCH","POST","POST"]);
+ let fallback=Script::new(vec![cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")]);let mut fallback_client=service(fallback.clone());fallback_client.chat(request.clone())?;fallback_client.chat(request)?;assert_eq!(fallback.methods(),vec!["POST","POST","PATCH","POST","POST"]);
  println!("rust-context-cache-recovery-ok");Ok(())
 }
 `
@@ -521,11 +533,19 @@ class ScriptedClient:
         return {"content": "Answer:  Found Ax docs "}
 
 
+searches = []
+
+
+def search_docs(args):
+    searches.append(args)
+    return {"title": "Ax docs"}
+
+
 search = (
     fn("search")
     .description("Search docs")
     .arg("query", f.string().min(1))
-    .handler(lambda args: {"title": "Ax docs"})
+    .handler(search_docs)
     .build()
 )
 
@@ -534,6 +554,8 @@ qa.add_assert({"field": "answer", "contains": "Ax", "message": "answer should me
 qa.add_field_transform("answer", "trim")
 out = qa.forward(ScriptedClient(), {"query": "ax docs"})
 assert out == {"answer": "Found Ax docs"}, out
+# The tool ran once, with the model's arguments.
+assert searches == [{"query": "ax docs"}], searches
 assert qa.get_traces()[-1]["output"] == out
 
 # A caching function reads with fn(key), which returns a stored output or
@@ -1059,10 +1081,14 @@ public final class AxGenScriptedClientToolExample {
   }
 
   public static void main(String[] args) {
+    List<Map<String, Object>> searches = new ArrayList<>();
     Tool search = Ax.fn("search")
       .description("Search docs")
       .arg("query", Ax.f().string().min(1))
-      .handler(values -> Map.of("title", "Ax docs"))
+      .handler(values -> {
+        searches.add(values);
+        return Map.of("title", "Ax docs");
+      })
       .build();
     AxGen qa = Ax.ax("query:string -> answer:string")
       .addTool(search)
@@ -1070,6 +1096,8 @@ public final class AxGenScriptedClientToolExample {
       .addFieldTransform("answer", "trim");
     Map<String, Object> out = qa.forward(new ScriptedClient(), Map.of("query", "ax docs"));
     if (!"Found Ax docs".equals(out.get("answer"))) throw new RuntimeException("bad output: " + out);
+    // The tool ran once, with the model's arguments.
+    if (!List.of(Map.of("query", "ax docs")).equals(searches)) throw new RuntimeException("search did not run once: " + searches);
     if (qa.getTraces().isEmpty()) throw new RuntimeException("missing trace");
     System.out.println("java-axgen-ok");
   }
@@ -1676,7 +1704,9 @@ int main() {
     {"properties", axllm::object({{"query", axllm::object({{"type", "string"}})}})},
     {"required", axllm::array({"query"})}
   });
-  axllm::Tool search("search", "Search docs", parameters, [](axllm::Value) {
+  axllm::Value searches = axllm::array({});
+  axllm::Tool search("search", "Search docs", parameters, [&searches](axllm::Value args) {
+    axllm::Core::append(searches, args);
     return axllm::object({{"title", "Ax docs"}});
   });
   auto qa = axllm::ax("query:string -> answer:string")
@@ -1686,6 +1716,11 @@ int main() {
   ScriptedClient client;
   axllm::Value out = qa.forward(client, axllm::object({{"query", "ax docs"}}));
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Found Ax docs")) return 1;
+  // The tool ran once, with the model's arguments.
+  if (!axllm::equal(searches, axllm::array({axllm::object({{"query", "ax docs"}})}))) {
+    std::cerr << "search did not run once: " << axllm::stringify(searches) << "\n";
+    return 1;
+  }
   if (axllm::Core::truthy(axllm::Core::is_none(axllm::Core::get(qa.get_traces(), 0)))) return 1;
   std::cout << "cpp-axgen-ok\n";
 }

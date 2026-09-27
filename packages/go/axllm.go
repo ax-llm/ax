@@ -11416,6 +11416,8 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	var v_empty_calls Value
 	var v_finish Value
 	var v_finish_snake Value
+	var v_flat_name Value
+	var v_flat_params Value
 	var v_fn Value
 	var v_function_calls Value
 	var v_has_finish Value
@@ -11443,6 +11445,8 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	_ = v_empty_calls
 	_ = v_finish
 	_ = v_finish_snake
+	_ = v_flat_name
+	_ = v_flat_params
 	_ = v_fn
 	_ = v_function_calls
 	_ = v_has_finish
@@ -11465,8 +11469,10 @@ func _chat_result_to_completion(args ...Value) (Value, error) {
 	for _, v_call = range coreIter(v_function_calls) {
 		v_fn = coreGet(v_call, "function", nil)
 		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_params = coreGet(v_fn, "params", nil)
+		v_flat_name = coreGet(v_call, "name", nil)
+		v_name = coreGet(v_fn, "name", v_flat_name)
+		v_flat_params = coreGet(v_call, "params", nil)
+		v_params = coreGet(v_fn, "params", v_flat_params)
 		v_compat_call = Object()
 		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
 		if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
@@ -12064,32 +12070,6 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func ai_context_cache_expiry(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_expiry")
-	var v_provider_expire_time Value
-	var v_now Value
-	var v_future Value
-	var v_is_number Value
-	if len(args) > 0 { v_provider_expire_time = args[0] }
-	_ = v_provider_expire_time
-	if len(args) > 1 { v_now = args[1] }
-	_ = v_now
-	_ = v_future
-	_ = v_is_number
-	v_is_number = coreTypeIs(v_provider_expire_time, "number")
-	if coreTruthy(v_is_number) {
-		v_future = _core_gt(v_provider_expire_time, v_now)
-		if coreTruthy(v_future) {
-			return v_provider_expire_time, nil
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return 0, nil
-}
-
 func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_finish_reason_impl")
 	var v_value Value
@@ -12137,6 +12117,32 @@ func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	}
 	v_none = _core_none()
 	return v_none, nil
+}
+
+func ai_context_cache_expiry(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_expiry")
+	var v_provider_expire_time Value
+	var v_now Value
+	var v_future Value
+	var v_is_number Value
+	if len(args) > 0 { v_provider_expire_time = args[0] }
+	_ = v_provider_expire_time
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_future
+	_ = v_is_number
+	v_is_number = coreTypeIs(v_provider_expire_time, "number")
+	if coreTruthy(v_is_number) {
+		v_future = _core_gt(v_provider_expire_time, v_now)
+		if coreTruthy(v_future) {
+			return v_provider_expire_time, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return 0, nil
 }
 
 func ai_context_cache_plan(args ...Value) (Value, error) {
@@ -88025,20 +88031,24 @@ func fieldTypeFromValue(value Value) FieldType {
 	return t
 }
 
+var (
+	titleCamelBoundary   = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	titleAcronymBoundary = regexp.MustCompile(`([A-Z])([A-Z][a-z])`)
+	titleDigitBoundary   = regexp.MustCompile(`([^0-9])([0-9])`)
+	titleSpaces          = regexp.MustCompile(`\s+`)
+)
+
+// title is a field name's title as TS's toTitle writes it (src/ax/dsp/sig.ts):
+// underscores become spaces, and a word starts at a capital after a lowercase
+// letter or digit, at the last capital of a run that begins a word, and at each
+// run of digits; words are separated by one space. userID is "User ID",
+// parseHTTPResponse "Parse HTTP Response", item123 "Item 123", field_2 "Field 2".
 func title(name string) string {
-	if name == "" {
-		return ""
-	}
-	var out strings.Builder
-	prevLower := false
-	for i, r := range strings.ReplaceAll(name, "_", " ") {
-		if i > 0 && prevLower && ((r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
-			out.WriteByte(' ')
-		}
-		out.WriteRune(r)
-		prevLower = (r >= 'a' && r <= 'z')
-	}
-	text := strings.TrimSpace(out.String())
+	text := strings.ReplaceAll(name, "_", " ")
+	text = titleCamelBoundary.ReplaceAllString(text, "${1} ${2}")
+	text = titleAcronymBoundary.ReplaceAllString(text, "${1} ${2}")
+	text = titleDigitBoundary.ReplaceAllString(text, "${1} ${2}")
+	text = strings.TrimSpace(titleSpaces.ReplaceAllString(text, " "))
 	if text == "" {
 		return ""
 	}
@@ -92140,7 +92150,14 @@ type AxAgent struct {
 	ExecutionContextError error
 	PlaybookHandle        *AxPlaybook
 	PlaybookConfig        Value
-	RuntimeHooks          AxRuntimeHooks
+	// PlaybookConfigError is set when a `playbook` config has no student
+	// client; Forward returns it.
+	PlaybookConfigError error
+	RuntimeHooks        AxRuntimeHooks
+	// The stage the playbook targets and whether it writes into that stage's
+	// prompt, kept to rebind the playbook when SetSignature rebuilds stages.
+	playbookTarget string
+	playbookApply  bool
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -92180,7 +92197,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: newAgentResponder(state, responderSignature, options), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
+	a := &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: newAgentResponder(state, responderSignature, options), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
+	a.attachConfiguredPlaybook()
+	return a
 }
 // newAgentResponder builds the responder stage. As in TypeScript, its
 // validation budget is maxRetries unless validation_retries is set, and with
@@ -92230,6 +92249,7 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.Executor = NewAx(executorSignature, executorOptions)
 	a.Responder = newAgentResponder(state, responderSignature, a.Options)
 	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
+	a.rebindPlaybook()
 	return a
 }
 func (a *AxAgent) GetInstruction() string {
@@ -92238,16 +92258,26 @@ func (a *AxAgent) GetInstruction() string {
 func (a *AxAgent) SetInstruction(instruction string) *AxAgent {
 	composed := mustCore(_agent_set_instruction(a.State, instruction))
 	coreSet(a.Options, "instruction", coreGet(a.State, "stage_instruction", ""))
-	a.Executor.Instruction = display(composed)
-	coreSet(a.Executor.Options, "instruction", a.Executor.Instruction)
+	a.setStageInstruction(a.Executor, display(composed))
 	return a
 }
 func (a *AxAgent) AddActorInstruction(addendum string) *AxAgent {
 	composed := mustCore(_agent_add_actor_instruction(a.State, addendum))
 	coreSet(a.Options, "instructionAddenda", cloneValue(coreGet(a.State, "instruction_addenda", Array())))
-	a.Executor.Instruction = display(composed)
-	coreSet(a.Executor.Options, "instruction", a.Executor.Instruction)
+	a.setStageInstruction(a.Executor, display(composed))
 	return a
+}
+
+// setStageInstruction writes an agent stage's instruction. The stage the
+// playbook targets gets the rendered playbook composed on top, as TS keeps it
+// in the stage prompt, so a stage instruction, an actor addendum, optimized
+// components or the run-context refresh never drop it.
+func (a *AxAgent) setStageInstruction(stage *AxGen, instruction string) {
+	stage.Instruction = instruction
+	coreSet(stage.Options, "instruction", instruction)
+	if a.PlaybookHandle != nil && a.playbookStage() == stage {
+		a.rebindPlaybook()
+	}
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return a.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
@@ -92340,7 +92370,9 @@ func (a *AxAgent) run(ctx context.Context, client AIClient, values map[string]Va
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, a.RuntimeHooks, "ax_gen_agent_forward", "ax_gen_agent", attributes)
 	defer func() { finish(forwardErr) }()
 	options = stripRuntimeHooks(options)
-	a.ensureConfiguredPlaybook(client)
+	if a.PlaybookConfigError != nil {
+		return nil, a.PlaybookConfigError
+	}
 	if a.ExecutionContextError != nil {
 		return nil, a.ExecutionContextError
 	}
@@ -92358,7 +92390,7 @@ func (a *AxAgent) run(ctx context.Context, client AIClient, values map[string]Va
         callOptions["executionContext"]=executionContext
         if _,err:=_agent_apply_run_context(a.State,a.Options,callOptions,modules);err!=nil{return nil,err}
         if coreTruthy(coreGet(a.State,"runtime_enabled",false)) {
-            for field,stage:=range map[string]*AxGen{"distiller_description":a.Distiller,"executor_description":a.Executor,"responder_description":a.Responder}{stage.Instruction=display(coreGet(a.State,field,""));coreSet(stage.Options,"instruction",stage.Instruction)}
+            for field,stage:=range map[string]*AxGen{"distiller_description":a.Distiller,"executor_description":a.Executor,"responder_description":a.Responder}{a.setStageInstruction(stage,display(coreGet(a.State,field,"")))}
         }
 	}
 	boundClient := bindAIClientContext(ctx, client)
@@ -92527,8 +92559,7 @@ func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
 	a.Responder.ApplyOptimizedComponents(m)
 	composed := mustCore(_agent_apply_optimized_components(a.State, m))
 	a.Options = asMap(coreGet(a.State, "options", a.Options))
-	a.Executor.Instruction = display(composed)
-	coreSet(a.Executor.Options, "instruction", a.Executor.Instruction)
+	a.setStageInstruction(a.Executor, display(composed))
 }
 func (a *AxAgent) ApplyOptimization(artifact Value) {
 	components := a.GetOptimizableComponents()
@@ -92653,30 +92684,60 @@ func (a *AxAgent) Playbook(options map[string]Value) *AxPlaybook {
 	if playbookClient(student) == nil {
 		panic(AxError{Category: "optimize", Message: "AxAgent.Playbook(): studentAI is required when the agent has no default ai."})
 	}
-	stage := a.Executor
-	if target == "responder" {
-		stage = a.Responder
-	}
+	a.playbookTarget = target
+	a.playbookApply = coreGet(options, "apply", nil) != false
+	stage := a.playbookStage()
 	handleOptions := cloneMap(options)
 	coreSet(handleOptions, "studentAI", student)
 	handle := Playbook(stage, handleOptions)
-	if coreGet(options, "apply", nil) == false {
-		handle.SetApplyHook(func(string) {})
-	} else {
-		base := stage.Instruction
-		handle.SetApplyHook(func(rendered string) {
-			stage.Instruction = playbookComposeInstruction(base, rendered)
-			coreSet(stage.Options, "instruction", stage.Instruction)
-		})
-	}
+	a.bindPlaybookStage(handle, stage)
 	handle.agent = a
 	a.PlaybookHandle = handle
 	return a.PlaybookHandle
 }
 
+// playbookStage is the stage the playbook targets: the actor, or the responder.
+func (a *AxAgent) playbookStage() *AxGen {
+	if a.playbookTarget == "responder" {
+		return a.Responder
+	}
+	return a.Executor
+}
+
+// bindPlaybookStage points the playbook at an agent stage: the program it runs
+// and the hook that writes the rendered playbook into the stage prompt.
+func (a *AxAgent) bindPlaybookStage(handle *AxPlaybook, stage *AxGen) {
+	handle.program = stage
+	if !a.playbookApply {
+		handle.SetApplyHook(func(string) {})
+		return
+	}
+	base := stage.Instruction
+	handle.SetApplyHook(func(rendered string) {
+		stage.Instruction = playbookComposeInstruction(base, rendered)
+		coreSet(stage.Options, "instruction", stage.Instruction)
+	})
+}
+
+// rebindPlaybook points the playbook at its stage again and writes it into
+// that stage's prompt: SetSignature rebuilds the stages, and
+// setStageInstruction rewrites a stage's instruction.
+func (a *AxAgent) rebindPlaybook() {
+	if a.PlaybookHandle == nil {
+		return
+	}
+	a.bindPlaybookStage(a.PlaybookHandle, a.playbookStage())
+	a.PlaybookHandle.inject()
+}
+
 func (a *AxAgent) GetPlaybook() *AxPlaybook { return a.PlaybookHandle }
 
-func (a *AxAgent) ensureConfiguredPlaybook(client AIClient) {
+// attachConfiguredPlaybook attaches the `playbook` config's playbook at
+// construction, as TS, Python and Java do, so GetPlaybook() has it before the
+// first forward. Its student is the config's studentAI, else the agent's ai or
+// client; a config without one is invalid, as in TS, and Forward returns the
+// error.
+func (a *AxAgent) attachConfiguredPlaybook() {
 	if a.PlaybookHandle != nil || a.PlaybookConfig == nil || a.PlaybookConfig == false {
 		return
 	}
@@ -92690,11 +92751,17 @@ func (a *AxAgent) ensureConfiguredPlaybook(client AIClient) {
 	}
 	options := cloneMap(config)
 	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {
-		options["maxReflectorRounds"] = 1
+		coreSet(options, "maxReflectorRounds", 1)
 	}
-	if playbookOption(options, "studentAI", "student_ai", "student", "client", "ai") == nil {
-		options["studentAI"] = client
+	student := playbookOption(options, "studentAI", "student_ai", "student", "client", "ai")
+	if student == nil {
+		student = coreGet(a.Options, "ai", coreGet(a.Options, "client", nil))
 	}
+	if playbookClient(student) == nil {
+		a.PlaybookConfigError = AxError{Category: "optimize", Message: "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai."}
+		return
+	}
+	coreSet(options, "studentAI", student)
 	handle := a.Playbook(options)
 	if seedMap, ok := seed.(map[string]Value); ok {
 		if coreGet(seedMap, "playbook", nil) != nil {
@@ -93655,7 +93722,7 @@ func NewACE(reflector ACEReflector, curator ACECurator, generator ACEGenerator, 
 			coreSet(config, key, value)
 		}
 	}
-	now := "1970-01-01T00:00:00.000Z"
+	now := ""
 	if value := coreGet(options, "now", nil); value != nil {
 		now = display(value)
 	}
@@ -93664,7 +93731,7 @@ func NewACE(reflector ACEReflector, curator ACECurator, generator ACEGenerator, 
 	if initialPlaybook != nil {
 		playbook = cloneValue(initialPlaybook)
 	} else {
-		playbook = mustCore(_ace_empty_playbook(nil, now))
+		playbook = mustCore(_ace_empty_playbook(nil, aceClock(now)))
 	}
 	return &AxACE{
 		Reflector:       reflector,
@@ -93677,6 +93744,17 @@ func NewACE(reflector ACEReflector, curator ACECurator, generator ACEGenerator, 
 		playbook:        playbook,
 	}
 }
+
+// aceClock is the injected clock (the `now` option), else the wall clock at
+// each call, as TS's new Date().toISOString() stamps each playbook change.
+func aceClock(injected string) string {
+	if injected != "" {
+		return injected
+	}
+	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func (a *AxACE) clock() string { return aceClock(a.now) }
 
 func (a *AxACE) Name() string    { return "ACE" }
 func (a *AxACE) Version() string { return "axir-ace-v1" }
@@ -93692,7 +93770,7 @@ func (a *AxACE) Reset() {
 	if a.initialPlaybook != nil {
 		a.playbook = cloneValue(a.initialPlaybook)
 	} else {
-		a.playbook = mustCore(_ace_empty_playbook(nil, a.now))
+		a.playbook = mustCore(_ace_empty_playbook(nil, a.clock()))
 	}
 	a.generatorHistory = nil
 	a.deltaHistory = nil
@@ -93721,7 +93799,7 @@ func (a *AxACE) Hydrate(state map[string]Value) {
 	} else if a.initialPlaybook != nil {
 		a.playbook = cloneValue(a.initialPlaybook)
 	} else {
-		a.playbook = mustCore(_ace_empty_playbook(nil, a.now))
+		a.playbook = mustCore(_ace_empty_playbook(nil, a.clock()))
 	}
 	artifact := asMap(coreGet(state, "artifact", Object()))
 	a.generatorHistory = asSlice(cloneValue(coreGet(artifact, "feedback", Array())))
@@ -93872,7 +93950,7 @@ func (a *AxACE) processExample(example map[string]Value, score Value, source str
 			"enableAutoPrune", true,
 			"protectedBulletIds", aceCollectProtectedIds(resolved),
 		)
-		result := mustCore(_ace_apply_curator_operations(a.playbook, resolved, options, a.now))
+		result := mustCore(_ace_apply_curator_operations(a.playbook, resolved, options, a.clock()))
 		a.playbook = coreGet(result, "playbook", nil)
 		appliedIds = asSlice(coreGet(result, "updatedBulletIds", Array()))
 		autoRemoved := asSlice(coreGet(result, "autoRemoved", Array()))
@@ -93886,7 +93964,7 @@ func (a *AxACE) processExample(example map[string]Value, score Value, source str
 	if reflection != nil {
 		for _, tagRaw := range asSlice(mustCore(_ace_normalize_reflection_bullet_tags(reflection))) {
 			tag := asMap(tagRaw)
-			a.playbook = mustCore(_ace_update_bullet_feedback(a.playbook, coreGet(tag, "id", nil), coreGet(tag, "tag", nil), a.now))
+			a.playbook = mustCore(_ace_update_bullet_feedback(a.playbook, coreGet(tag, "id", nil), coreGet(tag, "tag", nil), a.clock()))
 		}
 	}
 	if len(resolved) > 0 && len(appliedIds) > 0 {
@@ -93903,7 +93981,7 @@ func (a *AxACE) processExample(example map[string]Value, score Value, source str
 		"generatorOutput", generatorOutput,
 		"reflection", reflection,
 		"curator", curatorResult,
-		"timestamp", a.now,
+		"timestamp", a.clock(),
 	)
 	a.generatorHistory = append(a.generatorHistory, feedbackEvent)
 	if len(appliedIds) > 0 && curatorResult != nil && len(asSlice(coreGet(curatorResult, "operations", Array()))) > 0 {
@@ -93998,7 +94076,7 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 	if reflection != nil {
 		for _, tagRaw := range asSlice(mustCore(_ace_normalize_reflection_bullet_tags(reflection))) {
 			tag := asMap(tagRaw)
-			a.playbook = mustCore(_ace_update_bullet_feedback(a.playbook, coreGet(tag, "id", nil), coreGet(tag, "tag", nil), a.now))
+			a.playbook = mustCore(_ace_update_bullet_feedback(a.playbook, coreGet(tag, "id", nil), coreGet(tag, "tag", nil), a.clock()))
 		}
 	}
 	appliedIds := Array()
@@ -94009,7 +94087,7 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 			"enableAutoPrune", true,
 			"protectedBulletIds", aceCollectProtectedIds(resolved),
 		)
-		result := mustCore(_ace_apply_curator_operations(a.playbook, resolved, options, a.now))
+		result := mustCore(_ace_apply_curator_operations(a.playbook, resolved, options, a.clock()))
 		a.playbook = coreGet(result, "playbook", nil)
 		appliedIds = asSlice(coreGet(result, "updatedBulletIds", Array()))
 		autoRemoved := asSlice(coreGet(result, "autoRemoved", Array()))
@@ -94028,7 +94106,7 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 		"generatorOutput", generatorOutput,
 		"reflection", reflection,
 		"curator", curatorResult,
-		"timestamp", a.now,
+		"timestamp", a.clock(),
 	)
 	a.generatorHistory = append(a.generatorHistory, feedbackEvent)
 	if len(appliedIds) > 0 && curatorResult != nil && len(asSlice(coreGet(curatorResult, "operations", Array()))) > 0 {
@@ -94089,18 +94167,64 @@ func aceCuratorSignature() AxSignature {
 	}
 }
 
-// newACEProgram runs a reflector or curator signature built from fields.
-func newACEProgram(signature AxSignature, id string) *AxGen {
+// newSignatureProgram runs a signature built from fields: a signature string
+// cannot carry every description (one with double quotes, for instance).
+func newSignatureProgram(signature AxSignature, options map[string]Value) *AxGen {
 	mustCore(validate_signature(signature))
-	program := NewAx("question:string -> answer:string", Object("validation_retries", 1, "id", id))
+	program := NewAx("question:string -> answer:string", options)
 	program.Signature = signature
 	return program
 }
 
-const agentPlaybookWeaknessMinerSignature = "clusterSignature:string \"Shared error signature of the cluster\", taskSummaries:string \"One line per failing task\", actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", functionCallSummary?:string \"Digest of runtime/tool calls\", toolErrors?:string \"Tool errors observed\", currentPlaybook?:string \"Current failure-avoidance playbook\" -> weaknessDescription:string \"Recurring weakness\", rootCause:string \"Mechanical root cause\", proposedGuidance:string \"One concise imperative avoidance rule\", evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", configRecommendations?:json \"Setup suggestions no prompt text can fix\""
+// newACEProgram runs a reflector or curator signature built from fields.
+func newACEProgram(signature AxSignature, id string) *AxGen {
+	return newSignatureProgram(signature, Object("validation_retries", 1, "id", id))
+}
+
+// The weakness miner's description and signature, as TS builds them
+// (src/ax/agent/agentInternal/playbookEvolve/weaknessMiner.ts).
+const agentPlaybookWeaknessMinerDescription = "You are a failure analyst for an LLM agent harness. You receive one cluster of failed agent runs sharing an error signature, with excerpts of what the agent actually did. Identify the single recurring weakness, its root cause, and one narrow, durable avoidance rule the agent should recall while acting. Ground every claim: evidenceQuotes must be verbatim substrings copied from the excerpts. Keep proposedGuidance concise, imperative, and general to the failure mode (not one task). Use configRecommendations only for setup problems no prompt text can fix (missing tools, timeouts, model choice)."
+
+func agentPlaybookWeaknessMinerSignature() AxSignature {
+	evidenceQuotes := aceField("evidenceQuotes", "string", "Verbatim substrings from actionLogExcerpts proving the weakness.", false)
+	evidenceQuotes.Type.IsArray = true
+	configRecommendations := aceField("configRecommendations", "string", "Setup/config suggestions no prompt text can fix.", true)
+	configRecommendations.Type.IsArray = true
+	return AxSignature{
+		Description: agentPlaybookWeaknessMinerDescription,
+		Inputs: []Field{
+			aceField("clusterSignature", "string", "Shared error signature of the cluster.", false),
+			aceField("taskSummaries", "string", "One line per failing task.", false),
+			aceField("actionLogExcerpts", "string", "Excerpts of the failing runs, centered on the failure.", false),
+			aceField("functionCallSummary", "string", "Digest of runtime/tool calls in the failing runs.", true),
+			aceField("toolErrors", "string", "Tool errors observed.", true),
+			aceField("currentPlaybook", "string", "The failure-avoidance playbook currently applied.", true),
+		},
+		Outputs: []Field{
+			aceField("weaknessDescription", "string", "The recurring weakness, one sentence.", false),
+			aceField("rootCause", "string", "Why the runs fail, mechanically.", false),
+			aceField("proposedGuidance", "string", "The avoidance rule to add to the playbook — concise, imperative.", false),
+			evidenceQuotes,
+			configRecommendations,
+		},
+	}
+}
 
 var agentPlaybookErrorSignaturePattern = regexp.MustCompile(`(?m)^(\w+Error:\s*.{0,60})`)
 var agentPlaybookActionErrorPattern = regexp.MustCompile(`(?m)^\s*(\w+Error:\s*.{0,60})`)
+
+// playbookCoerceList reads a mined list field as TS's coerceToArray does: a
+// list's items (string[] fields parse to *AxArray, json ones to []Value), a
+// scalar as one item, and nothing for a missing field.
+func playbookCoerceList(value Value) []Value {
+	switch value.(type) {
+	case nil:
+		return []Value{}
+	case *AxArray, []Value:
+		return asSlice(value)
+	}
+	return []Value{value}
+}
 
 func playbookCollapse(value string) string {
 	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(value, " "))
@@ -94713,18 +94837,12 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		if rendered := p.Render(); strings.TrimSpace(rendered) != "" {
 			coreSet(request, "currentPlaybook", rendered)
 		}
-		miner := NewAx(agentPlaybookWeaknessMinerSignature, Object("id", "agent.playbook.weakness-miner", "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."))
+		miner := newSignatureProgram(agentPlaybookWeaknessMinerSignature(), Object("id", "agent.playbook.weakness-miner"))
 		mined, minerErr := miner.forward(ctx, teacherAI, request, cloneMap(minerOptions))
 		if minerErr != nil {
 			continue
 		}
-		rawQuotes := coreGet(mined, "evidenceQuotes", nil)
-		quoteCandidates := []Value{}
-		if values, ok := rawQuotes.([]Value); ok {
-			quoteCandidates = values
-		} else if rawQuotes != nil {
-			quoteCandidates = append(quoteCandidates, rawQuotes)
-		}
+		quoteCandidates := playbookCoerceList(coreGet(mined, "evidenceQuotes", nil))
 		evidence := Array()
 		haystack := playbookCollapse(excerpts)
 		for _, quote := range quoteCandidates {
@@ -94740,14 +94858,9 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		for recordIndex, record := range records {
 			taskIDs = append(taskIDs, coreGet(coreGet(record, "task", Object()), "id", fmt.Sprintf("task-%d", int(num(coreGet(record, "index", recordIndex))))))
 		}
-		rawRecommendations := coreGet(mined, "configRecommendations", nil)
 		recommendations := Array()
-		if values, ok := rawRecommendations.([]Value); ok {
-			for _, value := range values {
-				recommendations = append(recommendations, display(value))
-			}
-		} else if rawRecommendations != nil {
-			recommendations = append(recommendations, display(rawRecommendations))
+		for _, value := range playbookCoerceList(coreGet(mined, "configRecommendations", nil)) {
+			recommendations = append(recommendations, display(value))
 		}
 		weakness := Object(
 			"id", fmt.Sprintf("weakness-%d", index+1),
@@ -100366,13 +100479,30 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		runtime.Usage = display(coreGet(runtimeConfig, "usageInstructions", coreGet(runtimeConfig, "usage_instructions", "")))
 		coreSet(options, "runtime", runtime)
 	}
+	// As the other runners do, a playbook config gets the scripted client as
+	// its student, so the agent can attach the playbook at construction.
+	var playbookConfig map[string]Value
+	if config, ok := options["playbook"].(map[string]Value); ok {
+		playbookConfig = cloneMap(config)
+		if playbookOption(playbookConfig, "studentAI", "student_ai", "student", "client", "ai") == nil {
+			playbookConfig["studentAI"] = client
+		}
+		options["playbook"] = playbookConfig
+	}
 	var ag *AxAgent
 	var output Value
 	runStateProjections := MutableArray()
 	var savedRuntimeState Value
 	stateRoundtripProjection := Object()
+	wallClockStart := time.Now()
+	var playbookStateBeforeForward Value
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+		if _, ok := fixture["expected_playbook_state_before_forward"]; ok {
+			if handle := ag.GetPlaybook(); handle != nil {
+				playbookStateBeforeForward = cloneValue(handle.GetState())
+			}
+		}
         for _, rawChild := range asSlice(coreGet(fixture, "child_agents", Array())) {
             child := asMap(rawChild)
             childOptions:=cloneMap(asMap(coreGet(child,"options",Object())));owner:=display(child["namespace"])+"."+display(child["name"])
@@ -100677,6 +100807,27 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		}
 		assertEqual(state, expected, "agent playbook state")
 	}
+	if expected, ok := fixture["expected_playbook_state_before_forward"]; ok {
+		assertEqual(playbookStateBeforeForward, expected, "agent playbook state before the first forward")
+	}
+	if coreTruthy(coreGet(fixture, "expected_playbook_wall_clock", false)) {
+		var state Value = Object()
+		if handle := ag.GetPlaybook(); handle != nil {
+			state = handle.GetState()
+		}
+		assertWallClockTimestamps(Array(coreGet(coreGet(state, "playbook", nil), "updatedAt", nil), coreGet(coreGet(coreGet(state, "artifact", nil), "playbook", nil), "updatedAt", nil)), wallClockStart, time.Now(), "agent playbook updatedAt")
+	}
+	if coreTruthy(coreGet(fixture, "expected_playbook_config_unchanged", false)) {
+		// The caller's playbook config, less the student client the runner
+		// added, is what the fixture passed.
+		actual := Object()
+		for _, key := range orderedKeys(playbookConfig) {
+			if key != "studentAI" && key != "__order" {
+				coreSet(actual, key, playbookConfig[key])
+			}
+		}
+		assertEqual(actual, coreGet(coreGet(fixture, "options", Object()), "playbook", nil), "caller's playbook config")
+	}
 	exported := ag.ExportRuntimeState()
 	if expected := coreGet(fixture, "expected_runtime_contract_subset", nil); expected != nil {
 		assertSubset(ag.GetRuntimeContract(), expected, "runtime contract")
@@ -100819,6 +100970,18 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		}
 		if want := coreGet(testCase, "expected_teacher_request_count", nil); want != nil && len(teacher.Requests) != int(num(want)) {
 			panic(AxError{Category: "fixture", Message: fmt.Sprintf("%s expected %d teacher requests, got %d", label, int(num(want)), len(teacher.Requests))})
+		}
+		if want, ok := testCase["expected_teacher_system_prompts"]; ok {
+			// Each teacher request's system prompt, in call order, byte for byte.
+			prompts := Array()
+			for _, request := range teacher.Requests {
+				for _, message := range asSlice(coreGet(request, "chat_prompt", Array())) {
+					if display(coreGet(message, "role", "")) == "system" {
+						prompts = append(prompts, coreGet(message, "content", nil))
+					}
+				}
+			}
+			assertEqual(prompts, want, label+" teacher system prompts")
 		}
 		if len(outcomes) == 0 {
 			if expectedOutcomeCount != nil && int(num(expectedOutcomeCount)) == 0 {
@@ -101325,6 +101488,24 @@ func axErrorCause(err error) error {
 func assertEqual(actual Value, expected Value, label string) {
 	if !equal(actual, expected) {
 		panic(AxError{Category: "fixture", Message: label + " mismatch\nactual: " + stableStringify(actual) + "\nexpected: " + stableStringify(expected)})
+	}
+}
+
+var conformanceISOMillisUTC = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
+
+// assertWallClockTimestamps checks that each value is a UTC timestamp as
+// JavaScript's toISOString writes it, taken during the run: between start and
+// end, with a second of slack for millisecond rounding.
+func assertWallClockTimestamps(values []Value, start time.Time, end time.Time, label string) {
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok || !conformanceISOMillisUTC.MatchString(text) {
+			panic(AxError{Category: "fixture", Message: label + " is not an ISO-8601 UTC millisecond timestamp: " + stableStringify(value)})
+		}
+		stamp, err := time.Parse("2006-01-02T15:04:05.000Z", text)
+		if err != nil || stamp.Before(start.Add(-time.Second)) || stamp.After(end.Add(time.Second)) {
+			panic(AxError{Category: "fixture", Message: label + " " + text + " is not the wall clock during the run"})
+		}
 	}
 }
 func assertSubset(actual Value, expected Value, label string) {
