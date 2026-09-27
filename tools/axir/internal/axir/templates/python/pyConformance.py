@@ -1142,6 +1142,7 @@ def _run_forward(fixture):
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
+            _assert_error_cause(fixture, exc)
             if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
                 raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
             if "expected_tool_calls" in fixture:
@@ -1254,6 +1255,16 @@ def _fixture_processor(spec, calls):
     return processor
 
 
+def _assert_error_cause(fixture, exc):
+    # "Generate failed: ..." keeps the failure it wraps as its cause.
+    expected = fixture.get("expected_error_cause_contains")
+    if expected is None:
+        return
+    cause = exc.__cause__
+    if cause is None or expected not in str(cause):
+        raise FixtureError(f"expected an error cause containing {expected!r}, got {cause!r}")
+
+
 def _run_streaming_forward(fixture):
     sig = _build_signature(fixture)
     tools, tool_calls = _build_tools(fixture.get("tools") or [])
@@ -1301,6 +1312,7 @@ def _run_streaming_forward(fixture):
         expected = fixture.get("expected_error_contains")
         if not expected or expected not in str(exc):
             raise
+        _assert_error_cause(fixture, exc)
         _assert_equal(deltas, fixture.get("expected_deltas") or [], "streaming deltas before the error")
         output = None
     else:

@@ -460,7 +460,10 @@ try {
 Rules:
 
 - `AxGenerateError` includes `details` with `model` and `signature` for debugging.
+- A failed forward throws `AxGenerateError` with the message `Generate failed: <reason>` and the error it wraps as its `cause`. Exhausted validation, assertion or refusal retries give `Generate failed: Unable to fix validation error: <last error>`, ending with `LLM Output:` and the last attempt's answer (each sample's, joined with `---`). A response cut off at its token limit gives `Generate failed: Max tokens reached before completion`, streamed or not.
+- Errors are wrapped by type: a `ValidationError` or `AxAssertionError` outside the retries surfaces as it is, and any other failure is wrapped, whatever its message says.
 - `AxAIServiceAbortedError` is thrown on cancellation via `stop()` or `abortSignal`.
+- `strictMode: true`, given to the constructor or to the call (the call wins), requires an answer to open with its first required field's label: an unlabeled answer is retried with a correction instead of being read as a single-field answer.
 
 ## Chat Log and Usage
 

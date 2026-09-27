@@ -1,0 +1,42 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "hi"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_error_cause_contains": "Streaming response failed",
+  "expected_error_contains": "Generate failed: Streaming response failed",
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "errors-streaming-error-finish",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: hi",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "error",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

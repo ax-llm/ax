@@ -185,6 +185,13 @@ class AxError : public std::runtime_error {
   AxError(std::string category, std::string message);
   AxError(std::string category, std::string message, std::string type, int status = 0,
           std::string code = "", bool retryable = false, Value response_body = Value());
+  // The error this one wraps, as TypeScript's Error.cause, or nullptr. A
+  // "Generate failed: ..." error keeps the failure it reports here.
+  const AxError* cause() const { return cause_.get(); }
+  void set_cause(std::shared_ptr<const AxError> cause) { cause_ = std::move(cause); }
+
+ private:
+  std::shared_ptr<const AxError> cause_;
 };
 
 class AxAIServiceAbortedError : public AxError {
@@ -361,6 +368,9 @@ struct Core {
   static Value ai_error_status(Value message, Value status, Value code, Value response_body, Value request, Value retryable);
   static Value exception_value(const std::exception& error);
   static Value exception_message(Value error);
+  // The error with a new message and the original as its cause; it keeps the
+  // error's category, type and fields, so it raises as the same AxError class.
+  static Value exception_rewrap(Value error, Value message);
   static Value exception_is_aborted(Value error);
   static Value exception_is_infrastructure(Value error);
   static Value exception_is_refusal(Value error);

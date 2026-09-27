@@ -1,0 +1,36 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'size' has an invalid value 'huge': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'size' has an invalid value 'huge': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-nested-type-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"detail\":{\"size\":\"big\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"detail\":{\"size\":\"huge\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> detail:object{ size:number }"
+}

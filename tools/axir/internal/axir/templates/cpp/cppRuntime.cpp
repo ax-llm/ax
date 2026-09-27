@@ -1381,6 +1381,7 @@ Value Core::exception_value(const std::exception& error) {
     if (!ax->code.empty()) out["code"] = ax->code;
     out["retryable"] = ax->retryable;
     if (!ax->response_body.is_null()) out["response_body"] = ax->response_body;
+    if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
     return Value(out);
   }
   return runtime_error(error.what());
@@ -1388,6 +1389,16 @@ Value Core::exception_value(const std::exception& error) {
 Value Core::exception_message(Value error) {
   if (error.is_object() && has_key(error, "message")) return get_key(error, "message");
   return Value(str(error));
+}
+// intrinsic.exception.rewrap: a copy of the error map, so it keeps its
+// category, type and fields, with the new message and the original error as
+// its cause; anything else becomes a runtime error. The IR never rewraps an
+// aborted error.
+Value Core::exception_rewrap(Value error, Value message) {
+  Object wrapped = error.is_object() && has_key(error, "__error") ? object_ref(error) : object_ref(runtime_error(message));
+  wrapped["message"] = str(message);
+  wrapped["cause"] = error;
+  return Value(std::move(wrapped));
 }
 Value Core::exception_is_aborted(Value error) {
   return Value(error.is_object() &&
@@ -1414,7 +1425,10 @@ Value Core::exception_is_refusal(Value error) {
 AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));
-    return AxError(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
+    AxError out(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
+    Value cause = get_key(error, "cause");
+    if (!cause.is_null()) out.set_cause(std::make_shared<AxError>(as_error(cause)));
+    return out;
   }
   return AxError("runtime", str(error));
 }

@@ -1,0 +1,32 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Count' has an invalid value 'lots': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_request_count": 2,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "errors-validation-type-exhausted",
+  "options": {
+    "max_retries": 1
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Count: many",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Count: lots",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> count:number"
+}

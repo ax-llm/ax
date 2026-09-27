@@ -582,6 +582,7 @@ public final class Conformance {
       return;
     }
     if (args.length == 0) throw new IllegalArgumentException("usage: java dev.axllm.ax.Conformance <fixture-or-dir>...");
+    checkExceptionRewrap();
     for (String arg : args) {
       for (Path path : expand(Path.of(arg))) {
         Map<String, Object> fixture = Core.asMap(Json.parse(Files.readString(path)));
@@ -768,6 +769,63 @@ public final class Conformance {
     if (!category.equals(expected)) throw new FixtureError("expected error category " + expected + ", got " + category);
   }
 
+  // "Generate failed: ..." keeps the failure it wraps as its direct cause. In
+  // the Java port each rewrap also keeps the class, so the category, of the
+  // error it wraps (TS wraps it in AxGenerateError).
+  static void assertErrorCause(RuntimeException e, Map<String, Object> fixture) {
+    Object expected = fixture.get("expected_error_cause_contains");
+    if (expected == null) return;
+    Throwable cause = e.getCause();
+    if (cause == null || !String.valueOf(cause.getMessage()).contains(String.valueOf(expected))) throw new FixtureError("expected an error cause containing " + expected + ", got " + cause);
+    for (Throwable link = e; isRewrap(link); link = link.getCause()) {
+      if (link.getCause() == null || link.getCause().getClass() != link.getClass()) throw new FixtureError("expected " + link.getClass().getName() + " to wrap an error of its own class, got " + link.getCause());
+    }
+  }
+
+  static boolean isRewrap(Throwable error) {
+    String message = String.valueOf(error.getMessage());
+    return message.startsWith("Generate failed: ") || message.startsWith("Unable to fix validation error: ");
+  }
+
+  // Core.exceptionRewrap (intrinsic.exception.rewrap) returns the error with a
+  // new message, its class, category and Ax error fields, and the original as
+  // its cause; rewraps chain as "Generate failed: Unable to fix validation
+  // error: ..." does.
+  static void checkExceptionRewrap() {
+    AxValidationError invalid = new AxValidationError("Field 'Count' has an invalid value 'lots'");
+    RuntimeException unfixed = Core.asRuntime(Core.exceptionRewrap(invalid, "Unable to fix validation error: " + invalid.getMessage()));
+    RuntimeException failed = Core.asRuntime(Core.exceptionRewrap(unfixed, "Generate failed: " + unfixed.getMessage()));
+    assertRewrap(failed, AxValidationError.class, "validation", "Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots'", unfixed);
+    assertRewrap(unfixed, AxValidationError.class, "validation", "Unable to fix validation error: Field 'Count' has an invalid value 'lots'", invalid);
+
+    AxAIServiceStatusError status = new AxAIServiceStatusError("Bad request", 400, "invalid_request", Map.of("error", "bad"), Map.of("model", "m"), false);
+    RuntimeException statusFailed = Core.asRuntime(Core.exceptionRewrap(status, "Generate failed: Bad request"));
+    assertRewrap(statusFailed, AxAIServiceStatusError.class, "ai", "Generate failed: Bad request", status);
+    AxAIServiceStatusError statusCopy = (AxAIServiceStatusError) statusFailed;
+    if (!Integer.valueOf(400).equals(statusCopy.status) || !"invalid_request".equals(statusCopy.code) || statusCopy.responseBody != status.responseBody || statusCopy.request != status.request || statusCopy.retryable) throw new FixtureError("rewrapped status error lost its fields");
+    if (Core.truthy(Core.exceptionIsInfrastructure(statusFailed))) throw new FixtureError("a rewrapped 400 status error must not be retried");
+
+    AxAIRefusalError refusal = new AxAIRefusalError("I can't help with that", Map.of("stop_reason", "refusal"));
+    RuntimeException refused = Core.asRuntime(Core.exceptionRewrap(refusal, "Unable to fix validation error: I can't help with that"));
+    assertRewrap(refused, AxAIRefusalError.class, "ai", "Unable to fix validation error: I can't help with that", refusal);
+    if (((AxAIServiceError) refused).responseBody != refusal.responseBody || !Core.truthy(Core.exceptionIsRefusal(refused))) throw new FixtureError("rewrapped refusal lost its refusal");
+
+    RuntimeException plain = new RuntimeException("Max tokens reached before completion");
+    assertRewrap(Core.asRuntime(Core.exceptionRewrap(plain, "Generate failed: Max tokens reached before completion")), RuntimeException.class, "runtime", "Generate failed: Max tokens reached before completion", plain);
+    IllegalStateException closed = new IllegalStateException("session closed");
+    assertRewrap(Core.asRuntime(Core.exceptionRewrap(closed, "Generate failed: session closed")), IllegalStateException.class, "runtime", "Generate failed: session closed", closed);
+    // No (String) constructor to rebuild it with: a RuntimeException that keeps the cause.
+    java.io.UncheckedIOException io = new java.io.UncheckedIOException("read failed", new java.io.IOException("disk"));
+    assertRewrap(Core.asRuntime(Core.exceptionRewrap(io, "Generate failed: read failed")), RuntimeException.class, "runtime", "Generate failed: read failed", io);
+  }
+
+  static void assertRewrap(RuntimeException error, Class<?> type, String category, String message, Throwable cause) {
+    if (error.getClass() != type) throw new FixtureError("rewrapped error: expected class " + type.getName() + ", got " + error.getClass().getName());
+    if (!category.equals(errorCategory(error))) throw new FixtureError("rewrapped error: expected category " + category + ", got " + errorCategory(error));
+    if (!message.equals(error.getMessage())) throw new FixtureError("rewrapped error: expected message " + message + ", got " + error.getMessage());
+    if (error.getCause() != cause) throw new FixtureError("rewrapped error: expected cause " + cause + ", got " + error.getCause());
+  }
+
   static void runJsonSchema(Map<String, Object> fixture) {
     AxSignature sig = buildSignature(fixture);
     Object fields = "inputs".equals(fixture.getOrDefault("target", "outputs")) ? sig.inputs : sig.outputs;
@@ -875,7 +933,7 @@ public final class Conformance {
       });
     }
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())), Core.asMap(fixture.get("client")));
-    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture);
+    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture, error -> assertErrorCause(error, fixture));
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
@@ -1032,6 +1090,7 @@ public final class Conformance {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected == null || !String.valueOf(error.getMessage()).contains(expected)) throw error;
       failure = error;
+      assertErrorCause(error, fixture);
       assertEqual(deltas, fixture.getOrDefault("expected_deltas", List.of()), "streaming deltas before the error");
     }
     if (failure == null) {
@@ -2956,6 +3015,10 @@ public final class Conformance {
 
   interface ThrowingSupplier { Object get(); }
   static Object expectMaybeError(ThrowingSupplier supplier, Map<String, Object> fixture) {
+    return expectMaybeError(supplier, fixture, error -> {});
+  }
+  // onExpected runs further checks on the expected error once its message matches.
+  static Object expectMaybeError(ThrowingSupplier supplier, Map<String, Object> fixture, java.util.function.Consumer<RuntimeException> onExpected) {
     try {
       Object value = supplier.get();
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected operation to fail");
@@ -2965,6 +3028,7 @@ public final class Conformance {
       assertErrorCategory(e, fixture);
       String expected = (String) fixture.get("expected_error_contains");
       if (expected != null && !String.valueOf(e.getMessage()).contains(expected)) throw new FixtureError("expected error containing " + expected + ", got " + e);
+      onExpected.accept(e);
       return null;
     }
   }

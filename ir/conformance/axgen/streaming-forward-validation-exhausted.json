@@ -15,7 +15,8 @@
       "version": 1
     }
   ],
-  "expected_error_contains": "Field 'Score' has an invalid value 'y': Invalid number",
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Score' has an invalid value 'y': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Score' has an invalid value 'y': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.",
   "expected_request_count": 2,
   "forward_options": {
     "max_retries": 1

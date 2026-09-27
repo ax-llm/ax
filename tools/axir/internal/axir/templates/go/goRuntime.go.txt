@@ -391,6 +391,9 @@ type AxError struct {
 	Code      string
 	Retryable bool
 	Payload   Value
+	// cause is the error this one rewraps with a new message ("Generate
+	// failed: ..."), as TypeScript's AxGenerateError keeps it as its cause.
+	cause error
 }
 
 func (e AxError) Error() string {
@@ -399,6 +402,10 @@ func (e AxError) Error() string {
 	}
 	return e.Category
 }
+
+// Unwrap returns the error a rewrapped error was made from, so errors.Unwrap,
+// errors.Is and errors.As reach it; it is nil for an error that wraps none.
+func (e AxError) Unwrap() error { return e.cause }
 
 type SignatureError struct{ AxError }
 type ValidationError struct{ AxError }
@@ -1249,8 +1256,31 @@ func axErrorValue(v AxError) Value {
 	return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
 }
 
+// outermostAxError returns the envelope of the first Ax error in err's chain,
+// so a rewrapped error reports its own message and class, not its cause's.
+// It reports false when the chain ends or branches before an Ax error.
+func outermostAxError(err error) (AxError, bool) {
+	for err != nil {
+		switch e := err.(type) {
+		case AxError:
+			return e, true
+		case AxAIServiceAbortedError:
+			return e.AIServiceError.AxError, true
+		case AIServiceError:
+			return e.AxError, true
+		case SignatureError:
+			return e.AxError, true
+		case ValidationError:
+			return e.AxError, true
+		}
+		err = errors.Unwrap(err)
+	}
+	return AxError{}, false
+}
+
 func errorValue(raw any) Value {
 	if err, ok := raw.(error); ok {
+		if envelope, ok := outermostAxError(err); ok { return axErrorValue(envelope) }
 		var aborted AxAIServiceAbortedError
 		if errors.As(err, &aborted) { return axErrorValue(aborted.AIServiceError.AxError) }
 		var service AIServiceError
@@ -1265,6 +1295,11 @@ func errorValue(raw any) Value {
 func asAxError(value Value) AxError {
 	if err, ok := value.(AxError); ok {
 		return err
+	}
+	if err, ok := value.(error); ok {
+		if envelope, ok := outermostAxError(err); ok {
+			return envelope
+		}
 	}
 	m := asMap(value)
 	if cat := display(m["__error"]); cat != "" {
@@ -1679,6 +1714,41 @@ func _core_retry_sleep(attempt Value, client Value, _ Value) (Value, error) {
 	}
 }
 func _core_exception_message(err Value) Value { return display(coreGet(err, "message", err)) }
+
+// _core_exception_rewrap is the error with a new message and the original as
+// its cause (Unwrap). It keeps the error's class and category: an error value
+// the IR caught becomes the AxError it raises as, and a Go Ax error keeps its
+// concrete type. TS wraps it in AxGenerateError, which the ports adopt at the
+// next major.
+func _core_exception_rewrap(err Value, message Value) Value {
+	original := asError(err)
+	text := display(message)
+	switch e := original.(type) {
+	case AxError:
+		return rewrapAxError(e, text, original)
+	case AxAIServiceAbortedError:
+		e.AIServiceError.AxError = rewrapAxError(e.AIServiceError.AxError, text, original)
+		return e
+	case AIServiceError:
+		e.AxError = rewrapAxError(e.AxError, text, original)
+		return e
+	case SignatureError:
+		e.AxError = rewrapAxError(e.AxError, text, original)
+		return e
+	case ValidationError:
+		e.AxError = rewrapAxError(e.AxError, text, original)
+		return e
+	}
+	// Any other error keeps the class and category the IR reads from it.
+	return rewrapAxError(asAxError(errorValue(original)), text, original)
+}
+
+func rewrapAxError(envelope AxError, message string, cause error) AxError {
+	envelope.Message = message
+	envelope.cause = cause
+	return envelope
+}
+
 func _core_exception_is_aborted(err Value) Value {
 	structured := asAxError(err)
 	return structured.Type == "AxAIServiceAbortedError" || structured.Category == "aborted"
@@ -11951,13 +12021,19 @@ func runConformanceForward(fixture map[string]Value) {
 		})
 	}
 	client := conformanceApplyScriptedClientSpec(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, coreGet(fixture, "client", nil))
+	var forwardErr error
 	output := expectMaybeFixtureError(func() Value {
 		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if err != nil {
+			forwardErr = err
 			panic(err)
 		}
 		return out
 	}, fixture, nil)
+	if coreGet(fixture, "expected_error_contains", nil) != nil {
+		// expectMaybeFixtureError returned, so the forward failed as expected.
+		assertExpectedErrorCause(forwardErr, fixture)
+	}
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
 	}
@@ -12183,6 +12259,7 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 		if !strings.Contains(err.Error(), expected) && !strings.Contains(display(errorValue(err)), expected) {
 			panic(err)
 		}
+		assertExpectedErrorCause(err, fixture)
 		assertEqual(deltas, coreGet(fixture, "expected_deltas", Array()), "streaming deltas before the error")
 	} else {
 		if err != nil {
@@ -15147,6 +15224,31 @@ func assertExpectedErrorCategory(caught any, fixture map[string]Value) {
 	if category != expected {
 		panic(AxError{Category: "fixture", Message: "expected error category " + expected + ", got " + category})
 	}
+}
+
+// assertExpectedErrorCause checks expected_error_cause_contains: "Generate
+// failed: ..." keeps the failure it wraps as its direct cause.
+func assertExpectedErrorCause(err error, fixture map[string]Value) {
+	expected := coreGet(fixture, "expected_error_cause_contains", nil)
+	if expected == nil {
+		return
+	}
+	cause := axErrorCause(err)
+	if cause == nil || !strings.Contains(cause.Error(), display(expected)) {
+		panic(FixtureError{Message: fmt.Sprintf("expected an error cause containing %q, got %v", display(expected), cause)})
+	}
+}
+
+// axErrorCause is the cause of the first Ax error in err's chain: the error
+// it was rewrapped from, or nil.
+func axErrorCause(err error) error {
+	for err != nil {
+		if e, ok := err.(AxError); ok {
+			return e.cause
+		}
+		err = errors.Unwrap(err)
+	}
+	return nil
 }
 func assertEqual(actual Value, expected Value, label string) {
 	if !equal(actual, expected) {

@@ -1,5 +1,6 @@
 {
-  "expected_error_contains": "Required field not found: 'Answer' (string), 'Score' (number)",
+  "expected_error_cause_contains": "Unable to fix validation error: Required field not found: 'Answer' (string), 'Score' (number). Add a line starting with the exact label followed by a colon (e.g., \"Answer:\") and then provide a valid string value. Keep the output concise and avoid unrelated text.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Required field not found: 'Answer' (string), 'Score' (number). Add a line starting with the exact label followed by a colon (e.g., \"Answer:\") and then provide a valid string value. Keep the output concise and avoid unrelated text.",
   "expected_request_count": 2,
   "forward_options": {
     "max_retries": 1

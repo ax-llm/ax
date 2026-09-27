@@ -1,0 +1,29 @@
+{
+  "expected_output": {
+    "detail": {
+      "sizes": [1, 2],
+      "tags": ["a", "b"]
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "structured-nested-array-coerce",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"detail\":{\"tags\":[\"a\",\"b\"],\"sizes\":[\"1\",2]}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> detail:object{ tags:string[], sizes:number[] }"
+}

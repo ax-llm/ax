@@ -147,6 +147,14 @@ function scriptedAI(responses: ResponseSpec[], features: JsonMap | undefined) {
       });
     },
   });
+  // The mock has no functionCot setting, so report the provider feature here.
+  if (features?.function_cot !== undefined) {
+    const baseFeatures = ai.getFeatures.bind(ai);
+    ai.getFeatures = (model) => ({
+      ...baseFeatures(model),
+      functionCot: features.function_cot as boolean,
+    });
+  }
   return { ai, calls: () => calls };
 }
 
@@ -159,6 +167,7 @@ const optionNames: Record<string, string> = {
   sample_count: 'sampleCount',
   thought_field_name: 'thoughtFieldName',
   function_call: 'functionCall',
+  strict_mode: 'strictMode',
 };
 
 function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
@@ -289,6 +298,8 @@ type Case = {
   // The part of TS's error message the ports must produce; defaults to the
   // first line without TS's "Generate failed: " wrapper.
   error_contains?: string;
+  // Pin TS's whole error message, not only its first line.
+  full_error?: boolean;
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -348,6 +359,8 @@ async function record(name: string, spec: Case): Promise<void> {
   const deltas: JsonMap[] = [];
   let output: Json | undefined;
   let error: string | undefined;
+  let errorMessage: string | undefined;
+  let errorCause: string | undefined;
   try {
     if (kind === 'forward') {
       output = clone((await gen.forward(ai, input, forwardOptions)) as Json);
@@ -362,7 +375,13 @@ async function record(name: string, spec: Case): Promise<void> {
       }
     }
   } catch (e) {
-    error = (e as Error).message.split('\n')[0];
+    errorMessage = (e as Error).message;
+    error = errorMessage.split('\n')[0];
+    // AxGenerateError keeps the failure it wraps as its cause.
+    const cause = (e as Error).cause;
+    if ((e as Error).name === 'AxGenerateError' && cause instanceof Error) {
+      errorCause = cause.message.split('\n')[0];
+    }
   }
 
   const fixture: Record<string, unknown> = {
@@ -414,12 +433,17 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_output = output;
   }
   if (error !== undefined) {
+    // Without an explicit substring, pin TypeScript's first line, or its
+    // whole message when asked.
     const expected =
-      spec.error_contains ?? error.replace(/^Generate failed: /, '');
-    if (!error.includes(expected)) {
+      spec.error_contains ?? (spec.full_error ? errorMessage! : error);
+    if (!errorMessage!.includes(expected)) {
       throw new Error(`${name}: TS error "${error}" lacks "${expected}"`);
     }
     fixture.expected_error_contains = expected;
+    if (spec.error_contains === undefined && errorCause !== undefined) {
+      fixture.expected_error_cause_contains = errorCause;
+    }
   } else if (spec.error_contains !== undefined) {
     throw new Error(
       `${name}: expected TS to fail with "${spec.error_contains}"`
@@ -722,7 +746,6 @@ const cases: Record<string, Case> = {
   'streaming-forward-validation-exhausted': {
     signature: 'question:string -> answer:string, score:number',
     forward_options: { max_retries: 1 },
-    error_contains: "Field 'Score' has an invalid value 'y': Invalid number",
     responses: [
       streamed(text('Answer: a\nScore: x'), done()),
       streamed(text('Answer: b\nScore: y'), done()),
@@ -1215,13 +1238,405 @@ const cases: Record<string, Case> = {
         ],
       },
     ],
-    error_contains:
-      "Required field not found: 'Answer' (string), 'Score' (number)",
   },
   'text-extract-number-array': {
     kind: 'forward',
     signature: 'question:string -> scores:number[]',
     responses: [{ results: [{ index: 0, content: 'Scores: [1, "2", 3.5]' }] }],
+  },
+
+  // ----- error wrapping: TypeScript's whole message -----
+  // Exhausted validation and assertion retries are generation failures:
+  // "Generate failed: Unable to fix validation error: ..." with the last
+  // attempt's output, whatever the validation message says.
+  'errors-validation-missing-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, reason:string',
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'Answer: hi' }] },
+      { results: [{ index: 0, content: 'Answer: hello' }] },
+    ],
+  },
+  'errors-validation-type-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> count:number',
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'Count: many' }] },
+      { results: [{ index: 0, content: 'Count: lots' }] },
+    ],
+  },
+  'errors-assertion-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { max_retries: 1 },
+    assertions: [
+      { field: 'answer', contains: 'Paris', message: 'Mention Paris' },
+    ],
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+    ],
+  },
+  'errors-streaming-validation-exhausted': {
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 1 },
+    responses: [
+      streamed(text('Answer: a\nScore: x'), done()),
+      streamed(text('Answer: b\nScore: y'), done()),
+    ],
+  },
+  // A processor's own error ends the forward as a generation failure, even
+  // when its message has a word like "required".
+  'errors-processor-throws': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    feedback_processors: [
+      { field: 'answer', throws: 'upstream token required' },
+    ],
+    responses: [{ results: [{ index: 0, content: 'Answer: hi' }] }],
+  },
+  'errors-streaming-processor-throws': {
+    signature: 'question:string -> answer:string',
+    streaming_processors: [
+      { field: 'answer', throws: 'upstream token required' },
+    ],
+    responses: [streamed(text('Answer: hi'), done())],
+  },
+  'errors-max-tokens': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: cut sh', finish_reason: 'length' },
+        ],
+      },
+    ],
+  },
+  'errors-streaming-max-tokens': {
+    signature: 'question:string -> answer:string',
+    responses: [
+      streamed(
+        text('Answer: cut'),
+        chunk({ content: ' sh', finish_reason: 'length' })
+      ),
+    ],
+  },
+  'errors-streaming-error-finish': {
+    signature: 'question:string -> answer:string',
+    responses: [
+      streamed(text('Answer: hi'), chunk({ finish_reason: 'error' })),
+    ],
+  },
+
+  // ----- structured output value types -----
+  // As in the text contract, a numeric string becomes a number and a
+  // true/false string a boolean; any other type mismatch is a validation
+  // error that the model retries, with TypeScript's message.
+  'structured-coerce-number-and-boolean': {
+    kind: 'forward',
+    signature:
+      'question:string -> count:number, done:boolean, detail:object{ size:number, open:boolean }',
+    features: nativeFeatures,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content:
+              '{"count":" 7 ","done":"TRUE","detail":{"size":"12","open":"false"}}',
+          },
+        ],
+      },
+    ],
+  },
+  'structured-type-error-retry': {
+    kind: 'forward',
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"count":"seven","detail":{"note":"n"}}' },
+        ],
+      },
+      { results: [{ index: 0, content: '{"count":3,"detail":{"note":"n"}}' }] },
+    ],
+  },
+  'structured-type-error-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"count":"seven","detail":{"note":"n"}}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"count":"eight","detail":{"note":"n"}}' },
+        ],
+      },
+    ],
+  },
+  'structured-string-for-number-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> label:string, detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: '{"label":5,"detail":{"note":"n"}}' }] },
+      { results: [{ index: 0, content: '{"label":6,"detail":{"note":"n"}}' }] },
+    ],
+  },
+  'structured-class-option-exhausted': {
+    kind: 'forward',
+    signature:
+      'question:string -> mood:class "happy, sad", detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"mood":"angry","detail":{"note":"n"}}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"mood":"calm","detail":{"note":"n"}}' },
+        ],
+      },
+    ],
+  },
+  'structured-array-expected-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> tags:string[], detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      {
+        results: [
+          { index: 0, content: '{"tags":"solo","detail":{"note":"n"}}' },
+        ],
+      },
+      {
+        results: [
+          { index: 0, content: '{"tags":"duo","detail":{"note":"n"}}' },
+        ],
+      },
+    ],
+  },
+  'structured-nested-type-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> detail:object{ size:number }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: '{"detail":{"size":"big"}}' }] },
+      { results: [{ index: 0, content: '{"detail":{"size":"huge"}}' }] },
+    ],
+  },
+  // A title-named key is not a field alias: TS drops it, so the field is
+  // missing.
+  'structured-title-key-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    options: { max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: '{"Count":1,"detail":{"note":"n"}}' }] },
+      { results: [{ index: 0, content: '{"Count":2,"detail":{"note":"n"}}' }] },
+    ],
+  },
+  // Native JSON for a simple signature rejects keys that are not fields.
+  'structured-native-simple-unknown-key-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    features: nativeFeatures,
+    forward_options: { structured_output_mode: 'native' },
+    responses: [
+      { results: [{ index: 0, content: '{"answer":"x","extra":1}' }] },
+      { results: [{ index: 0, content: '{"answer":"x"}' }] },
+    ],
+  },
+  'streaming-forward-structured-type-error-retry': {
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text('{"count":"seven",'),
+        text('"detail":{"note":"n"}}'),
+        done()
+      ),
+      streamed(text('{"count":3,'), text('"detail":{"note":"n"}}'), done()),
+    ],
+  },
+  // Array items of a nested object field are checked and coerced too.
+  'structured-nested-array-coerce': {
+    kind: 'forward',
+    signature:
+      'question:string -> detail:object{ tags:string[], sizes:number[] }',
+    features: nativeFeatures,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '{"detail":{"tags":["a","b"],"sizes":["1",2]}}',
+          },
+        ],
+      },
+    ],
+  },
+  'streaming-forward-structured-nested-array-coerce': {
+    signature:
+      'question:string -> detail:object{ tags:string[], sizes:number[] }',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text('{"detail":{"tags":["a","b"],'),
+        text('"sizes":["1",2]}}'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-structured-coerce': {
+    signature: 'question:string -> count:number, detail:object{ note:string }',
+    features: nativeFeatures,
+    responses: [
+      streamed(text('{"count":"7",'), text('"detail":{"note":"n"}}'), done()),
+    ],
+  },
+
+  // ----- the output an exhausted retry reports -----
+  // "Unable to fix validation error" ends with the last attempt's output,
+  // each sample's answer joined with "\n---\n", streamed or not.
+  'errors-exhausted-llm-output': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 0 },
+    full_error: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: x\nScore: nope' }] }],
+  },
+  'errors-streaming-exhausted-llm-output': {
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 0 },
+    full_error: true,
+    responses: [streamed(text('Answer: x\n'), done('Score: nope'))],
+  },
+  'errors-structured-exhausted-llm-output': {
+    kind: 'forward',
+    signature: 'question:string -> detail:object{ n:number }',
+    features: nativeFeatures,
+    forward_options: { max_retries: 0 },
+    full_error: true,
+    responses: [{ results: [{ index: 0, content: '{"detail":{"n":"x"}}' }] }],
+  },
+  'errors-multi-sample-exhausted-llm-output': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, score:number',
+    forward_options: { max_retries: 0, sample_count: 2 },
+    full_error: true,
+    responses: [
+      {
+        results: [
+          { index: 0, content: 'Answer: a\nScore: nope' },
+          { index: 1, content: 'Answer: b\nScore: 2' },
+        ],
+      },
+    ],
+  },
+
+  // ----- strictMode (a forward option) -----
+  // Strict mode turns off the single-field assumption: an answer without its
+  // label is a missing field.
+  'strict-mode-unlabeled-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true, max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'fine' }] },
+    ],
+  },
+  'strict-mode-unlabeled-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'Answer: ok' }] },
+    ],
+  },
+  'streaming-forward-strict-mode-unlabeled-retry': {
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true },
+    responses: [
+      streamed(text('o'), done('k')),
+      streamed(text('Answer: o'), done('k')),
+    ],
+  },
+  // strictMode given to the AxGen constructor applies unless the call
+  // overrides it.
+  'strict-mode-constructor-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { strict_mode: true },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'Answer: ok' }] },
+    ],
+  },
+  'strict-mode-call-overrides-constructor': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    options: { strict_mode: true },
+    forward_options: { strict_mode: false },
+    responses: [{ results: [{ index: 0, content: 'ok' }] }],
+  },
+  // The first required field is the one strict mode asks for.
+  'strict-mode-first-required-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> note?:string, answer:number',
+    forward_options: { strict_mode: true, max_retries: 1 },
+    responses: [
+      { results: [{ index: 0, content: 'ok' }] },
+      { results: [{ index: 0, content: 'fine' }] },
+    ],
+  },
+  // A JSON object is not a label either: strict mode retries it.
+  'strict-mode-json-object-retry': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { strict_mode: true },
+    responses: [
+      { results: [{ index: 0, content: '{"answer":"ok"}' }] },
+      { results: [{ index: 0, content: 'Answer: ok' }] },
+    ],
+  },
+
+  // ----- functionCot (a provider feature) -----
+  // With functionCot and functions, leading unlabeled text (reasoning before
+  // a tool call) is not streamed as the answer.
+  'streaming-forward-function-cot-leading-text': {
+    signature: 'question:string -> answer:string',
+    features: { functions: true, function_cot: true },
+    tools: [lookupTool],
+    responses: [
+      streamed(
+        text('Let me '),
+        text('look that up. '),
+        chunk({
+          function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: done'), done()),
+    ],
   },
 };
 

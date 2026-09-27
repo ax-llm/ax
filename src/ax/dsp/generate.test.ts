@@ -1181,4 +1181,36 @@ describe('AxGen DSPy field prefix format', () => {
       agentOutput: 'This is the agent response with proper field prefix',
     });
   });
+
+  it('applies strictMode from the constructor unless the call overrides it', async () => {
+    const answers = ['ok', 'Answer: labeled'];
+    let requests = 0;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [
+          {
+            index: 0,
+            content: answers[requests++] ?? 'Answer: extra',
+            finishReason: 'stop',
+          },
+        ],
+      }),
+    });
+    const strict = new AxGen('question:string -> answer:string', {
+      strictMode: true,
+    });
+
+    // Strict mode rejects the unlabeled answer and retries.
+    expect(await strict.forward(ai, { question: 'q' })).toEqual({
+      answer: 'labeled',
+    });
+    expect(requests).toBe(2);
+
+    requests = 0;
+    expect(
+      await strict.forward(ai, { question: 'q' }, { strictMode: false })
+    ).toEqual({ answer: 'ok' });
+    expect(requests).toBe(1);
+  });
 });

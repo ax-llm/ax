@@ -1,5 +1,5 @@
 {
-  "expected_error_contains": "to be a number",
+  "expected_error_contains": "Invalid number. Provide a number.",
   "expected_request_count": 4,
   "expected_tool_calls": [
     {

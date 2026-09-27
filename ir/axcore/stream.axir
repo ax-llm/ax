@@ -1350,13 +1350,16 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/streamingText.ts"
-    type signature = "(json, json, string, list<json>) -> bool throws"
-    body @entry(%xstate: json, %values: json, %content: string, %fields: list<json>) {
+    type signature = "(json, json, string, list<json>, json) -> bool throws"
+    body @entry(%xstate: json, %values: json, %content: string, %fields: list<json>, %options: json) {
       // streamingExtractValues: finds the next `Label:` after the current
       // field's value start, parses the field it closes into values, and
       // records the closed field for streaming. Returns true to skip the
       // chunk while the content may still end in a partial label. A
-      // single-field signature with no label yet assumes that field.
+      // single-field signature with no label yet assumes that field, unless
+      // options.strict_mode, which requires the first required field's label.
+      // options.skip_early_fail (functionCot with functions) leaves unlabeled
+      // text alone: it may be reasoning before a tool call.
       %field_count = core.call intrinsic.len(%fields)
       core.loop {
         %exclude = core.let -1
@@ -1415,12 +1418,19 @@ module @ax.stream version "0.1" {
           core.if %partial_prefix {
             core.return true
           }
+          %skip_early_fail = core.get %options["skip_early_fail"] default false
+          core.if %skip_early_fail {
+            core.return false
+          }
+          %strict_mode = core.get %options["strict_mode"] default false
+          %lenient = core.call intrinsic.not(%strict_mode)
           %curr_field = core.get %xstate["curr_field"]
           %no_curr = core.call intrinsic.is_none(%curr_field)
           %nothing_extracted = core.call intrinsic.eq(%extracted_count, 0)
           %single = core.call intrinsic.eq(%field_count, 1)
           %assume_start = core.call intrinsic.and(%no_curr, %nothing_extracted)
-          %assume = core.call intrinsic.and(%assume_start, %single)
+          %assume_single = core.call intrinsic.and(%assume_start, %single)
+          %assume = core.call intrinsic.and(%assume_single, %lenient)
           core.if %assume {
             %only = core.call intrinsic.list.get(%fields, 0)
             core.set %xstate["in_assumed_field"] = true
@@ -1429,6 +1439,10 @@ module @ax.stream version "0.1" {
             core.set %xstate["s"] = 0
             core.call @stream_text_note_field_impl(%xstate, %only, true)
             core.return false
+          }
+          %strict_start = core.call intrinsic.and(%assume_start, %strict_mode)
+          core.if %strict_start {
+            core.call @stream_text_expect_required_impl(%fields)
           }
           core.break
         }
@@ -1645,16 +1659,20 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/streamingText.ts"
-    type signature = "(json, json, string, list<json>) -> void throws"
-    body @entry(%xstate: json, %values: json, %content: string, %fields: list<json>) {
+    type signature = "(json, json, string, list<json>, json) -> void throws"
+    body @entry(%xstate: json, %values: json, %content: string, %fields: list<json>, %options: json) {
       // streamingExtractFinalValue with forceFinalize: parse the current
       // field up to the next label, recover missed fields, then require the
-      // required ones.
+      // required ones. Without options.strict_mode a single unlabeled field
+      // is assumed; with it, text that never opened a field fails.
+      %strict_mode = core.get %options["strict_mode"] default false
+      %lenient = core.call intrinsic.not(%strict_mode)
       %field_count = core.call intrinsic.len(%fields)
       %curr = core.get %xstate["curr_field"]
       %no_curr = core.call intrinsic.is_none(%curr)
       %single = core.call intrinsic.eq(%field_count, 1)
-      %assume = core.call intrinsic.and(%no_curr, %single)
+      %assume_single = core.call intrinsic.and(%no_curr, %single)
+      %assume = core.call intrinsic.and(%assume_single, %lenient)
       core.if %assume {
         %only = core.call intrinsic.list.get(%fields, 0)
         core.set %xstate["curr_field"] = %only
@@ -1696,6 +1714,21 @@ module @ax.stream version "0.1" {
           core.set %values[%curr_name] = %parsed_value
         }
       }
+      %never_opened = core.call intrinsic.not(%has_curr)
+      %strict_unopened = core.call intrinsic.and(%strict_mode, %never_opened)
+      core.if %strict_unopened {
+        %empty_extracted = core.list
+        %extracted = core.get %xstate["extracted_fields"] default %empty_extracted
+        %extracted_count = core.call intrinsic.len(%extracted)
+        %nothing_extracted = core.call intrinsic.eq(%extracted_count, 0)
+        %trimmed_content = core.string_trim %content
+        %text_length = core.call intrinsic.len(%trimmed_content)
+        %has_text = core.call intrinsic.gt(%text_length, 0)
+        %unlabeled_text = core.call intrinsic.and(%nothing_extracted, %has_text)
+        core.if %unlabeled_text {
+          core.call @stream_text_expect_required_impl(%fields)
+        }
+      }
       core.call @stream_text_missed_fields_impl(%values, %content, %fields)
       core.call @stream_text_required_check_impl(%values, %fields)
       core.return
@@ -1708,14 +1741,16 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/streamingText.ts"
-    type signature = "(string, list<json>) -> json throws"
-    body @entry(%content: string, %fields: list<json>) {
+    type signature = "(string, list<json>, bool) -> json throws"
+    body @entry(%content: string, %fields: list<json>, %strict_mode: bool) {
       // extractValues: TS parses a whole response with the streaming
       // extractor and drops the internal fields.
+      %extract_options = core.map
+      core.set %extract_options["strict_mode"] = %strict_mode
       %values = core.map
       %xstate = core.call @stream_text_state_impl()
-      core.call @stream_text_extract_impl(%xstate, %values, %content, %fields)
-      core.call @stream_text_final_impl(%xstate, %values, %content, %fields)
+      core.call @stream_text_extract_impl(%xstate, %values, %content, %fields, %extract_options)
+      core.call @stream_text_final_impl(%xstate, %values, %content, %fields, %extract_options)
       core.for %field in %fields {
         %internal = core.call @stream_field_flag_impl(%field, "is_internal", "isInternal")
         core.if %internal {
@@ -2514,7 +2549,8 @@ module @ax.stream version "0.1" {
           }
           core.continue
         }
-        core.call @stream_json_validate_value_impl(%field, %value, %allow_missing)
+        %typed = core.call @stream_json_validate_value_impl(%field, %value, %allow_missing)
+        core.set %values[%name] = %typed
       }
       core.return
     }
@@ -2526,17 +2562,42 @@ module @ax.stream version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/extract/structuredJson.ts"
-    type signature = "(json, json, bool) -> void throws"
+    type signature = "(json, json, bool) -> json throws"
     body @entry(%field: json, %value: json, %allow_missing: bool) {
-      // validateStructuredFieldValue.
+      // validateStructuredFieldValue: the value, or each item of an array,
+      // must have the field's type (a numeric or true/false string is
+      // converted, as in the text contract), then meet its constraints.
+      // Returns the converted value.
       %typ = core.get %field["type"]
       %no_type = core.call intrinsic.is_none(%typ)
       core.if %no_type {
-        core.return
+        core.return %value
       }
       %name = core.get %typ["name"] default "string"
       %is_array = core.call @stream_field_flag_impl(%typ, "is_array", "isArray")
       %not_array = core.call intrinsic.not(%is_array)
+      core.if %is_array {
+        %is_list_value = core.type_is %value type "list"
+        %not_list_value = core.call intrinsic.not(%is_list_value)
+        core.if %not_list_value {
+          %array_error = core.call @stream_json_type_error_impl(%field, %value, "Expected an array")
+          core.raise %array_error
+        }
+        %item_field = core.call intrinsic.field.item(%field)
+        %typed_items = core.list
+        core.for %raw_item in %value {
+          %raw_missing = core.call intrinsic.is_none(%raw_item)
+          core.if %raw_missing {
+            core.append %typed_items, %raw_item
+            core.continue
+          }
+          %typed_item = core.call @stream_json_coerce_scalar_impl(%item_field, %raw_item)
+          core.append %typed_items, %typed_item
+        }
+        %value = core.let %typed_items
+      } else {
+        %value = core.call @stream_json_coerce_scalar_impl(%field, %value)
+      }
       %is_url = core.call intrinsic.eq(%name, "url")
       %scalar_url = core.call intrinsic.and(%is_url, %not_array)
       core.if %scalar_url {
@@ -2591,7 +2652,7 @@ module @ax.stream version "0.1" {
           }
         }
       }
-      core.return
+      core.return %value
     }
   }
 
@@ -2654,7 +2715,8 @@ module @ax.stream version "0.1" {
           }
           core.continue
         }
-        core.call @stream_json_validate_value_impl(%titled, %nested_value, %allow_missing)
+        %typed_nested = core.call @stream_json_validate_value_impl(%titled, %nested_value, %allow_missing)
+        core.set %object[%nested_name] = %typed_nested
       }
       core.return
     }
@@ -3405,6 +3467,9 @@ module @ax.stream version "0.1" {
           core.if %has_returned {
             %message = core.let %returned
           }
+          // Marked so the attempt can tell an exhausted streaming assertion,
+          // which TS surfaces as it is, from other exhausted retries.
+          core.set %xstate["assertion_failed"] = true
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -3569,7 +3634,7 @@ module @ax.stream version "0.1" {
       %xstate = core.get %state["xstate"] default %empty_xstate
       %empty_values = core.map
       %values = core.get %state["values"] default %empty_values
-      %skip = core.call @stream_text_extract_impl(%xstate, %values, %content, %fields)
+      %skip = core.call @stream_text_extract_impl(%xstate, %values, %content, %fields, %config)
       core.if %skip {
         core.return %deltas
       }
@@ -3657,7 +3722,7 @@ module @ax.stream version "0.1" {
       }
       %text_route = core.call intrinsic.not(%json_parsed)
       core.if %text_route {
-        core.call @stream_text_final_impl(%xstate, %values, %content, %fields)
+        core.call @stream_text_final_impl(%xstate, %values, %content, %fields, %config)
       }
       %assertion_thrown = core.call @stream_check_assertions_impl(%gen, %xstate, %content, true)
       %assertion_threw = core.call intrinsic.is_not_none(%assertion_thrown)
@@ -3864,6 +3929,179 @@ module @ax.stream version "0.1" {
         %cursor = core.let %next
       }
       core.return true
+    }
+  }
+
+  op ax.stream.semantic @stream_json_type_error_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/errors.ts"
+    type signature = "(json, json, string) -> error"
+    body @entry(%field: json, %value: json, %detail: string) {
+      // createTypeValidationError: the value is shown as is when it is a
+      // string, as JSON otherwise.
+      %title = core.call @stream_field_title_impl(%field)
+      %shown = core.let ""
+      %is_text = core.type_is %value type "string"
+      core.if %is_text {
+        %shown = core.let %value
+      } else {
+        %shown = core.call intrinsic.json.stringify(%value)
+      }
+      %label = core.call @stream_field_type_label_impl(%field)
+      %message = core.call intrinsic.add("Field '", %title)
+      %message = core.call intrinsic.add(%message, "' has an invalid value '")
+      %message = core.call intrinsic.add(%message, %shown)
+      %message = core.call intrinsic.add(%message, "': ")
+      %message = core.call intrinsic.add(%message, %detail)
+      %message = core.call intrinsic.add(%message, ". Provide a ")
+      %message = core.call intrinsic.add(%message, %label)
+      %message = core.call intrinsic.add(%message, ". Ensure formatting exactly matches the expected type.")
+      %error = core.call intrinsic.error.validation(%message)
+      core.return %error
+    }
+  }
+
+  op ax.stream.semantic @stream_json_coerce_scalar_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%field: json, %value: json) {
+      // coerceStructuredValue: a number field takes a number or a numeric
+      // string (JS Number()), a boolean field a boolean or "true"/"false" in
+      // any case; string, code, class and object fields need their type.
+      // Other types keep their own validation.
+      %typ = core.get %field["type"]
+      %name = core.get %typ["name"] default "string"
+      %is_boolean_value = core.type_is %value type "boolean"
+      %is_number_type = core.call intrinsic.eq(%name, "number")
+      core.if %is_number_type {
+        %is_number_value = core.type_is %value type "number"
+        %plain_number = core.call intrinsic.not(%is_boolean_value)
+        %number_ok = core.call intrinsic.and(%is_number_value, %plain_number)
+        core.if %number_ok {
+          core.return %value
+        }
+        %is_number_text = core.type_is %value type "string"
+        core.if %is_number_text {
+          %number_trimmed = core.string_trim %value
+          %number_blank = core.call intrinsic.eq(%number_trimmed, "")
+          %number_filled = core.call intrinsic.not(%number_blank)
+          core.if %number_filled {
+            %converted = core.call @stream_js_number_impl(%value)
+            %parsed = core.call intrinsic.is_not_none(%converted)
+            core.if %parsed {
+              core.return %converted
+            }
+          }
+        }
+        %number_error = core.call @stream_json_type_error_impl(%field, %value, "Invalid number")
+        core.raise %number_error
+      }
+      %is_boolean_type = core.call intrinsic.eq(%name, "boolean")
+      core.if %is_boolean_type {
+        core.if %is_boolean_value {
+          core.return %value
+        }
+        %is_boolean_text = core.type_is %value type "string"
+        core.if %is_boolean_text {
+          %lowered = core.call intrinsic.string.lower(%value)
+          %said_true = core.call intrinsic.eq(%lowered, "true")
+          core.if %said_true {
+            core.return true
+          }
+          %said_false = core.call intrinsic.eq(%lowered, "false")
+          core.if %said_false {
+            core.return false
+          }
+        }
+        %boolean_error = core.call @stream_json_type_error_impl(%field, %value, "Invalid boolean")
+        core.raise %boolean_error
+      }
+      %is_string_type = core.call intrinsic.eq(%name, "string")
+      %is_code_type = core.call intrinsic.eq(%name, "code")
+      %is_class_type = core.call intrinsic.eq(%name, "class")
+      %needs_text = core.call intrinsic.or(%is_string_type, %is_code_type)
+      %needs_text = core.call intrinsic.or(%needs_text, %is_class_type)
+      core.if %needs_text {
+        %is_text_value = core.type_is %value type "string"
+        %not_text_value = core.call intrinsic.not(%is_text_value)
+        core.if %not_text_value {
+          %text_error = core.call @stream_json_type_error_impl(%field, %value, "Expected a string")
+          core.raise %text_error
+        }
+        core.if %is_class_type {
+          %class_options = core.get %typ["options"]
+          %has_options = core.call intrinsic.truthy(%class_options)
+          core.if %has_options {
+            %known_class = core.call intrinsic.contains(%class_options, %value)
+            %unknown_class = core.call intrinsic.not(%known_class)
+            core.if %unknown_class {
+              %option_list = core.call intrinsic.string.join(", ", %class_options)
+              %class_detail = core.call intrinsic.add("Invalid class '", %value)
+              %class_detail = core.call intrinsic.add(%class_detail, "', expected one of the following: ")
+              %class_detail = core.call intrinsic.add(%class_detail, %option_list)
+              %class_error = core.call @stream_json_type_error_impl(%field, %value, %class_detail)
+              core.raise %class_error
+            }
+          }
+        }
+        core.return %value
+      }
+      %is_object_type = core.call intrinsic.eq(%name, "object")
+      core.if %is_object_type {
+        %is_object_value = core.type_is %value type "object"
+        %not_object_value = core.call intrinsic.not(%is_object_value)
+        core.if %not_object_value {
+          %object_error = core.call @stream_json_type_error_impl(%field, %value, "Expected an object")
+          core.raise %object_error
+        }
+      }
+      core.return %value
+    }
+  }
+
+  op ax.stream.semantic @stream_json_validate_output_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/extract/structuredJson.ts"
+    type signature = "(list<json>, json) -> json throws"
+    body @entry(%fields: list<json>, %values: json) {
+      // validateStructuredOutputValues for a complete JSON answer; returns
+      // the values with numeric and true/false strings converted.
+      core.call @stream_json_validate_impl(%fields, %values, false, false)
+      core.return %values
+    }
+  }
+
+  op ax.stream.semantic @stream_text_expect_required_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/errors.ts"
+    type signature = "(list<json>) -> void throws"
+    body @entry(%fields: list<json>) {
+      // createExpectedRequiredFieldNotFoundError for the first required
+      // output field: in strict mode the answer must open with its label.
+      core.for %field in %fields {
+        %optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
+        core.if %optional {
+          core.continue
+        }
+        %title = core.call @stream_field_title_impl(%field)
+        %label = core.call @stream_field_type_label_impl(%field)
+        %message = core.call intrinsic.string.format("Expected (Required) field not found: '{}'. Begin a new section with \"{}:\" and then provide a valid {} value directly after.", %title, %title, %label)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return
     }
   }
 }

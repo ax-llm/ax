@@ -114,6 +114,58 @@ func TestAsAxErrorReportsEnvelopePresence(t *testing.T) {
 	}
 }
 
+// intrinsic.exception.rewrap makes "Generate failed: ..." from the error it
+// wraps: same class and category, the new message, and the original as the
+// cause that errors.Unwrap, errors.Is and errors.As reach.
+func TestExceptionRewrapKeepsClassAndCause(t *testing.T) {
+	// The IR hands a caught error over as its error value.
+	caught := errorValue(ValidationError{AxError{Category: "validation", Message: "Field 'Count' has an invalid value 'lots'"}})
+	unfixed := _core_exception_rewrap(caught, "Unable to fix validation error: Field 'Count' has an invalid value 'lots'")
+	failed := _core_exception_rewrap(unfixed, "Generate failed: "+display(_core_exception_message(unfixed)))
+	err := asError(failed)
+	envelope, ok := AsAxError(err)
+	if !ok || envelope.Category != "validation" || err.Error() != "Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots'" {
+		t.Fatalf("rewrapped error = %T %+v %q, want a validation error with the new message", err, envelope, err.Error())
+	}
+	if _, isAxError := err.(AxError); !isAxError {
+		t.Fatalf("rewrapped error is %T, want the AxError the original raises as", err)
+	}
+	cause := errors.Unwrap(err)
+	if cause == nil || cause.Error() != "Unable to fix validation error: Field 'Count' has an invalid value 'lots'" || !errors.Is(err, cause) {
+		t.Fatalf("errors.Unwrap = %v, want the rewrap it was made from", cause)
+	}
+	original := errors.Unwrap(cause)
+	if original == nil || original.Error() != "Field 'Count' has an invalid value 'lots'" || asAxError(original).Category != "validation" || errors.Unwrap(original) != nil {
+		t.Fatalf("errors.Unwrap twice = %v, want the original validation error", original)
+	}
+	if coreTruthy(_core_exception_is_aborted(failed)) || display(coreGet(errorValue(err), "message", nil)) != err.Error() {
+		t.Fatalf("rewrapped error value = %v", errorValue(err))
+	}
+
+	// A Go error keeps its concrete type, and errors.Is and errors.As reach it.
+	unavailable := AIServiceError{AxError{Category: "ai", Type: "AxAIServiceStatusError", Message: "Service Unavailable", Status: 503, Retryable: true}}
+	wrapped := asError(_core_exception_rewrap(unavailable, "Generate failed: Service Unavailable"))
+	var service AIServiceError
+	if !errors.As(wrapped, &service) || service.Message != "Generate failed: Service Unavailable" || service.Type != "AxAIServiceStatusError" || service.Status != 503 || !service.Retryable {
+		t.Fatalf("errors.As(AIServiceError) = %+v, want the rewrapped status error", service)
+	}
+	if !errors.Is(wrapped, unavailable) || axErrorCause(wrapped) != error(unavailable) || !coreTruthy(_core_exception_is_infrastructure(wrapped)) {
+		t.Fatalf("rewrapped status error does not reach its cause: %v", axErrorCause(wrapped))
+	}
+
+	// An Ax error behind another wrapper keeps its class and category, and
+	// the error value is the rewrap's, not its cause's.
+	behind := fmt.Errorf("chat failed: %w", unavailable)
+	rewrapped := asError(_core_exception_rewrap(behind, "Generate failed: chat failed: Service Unavailable"))
+	value := errorValue(rewrapped)
+	if coreGet(value, "__type", nil) != "AxAIServiceStatusError" || coreGet(value, "__error", nil) != "ai" || coreGet(value, "message", nil) != "Generate failed: chat failed: Service Unavailable" {
+		t.Fatalf("error value of a rewrapped wrapper = %v", value)
+	}
+	if errors.Unwrap(rewrapped) != behind || !errors.Is(rewrapped, unavailable) {
+		t.Fatalf("rewrapped wrapper does not unwrap to it: %v", errors.Unwrap(rewrapped))
+	}
+}
+
 func TestIsRetryableFollowsCoreStatusSet(t *testing.T) {
 	for status, want := range map[int]bool{
 		408: true, 429: true, 500: true, 502: true, 503: true, 504: true, 529: true,
