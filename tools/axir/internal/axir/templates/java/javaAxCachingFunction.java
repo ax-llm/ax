@@ -20,7 +20,8 @@ import java.util.Map;
  *
  * <p>An {@link AxFlow} caches its returned output the same way, through the {@code
  * cachingFunction} of its forward call, else the process-wide one (its constructor takes none): a
- * hit runs no node, and the flow ignores exceptions from its own reads and stores. The call's
+ * hit runs no node and records no {@code ax_gen_flow_forward} span and no {@code ax_gen_flow}
+ * metrics, and the flow ignores exceptions from its own reads and stores. The call's
  * options reach the flow's AxGen nodes, so they cache their outputs too, and a node's read
  * exception fails the flow as it fails that node's forward. {@link AxFlow#streamingForward} yields
  * the output, stored or not, as one delta ({@code version} 1, {@code index} 0).

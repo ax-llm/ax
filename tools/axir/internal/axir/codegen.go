@@ -2487,7 +2487,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
 				"- `examples/CancellationNoKeyExample.java`: one-shot provider cancellation with no transport attempt",
-				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
+				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph and a caching function, whose hits run no node and record no span",
 				"- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding",
