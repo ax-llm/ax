@@ -865,6 +865,13 @@ final class Core {
     if (program instanceof AxProgram axProgram) axProgram.applyOptimizedComponents(asMap(componentMap));
     return Map.of();
   }
+  // An AxGen's or AxAgent's signature text. Any other program (a nested flow,
+  // a custom program) has none, and its undeclared step is a barrier.
+  static Object programSignature(Object program) {
+    if (program instanceof AxGen gen) return gen.signature.toString();
+    if (program instanceof AxAgent agent) return String.valueOf(signature_to_string(agent.signature));
+    return null;
+  }
   static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {
       // As in TS, a streamed forward folds the stream's chunks into one response.

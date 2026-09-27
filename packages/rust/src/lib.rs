@@ -7136,6 +7136,12 @@ pub trait AxExecutableProgram: AxProgram {
     fn get_usage(&self) -> Value {
         Value::Null
     }
+    /// The program's signature text, when it has one. A flow step added with
+    /// this program and no reads or writes reads its input fields and writes
+    /// its output fields; without a signature the step is a barrier.
+    fn signature_text(&self) -> Option<String> {
+        None
+    }
 }
 
 // This adapter is borrowed only within forward; no borrowed client crosses a thread boundary.
@@ -7242,6 +7248,9 @@ impl AxExecutableProgram for AxGen {
             .iter()
             .filter_map(|entry| entry.get("usage"))
             .collect::<Vec<_>>())
+    }
+    fn signature_text(&self) -> Option<String> {
+        Some(self.signature.to_string())
     }
 }
 
@@ -16932,6 +16941,24 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
             expected,
         )?;
     }
+    if let Some(expected) = fixture
+        .get("expected_request_contains")
+        .and_then(Value::as_array)
+    {
+        let text = serde_json::to_string(&actual["requests"]).unwrap_or_default();
+        for item in expected {
+            let needle = item
+                .as_str()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| item.to_string());
+            if !text.contains(&needle) {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("flow request missing {needle}: {text}"),
+                ));
+            }
+        }
+    }
     if let Some(expected) = fixture.get("expected_speak_requests") {
         expect_json_equal(
             "speak requests",
@@ -17014,7 +17041,11 @@ fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
         {
             let name = step.get("name").and_then(Value::as_str).unwrap_or("");
             let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
-            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            // A builder step without "reads" declares none.
+            let options = match step.get("reads") {
+                Some(reads) => json!({"reads": reads}),
+                None => json!({}),
+            };
             built = built.execute_with_options(name, ax(signature)?, &options);
         }
         return expect_json_equal(
@@ -32765,6 +32796,12 @@ impl CoreHost for ExecutableProgramHost {
                 .borrow()
                 .get_traces()))),
             "get_usage" => Ok(core_value_from_json(&self.program.borrow().get_usage())),
+            "signature_text" => Ok(self
+                .program
+                .borrow()
+                .signature_text()
+                .map(|text| CoreValue::from(text.as_str()))
+                .unwrap_or(CoreValue::Null)),
             other => Err(AxError::runtime(format!(
                 "Executable program has no method '{other}'"
             ))),
@@ -32838,6 +32875,9 @@ impl CoreHost for GenHost {
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().chat_log.clone(),
             ))),
+            "signature_text" => Ok(CoreValue::from(
+                self.gen.borrow().signature.to_string().as_str(),
+            )),
             "get_traces" => Ok(core_value_from_json(&Value::Array(
                 self.gen.borrow().traces.clone(),
             ))),
@@ -32972,6 +33012,14 @@ impl CoreHost for AgentHost {
             "get_chat_log" => Ok(core_value_from_json(&Value::Array(
                 self.agent.borrow().get_chat_log(),
             ))),
+            "signature_text" => {
+                let signature = core_get(
+                    &self.agent.borrow().state,
+                    &CoreValue::from("signature"),
+                    CoreValue::Null,
+                );
+                signature_to_string(&[signature])
+            }
             "get_usage" => {
                 let usage = self.agent.borrow().get_usage();
                 Ok(core_value_from_json(&usage))
@@ -33219,6 +33267,15 @@ fn core_program_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match core_host_try(&core_arg(args, 0), "get_optimizable_components", &[]) {
         Some(result) => result,
         None => Ok(CoreValue::new_list()),
+    }
+}
+
+// An AxGen's or AxAgent's signature text. Any other program (a nested flow, a
+// custom program) has none, and its undeclared step is a barrier.
+fn core_program_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    match core_host_try(&core_arg(args, 0), "signature_text", &[]) {
+        Some(result) => result,
+        None => Ok(CoreValue::Null),
     }
 }
 
@@ -116497,6 +116554,10 @@ fn _flow_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_empty_map = CoreValue::Null;
     let mut v_err = CoreValue::Null;
     let mut v_execute_write = CoreValue::Null;
+    let mut v_infers_io = CoreValue::Null;
+    let mut v_io = CoreValue::Null;
+    let mut v_io_has_signature = CoreValue::Null;
+    let mut v_io_outputs = CoreValue::Null;
     let mut v_is_derive = CoreValue::Null;
     let mut v_is_execute = CoreValue::Null;
     let mut v_is_parallel = CoreValue::Null;
@@ -116558,6 +116619,28 @@ fn _flow_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_may_parallel = core_or(&[v_is_execute.clone(), v_is_derive.clone()])?;
     if core_truthy(&v_may_parallel) {
         v_default_barrier = CoreValue::Bool(false);
+    }
+    v_io = _flow_step_program_io(&[
+        v_kind.clone(),
+        v_trimmed.clone(),
+        v_program.clone(),
+        v_opts.clone(),
+    ])?;
+    v_infers_io = core_get(&v_io, &CoreValue::from("infer"), CoreValue::Bool(false));
+    if core_truthy(&v_infers_io) {
+        v_io_has_signature = core_get(
+            &v_io,
+            &CoreValue::from("hasSignature"),
+            CoreValue::Bool(false),
+        );
+        if core_truthy(&v_io_has_signature) {
+            v_reads = core_get(&v_io, &CoreValue::from("reads"), CoreValue::Null);
+            v_writes = core_get(&v_io, &CoreValue::from("writes"), CoreValue::Null);
+            v_io_outputs = core_get(&v_io, &CoreValue::from("outputs"), CoreValue::Null);
+            core_set(&v_step, CoreValue::from("outputs"), v_io_outputs.clone())?;
+        } else {
+            v_default_barrier = CoreValue::Bool(true);
+        }
     }
     v_barrier_from_snake = core_get(
         &v_opts,
@@ -116737,8 +116820,10 @@ fn _flow_plan_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_barrier_snake = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
+    let mut v_has_outputs = CoreValue::Null;
     let mut v_kind = CoreValue::Null;
     let mut v_name = CoreValue::Null;
+    let mut v_outputs = CoreValue::Null;
     let mut v_reads = CoreValue::Null;
     let mut v_writes = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
@@ -116770,6 +116855,11 @@ fn _flow_plan_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_entry, CoreValue::from("kind"), v_kind.clone())?;
     core_set(&v_entry, CoreValue::from("reads"), v_reads.clone())?;
     core_set(&v_entry, CoreValue::from("writes"), v_writes.clone())?;
+    v_has_outputs = core_map_contains(&[v_step.clone(), CoreValue::from("outputs")])?;
+    if core_truthy(&v_has_outputs) {
+        v_outputs = core_get(&v_step, &CoreValue::from("outputs"), CoreValue::Null);
+        core_set(&v_entry, CoreValue::from("outputs"), v_outputs.clone())?;
+    }
     core_set(&v_entry, CoreValue::from("barrier"), v_barrier.clone())?;
     core_set(&v_entry, CoreValue::from("stepIndex"), v_step_index.clone())?;
     return Ok(v_entry.clone());
@@ -116788,21 +116878,31 @@ fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_candidate = core_arg(args, 1);
     let mut v_can_share = CoreValue::Null;
     let mut v_candidate_barrier = CoreValue::Null;
+    let mut v_candidate_outputs = CoreValue::Null;
     let mut v_candidate_reads = CoreValue::Null;
+    let mut v_candidate_write_output = CoreValue::Null;
     let mut v_candidate_writes = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_existing = CoreValue::Null;
     let mut v_existing_barrier = CoreValue::Null;
+    let mut v_existing_outputs = CoreValue::Null;
     let mut v_existing_read = CoreValue::Null;
     let mut v_existing_reads = CoreValue::Null;
+    let mut v_existing_write_output = CoreValue::Null;
     let mut v_existing_writes = CoreValue::Null;
     let mut v_no_writes = CoreValue::Null;
     let mut v_read = CoreValue::Null;
     let mut v_read_conflict = CoreValue::Null;
+    let mut v_reverse_read_blocks = CoreValue::Null;
     let mut v_reverse_read_conflict = CoreValue::Null;
+    let mut v_reverse_read_ordered = CoreValue::Null;
+    let mut v_reverse_read_output = CoreValue::Null;
     let mut v_write = CoreValue::Null;
+    let mut v_write_blocks = CoreValue::Null;
     let mut v_write_conflict = CoreValue::Null;
     let mut v_write_count = CoreValue::Null;
+    let mut v_write_ordered = CoreValue::Null;
+    let mut v_write_output = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_candidate_barrier = core_get(
         &v_candidate,
@@ -116817,6 +116917,11 @@ fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     v_candidate_reads = core_get(
         &v_candidate,
         &CoreValue::from("reads"),
+        v_empty_list.clone(),
+    );
+    v_candidate_outputs = core_get(
+        &v_candidate,
+        &CoreValue::from("outputs"),
         v_empty_list.clone(),
     );
     v_write_count = core_len(&[v_candidate_writes.clone()])?;
@@ -116844,6 +116949,11 @@ fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             v_empty_list.clone(),
         );
         v_existing_reads = core_get(&v_existing, &CoreValue::from("reads"), v_empty_list.clone());
+        v_existing_outputs = core_get(
+            &v_existing,
+            &CoreValue::from("outputs"),
+            v_empty_list.clone(),
+        );
         for v_read in core_iter(&v_candidate_reads)? {
             let mut v_read = v_read;
             v_read_conflict = core_contains(&[v_existing_writes.clone(), v_read.clone()])?;
@@ -116855,14 +116965,31 @@ fn _flow_plan_can_share_group(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             let mut v_existing_read = v_existing_read;
             v_reverse_read_conflict =
                 core_contains(&[v_candidate_writes.clone(), v_existing_read.clone()])?;
-            if core_truthy(&v_reverse_read_conflict) {
+            v_reverse_read_output =
+                core_contains(&[v_candidate_outputs.clone(), v_existing_read.clone()])?;
+            v_reverse_read_ordered = core_not(&[v_reverse_read_output.clone()])?;
+            v_reverse_read_blocks = core_and(&[
+                v_reverse_read_conflict.clone(),
+                v_reverse_read_ordered.clone(),
+            ])?;
+            if core_truthy(&v_reverse_read_blocks) {
                 v_can_share = CoreValue::Bool(false);
             }
         }
         for v_write in core_iter(&v_candidate_writes)? {
             let mut v_write = v_write;
             v_write_conflict = core_contains(&[v_existing_writes.clone(), v_write.clone()])?;
-            if core_truthy(&v_write_conflict) {
+            v_candidate_write_output =
+                core_contains(&[v_candidate_outputs.clone(), v_write.clone()])?;
+            v_existing_write_output =
+                core_contains(&[v_existing_outputs.clone(), v_write.clone()])?;
+            v_write_output = core_or(&[
+                v_candidate_write_output.clone(),
+                v_existing_write_output.clone(),
+            ])?;
+            v_write_ordered = core_not(&[v_write_output.clone()])?;
+            v_write_blocks = core_and(&[v_write_conflict.clone(), v_write_ordered.clone()])?;
+            if core_truthy(&v_write_blocks) {
                 v_can_share = CoreValue::Bool(false);
             }
         }
@@ -121213,6 +121340,7 @@ fn _flow_mermaid_render_flow(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_diamond = CoreValue::Null;
     let mut v_has_signature = CoreValue::Null;
     let mut v_header = CoreValue::Null;
+    let mut v_inferred_reads = CoreValue::Null;
     let mut v_is_execute = CoreValue::Null;
     let mut v_is_map = CoreValue::Null;
     let mut v_is_result = CoreValue::Null;
@@ -121373,6 +121501,11 @@ fn _flow_mermaid_render_flow(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                     core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
                 v_empty_reads = CoreValue::new_list();
                 v_step_reads = core_get(&v_step, &CoreValue::from("reads"), v_empty_reads.clone());
+                v_inferred_reads =
+                    core_map_contains(&[v_step.clone(), CoreValue::from("outputs")])?;
+                if core_truthy(&v_inferred_reads) {
+                    v_step_reads = v_empty_reads.clone();
+                }
                 v_reads = core_get(
                     &v_step_options,
                     &CoreValue::from("reads"),
@@ -121455,6 +121588,110 @@ fn _flow_to_mermaid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_rendered = _flow_mermaid_render_flow(&[v_flow.clone(), v_options.clone()])?;
     return Ok(v_rendered.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_step_program_io(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_step_program_io");
+    let mut v_kind = core_arg(args, 0);
+    let mut v_name = core_arg(args, 1);
+    let mut v_program = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_declares = CoreValue::Null;
+    let mut v_declares_reads = CoreValue::Null;
+    let mut v_declares_writes = CoreValue::Null;
+    let mut v_has_signature = CoreValue::Null;
+    let mut v_input_field = CoreValue::Null;
+    let mut v_input_fields = CoreValue::Null;
+    let mut v_input_name = CoreValue::Null;
+    let mut v_io = CoreValue::Null;
+    let mut v_is_execute = CoreValue::Null;
+    let mut v_is_result_key = CoreValue::Null;
+    let mut v_no_signature = CoreValue::Null;
+    let mut v_not_execute = CoreValue::Null;
+    let mut v_output_field = CoreValue::Null;
+    let mut v_output_fields = CoreValue::Null;
+    let mut v_output_name = CoreValue::Null;
+    let mut v_outputs = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_result_key = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_signature_text = CoreValue::Null;
+    let mut v_writes = CoreValue::Null;
+    v_io = CoreValue::new_map();
+    core_set(&v_io, CoreValue::from("infer"), CoreValue::Bool(false))?;
+    v_is_execute = core_eq(&[v_kind.clone(), CoreValue::from("execute")])?;
+    v_not_execute = core_not(&[v_is_execute.clone()])?;
+    if core_truthy(&v_not_execute) {
+        return Ok(v_io.clone());
+    }
+    v_declares_reads = core_map_contains(&[v_options.clone(), CoreValue::from("reads")])?;
+    v_declares_writes = core_map_contains(&[v_options.clone(), CoreValue::from("writes")])?;
+    v_declares = core_or(&[v_declares_reads.clone(), v_declares_writes.clone()])?;
+    if core_truthy(&v_declares) {
+        return Ok(v_io.clone());
+    }
+    core_set(&v_io, CoreValue::from("infer"), CoreValue::Bool(true))?;
+    v_signature_text = core_program_signature(&[v_program.clone()])?;
+    v_has_signature = core_truthy_value(&[v_signature_text.clone()])?;
+    core_set(
+        &v_io,
+        CoreValue::from("hasSignature"),
+        v_has_signature.clone(),
+    )?;
+    v_no_signature = core_not(&[v_has_signature.clone()])?;
+    if core_truthy(&v_no_signature) {
+        return Ok(v_io.clone());
+    }
+    v_signature = parse_signature(&[v_signature_text.clone()])?;
+    v_reads = CoreValue::new_list();
+    v_input_fields = core_get(
+        &v_signature,
+        &CoreValue::from("input_fields"),
+        CoreValue::Null,
+    );
+    for v_input_field in core_iter(&v_input_fields)? {
+        let mut v_input_field = v_input_field;
+        v_input_name = core_get(
+            &v_input_field,
+            &CoreValue::from("name"),
+            CoreValue::from(""),
+        );
+        core_append(&v_reads, v_input_name.clone())?;
+    }
+    v_writes = CoreValue::new_list();
+    v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_name.clone()])?;
+    core_append(&v_writes, v_result_key.clone())?;
+    v_outputs = CoreValue::new_list();
+    v_output_fields = core_get(
+        &v_signature,
+        &CoreValue::from("output_fields"),
+        CoreValue::Null,
+    );
+    for v_output_field in core_iter(&v_output_fields)? {
+        let mut v_output_field = v_output_field;
+        v_output_name = core_get(
+            &v_output_field,
+            &CoreValue::from("name"),
+            CoreValue::from(""),
+        );
+        v_is_result_key = core_eq(&[v_output_name.clone(), v_result_key.clone()])?;
+        if core_truthy(&v_is_result_key) {
+        } else {
+            core_append(&v_outputs, v_output_name.clone())?;
+            core_append(&v_writes, v_output_name.clone())?;
+        }
+    }
+    core_set(&v_io, CoreValue::from("reads"), v_reads.clone())?;
+    core_set(&v_io, CoreValue::from("writes"), v_writes.clone())?;
+    core_set(&v_io, CoreValue::from("outputs"), v_outputs.clone())?;
+    return Ok(v_io.clone());
 }
 
 #[allow(
@@ -126222,7 +126459,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (937 of 937 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (938 of 938 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

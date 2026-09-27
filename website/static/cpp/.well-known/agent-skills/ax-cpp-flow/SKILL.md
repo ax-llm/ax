@@ -70,6 +70,19 @@ auto parallel_flow = axllm::flow(axllm::object({{"id", "docs.parallelFlow"}}))
     .returns(axllm::object({{"briefText", "briefText"}}));
 ```
 
+### Undeclared steps
+
+A step added with a program and no `reads` or `writes` plans from the program's signature: it reads the input fields and writes `{name}Result` plus the output fields. An output field orders only the later steps that read it, so steps with independent inputs still share a group. A program without a signature (a nested flow, a custom program) runs alone, as a barrier.
+
+```cpp
+auto outline = axllm::ax("topic:string -> outline:string");
+auto polish = axllm::ax("outline:string -> answer:string");
+auto outline_flow = axllm::flow(axllm::object({{"id", "docs.outlineFlow"}}))
+    .execute("outline", outline)
+    .execute("polish", polish) // after outline
+    .returns(axllm::object({{"answer", "answer"}}));
+```
+
 ### Draft, critique, revise
 
 A linear refinement pipeline makes each dependency explicit.

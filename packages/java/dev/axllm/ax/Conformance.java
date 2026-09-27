@@ -1720,10 +1720,11 @@ public final class Conformance {
       AxFlow built = new AxFlow();
       for (Object raw : Core.asList(fixture.getOrDefault("builder_steps", List.of()))) {
         Map<String, Object> step = Core.asMap(raw);
+        // A builder step without "reads" declares none.
         built.execute(
           String.valueOf(step.get("name")),
           new AxGen(AxSignature.create(String.valueOf(step.get("signature")))),
-          Map.of("reads", Core.asList(step.getOrDefault("reads", List.of())))
+          step.containsKey("reads") ? Map.of("reads", Core.asList(step.get("reads"))) : Map.of()
         );
       }
       assertEqual(built.toString(), fixture.get("expected_rendered"), "flow mermaid builder render");

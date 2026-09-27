@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-rust-flow/SKILL.md",
-      "digest": "sha256:c94dc626ba6544805a93d6d22038ca646d36f3e992a2edb63e937f24f544968a"
+      "digest": "sha256:58aac463e8487a85d726647c1b660491ead796f7127680177c1f5eb1be7655b4"
     },
     {
       "name": "ax-rust-agent",

@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-go-flow/SKILL.md",
-      "digest": "sha256:69c8037a0b8cd6db25dfa25802ca21deb7814184cdc5b854cd6101cc9ccc0661"
+      "digest": "sha256:00fa30717c9d69ba6a82a28991f4d4320a8542a1e051375287efa5368fa2095b"
     },
     {
       "name": "ax-go-agent",
