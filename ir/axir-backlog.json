@@ -2977,7 +2977,7 @@
       "status": "open",
       "title": "Route MultiServiceRouter embed calls to the model an embedModel key maps to",
       "createdAt": "2026-09-29",
-      "sourcePR": null,
+      "sourcePR": 771,
       "sourceCommit": "b780a14a3cb94d5ac572db04038399aef655c76c",
       "tsPaths": [
         "src/ax/ai/multiservice.ts",
