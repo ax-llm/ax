@@ -230,7 +230,8 @@ export class AxMultiServiceRouter<
 
     this.lastUsedService = item.service;
 
-    if (!item.model) {
+    // Model-list keys belong to the service; only router-level keys are stripped.
+    if (!item.model && !item.embedModel) {
       const { embedModel: _, ...reqWithoutEmbedModel } = req;
       return await item.service.embed(reqWithoutEmbedModel, options);
     }

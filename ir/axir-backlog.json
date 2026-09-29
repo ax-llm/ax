@@ -2971,6 +2971,28 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "c1fc65ba7",
       "verification": "TS: src/ax/ai/transport_errors.test.ts pins fetch's failures against loopback servers (a refused or dropped connection is AxAIServiceNetworkError 'Network Error: ...', which apiCall retries; a timeout is AxAIServiceTimeoutError after one request; a dropped started stream is a network error; AxGen at maxRetries 1 sends both failures twice; the Typesafe client retries a network error and not a timeout). Ports: the transport_errors_http_roundtrip example (refused, closed without a response, never answering and a dropped started stream through the real HTTP client; stream retries; the Typesafe client; AxGen's retries; Java's default JDK exceptions and typedTransportErrors; Python's IncompleteRead base) fails on #761's head in all five ports and passes in all five. Before the fix AxGen sent a non-streaming network failure once in Go, Java, C++ and Rust (TS twice at maxRetries 1), and Rust's streams too. Full conformance passes in python, go and java; verify --mode release passes in all five."
+    },
+    {
+      "id": "axir-2026-09-29-route-multiservicerouter-embed-calls-to-the-model-an-embedmodel-",
+      "status": "open",
+      "title": "Route MultiServiceRouter embed calls to the model an embedModel key maps to",
+      "createdAt": "2026-09-29",
+      "sourcePR": null,
+      "sourceCommit": "b780a14a3cb94d5ac572db04038399aef655c76c",
+      "tsPaths": [
+        "src/ax/ai/multiservice.ts",
+        "src/ax/ai/multiservice.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript AxMultiServiceRouter.embed now keeps the embedModel key when the entry came from a service's model list as an embedModel item, so the service resolves it to the mapped embedding model instead of falling back to its default embed model. Router-level keys (key/service items) are still stripped. The generated ports copy the old check (strip unless the entry has a chat model) and should apply the same condition.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

@@ -24,6 +24,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/chatSession.ts`, `src/ax/dsp/generate.ts`
   - Impact: TypeScript's axRunChatSession lets one model request's native session make (maxSteps ?? 25) - stepIndex responses (generate.ts maxResponses) and then fails with 'Chat session failed: Maximum steps reached with unincorporated tool results (N); unresolved calls: ...'. The ports cap a session at the max_steps option or 10, without the step index, and fail with 'Maximum model steps exhausted before final completion'. Reproduced with a scripted session of 10 sequential tool-call responses and a final answer (11 responses): TypeScript completes with {answer: done} after 10 continues; Python on the 3b-2 branch fails with 'Generate failed: Maximum model steps exhausted before final completion'. At 26 responses TypeScript fails with its message. Go, Java, Rust and C++ create the session state with the same max_steps default of 10 (read, not run). Affects session-capable providers only, for a request whose session makes 11 to 25 responses.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-09-29-route-multiservicerouter-embed-calls-to-the-model-an-embedmodel-` [axai] Route MultiServiceRouter embed calls to the model an embedModel key maps to
+  - Status: open
+  - Source commit: `b780a14a3cb94d5ac572db04038399aef655c76c`
+  - TS paths: `src/ax/ai/multiservice.ts`, `src/ax/ai/multiservice.test.ts`
+  - Impact: TypeScript AxMultiServiceRouter.embed now keeps the embedModel key when the entry came from a service's model list as an embedModel item, so the service resolves it to the mapped embedding model instead of falling back to its default embed model. Router-level keys (key/service items) are still stripped. The generated ports copy the old check (strip unless the entry has a chat model) and should apply the same condition.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
