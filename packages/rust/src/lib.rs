@@ -14767,7 +14767,21 @@ impl MultiServiceRouter {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        self.service_for(&request)?.embed(request)
+        let entries = Value::Array(
+            self.services
+                .iter()
+                .map(|(key, service)| json!({"key": key, "models": service.get_model_list()}))
+                .collect(),
+        );
+        let routed = core_value_to_json(&router_embed_route(&[
+            core_value_from_json(&request),
+            core_value_from_json(&entries),
+        ])?);
+        let key = routed["key"].as_str().unwrap_or_default();
+        self.services
+            .get_mut(key)
+            .ok_or_else(|| AxError::runtime("Embedding service unavailable"))?
+            .embed(routed["request"].clone())
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -18885,13 +18899,11 @@ impl ConformanceMultiServiceRouter {
             AxError::runtime(format!("No service found for embed model key: {model_key}"))
         })?;
         self.last_used = Some(entry.service_index);
-        let mut forwarded = request.clone();
-        if entry.model.is_none() {
-            if let Some(obj) = forwarded.as_object_mut() {
-                obj.remove("embedModel");
-                obj.remove("embed_model");
-            }
-        }
+        let forwarded = core_value_to_json(&router_embed_request(&[
+            core_value_from_json(request),
+            core_value_from_json(&entry.model.clone().unwrap_or(Value::Null)),
+            core_value_from_json(&entry.embed_model.clone().unwrap_or(Value::Null)),
+        ])?);
         self.services[entry.service_index].embed(&forwarded, options)
     }
 
@@ -49451,6 +49463,127 @@ fn provider_route_preprocess_request(args: &[CoreValue]) -> Result<CoreValue, Ax
     v_out = core_map_merge(&[v_request_seed.clone(), v_request.clone()])?;
     core_set(&v_out, v_prompt_key.clone(), v_processed_prompt.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn router_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("router_embed_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_embed_model = core_arg(args, 2);
+    let mut v_chat_key = CoreValue::Null;
+    let mut v_embed_key = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_service_key = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_out = core_map_merge(&[v_empty.clone(), v_request.clone()])?;
+    v_chat_key = core_truthy_value(&[v_model.clone()])?;
+    v_embed_key = core_truthy_value(&[v_embed_model.clone()])?;
+    v_service_key = core_or(&[v_chat_key.clone(), v_embed_key.clone()])?;
+    if core_truthy(&v_service_key) {
+    } else {
+        core_map_delete(&[v_out.clone(), CoreValue::from("embedModel")])?;
+        core_map_delete(&[v_out.clone(), CoreValue::from("embed_model")])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn router_embed_route(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("router_embed_route");
+    let mut v_request = core_arg(args, 0);
+    let mut v_entries = core_arg(args, 1);
+    let mut v_chat_model = CoreValue::Null;
+    let mut v_embed_model = CoreValue::Null;
+    let mut v_embed_snake = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_forwarded = CoreValue::Null;
+    let mut v_has_key = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_key = CoreValue::Null;
+    let mut v_models = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_service_key = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    v_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
+    v_key = core_get(&v_request, &CoreValue::from("embedModel"), v_snake.clone());
+    v_has_key = core_truthy_value(&[v_key.clone()])?;
+    if core_truthy(&v_has_key) {
+    } else {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "Embed model key must be specified for multi-service",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_empty = CoreValue::new_list();
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_service_key = core_get(&v_entry, &CoreValue::from("key"), CoreValue::Null);
+        v_models = core_get(&v_entry, &CoreValue::from("models"), v_empty.clone());
+        for v_model in core_iter(&v_models)? {
+            let mut v_model = v_model;
+            v_model_key = core_get(&v_model, &CoreValue::from("key"), CoreValue::Null);
+            v_matches = core_eq(&[v_model_key.clone(), v_key.clone()])?;
+            if core_truthy(&v_matches) {
+                v_chat_model = core_get(&v_model, &CoreValue::from("model"), CoreValue::Null);
+                v_embed_snake =
+                    core_get(&v_model, &CoreValue::from("embed_model"), CoreValue::Null);
+                v_embed_model = core_get(
+                    &v_model,
+                    &CoreValue::from("embedModel"),
+                    v_embed_snake.clone(),
+                );
+                v_forwarded = router_embed_request(&[
+                    v_request.clone(),
+                    v_chat_model.clone(),
+                    v_embed_model.clone(),
+                ])?;
+                v_out = CoreValue::new_map();
+                core_set(&v_out, CoreValue::from("key"), v_service_key.clone())?;
+                core_set(&v_out, CoreValue::from("request"), v_forwarded.clone())?;
+                return Ok(v_out.clone());
+            }
+        }
+    }
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_service_key = core_get(&v_entry, &CoreValue::from("key"), CoreValue::Null);
+        v_matches = core_eq(&[v_service_key.clone(), v_key.clone()])?;
+        if core_truthy(&v_matches) {
+            v_none = core_none(&[])?;
+            v_forwarded =
+                router_embed_request(&[v_request.clone(), v_none.clone(), v_none.clone()])?;
+            v_out = CoreValue::new_map();
+            core_set(&v_out, CoreValue::from("key"), v_service_key.clone())?;
+            core_set(&v_out, CoreValue::from("request"), v_forwarded.clone())?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_message = core_string_format(&[
+        CoreValue::from("No service found for embed model key: {}"),
+        v_key.clone(),
+    ])?;
+    v_error = core_runtime_error(&[v_message.clone()])?;
+    return Err(core_as_error(&v_error));
 }
 
 #[allow(
@@ -137815,7 +137948,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (1040 of 1040 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (1042 of 1042 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -140498,6 +140631,36 @@ mod agent_playbook_student_tests {
         assert_eq!(output, json!({"answer": "recovered"}));
         assert_eq!(shared.borrow().requests.len(), 6);
         assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod router_embed_key_tests {
+    use super::*;
+    struct Recording(Arc<Mutex<Vec<Value>>>);
+    impl AxTransport for Recording {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            self.0.lock().unwrap().push(request);
+            Ok(
+                json!({"data":[{"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":1,"total_tokens":1}}),
+            )
+        }
+    }
+    #[test]
+    fn model_key_routes_to_mapped_embedding_and_router_key_uses_default() -> AxResult<()> {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let service = ai("openai", json!({"api_key":"test", "model":"gpt-6-luna", "embed_model":"text-embedding-3-small", "models":[{"key":"large-embed","description":"Large","embedModel":"text-embedding-3-large"}]}))?.with_transport(Recording(sent.clone()));
+        let mut router = MultiServiceRouter::new().with_service("service", service);
+        router.embed(json!({"embedModel":"large-embed","texts":["hello"]}))?;
+        router.embed(json!({"embedModel":"service","texts":["hello"]}))?;
+        assert!(router
+            .embed(json!({"embedModel":"unknown","texts":["hello"]}))
+            .is_err());
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["json"]["model"], "text-embedding-3-large");
+        assert_eq!(calls[1]["json"]["model"], "text-embedding-3-small");
         Ok(())
     }
 }

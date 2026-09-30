@@ -7779,6 +7779,71 @@ final class Core {
     return out;
   }
 
+  static Object router_embed_request(Object request, Object model, Object embed_model) {
+    axirCoverageMark("router_embed_request");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object out = Core.mapMerge(empty, request);
+    Object chat_key = Core.truthyValue(model);
+    Object embed_key = Core.truthyValue(embed_model);
+    Object service_key = Core.or(chat_key, embed_key);
+    if (Core.truthy(service_key)) {
+      // empty
+    }
+    if (!Core.truthy(service_key)) {
+      Core.mapDelete(out, "embedModel");
+      Core.mapDelete(out, "embed_model");
+    }
+    return out;
+  }
+
+  static Object router_embed_route(Object request, Object entries) {
+    axirCoverageMark("router_embed_route");
+    Object snake = Core.get(request, "embed_model", null);
+    Object key = Core.get(request, "embedModel", snake);
+    Object has_key = Core.truthyValue(key);
+    if (Core.truthy(has_key)) {
+      // empty
+    }
+    if (!Core.truthy(has_key)) {
+      Object error = Core.runtimeError("Embed model key must be specified for multi-service");
+      throw Core.asRuntime(error);
+    }
+    Object empty = new java.util.ArrayList<Object>();
+    for (Object entry : Core.iter(entries)) {
+      Object service_key = Core.get(entry, "key", null);
+      Object models = Core.get(entry, "models", empty);
+      for (Object model : Core.iter(models)) {
+        Object model_key = Core.get(model, "key", null);
+        Object matches = Core.eq(model_key, key);
+        if (Core.truthy(matches)) {
+          Object chat_model = Core.get(model, "model", null);
+          Object embed_snake = Core.get(model, "embed_model", null);
+          Object embed_model = Core.get(model, "embedModel", embed_snake);
+          Object forwarded = Core.router_embed_request(request, chat_model, embed_model);
+          Object out = new java.util.LinkedHashMap<String, Object>();
+          Core.set(out, "key", service_key);
+          Core.set(out, "request", forwarded);
+          return out;
+        }
+      }
+    }
+    for (Object entry : Core.iter(entries)) {
+      Object service_key = Core.get(entry, "key", null);
+      Object matches = Core.eq(service_key, key);
+      if (Core.truthy(matches)) {
+        Object none = Core.none();
+        Object forwarded = Core.router_embed_request(request, none, none);
+        Object out = new java.util.LinkedHashMap<String, Object>();
+        Core.set(out, "key", service_key);
+        Core.set(out, "request", forwarded);
+        return out;
+      }
+    }
+    Object message = Core.stringFormat("No service found for embed model key: {}", key);
+    Object error = Core.runtimeError(message);
+    throw Core.asRuntime(error);
+  }
+
   static Object _provider_route_file_content(Object features, Object part, Object processing, Object slot) {
     axirCoverageMark("_provider_route_file_content");
     Object supports_files = Core._provider_features_support(features, "files");

@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/funcs/jsRuntime.ts`
   - Impact: TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.
   - Suggested AxIR work: Capture console output in the Java QuickJS bootstrap and return it as the step's output; Pin a runtime-protocol fixture with console output reaching the action log in every port
+- `axir-2026-09-29-route-multiservicerouter-embed-calls-to-the-model-an-embedmodel-` [axai] Route MultiServiceRouter embed calls to the model an embedModel key maps to
+  - Status: open
+  - Source PR: #771
+  - Source commit: `b780a14a3cb94d5ac572db04038399aef655c76c`
+  - TS paths: `src/ax/ai/multiservice.ts`, `src/ax/ai/multiservice.test.ts`
+  - Impact: TypeScript AxMultiServiceRouter.embed now keeps the embedModel key when the entry came from a service's model list as an embedModel item, so the service resolves it to the mapped embedding model instead of falling back to its default embed model. Router-level keys (key/service items) are still stripped. The generated ports copy the old check (strip unless the entry has a chat model) and should apply the same condition.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

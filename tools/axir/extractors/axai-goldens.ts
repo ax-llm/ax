@@ -572,6 +572,7 @@ writeFixture('multiservice-router-runtime', {
       speak: multiSpeak as any,
     },
     lastChat: multiRouter.getLastUsedChatModel() as Json,
+    lastEmbed: multiRouter.getLastUsedEmbedModel() as Json,
     lastConfig: multiRouter.getLastUsedModelConfig() as Json,
     metrics: multiRouter.getMetrics() as any,
     options: multiRouter.getOptions() as any,

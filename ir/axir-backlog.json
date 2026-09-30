@@ -3268,6 +3268,28 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "1c83032daba575846bae2d85eb88e74a4605b6ed",
       "verification": "20 TS goldens (tools/axir/extractors/axgen-streaming-goldens.ts: a missing, empty, blank or number id, a missing or wrong type, no function object, number params in the first or second call, and a null call, forward and streamed) fail on main's packages in python, go, java, cpp and rust and pass here with functionCallValidation: 'fail'; port-only fixtures pin the default (the call runs, or is corrected, with the exact one-time warning) and 'correct'; src/ax/dsp/generate.streamParity.test.ts fails on main (a TypeError) and passes here; 21 perturbed copies fail in all five; the full suites pass (1574 in each of the five); npm run test --workspace=@ax-llm/ax passes."
+    },
+    {
+      "id": "axir-2026-09-29-route-multiservicerouter-embed-calls-to-the-model-an-embedmodel-",
+      "status": "open",
+      "title": "Route MultiServiceRouter embed calls to the model an embedModel key maps to",
+      "createdAt": "2026-09-29",
+      "sourcePR": 771,
+      "sourceCommit": "b780a14a3cb94d5ac572db04038399aef655c76c",
+      "tsPaths": [
+        "src/ax/ai/multiservice.ts",
+        "src/ax/ai/multiservice.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript AxMultiServiceRouter.embed now keeps the embedModel key when the entry came from a service's model list as an embedModel item, so the service resolves it to the mapped embedding model instead of falling back to its default embed model. Router-level keys (key/service items) are still stripped. The generated ports copy the old check (strip unless the entry has a chat model) and should apply the same condition.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
