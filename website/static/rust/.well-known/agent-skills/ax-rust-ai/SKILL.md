@@ -94,8 +94,15 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 
 ## Transport Errors
 
-- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). As in TypeScript's apiCall, a stream's request layer retries a network error under the call's `retry` options (else the client's) and never retries a timeout, and AxGen retries both as infrastructure errors.
+- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). AxGen retries both as infrastructure errors.
 - `AxError` has no cause, so a network error's message carries reqwest's error and its causes.
+
+## Request Retries
+
+- As TypeScript's apiCall does, chat, embed, context-cache and Typesafe requests, and a stream's request, go out again after a network failure or a status the retry config lists (`retryableStatusCodes`, by default 500, 408, 429, 502, 503, 504 and 529), up to `maxRetries` times (default 3).
+- The wait is `initialDelayMs * backoffFactor ** attempt` (1 s doubling by default), at most `maxDelayMs` (60 s), times a jitter of 0.75 to 1.25. A status response's `Retry-After`, in seconds or as an HTTP date, replaces it when it is no longer than `maxDelayMs`.
+- The call's `retry` options replace the client's. `retry: { maxRetries: 0 }` sends each request once.
+- A 401 or 403, a timeout the request ran out of, and an aborted request are never retried here. A stream whose response began is not retried either: a failure to read its first event surfaces. A first event that carries a listed status (Anthropic's `overloaded_error`) goes out again, with its own budget and without jitter.
 
 ## Routing And Balancing
 

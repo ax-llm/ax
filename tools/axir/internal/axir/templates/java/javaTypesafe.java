@@ -105,23 +105,8 @@ public final class AxAITypesafeClient {
 
   private Object requestWithCancellation(String method, String path, String operation, Map<String, Object> payload, Map<String, Object> resolved, AxCancellationToken cancellation) throws Exception {
     var client = new OpenAICompatibleClient("typesafe", "Typesafe", resolved, model, "");
-    Map<String, Object> retry = Core.asMap(Core.resolve_stream_retry(resolved));
-    int retries = ((Number) retry.get("max_retries")).intValue();
-    for (int attempt = 0; ; attempt++) {
-      if (cancellation != null) cancellation.throwIfCancelled();
-      try {
-        return client.requestJson(path, payload, false, "json", false, method, operation, cancellation);
-      } catch (AxAIServiceError error) {
-        // As in TS apiCall, a timeout the request ran out of is not retried
-        // here; a 408 or 504 response, typed as a timeout, is retried.
-        if (!error.retryable || error instanceof AxAIServiceTimeoutError && error.status == null || attempt >= retries) throw error;
-        double delay = Math.min(((Number) retry.get("initial_delay_ms")).doubleValue() * Math.pow(((Number) retry.get("backoff_factor")).doubleValue(), attempt), ((Number) retry.get("max_delay_ms")).doubleValue());
-        long until = System.nanoTime() + (long) (delay * 1_000_000);
-        while (System.nanoTime() < until) {
-          if (cancellation != null) cancellation.throwIfCancelled();
-          Thread.sleep(Math.max(1, Math.min(10, (until - System.nanoTime()) / 1_000_000)));
-        }
-      }
-    }
+    if (cancellation != null) cancellation.throwIfCancelled();
+    // TS apiCall's request-layer retry, as the client's chat requests use.
+    return client.requestJsonRetried(path, payload, method, operation, cancellation, resolved);
   }
 }

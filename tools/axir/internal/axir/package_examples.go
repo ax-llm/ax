@@ -5857,11 +5857,13 @@ int main() {
 const pyTransportErrorsHTTPRoundtripExample = `"""Send requests through the REAL urllib transport to in-process loopback
 servers that fail the way networks do, and check that the failures surface as
 TypeScript's apiCall reports fetch's: a refused or dropped connection is
-AxAIServiceNetworkError ("Network Error: ..."), which a stream's request layer
+AxAIServiceNetworkError ("Network Error: ..."), which the request layer
 retries under the call's retry options; a timeout is AxAIServiceTimeoutError
 ("Request timed out after <ms>ms", the client's timeout in milliseconds), which
 the request layer never retries; and AxGen retries both as infrastructure
-errors. Exits non-zero on any mismatch so ` + "`" + `axir verify` + "`" + ` fails if it regresses."""
+errors. A stream whose response began is not retried: TS reads its first event
+after apiCall returns. Exits non-zero on any mismatch so ` + "`" + `axir verify` + "`" + ` fails if
+it regresses."""
 
 import http.client
 import socket
@@ -5912,8 +5914,9 @@ def read_request(connection):
 
 def serve(mode):
     """Accept connections and count them: "close" closes each one without a
-    response, "drop" sends one stream event and drops it, "gateway" answers 504,
-    "hold" never answers."""
+    response, "drop" sends one stream event and drops it, "headers" sends the
+    response headers and drops it, "gateway" answers 504, "hold" never
+    answers."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(16)
@@ -5937,6 +5940,9 @@ def serve(mode):
                     time.sleep(0.05)
                 elif mode == "gateway":
                     connection.sendall(GATEWAY_RESPONSE)
+                elif mode == "headers":
+                    connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
+                    time.sleep(0.05)
             except OSError:
                 pass
             connection.close()
@@ -5975,16 +5981,29 @@ fast_retry = {"maxRetries": 2, "initialDelayMs": 10, "maxDelayMs": 20}
 
 # A refused connection.
 refused = client(closed_port())
-expect("refused chat", AxAIServiceNetworkError, "Network Error: ", lambda: refused.chat(request, {"stream": False}))
+expect("refused chat", AxAIServiceNetworkError, "Network Error: ", lambda: refused.chat(request, {"stream": False, "retry": fast_retry}))
 expect("refused stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(refused.stream(request, {"retry": fast_retry})))
 
-# A server that closes each connection without a response. The stream's
-# request layer retries it: the first request and two retries.
+# A server that closes each connection without a response. The request layer
+# retries it: the first request and two retries.
 closing, closed = serve("close")
-expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client(closing).chat(request, {"stream": False}))
+before = closed["connections"]
+expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client(closing).chat(request, {"stream": False, "retry": fast_retry}))
+assert closed["connections"] - before == 3, f"closed chat: {closed['connections'] - before} requests"
 before = closed["connections"]
 expect("closed stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(client(closing).stream(request, {"retry": fast_retry})))
 assert closed["connections"] - before == 3, f"closed stream: {closed['connections'] - before} requests"
+
+# A stream whose response began and dropped before its first event is not
+# retried: TS reads the first event after apiCall returns.
+started, began = serve("headers")
+try:
+    list(client(started).stream(request, {"retry": fast_retry}))
+except AxAIServiceError:
+    pass
+else:
+    raise AssertionError("started stream: no error")
+assert began["connections"] == 1, f"started stream: {began['connections']} requests"
 
 # A 504 response is retried by its status, as TS apiCall retries it: it is not a
 # timeout the request ran out of.
@@ -6063,8 +6082,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 // Send requests through the REAL HttpClient transport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Until the next major version, chat
@@ -6082,20 +6101,33 @@ public final class TransportErrorsHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // A refused connection.
     int refused = closedPort();
-    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
     expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(refused, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     // Without typedTransportErrors, a chat throws the JDK's exception, as before.
-    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
 
     // A server that closes each connection without a response. The stream's
     // request layer retries it under the call's retry options: the first
     // request and two retries.
     AtomicInteger closed = new AtomicInteger();
     int closing = serve("close", closed);
-    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
     int before = closed.get();
+    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
+    expectCount("closed chat", closed.get() - before, 3);
+    before = closed.get();
     expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(closing, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     expectCount("closed stream", closed.get() - before, 3);
+
+    // A stream whose response began and dropped before its first event is not
+    // retried: TS reads the first event after apiCall returns.
+    AtomicInteger began = new AtomicInteger();
+    int started = serve("headers", began);
+    try {
+      drain(client(started, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null);
+      throw new RuntimeException("started stream: no error");
+    } catch (AxAIServiceError error) {
+      expectCount("started stream", began.get(), 1);
+    }
 
     // A 504 response is retried by its status, as TS apiCall retries it: it is
     // not a timeout the request ran out of.
@@ -6222,8 +6254,9 @@ public final class TransportErrorsHTTPRoundtripExample {
   }
 
   // Accept connections and count them: "close" closes each one without a
-  // response, "drop" sends one stream event and drops it, "gateway" answers
-  // 504, "hold" never answers.
+  // response, "drop" sends one stream event and drops it, "headers" sends the
+  // response headers and drops it, "gateway" answers 504, "hold" never
+  // answers.
   static int serve(String mode, AtomicInteger connections) throws Exception {
     ServerSocket listener = new ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"));
     List<Socket> held = Collections.synchronizedList(new ArrayList<>());
@@ -6241,6 +6274,10 @@ public final class TransportErrorsHTTPRoundtripExample {
             String response = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
                 + Integer.toHexString(DROP_EVENT.length()) + "\r\n" + DROP_EVENT + "\r\n";
             socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
+            Thread.sleep(50);
+          } else if ("headers".equals(mode)) {
+            socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.UTF_8));
             socket.getOutputStream().flush();
             Thread.sleep(50);
           } else if ("gateway".equals(mode)) {
@@ -6285,8 +6322,8 @@ const cppTransportErrorsHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 // Send requests through the REAL libcurl HttpTransport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Returns non-zero on any mismatch so
@@ -6346,8 +6383,8 @@ void drain_request(int fd) {
 }
 
 // Accept connections and count them: "close" closes each one without a
-// response, "drop" sends one stream event and drops it, "gateway" answers 504,
-// "hold" never answers.
+// response, "drop" sends one stream event and drops it, "headers" sends the
+// response headers and drops it, "gateway" answers 504, "hold" never answers.
 std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
   int listener = listen_loopback(port);
   auto connections = std::make_shared<std::atomic<int>>(0);
@@ -6367,6 +6404,10 @@ std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
         std::snprintf(size, sizeof(size), "%zx", kDropEvent.size());
         std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n") + size + "\r\n" + kDropEvent + "\r\n";
         (void)send(fd, response.data(), response.size(), 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } else if (mode == "headers") {
+        std::string head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n";
+        (void)send(fd, head.data(), head.size(), 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       } else if (mode == "gateway") {
         std::string response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: " +
@@ -6419,7 +6460,7 @@ int main() {
 
   // A refused connection.
   int refused = closed_port();
-  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}})); });
+  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}, {"retry", fast_retry}})); });
   expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
 
   // A server that closes each connection without a response. The stream's
@@ -6427,10 +6468,25 @@ int main() {
   // request and two retries.
   int closing = 0;
   auto closed = serve("close", &closing);
-  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}})); });
   int before = closed->load();
+  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}, {"retry", fast_retry}})); });
+  expect_count("closed chat", closed->load() - before, 3);
+  before = closed->load();
   expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
   expect_count("closed stream", closed->load() - before, 3);
+
+  // A stream whose response began and dropped before its first event is not
+  // retried: TS reads the first event after apiCall returns.
+  int started = 0;
+  auto began = serve("headers", &started);
+  bool started_failed = false;
+  try {
+    client(started)->stream_each(request, ignore, object({{"retry", fast_retry}}));
+  } catch (const AxError&) {
+    started_failed = true;
+  }
+  if (!started_failed) throw std::runtime_error("started stream: no error");
+  expect_count("started stream", began->load(), 1);
 
   // A 504 response is retried by its status, as TS apiCall retries it: it is
   // not a timeout the request ran out of.
