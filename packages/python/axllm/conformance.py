@@ -4537,9 +4537,9 @@ def _build_tools(specs):
 
         if spec.get("record_extras"):
             # A context handler, recording the extras it gets.
-            def context_handler(args, context, *, _name=spec["name"], _handler=handler):
+            def context_handler(args, context, *, _name=spec["name"], handler_fn=handler):
                 calls.extras.append({"name": _name, "extras": _tool_extras_seen(context)})
-                return _handler(args)
+                return handler_fn(args)
 
             tools.append(builder.context_handler(context_handler).build())
             continue

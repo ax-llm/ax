@@ -3025,13 +3025,13 @@ mod tests {
                 ));
             }
             if n == 3 {
-                assert_eq!(body["tools"][0]["name"], "utils_lookup");
+                assert_eq!(body["tools"][0]["name"], "tools_lookup");
                 assert_eq!(body["tools"][0]["async"], true);
                 let started = self.started.take().unwrap();
                 let release = self.release.clone();
                 let (sender, source) = mpsc::channel();
                 std::thread::spawn(move || {
-                    sender.send(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","id":"item","call_id":"agent-call","name":"utils_lookup","arguments":"{\"query\":\"REF-42\"}"}}))).unwrap();
+                    sender.send(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","id":"item","call_id":"agent-call","name":"tools_lookup","arguments":"{\"query\":\"REF-42\"}"}}))).unwrap();
                     started
                         .recv_timeout(Duration::from_secs(2))
                         .expect("agent tool should overlap model work");
@@ -3229,7 +3229,7 @@ mod tests {
             event["response"]["usage"] =
                 json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});
             if self.cancel && number == 6 {
-                event["response"]["output"] = json!([{"type":"function_call","name":"utils_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);
+                event["response"]["output"] = json!([{"type":"function_call","name":"tools_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);
             }
             Ok(AxTransportStream::Buffered(
                 json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
@@ -3416,10 +3416,10 @@ mod tests {
             .filter(|v| v["type"] == "function_call")
             .collect();
         assert_eq!(activity.len(), 1);
-        assert_eq!(activity[0]["qualified_name"], "utils.lookup");
+        assert_eq!(activity[0]["qualified_name"], "tools.lookup");
         assert_eq!(activity[0]["call_id"], "agent-call");
         assert_eq!(
-            program.invoke_callable("utils.lookup", json!({"query":"REF-42"}), json!({}))?
+            program.invoke_callable("tools.lookup", json!({"query":"REF-42"}), json!({}))?
                 ["status"],
             "error"
         );

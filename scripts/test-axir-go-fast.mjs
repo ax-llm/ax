@@ -94,10 +94,7 @@ export const FAST_GO_TESTS = [
 // Listed tests that fail on main for a known reason, with that reason. Their
 // failure is reported but does not fail the run; remove an entry once its
 // fix lands.
-export const KNOWN_FAILING = {
-  TestRLMStagesSymmetric:
-    'fails on main since #746; the rewrite against @agent_actor_stage_signatures lands with the flat-function-namespace PR',
-};
+export const KNOWN_FAILING = {};
 
 // Reads `go test -json` output: each listed test's result and time.
 export function summarizeGoTestJson(text, tests) {

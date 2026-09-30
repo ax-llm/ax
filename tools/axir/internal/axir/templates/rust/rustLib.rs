@@ -2947,12 +2947,20 @@ impl OpenAICompatibleClient {
         if let Some(token)=&cancellation{token.throw_if_cancelled().map_err(|error| (error, None))?;}
         if let Some(transport) = self.transport.as_mut() {
             let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token),None=>transport.stream(call)}.map_err(|error| (error, None))?;
+            if verbose {
+                let status = match &stream { AxTransportStream::Buffered(response) => response.get("status").and_then(Value::as_u64).unwrap_or(200), AxTransportStream::Reader { status, .. } => u64::from(*status) };
+                if status < 400 { verbose_log(&verbose_status_log(status, None)); }
+            }
             let retry_after = match &stream { AxTransportStream::Buffered(response) => retry_after_header(response), _ => None };
             let inner=Self::transport_stream_iter(stream).map_err(|error| (error, retry_after))?;
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
         if let Some(transport) = &self.session_transport {
             let stream = transport.lock().map_err(|_| (AxError::runtime("Transport lock poisoned"), None))?.stream(call).map_err(|error| (error, None))?;
+            if verbose {
+                let status = match &stream { AxTransportStream::Buffered(response) => response.get("status").and_then(Value::as_u64).unwrap_or(200), AxTransportStream::Reader { status, .. } => u64::from(*status) };
+                if status < 400 { verbose_log(&verbose_status_log(status, None)); }
+            }
             let retry_after = match &stream { AxTransportStream::Buffered(response) => retry_after_header(response), _ => None };
             return Self::transport_stream_iter(stream).map_err(|error| (error, retry_after));
         }

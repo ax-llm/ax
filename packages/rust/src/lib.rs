@@ -3832,6 +3832,18 @@ impl OpenAICompatibleClient {
                 None => transport.stream(call),
             }
             .map_err(|error| (error, None))?;
+            if verbose {
+                let status = match &stream {
+                    AxTransportStream::Buffered(response) => response
+                        .get("status")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(200),
+                    AxTransportStream::Reader { status, .. } => u64::from(*status),
+                };
+                if status < 400 {
+                    verbose_log(&verbose_status_log(status, None));
+                }
+            }
             let retry_after = match &stream {
                 AxTransportStream::Buffered(response) => retry_after_header(response),
                 _ => None,
@@ -3850,6 +3862,18 @@ impl OpenAICompatibleClient {
                 .map_err(|_| (AxError::runtime("Transport lock poisoned"), None))?
                 .stream(call)
                 .map_err(|error| (error, None))?;
+            if verbose {
+                let status = match &stream {
+                    AxTransportStream::Buffered(response) => response
+                        .get("status")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(200),
+                    AxTransportStream::Reader { status, .. } => u64::from(*status),
+                };
+                if status < 400 {
+                    verbose_log(&verbose_status_log(status, None));
+                }
+            }
             let retry_after = match &stream {
                 AxTransportStream::Buffered(response) => retry_after_header(response),
                 _ => None,
