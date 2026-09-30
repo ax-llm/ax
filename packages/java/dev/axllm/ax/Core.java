@@ -18148,6 +18148,7 @@ final class Core {
       Core.set(request, "provider_metadata", provider_metadata);
     }
     Core.set(request, "model_config", model_config);
+    Core.set(request, "_ax_step_index", step);
     return request;
   }
 
@@ -20375,14 +20376,29 @@ final class Core {
     return parts;
   }
 
-  static Object chat_session_final_result(Object state, Object response) {
-    axirCoverageMark("chat_session_final_result");
-    Object id = Core.get(state, "response_id", "");
-    Object result = Core.chat_session_result(response, id);
-    Object empty_turns = new java.util.ArrayList<Object>();
-    Object turns = Core.get(state, "turns", empty_turns);
-    Core.set(result, "__session_turns", turns);
-    return result;
+  static Object chat_session_step_limit_error(Object state) {
+    axirCoverageMark("chat_session_step_limit_error");
+    Object running = new java.util.ArrayList<Object>();
+    Object empty_pending = new java.util.LinkedHashMap<String, Object>();
+    Object pending = Core.get(state, "pending", empty_pending);
+    Object pending_ids = Core.mapKeys(pending);
+    for (Object pending_id : Core.iter(pending_ids)) {
+      Object record = Core.get(pending, pending_id, null);
+      Object status = Core.get(record, "status", null);
+      Object is_running = Core.eq(status, "running");
+      if (Core.truthy(is_running)) {
+        Core.append(running, pending_id);
+      }
+    }
+    Object count = Core.len(running);
+    Object ids = Core.stringJoin(", ", running);
+    Object no_ids = Core.eq(ids, "");
+    if (Core.truthy(no_ids)) {
+      ids = "none";
+    }
+    Object message = Core.stringFormat("Chat session failed: Maximum steps reached with unincorporated tool results ({}); unresolved calls: {}", count, ids);
+    Object error = Core.runtimeError(message);
+    return error;
   }
 
   static Object _regex_atom(Object s) {
@@ -20634,24 +20650,6 @@ final class Core {
     return offset;
   }
 
-  static Object chat_session_completion(Object response, Object id) {
-    axirCoverageMark("chat_session_completion");
-    Object completion = Core.chat_response_to_completion(response);
-    Core.set(completion, "remote_id", id);
-    return completion;
-  }
-
-  static Object chat_session_has_continuation_work(Object state) {
-    axirCoverageMark("chat_session_has_continuation_work");
-    Object pending = Core.chat_session_unresolved(state);
-    pending = Core.truthyValue(pending);
-    Object native_wait = Core.chat_session_native_wait(state);
-    Object continuation = Core.get(state, "needs_continuation", Boolean.FALSE);
-    Object work = Core.or(pending, native_wait);
-    work = Core.or(work, continuation);
-    return work;
-  }
-
   static Object _date_named_timestamp_impl(Object parts, Object zone) {
     axirCoverageMark("_date_named_timestamp_impl");
     Object utc = Core._date_utc_ms_impl(parts);
@@ -20674,6 +20672,16 @@ final class Core {
     return timestamp;
   }
 
+  static Object chat_session_final_result(Object state, Object response) {
+    axirCoverageMark("chat_session_final_result");
+    Object id = Core.get(state, "response_id", "");
+    Object result = Core.chat_session_result(response, id);
+    Object empty_turns = new java.util.ArrayList<Object>();
+    Object turns = Core.get(state, "turns", empty_turns);
+    Core.set(result, "__session_turns", turns);
+    return result;
+  }
+
   static Object _stream_field_flag_impl(Object target, Object snake, Object camel) {
     axirCoverageMark("_stream_field_flag_impl");
     Object snake_value = Core.get(target, snake, Boolean.FALSE);
@@ -20682,19 +20690,11 @@ final class Core {
     return flag;
   }
 
-  static Object chat_session_normalize_call(Object call) {
-    axirCoverageMark("chat_session_normalize_call");
-    Object function = Core.get(call, "function", null);
-    Object missing = Core.isNone(function);
-    if (Core.truthy(missing)) {
-      call = Core._completion_call_to_chat_impl(call);
-      function = Core.get(call, "function", null);
-    }
-    Object name = Core.get(function, "name", null);
-    Object params = Core.get(function, "params", null);
-    Core.set(call, "name", name);
-    Core.set(call, "params", params);
-    return call;
+  static Object chat_session_completion(Object response, Object id) {
+    axirCoverageMark("chat_session_completion");
+    Object completion = Core.chat_response_to_completion(response);
+    Core.set(completion, "remote_id", id);
+    return completion;
   }
 
   static Object _stream_field_type_label_impl(Object field) {
@@ -20750,24 +20750,15 @@ final class Core {
     return base;
   }
 
-  static Object chat_session_defer_final_call(Object state, Object call) {
-    axirCoverageMark("chat_session_defer_final_call");
-    Object unresolved = Core.chat_session_unresolved(state);
-    Object pending = Core.truthyValue(unresolved);
-    Object updates = Core.get(state, "needs_continuation", Boolean.FALSE);
-    Object defer = Core.or(pending, updates);
-    if (Core.truthy(defer)) {
-      Object registered = Core.chat_session_register_call(state, call, "blocking");
-      if (Core.truthy(registered)) {
-        Object id = Core.get(call, "id", null);
-        Object result = new java.util.LinkedHashMap<String, Object>();
-        Core.set(result, "function_id", id);
-        Core.set(result, "result", "Not executed: incorporate the background tool results and queued updates before calling this finalization function again.");
-        Core.chat_session_complete_call(state, id, result);
-      }
-      return registered;
-    }
-    return Boolean.FALSE;
+  static Object chat_session_has_continuation_work(Object state) {
+    axirCoverageMark("chat_session_has_continuation_work");
+    Object pending = Core.chat_session_unresolved(state);
+    pending = Core.truthyValue(pending);
+    Object native_wait = Core.chat_session_native_wait(state);
+    Object continuation = Core.get(state, "needs_continuation", Boolean.FALSE);
+    Object work = Core.or(pending, native_wait);
+    work = Core.or(work, continuation);
+    return work;
   }
 
   static Object _date_parse_range_impl(Object value, Object kind) {
@@ -20803,6 +20794,21 @@ final class Core {
       throw Core.asRuntime(order_error);
     }
     return range_millis;
+  }
+
+  static Object chat_session_normalize_call(Object call) {
+    axirCoverageMark("chat_session_normalize_call");
+    Object function = Core.get(call, "function", null);
+    Object missing = Core.isNone(function);
+    if (Core.truthy(missing)) {
+      call = Core._completion_call_to_chat_impl(call);
+      function = Core.get(call, "function", null);
+    }
+    Object name = Core.get(function, "name", null);
+    Object params = Core.get(function, "params", null);
+    Core.set(call, "name", name);
+    Core.set(call, "params", params);
+    return call;
   }
 
   static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
@@ -20874,27 +20880,22 @@ final class Core {
     return out;
   }
 
-  static Object chat_session_complete_call(Object state, Object id, Object result) {
-    axirCoverageMark("chat_session_complete_call");
-    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
-    if (Core.truthy(terminal)) {
-      return Boolean.FALSE;
-    }
-    Object pending = Core.get(state, "pending", null);
-    Object exists = Core.mapContains(pending, id);
-    Object missing = Core.not(exists);
-    if (Core.truthy(missing)) {
-      throw new RuntimeException("Tool result has no registered call");
-    }
-    Object record = Core.get(pending, id, null);
-    Object status = Core.get(record, "status", null);
-    Object running = Core.eq(status, "running");
-    if (Core.truthy(running)) {
-      Core.set(record, "result", result);
-      Core.set(record, "status", "ready");
-      Core.set(pending, id, record);
-      Core.set(state, "pending", pending);
-      return Boolean.TRUE;
+  static Object chat_session_defer_final_call(Object state, Object call) {
+    axirCoverageMark("chat_session_defer_final_call");
+    Object unresolved = Core.chat_session_unresolved(state);
+    Object pending = Core.truthyValue(unresolved);
+    Object updates = Core.get(state, "needs_continuation", Boolean.FALSE);
+    Object defer = Core.or(pending, updates);
+    if (Core.truthy(defer)) {
+      Object registered = Core.chat_session_register_call(state, call, "blocking");
+      if (Core.truthy(registered)) {
+        Object id = Core.get(call, "id", null);
+        Object result = new java.util.LinkedHashMap<String, Object>();
+        Core.set(result, "function_id", id);
+        Core.set(result, "result", "Not executed: incorporate the background tool results and queued updates before calling this finalization function again.");
+        Core.chat_session_complete_call(state, id, result);
+      }
+      return registered;
     }
     return Boolean.FALSE;
   }
@@ -20963,50 +20964,29 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
-  static Object chat_session_complete_response(Object state, Object id) {
-    axirCoverageMark("chat_session_complete_response");
+  static Object chat_session_complete_call(Object state, Object id, Object result) {
+    axirCoverageMark("chat_session_complete_call");
     Object terminal = Core.get(state, "terminal", Boolean.FALSE);
     if (Core.truthy(terminal)) {
       return Boolean.FALSE;
     }
-    Object responses = Core.get(state, "responses", null);
-    Object duplicate = Core.mapContains(responses, id);
-    if (Core.truthy(duplicate)) {
-      return Boolean.FALSE;
+    Object pending = Core.get(state, "pending", null);
+    Object exists = Core.mapContains(pending, id);
+    Object missing = Core.not(exists);
+    if (Core.truthy(missing)) {
+      throw new RuntimeException("Tool result has no registered call");
     }
-    Object steps = Core.get(state, "steps", 0);
-    Object limit = Core.get(state, "max_steps", null);
-    Object exhausted = Core.gte(steps, limit);
-    if (Core.truthy(exhausted)) {
-      throw new RuntimeException("Maximum model steps exhausted before final completion");
+    Object record = Core.get(pending, id, null);
+    Object status = Core.get(record, "status", null);
+    Object running = Core.eq(status, "running");
+    if (Core.truthy(running)) {
+      Core.set(record, "result", result);
+      Core.set(record, "status", "ready");
+      Core.set(pending, id, record);
+      Core.set(state, "pending", pending);
+      return Boolean.TRUE;
     }
-    Object next = Core.add(steps, 1);
-    Core.set(responses, id, Boolean.TRUE);
-    Core.set(state, "responses", responses);
-    Core.set(state, "response_id", id);
-    Core.set(state, "steps", next);
-    Core.set(state, "boundary", Boolean.TRUE);
-    Object updates = Core.get(state, "updates", null);
-    Object update_ids = Core.mapKeys(updates);
-    Object had_successor = Boolean.FALSE;
-    for (Object update_id : Core.iter(update_ids)) {
-      Object record = Core.get(updates, update_id, null);
-      Object parent = Core.get(record, "native_parent", null);
-      Object has_parent = Core.isNotNone(parent);
-      Object successor = Core.ne(parent, id);
-      Object finished = Core.and(has_parent, successor);
-      if (Core.truthy(finished)) {
-        had_successor = Boolean.TRUE;
-        Core.set(record, "native_state", "done");
-        Core.set(updates, update_id, record);
-      }
-    }
-    Core.set(state, "updates", updates);
-    if (Core.truthy(had_successor)) {
-      Object queued = Core.chat_session_has_queued_updates(state);
-      Core.set(state, "needs_continuation", queued);
-    }
-    return Boolean.TRUE;
+    return Boolean.FALSE;
   }
 
   static Object _stream_required_missing_error_impl(Object field) {
@@ -21039,19 +21019,51 @@ final class Core {
     return error;
   }
 
-  static Object chat_session_has_queued_updates(Object state) {
-    axirCoverageMark("chat_session_has_queued_updates");
+  static Object chat_session_complete_response(Object state, Object id) {
+    axirCoverageMark("chat_session_complete_response");
+    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
+    if (Core.truthy(terminal)) {
+      return Boolean.FALSE;
+    }
+    Object responses = Core.get(state, "responses", null);
+    Object duplicate = Core.mapContains(responses, id);
+    if (Core.truthy(duplicate)) {
+      return Boolean.FALSE;
+    }
+    Object steps = Core.get(state, "steps", 0);
+    Object limit = Core.get(state, "max_steps", null);
+    Object exhausted = Core.gte(steps, limit);
+    if (Core.truthy(exhausted)) {
+      Object limit_error = Core.chat_session_step_limit_error(state);
+      throw Core.asRuntime(limit_error);
+    }
+    Object next = Core.add(steps, 1);
+    Core.set(responses, id, Boolean.TRUE);
+    Core.set(state, "responses", responses);
+    Core.set(state, "response_id", id);
+    Core.set(state, "steps", next);
+    Core.set(state, "boundary", Boolean.TRUE);
     Object updates = Core.get(state, "updates", null);
-    Object ids = Core.mapKeys(updates);
-    for (Object id : Core.iter(ids)) {
-      Object record = Core.get(updates, id, null);
-      Object status = Core.get(record, "status", null);
-      Object queued = Core.eq(status, "queued");
-      if (Core.truthy(queued)) {
-        return Boolean.TRUE;
+    Object update_ids = Core.mapKeys(updates);
+    Object had_successor = Boolean.FALSE;
+    for (Object update_id : Core.iter(update_ids)) {
+      Object record = Core.get(updates, update_id, null);
+      Object parent = Core.get(record, "native_parent", null);
+      Object has_parent = Core.isNotNone(parent);
+      Object successor = Core.ne(parent, id);
+      Object finished = Core.and(has_parent, successor);
+      if (Core.truthy(finished)) {
+        had_successor = Boolean.TRUE;
+        Core.set(record, "native_state", "done");
+        Core.set(updates, update_id, record);
       }
     }
-    return Boolean.FALSE;
+    Core.set(state, "updates", updates);
+    if (Core.truthy(had_successor)) {
+      Object queued = Core.chat_session_has_queued_updates(state);
+      Core.set(state, "needs_continuation", queued);
+    }
+    return Boolean.TRUE;
   }
 
   static Object _stream_validate_constraints_impl(Object field, Object value, Object kind) {
@@ -21382,28 +21394,6 @@ final class Core {
     return tokens;
   }
 
-  static Object chat_session_native_update(Object state, Object id) {
-    axirCoverageMark("chat_session_native_update");
-    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
-    if (Core.truthy(terminal)) {
-      return Boolean.FALSE;
-    }
-    Object updates = Core.get(state, "updates", null);
-    Object record = Core.get(updates, id, null);
-    Object native_state = Core.get(record, "native_state", null);
-    Object new_native = Core.isNone(native_state);
-    if (Core.truthy(new_native)) {
-      Core.set(record, "native_state", "awaiting_ack");
-      Object responses = Core.get(state, "responses", null);
-      Object empty_baseline = new java.util.LinkedHashMap<String, Object>();
-      Object baseline = Core.mapMerge(empty_baseline, responses);
-      Core.set(record, "native_responses", baseline);
-      Core.set(updates, id, record);
-      Core.set(state, "updates", updates);
-    }
-    return new_native;
-  }
-
   static Object _ace_recompute_playbook_stats(Object playbook) {
     axirCoverageMark("_ace_recompute_playbook_stats");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -21438,22 +21428,16 @@ final class Core {
     return playbook;
   }
 
-  static Object chat_session_native_wait(Object state) {
-    axirCoverageMark("chat_session_native_wait");
+  static Object chat_session_has_queued_updates(Object state) {
+    axirCoverageMark("chat_session_has_queued_updates");
     Object updates = Core.get(state, "updates", null);
     Object ids = Core.mapKeys(updates);
     for (Object id : Core.iter(ids)) {
       Object record = Core.get(updates, id, null);
-      Object native_state = Core.get(record, "native_state", null);
-      Object has_native = Core.isNotNone(native_state);
-      if (Core.truthy(has_native)) {
-        Object status = Core.get(record, "status", null);
-        Object queued = Core.eq(status, "queued");
-        Object successor = Core.eq(native_state, "awaiting_successor");
-        Object waiting = Core.or(queued, successor);
-        if (Core.truthy(waiting)) {
-          return Boolean.TRUE;
-        }
+      Object status = Core.get(record, "status", null);
+      Object queued = Core.eq(status, "queued");
+      if (Core.truthy(queued)) {
+        return Boolean.TRUE;
       }
     }
     return Boolean.FALSE;
@@ -21533,6 +21517,138 @@ final class Core {
       return split;
     }
     return none;
+  }
+
+  static Object chat_session_native_update(Object state, Object id) {
+    axirCoverageMark("chat_session_native_update");
+    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
+    if (Core.truthy(terminal)) {
+      return Boolean.FALSE;
+    }
+    Object updates = Core.get(state, "updates", null);
+    Object record = Core.get(updates, id, null);
+    Object native_state = Core.get(record, "native_state", null);
+    Object new_native = Core.isNone(native_state);
+    if (Core.truthy(new_native)) {
+      Core.set(record, "native_state", "awaiting_ack");
+      Object responses = Core.get(state, "responses", null);
+      Object empty_baseline = new java.util.LinkedHashMap<String, Object>();
+      Object baseline = Core.mapMerge(empty_baseline, responses);
+      Core.set(record, "native_responses", baseline);
+      Core.set(updates, id, record);
+      Core.set(state, "updates", updates);
+    }
+    return new_native;
+  }
+
+  static Object _ace_empty_playbook(Object description, Object now) {
+    axirCoverageMark("_ace_empty_playbook");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "version", 1);
+    Object sections = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "sections", sections);
+    Object stats = new java.util.LinkedHashMap<String, Object>();
+    Core.set(stats, "bulletCount", 0);
+    Core.set(stats, "helpfulCount", 0);
+    Core.set(stats, "harmfulCount", 0);
+    Core.set(stats, "tokenEstimate", 0);
+    Core.set(out, "stats", stats);
+    Core.set(out, "updatedAt", now);
+    Object has_description = Core.truthyValue(description);
+    if (Core.truthy(has_description)) {
+      Core.set(out, "description", description);
+    }
+    return out;
+  }
+
+  static Object chat_session_native_wait(Object state) {
+    axirCoverageMark("chat_session_native_wait");
+    Object updates = Core.get(state, "updates", null);
+    Object ids = Core.mapKeys(updates);
+    for (Object id : Core.iter(ids)) {
+      Object record = Core.get(updates, id, null);
+      Object native_state = Core.get(record, "native_state", null);
+      Object has_native = Core.isNotNone(native_state);
+      if (Core.truthy(has_native)) {
+        Object status = Core.get(record, "status", null);
+        Object queued = Core.eq(status, "queued");
+        Object successor = Core.eq(native_state, "awaiting_successor");
+        Object waiting = Core.or(queued, successor);
+        if (Core.truthy(waiting)) {
+          return Boolean.TRUE;
+        }
+      }
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object _set_examples(Object gen, Object examples) {
+    axirCoverageMark("_set_examples");
+    Core.set(gen, "examples", examples);
+    return gen;
+  }
+
+  static Object _ace_render_playbook(Object playbook) {
+    axirCoverageMark("_ace_render_playbook");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object description = Core.get(playbook, "description", null);
+    Object has_description = Core.truthyValue(description);
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object bullet_count = 0;
+    for (Object section_name : Core.iter(section_names)) {
+      Object section_bullets = Core.get(sections, section_name, empty_list);
+      Object section_count = Core.len(section_bullets);
+      Object next_bullet_count = Core.add(bullet_count, section_count);
+      bullet_count = next_bullet_count;
+    }
+    Object has_bullets = Core.gt(bullet_count, 0);
+    Object no_bullets = Core.not(has_bullets);
+    Object no_description = Core.not(has_description);
+    Object empty_playbook = Core.and(no_bullets, no_description);
+    if (Core.truthy(empty_playbook)) {
+      return "";
+    }
+    Object header = "## Context Playbook\n";
+    if (Core.truthy(has_description)) {
+      Object trimmed_description = Core.stringTrim(description);
+      Object header_with_description = Core.stringFormat("## Context Playbook\n{}\n", trimmed_description);
+      header = header_with_description;
+    }
+    Object section_blocks = new java.util.ArrayList<Object>();
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, null);
+      Object bullet_lines = new java.util.ArrayList<Object>();
+      for (Object bullet : Core.iter(bullets)) {
+        Object id = Core.get(bullet, "id", "");
+        Object content = Core.get(bullet, "content", "");
+        Object line = Core.stringFormat("- [{}] {}", id, content);
+        Core.append(bullet_lines, line);
+      }
+      Object body = Core.stringJoin("\n", bullet_lines);
+      Object has_body = Core.ne(body, "");
+      Object block = "";
+      if (Core.truthy(has_body)) {
+        Object block_with_body = Core.stringFormat("### {}\n{}", section_name, body);
+        block = block_with_body;
+      }
+      if (!Core.truthy(has_body)) {
+        Object block_empty = Core.stringFormat("### {}\n_(empty)_", section_name);
+        block = block_empty;
+      }
+      Core.append(section_blocks, block);
+    }
+    Object joined_sections = Core.stringJoin("\n\n", section_blocks);
+    Object combined = Core.stringFormat("{}\n{}", header, joined_sections);
+    Object result = Core.stringTrim(combined);
+    return result;
+  }
+
+  static Object _set_demos(Object gen, Object demos) {
+    axirCoverageMark("_set_demos");
+    Core.set(gen, "demos", demos);
+    return gen;
   }
 
   static Object chat_session_native_event(Object state, Object event) {
@@ -21650,95 +21766,6 @@ final class Core {
         Core.set(state, "needs_continuation", queued);
       }
     }
-    return result;
-  }
-
-  static Object _ace_empty_playbook(Object description, Object now) {
-    axirCoverageMark("_ace_empty_playbook");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "version", 1);
-    Object sections = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "sections", sections);
-    Object stats = new java.util.LinkedHashMap<String, Object>();
-    Core.set(stats, "bulletCount", 0);
-    Core.set(stats, "helpfulCount", 0);
-    Core.set(stats, "harmfulCount", 0);
-    Core.set(stats, "tokenEstimate", 0);
-    Core.set(out, "stats", stats);
-    Core.set(out, "updatedAt", now);
-    Object has_description = Core.truthyValue(description);
-    if (Core.truthy(has_description)) {
-      Core.set(out, "description", description);
-    }
-    return out;
-  }
-
-  static Object _set_examples(Object gen, Object examples) {
-    axirCoverageMark("_set_examples");
-    Core.set(gen, "examples", examples);
-    return gen;
-  }
-
-  static Object _set_demos(Object gen, Object demos) {
-    axirCoverageMark("_set_demos");
-    Core.set(gen, "demos", demos);
-    return gen;
-  }
-
-  static Object _ace_render_playbook(Object playbook) {
-    axirCoverageMark("_ace_render_playbook");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object description = Core.get(playbook, "description", null);
-    Object has_description = Core.truthyValue(description);
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
-    Object bullet_count = 0;
-    for (Object section_name : Core.iter(section_names)) {
-      Object section_bullets = Core.get(sections, section_name, empty_list);
-      Object section_count = Core.len(section_bullets);
-      Object next_bullet_count = Core.add(bullet_count, section_count);
-      bullet_count = next_bullet_count;
-    }
-    Object has_bullets = Core.gt(bullet_count, 0);
-    Object no_bullets = Core.not(has_bullets);
-    Object no_description = Core.not(has_description);
-    Object empty_playbook = Core.and(no_bullets, no_description);
-    if (Core.truthy(empty_playbook)) {
-      return "";
-    }
-    Object header = "## Context Playbook\n";
-    if (Core.truthy(has_description)) {
-      Object trimmed_description = Core.stringTrim(description);
-      Object header_with_description = Core.stringFormat("## Context Playbook\n{}\n", trimmed_description);
-      header = header_with_description;
-    }
-    Object section_blocks = new java.util.ArrayList<Object>();
-    for (Object section_name : Core.iter(section_names)) {
-      Object bullets = Core.get(sections, section_name, null);
-      Object bullet_lines = new java.util.ArrayList<Object>();
-      for (Object bullet : Core.iter(bullets)) {
-        Object id = Core.get(bullet, "id", "");
-        Object content = Core.get(bullet, "content", "");
-        Object line = Core.stringFormat("- [{}] {}", id, content);
-        Core.append(bullet_lines, line);
-      }
-      Object body = Core.stringJoin("\n", bullet_lines);
-      Object has_body = Core.ne(body, "");
-      Object block = "";
-      if (Core.truthy(has_body)) {
-        Object block_with_body = Core.stringFormat("### {}\n{}", section_name, body);
-        block = block_with_body;
-      }
-      if (!Core.truthy(has_body)) {
-        Object block_empty = Core.stringFormat("### {}\n_(empty)_", section_name);
-        block = block_empty;
-      }
-      Core.append(section_blocks, block);
-    }
-    Object joined_sections = Core.stringJoin("\n\n", section_blocks);
-    Object combined = Core.stringFormat("{}\n{}", header, joined_sections);
-    Object result = Core.stringTrim(combined);
     return result;
   }
 
@@ -22025,66 +22052,6 @@ final class Core {
     return updated_messages;
   }
 
-  static Object chat_session_boundary_action(Object state) {
-    axirCoverageMark("chat_session_boundary_action");
-    Object action = new java.util.LinkedHashMap<String, Object>();
-    Core.set(action, "type", "wait");
-    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
-    if (Core.truthy(terminal)) {
-      Core.set(action, "type", "closed");
-      return action;
-    }
-    Object native_wait = Core.chat_session_native_wait(state);
-    if (Core.truthy(native_wait)) {
-      return action;
-    }
-    Object boundary = Core.get(state, "boundary", Boolean.FALSE);
-    Object active = Core.not(boundary);
-    if (Core.truthy(active)) {
-      return action;
-    }
-    Object pending = Core.get(state, "pending", null);
-    Object ids = Core.mapKeys(pending);
-    Object results = new java.util.ArrayList<Object>();
-    Object running = Boolean.FALSE;
-    Object blocking = Boolean.FALSE;
-    for (Object id : Core.iter(ids)) {
-      Object record = Core.get(pending, id, null);
-      Object status = Core.get(record, "status", null);
-      Object is_running = Core.eq(status, "running");
-      Object execution = Core.get(record, "execution", null);
-      Object is_blocking = Core.eq(execution, "blocking");
-      Object running_barrier = Core.and(is_running, is_blocking);
-      blocking = Core.or(blocking, running_barrier);
-      running = Core.or(running, is_running);
-      Object ready = Core.eq(status, "ready");
-      if (Core.truthy(ready)) {
-        Object result = Core.get(record, "result", null);
-        Core.append(results, result);
-      }
-    }
-    if (Core.truthy(blocking)) {
-      return action;
-    }
-    Object has_results = Core.truthyValue(results);
-    if (Core.truthy(has_results)) {
-      Core.set(action, "type", "submit");
-      Core.set(action, "results", results);
-      return action;
-    }
-    if (Core.truthy(running)) {
-      return action;
-    }
-    Object needs_continuation = Core.get(state, "needs_continuation", Boolean.FALSE);
-    if (Core.truthy(needs_continuation)) {
-      Core.set(action, "type", "continue");
-    }
-    if (!Core.truthy(needs_continuation)) {
-      Core.set(action, "type", "validate");
-    }
-    return action;
-  }
-
   static Object _date_strip_code_fence_impl(Object value) {
     axirCoverageMark("_date_strip_code_fence_impl");
     Object text = Core._date_js_trim_impl(value);
@@ -22120,12 +22087,6 @@ final class Core {
     axirCoverageMark("_record_trace");
     Core.axgenRecordTrace(gen, input, output, status);
     return null;
-  }
-
-  static Object _should_continue_steps(Object gen, Object calls) {
-    axirCoverageMark("_should_continue_steps");
-    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
-    return should_continue;
   }
 
   static Object _ace_dedupe_playbook(Object playbook) {
@@ -22167,11 +22128,10 @@ final class Core {
     return recomputed;
   }
 
-  static Object _parse_output_impl(Object content) {
-    axirCoverageMark("_parse_output_impl");
-    Object text = Core.stringTrim(content);
-    Object output = Core.jsonParseStrict(text);
-    return output;
+  static Object _should_continue_steps(Object gen, Object calls) {
+    axirCoverageMark("_should_continue_steps");
+    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
+    return should_continue;
   }
 
   static Object _regex_word(Object c) {
@@ -22393,6 +22353,73 @@ final class Core {
     return out;
   }
 
+  static Object chat_session_boundary_action(Object state) {
+    axirCoverageMark("chat_session_boundary_action");
+    Object action = new java.util.LinkedHashMap<String, Object>();
+    Core.set(action, "type", "wait");
+    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
+    if (Core.truthy(terminal)) {
+      Core.set(action, "type", "closed");
+      return action;
+    }
+    Object native_wait = Core.chat_session_native_wait(state);
+    if (Core.truthy(native_wait)) {
+      return action;
+    }
+    Object boundary = Core.get(state, "boundary", Boolean.FALSE);
+    Object active = Core.not(boundary);
+    if (Core.truthy(active)) {
+      return action;
+    }
+    Object pending = Core.get(state, "pending", null);
+    Object ids = Core.mapKeys(pending);
+    Object results = new java.util.ArrayList<Object>();
+    Object running = Boolean.FALSE;
+    Object blocking = Boolean.FALSE;
+    for (Object id : Core.iter(ids)) {
+      Object record = Core.get(pending, id, null);
+      Object status = Core.get(record, "status", null);
+      Object is_running = Core.eq(status, "running");
+      Object execution = Core.get(record, "execution", null);
+      Object is_blocking = Core.eq(execution, "blocking");
+      Object running_barrier = Core.and(is_running, is_blocking);
+      blocking = Core.or(blocking, running_barrier);
+      running = Core.or(running, is_running);
+      Object ready = Core.eq(status, "ready");
+      if (Core.truthy(ready)) {
+        Object result = Core.get(record, "result", null);
+        Core.append(results, result);
+      }
+    }
+    if (Core.truthy(blocking)) {
+      return action;
+    }
+    Object has_results = Core.truthyValue(results);
+    if (Core.truthy(has_results)) {
+      Core.set(action, "type", "submit");
+      Core.set(action, "results", results);
+      return action;
+    }
+    if (Core.truthy(running)) {
+      return action;
+    }
+    Object needs_continuation = Core.get(state, "needs_continuation", Boolean.FALSE);
+    if (Core.truthy(needs_continuation)) {
+      Core.set(action, "type", "continue");
+    }
+    if (!Core.truthy(needs_continuation)) {
+      Core.set(action, "type", "validate");
+    }
+    return action;
+  }
+
+  static Object _parse_output_impl(Object content) {
+    axirCoverageMark("_parse_output_impl");
+    Object text = Core.stringTrim(content);
+    Object output = Core.jsonParseStrict(text);
+    return output;
+  }
+
   static Object _date_string_mode_impl() {
     axirCoverageMark("_date_string_mode_impl");
     Object accented = Core.len("é");
@@ -22504,20 +22531,6 @@ final class Core {
     Core.set(out, "pruned", null_pruned);
     Core.set(out, "section", section);
     return out;
-  }
-
-  static Object chat_session_mark_submitted(Object state, Object ids) {
-    axirCoverageMark("chat_session_mark_submitted");
-    Object pending = Core.get(state, "pending", null);
-    for (Object id : Core.iter(ids)) {
-      Object record = Core.get(pending, id, null);
-      Core.set(record, "status", "sent");
-      Core.set(pending, id, record);
-    }
-    Core.set(state, "pending", pending);
-    Core.set(state, "boundary", Boolean.FALSE);
-    Core.set(state, "needs_continuation", Boolean.FALSE);
-    return null;
   }
 
   static Object _date_native_offset_impl(Object units, Object index, Object mode) {
@@ -22669,34 +22682,6 @@ final class Core {
     return t2;
   }
 
-  static Object chat_session_queue_update(Object state, Object update) {
-    axirCoverageMark("chat_session_queue_update");
-    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
-    if (Core.truthy(terminal)) {
-      return Boolean.FALSE;
-    }
-    Object target = Core.get(update, "target", "root");
-    Object path = Core.get(state, "path", null);
-    Object matches = Core.chat_session_target_matches(target, path);
-    Object unmatched = Core.not(matches);
-    if (Core.truthy(unmatched)) {
-      return Boolean.FALSE;
-    }
-    Object id = Core.get(update, "id", null);
-    Object updates = Core.get(state, "updates", null);
-    Object exists = Core.mapContains(updates, id);
-    if (Core.truthy(exists)) {
-      return Boolean.FALSE;
-    }
-    Object record = new java.util.LinkedHashMap<String, Object>();
-    Core.set(record, "update", update);
-    Core.set(record, "status", "queued");
-    Core.set(updates, id, record);
-    Core.set(state, "updates", updates);
-    Core.set(state, "needs_continuation", Boolean.TRUE);
-    return Boolean.TRUE;
-  }
-
   static Object _parse_json_string_for_field(Object field, Object value) {
     axirCoverageMark("_parse_json_string_for_field");
     Object typ = Core.get(field, "type", null);
@@ -22753,27 +22738,46 @@ final class Core {
     return value;
   }
 
-  static Object chat_session_record_unresolved(Object gen, Object state) {
-    axirCoverageMark("chat_session_record_unresolved");
+  static Object chat_session_mark_submitted(Object state, Object ids) {
+    axirCoverageMark("chat_session_mark_submitted");
     Object pending = Core.get(state, "pending", null);
-    Object ids = Core.mapKeys(pending);
     for (Object id : Core.iter(ids)) {
       Object record = Core.get(pending, id, null);
-      Object status = Core.get(record, "status", null);
-      Object running = Core.eq(status, "running");
-      Object recorded = Core.get(record, "diagnostic_recorded", Boolean.FALSE);
-      Object not_recorded = Core.not(recorded);
-      Object needed = Core.and(running, not_recorded);
-      if (Core.truthy(needed)) {
-        Object call = Core.get(record, "call", null);
-        Object message = "Run closed before the started tool settled; its external effects may still complete";
-        Core.axgenRecordFunctionCall(gen, call, message, "unresolved");
-        Core.set(record, "diagnostic_recorded", Boolean.TRUE);
-        Core.set(pending, id, record);
-      }
+      Core.set(record, "status", "sent");
+      Core.set(pending, id, record);
     }
     Core.set(state, "pending", pending);
+    Core.set(state, "boundary", Boolean.FALSE);
+    Core.set(state, "needs_continuation", Boolean.FALSE);
     return null;
+  }
+
+  static Object chat_session_queue_update(Object state, Object update) {
+    axirCoverageMark("chat_session_queue_update");
+    Object terminal = Core.get(state, "terminal", Boolean.FALSE);
+    if (Core.truthy(terminal)) {
+      return Boolean.FALSE;
+    }
+    Object target = Core.get(update, "target", "root");
+    Object path = Core.get(state, "path", null);
+    Object matches = Core.chat_session_target_matches(target, path);
+    Object unmatched = Core.not(matches);
+    if (Core.truthy(unmatched)) {
+      return Boolean.FALSE;
+    }
+    Object id = Core.get(update, "id", null);
+    Object updates = Core.get(state, "updates", null);
+    Object exists = Core.mapContains(updates, id);
+    if (Core.truthy(exists)) {
+      return Boolean.FALSE;
+    }
+    Object record = new java.util.LinkedHashMap<String, Object>();
+    Core.set(record, "update", update);
+    Core.set(record, "status", "queued");
+    Core.set(updates, id, record);
+    Core.set(state, "updates", updates);
+    Core.set(state, "needs_continuation", Boolean.TRUE);
+    return Boolean.TRUE;
   }
 
   static Object _date_js_trim_impl(Object text) {
@@ -22960,13 +22964,6 @@ final class Core {
     return out;
   }
 
-  static Object chat_session_close_state(Object state) {
-    axirCoverageMark("chat_session_close_state");
-    Core.set(state, "terminal", Boolean.TRUE);
-    Object unresolved = Core.chat_session_unresolved(state);
-    return unresolved;
-  }
-
   static Object _date_trim_bounds_impl(Object units, Object start, Object end) {
     axirCoverageMark("_date_trim_bounds_impl");
     Object first = Core._date_skip_space_impl(units, start, end);
@@ -22991,6 +22988,29 @@ final class Core {
     return bounds;
   }
 
+  static Object chat_session_record_unresolved(Object gen, Object state) {
+    axirCoverageMark("chat_session_record_unresolved");
+    Object pending = Core.get(state, "pending", null);
+    Object ids = Core.mapKeys(pending);
+    for (Object id : Core.iter(ids)) {
+      Object record = Core.get(pending, id, null);
+      Object status = Core.get(record, "status", null);
+      Object running = Core.eq(status, "running");
+      Object recorded = Core.get(record, "diagnostic_recorded", Boolean.FALSE);
+      Object not_recorded = Core.not(recorded);
+      Object needed = Core.and(running, not_recorded);
+      if (Core.truthy(needed)) {
+        Object call = Core.get(record, "call", null);
+        Object message = "Run closed before the started tool settled; its external effects may still complete";
+        Core.axgenRecordFunctionCall(gen, call, message, "unresolved");
+        Core.set(record, "diagnostic_recorded", Boolean.TRUE);
+        Core.set(pending, id, record);
+      }
+    }
+    Core.set(state, "pending", pending);
+    return null;
+  }
+
   static Object _parse_json_string_fields(Object output_fields, Object values) {
     axirCoverageMark("_parse_json_string_fields");
     Object values_is_map = Core.typeIs(values, "object");
@@ -23008,125 +23028,6 @@ final class Core {
       }
     }
     return values;
-  }
-
-  static Object chat_session_transition(Object state, Object event) {
-    axirCoverageMark("chat_session_transition");
-    Object type = Core.get(event, "type", null);
-    Object call = Core.eq(type, "tool.validated");
-    Object result = Core.eq(type, "tool.result");
-    Object response = Core.eq(type, "response.completed");
-    Object update = Core.eq(type, "update.queued");
-    Object submitted = Core.eq(type, "results.submitted");
-    Object closed = Core.eq(type, "closed");
-    Object validated = Core.eq(type, "validated");
-    Object applied = Core.eq(type, "update.applied");
-    Object changed = Boolean.FALSE;
-    Object native_queued = Core.eq(type, "native.queued");
-    if (Core.truthy(native_queued)) {
-      Object id = Core.get(event, "id", null);
-      changed = Core.chat_session_native_update(state, id);
-      Object action = Core.chat_session_boundary_action(state);
-      Core.set(action, "changed", changed);
-      return action;
-    }
-    Object steering = Core.eq(type, "steering");
-    if (Core.truthy(steering)) {
-      Object change = Core.chat_session_native_event(state, event);
-      Object action = Core.chat_session_boundary_action(state);
-      action = Core.mapMerge(action, change);
-      return action;
-    }
-    Object final_call = Core.eq(type, "tool.final");
-    if (Core.truthy(final_call)) {
-      Object tool_call = Core.get(event, "call", null);
-      changed = Core.chat_session_defer_final_call(state, tool_call);
-      Object action = Core.chat_session_boundary_action(state);
-      Core.set(action, "changed", changed);
-      return action;
-    }
-    if (Core.truthy(call)) {
-      Object tool_call = Core.get(event, "call", null);
-      Object execution = Core.get(event, "execution", "blocking");
-      changed = Core.chat_session_register_call(state, tool_call, execution);
-    }
-    if (!Core.truthy(call)) {
-      if (Core.truthy(result)) {
-        Object id = Core.get(event, "id", null);
-        Object value = Core.get(event, "result", null);
-        changed = Core.chat_session_complete_call(state, id, value);
-      }
-      if (!Core.truthy(result)) {
-        if (Core.truthy(response)) {
-          Object id = Core.get(event, "id", null);
-          changed = Core.chat_session_complete_response(state, id);
-        }
-        if (!Core.truthy(response)) {
-          if (Core.truthy(update)) {
-            Object item = Core.get(event, "update", null);
-            changed = Core.chat_session_queue_update(state, item);
-          }
-          if (!Core.truthy(update)) {
-            if (Core.truthy(submitted)) {
-              Object ids = Core.get(event, "ids", null);
-              Core.chat_session_mark_submitted(state, ids);
-              changed = Boolean.TRUE;
-            }
-            if (!Core.truthy(submitted)) {
-              if (Core.truthy(closed)) {
-                Core.chat_session_close_state(state);
-                changed = Boolean.TRUE;
-              }
-              if (!Core.truthy(closed)) {
-                if (Core.truthy(validated)) {
-                  Object action = Core.chat_session_boundary_action(state);
-                  Object action_type = Core.get(action, "type", null);
-                  Object ready = Core.eq(action_type, "validate");
-                  Object not_ready = Core.not(ready);
-                  if (Core.truthy(not_ready)) {
-                    throw new RuntimeException("Cannot finalize while model or tool work is unresolved");
-                  }
-                  Core.set(state, "terminal", Boolean.TRUE);
-                  changed = Boolean.TRUE;
-                }
-                if (!Core.truthy(validated)) {
-                  if (Core.truthy(applied)) {
-                    Object id = Core.get(event, "id", null);
-                    Object updates = Core.get(state, "updates", null);
-                    Object exists = Core.mapContains(updates, id);
-                    if (Core.truthy(exists)) {
-                      Object record = Core.get(updates, id, null);
-                      Object status = Core.get(record, "status", null);
-                      Object queued = Core.eq(status, "queued");
-                      if (Core.truthy(queued)) {
-                        Core.set(record, "status", "applied");
-                        Core.set(updates, id, record);
-                        Core.set(state, "updates", updates);
-                        Object item = Core.get(record, "update", null);
-                        Object kind = Core.get(item, "type", null);
-                        Object steer = Core.eq(kind, "steer");
-                        if (Core.truthy(steer)) {
-                          Object version = Core.get(state, "version", 0);
-                          Object next_version = Core.add(version, 1);
-                          Core.set(state, "version", next_version);
-                        }
-                        changed = Boolean.TRUE;
-                      }
-                    }
-                  }
-                  if (!Core.truthy(applied)) {
-                    throw new RuntimeException("Unknown chat session transition");
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    Object action = Core.chat_session_boundary_action(state);
-    Core.set(action, "changed", changed);
-    return action;
   }
 
   static Object _regex_member(Object n, Object c) {
@@ -23269,6 +23170,13 @@ final class Core {
     return cursor;
   }
 
+  static Object chat_session_close_state(Object state) {
+    axirCoverageMark("chat_session_close_state");
+    Core.set(state, "terminal", Boolean.TRUE);
+    Object unresolved = Core.chat_session_unresolved(state);
+    return unresolved;
+  }
+
   static Object _parse_json_string_for_fields(Object fields_map, Object values) {
     axirCoverageMark("_parse_json_string_for_fields");
     Object values_is_map = Core.typeIs(values, "object");
@@ -23287,6 +23195,125 @@ final class Core {
       }
     }
     return values;
+  }
+
+  static Object chat_session_transition(Object state, Object event) {
+    axirCoverageMark("chat_session_transition");
+    Object type = Core.get(event, "type", null);
+    Object call = Core.eq(type, "tool.validated");
+    Object result = Core.eq(type, "tool.result");
+    Object response = Core.eq(type, "response.completed");
+    Object update = Core.eq(type, "update.queued");
+    Object submitted = Core.eq(type, "results.submitted");
+    Object closed = Core.eq(type, "closed");
+    Object validated = Core.eq(type, "validated");
+    Object applied = Core.eq(type, "update.applied");
+    Object changed = Boolean.FALSE;
+    Object native_queued = Core.eq(type, "native.queued");
+    if (Core.truthy(native_queued)) {
+      Object id = Core.get(event, "id", null);
+      changed = Core.chat_session_native_update(state, id);
+      Object action = Core.chat_session_boundary_action(state);
+      Core.set(action, "changed", changed);
+      return action;
+    }
+    Object steering = Core.eq(type, "steering");
+    if (Core.truthy(steering)) {
+      Object change = Core.chat_session_native_event(state, event);
+      Object action = Core.chat_session_boundary_action(state);
+      action = Core.mapMerge(action, change);
+      return action;
+    }
+    Object final_call = Core.eq(type, "tool.final");
+    if (Core.truthy(final_call)) {
+      Object tool_call = Core.get(event, "call", null);
+      changed = Core.chat_session_defer_final_call(state, tool_call);
+      Object action = Core.chat_session_boundary_action(state);
+      Core.set(action, "changed", changed);
+      return action;
+    }
+    if (Core.truthy(call)) {
+      Object tool_call = Core.get(event, "call", null);
+      Object execution = Core.get(event, "execution", "blocking");
+      changed = Core.chat_session_register_call(state, tool_call, execution);
+    }
+    if (!Core.truthy(call)) {
+      if (Core.truthy(result)) {
+        Object id = Core.get(event, "id", null);
+        Object value = Core.get(event, "result", null);
+        changed = Core.chat_session_complete_call(state, id, value);
+      }
+      if (!Core.truthy(result)) {
+        if (Core.truthy(response)) {
+          Object id = Core.get(event, "id", null);
+          changed = Core.chat_session_complete_response(state, id);
+        }
+        if (!Core.truthy(response)) {
+          if (Core.truthy(update)) {
+            Object item = Core.get(event, "update", null);
+            changed = Core.chat_session_queue_update(state, item);
+          }
+          if (!Core.truthy(update)) {
+            if (Core.truthy(submitted)) {
+              Object ids = Core.get(event, "ids", null);
+              Core.chat_session_mark_submitted(state, ids);
+              changed = Boolean.TRUE;
+            }
+            if (!Core.truthy(submitted)) {
+              if (Core.truthy(closed)) {
+                Core.chat_session_close_state(state);
+                changed = Boolean.TRUE;
+              }
+              if (!Core.truthy(closed)) {
+                if (Core.truthy(validated)) {
+                  Object action = Core.chat_session_boundary_action(state);
+                  Object action_type = Core.get(action, "type", null);
+                  Object ready = Core.eq(action_type, "validate");
+                  Object not_ready = Core.not(ready);
+                  if (Core.truthy(not_ready)) {
+                    throw new RuntimeException("Cannot finalize while model or tool work is unresolved");
+                  }
+                  Core.set(state, "terminal", Boolean.TRUE);
+                  changed = Boolean.TRUE;
+                }
+                if (!Core.truthy(validated)) {
+                  if (Core.truthy(applied)) {
+                    Object id = Core.get(event, "id", null);
+                    Object updates = Core.get(state, "updates", null);
+                    Object exists = Core.mapContains(updates, id);
+                    if (Core.truthy(exists)) {
+                      Object record = Core.get(updates, id, null);
+                      Object status = Core.get(record, "status", null);
+                      Object queued = Core.eq(status, "queued");
+                      if (Core.truthy(queued)) {
+                        Core.set(record, "status", "applied");
+                        Core.set(updates, id, record);
+                        Core.set(state, "updates", updates);
+                        Object item = Core.get(record, "update", null);
+                        Object kind = Core.get(item, "type", null);
+                        Object steer = Core.eq(kind, "steer");
+                        if (Core.truthy(steer)) {
+                          Object version = Core.get(state, "version", 0);
+                          Object next_version = Core.add(version, 1);
+                          Core.set(state, "version", next_version);
+                        }
+                        changed = Boolean.TRUE;
+                      }
+                    }
+                  }
+                  if (!Core.truthy(applied)) {
+                    throw new RuntimeException("Unknown chat session transition");
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    Object action = Core.chat_session_boundary_action(state);
+    Core.set(action, "changed", changed);
+    return action;
   }
 
   static Object _date_space_impl(Object unit) {
@@ -23693,13 +23720,6 @@ final class Core {
     return out;
   }
 
-  static Object _response_function_calls_impl(Object response) {
-    axirCoverageMark("_response_function_calls_impl");
-    Object empty = new java.util.ArrayList<Object>();
-    Object calls = Core.get(response, "function_calls", empty);
-    return calls;
-  }
-
   static Object _ace_is_noop_acknowledgment(Object content) {
     axirCoverageMark("_ace_is_noop_acknowledgment");
     Object lowered = Core.stringLower(content);
@@ -23827,6 +23847,13 @@ final class Core {
       }
     }
     return is_noop;
+  }
+
+  static Object _response_function_calls_impl(Object response) {
+    axirCoverageMark("_response_function_calls_impl");
+    Object empty = new java.util.ArrayList<Object>();
+    Object calls = Core.get(response, "function_calls", empty);
+    return calls;
   }
 
   static Object _date_digits_impl(Object units, Object at, Object count, Object end) {
@@ -24486,23 +24513,6 @@ final class Core {
     return t225;
   }
 
-  static Object _tool_error_message_impl(Object call, Object error) {
-    axirCoverageMark("_tool_error_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "name", name);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
-  }
-
   static Object _date_scan_datetime_impl(Object units, Object start, Object end) {
     axirCoverageMark("_date_scan_datetime_impl");
     Object none = Core.none();
@@ -24598,6 +24608,23 @@ final class Core {
     }
     Core.set(parts, "end", cursor);
     return parts;
+  }
+
+  static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "name", name);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
   }
 
   static Object _stream_text_required_check_impl(Object values, Object fields) {
@@ -25224,36 +25251,6 @@ final class Core {
     return null;
   }
 
-  static Object _signature_has_complex_fields(Object signature, Object options) {
-    axirCoverageMark("_signature_has_complex_fields");
-    Object option_forced_snake = Core.get(options, "force_structured", Boolean.FALSE);
-    Object option_forced = Core.get(options, "forceStructured", option_forced_snake);
-    Object signature_forced_snake = Core.get(signature, "force_structured", Boolean.FALSE);
-    Object signature_forced = Core.get(signature, "forceStructured", signature_forced_snake);
-    Object forced = Core.or(option_forced, signature_forced);
-    if (Core.truthy(forced)) {
-      return Boolean.TRUE;
-    }
-    Object output_fields = Core.get(signature, "output_fields", null);
-    for (Object field : Core.iter(output_fields)) {
-      Object field_type = Core.get(field, "type", null);
-      Object type_name = Core.get(field_type, "name", null);
-      Object is_object = Core.eq(type_name, "object");
-      if (Core.truthy(is_object)) {
-        return Boolean.TRUE;
-      }
-      Object is_array_snake = Core.get(field_type, "is_array", Boolean.FALSE);
-      Object is_array = Core.get(field_type, "isArray", is_array_snake);
-      Object nested_fields = Core.get(field_type, "fields", null);
-      Object has_nested_fields = Core.truthyValue(nested_fields);
-      Object object_array = Core.and(is_array, has_nested_fields);
-      if (Core.truthy(object_array)) {
-        return Boolean.TRUE;
-      }
-    }
-    return Boolean.FALSE;
-  }
-
   static Object _ace_locate_bullet_section(Object playbook, Object bullet_id) {
     axirCoverageMark("_ace_locate_bullet_section");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -25282,6 +25279,36 @@ final class Core {
       }
     }
     return found;
+  }
+
+  static Object _signature_has_complex_fields(Object signature, Object options) {
+    axirCoverageMark("_signature_has_complex_fields");
+    Object option_forced_snake = Core.get(options, "force_structured", Boolean.FALSE);
+    Object option_forced = Core.get(options, "forceStructured", option_forced_snake);
+    Object signature_forced_snake = Core.get(signature, "force_structured", Boolean.FALSE);
+    Object signature_forced = Core.get(signature, "forceStructured", signature_forced_snake);
+    Object forced = Core.or(option_forced, signature_forced);
+    if (Core.truthy(forced)) {
+      return Boolean.TRUE;
+    }
+    Object output_fields = Core.get(signature, "output_fields", null);
+    for (Object field : Core.iter(output_fields)) {
+      Object field_type = Core.get(field, "type", null);
+      Object type_name = Core.get(field_type, "name", null);
+      Object is_object = Core.eq(type_name, "object");
+      if (Core.truthy(is_object)) {
+        return Boolean.TRUE;
+      }
+      Object is_array_snake = Core.get(field_type, "is_array", Boolean.FALSE);
+      Object is_array = Core.get(field_type, "isArray", is_array_snake);
+      Object nested_fields = Core.get(field_type, "fields", null);
+      Object has_nested_fields = Core.truthyValue(nested_fields);
+      Object object_array = Core.and(is_array, has_nested_fields);
+      if (Core.truthy(object_array)) {
+        return Boolean.TRUE;
+      }
+    }
+    return Boolean.FALSE;
   }
 
   static Object _ace_resolve_curator_operation_targets(Object operations, Object playbook, Object reflection, Object generator_output) {
@@ -28290,16 +28317,6 @@ final class Core {
     return null;
   }
 
-  static Object _cache_store_streamed_impl(Object cache_fn, Object key, Object output) {
-    axirCoverageMark("_cache_store_streamed_impl");
-    Object output_count = Core.len(output);
-    Object yielded = Core.gt(output_count, 0);
-    if (Core.truthy(yielded)) {
-      Core._cache_store_impl(cache_fn, key, output);
-    }
-    return null;
-  }
-
   static Object _stream_json_flexible_impl(Object field) {
     axirCoverageMark("_stream_json_flexible_impl");
     Object typ = Core.get(field, "type", null);
@@ -28314,6 +28331,16 @@ final class Core {
     Object open_object = Core.not(has_nested);
     Object flexible = Core.and(is_object, open_object);
     return flexible;
+  }
+
+  static Object _cache_store_streamed_impl(Object cache_fn, Object key, Object output) {
+    axirCoverageMark("_cache_store_streamed_impl");
+    Object output_count = Core.len(output);
+    Object yielded = Core.gt(output_count, 0);
+    if (Core.truthy(yielded)) {
+      Core._cache_store_impl(cache_fn, key, output);
+    }
+    return null;
   }
 
   static Object _cache_lookup_impl(Object gen, Object values, Object options, Object ignore_read_errors) {
@@ -28760,6 +28787,21 @@ final class Core {
     return text;
   }
 
+  static Object _stream_run_state_impl(Object sink, Object buffered, Object thought_field) {
+    axirCoverageMark("_stream_run_state_impl");
+    Object run = new java.util.LinkedHashMap<String, Object>();
+    Core.set(run, "sink", sink);
+    Core.set(run, "buffered", buffered);
+    Core.set(run, "thought_field", thought_field);
+    Core.set(run, "current_version", 0);
+    Core.set(run, "output_emitted", Boolean.FALSE);
+    Object emitted_thought = new java.util.ArrayList<Object>();
+    Core.set(run, "emitted_thought", emitted_thought);
+    Object buffer = new java.util.ArrayList<Object>();
+    Core.set(run, "buffer", buffer);
+    return run;
+  }
+
   static Object _run_tool_calls_impl(Object gen, Object functions, Object messages, Object calls, Object options) {
     axirCoverageMark("_run_tool_calls_impl");
     for (Object call : Core.iter(calls)) {
@@ -28794,21 +28836,6 @@ final class Core {
       }
     }
     return messages;
-  }
-
-  static Object _stream_run_state_impl(Object sink, Object buffered, Object thought_field) {
-    axirCoverageMark("_stream_run_state_impl");
-    Object run = new java.util.LinkedHashMap<String, Object>();
-    Core.set(run, "sink", sink);
-    Core.set(run, "buffered", buffered);
-    Core.set(run, "thought_field", thought_field);
-    Core.set(run, "current_version", 0);
-    Core.set(run, "output_emitted", Boolean.FALSE);
-    Object emitted_thought = new java.util.ArrayList<Object>();
-    Core.set(run, "emitted_thought", emitted_thought);
-    Object buffer = new java.util.ArrayList<Object>();
-    Core.set(run, "buffer", buffer);
-    return run;
   }
 
   static Object _stream_run_new_version_impl(Object run, Object version) {

@@ -214,7 +214,7 @@ class SessionRun final:public AIClient {
     }).detach();
   }
   void submit(Value results){
-    if(num(Core::get(state_,"steps",0))>=num(Core::get(state_,"max_steps",10)))throw AxError("runtime","Maximum model steps exhausted before final completion");
+    if(num(Core::get(state_,"steps",0))>=num(Core::get(state_,"max_steps",25)))throw Core::as_error(Core::chat_session_step_limit_error(state_));
     session_->submit(results);Value ids=Value::array();for(const auto& result:array_ref(results))Core::append(ids,Core::get(result,"function_id"));Core::chat_session_mark_submitted(state_,ids);
     for(const auto& id:applied_){Core::chat_session_transition(state_,object({{"type","update.applied"},{"id",id}}));emit("applied",object({{"update_id",id},{"timing","next-response"}}));}applied_.clear();
   }
@@ -269,7 +269,8 @@ class SessionRun final:public AIClient {
     if(!session)return false;
     results_=std::make_shared<SessionQueue>();items_.clear();session_after_=0;applied_.clear();waiting_.clear();blocking_=false;last_=Value();
     session_=std::move(session);native_opened_=true;++session_number_;request_=request;
-    state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));
+    // As TS's maxResponses: the run's maxSteps (25 by default) less the request's step.
+    state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Value(num(Core::get(options_,"maxSteps",Core::get(options_,"max_steps",25)))-num(Core::get(request,"_ax_step_index",0))));
     return true;
   }
   // Closes the open session. Its tool workers are cancelled, and what they

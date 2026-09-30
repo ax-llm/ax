@@ -716,6 +716,40 @@ module @ax.session version "0.1" {
     }
   }
 
+  op ax.gen.semantic @chat_session_step_limit_error {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "src/ax/dsp/chatSession.ts"
+    type signature = "(state:json) -> error"
+    body @entry(%state: json) {
+      // axRunChatSession at its response budget: the session makes no more
+      // responses, and the run fails. TS submits the results that are ready
+      // first, so only calls still running count; it then waits for those,
+      // where a port reports them as unresolved.
+      %running = core.list
+      %empty_pending = core.map
+      %pending = core.get %state["pending"] default %empty_pending
+      %pending_ids = core.call intrinsic.map.keys(%pending)
+      core.for %pending_id in %pending_ids {
+        %record = core.get %pending[%pending_id]
+        %status = core.get %record["status"]
+        %is_running = core.call intrinsic.eq(%status, "running")
+        core.if %is_running {
+          core.append %running, %pending_id
+        }
+      }
+      %count = core.call intrinsic.len(%running)
+      %ids = core.call intrinsic.string.join(", ", %running)
+      %no_ids = core.call intrinsic.eq(%ids, "")
+      core.if %no_ids {
+        %ids = core.let "none"
+      }
+      %message = core.call intrinsic.string.format("Chat session failed: Maximum steps reached with unincorporated tool results ({}); unresolved calls: {}", %count, %ids)
+      %error = core.call intrinsic.error.runtime(%message)
+      core.return %error
+    }
+  }
+
   op ax.gen.semantic @chat_session_final_result {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -856,7 +890,8 @@ module @ax.session version "0.1" {
       %limit = core.get %state["max_steps"]
       %exhausted = core.call intrinsic.gte(%steps, %limit)
       core.if %exhausted {
-        core.raise "Maximum model steps exhausted before final completion"
+        %limit_error = core.call @chat_session_step_limit_error(%state)
+        core.raise %limit_error
       }
       %next = core.call intrinsic.add(%steps, 1)
       core.set %responses[%id] = true

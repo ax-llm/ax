@@ -43,5 +43,5 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(result["answer"])
+	fmt.Println(result.(map[string]ax.Value)["answer"])
 }

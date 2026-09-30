@@ -2395,7 +2395,53 @@ const lookupCall = sessionCompleted('r1', {
   function_calls: [call('c1', 'lookup', '{"key":"status"}')],
 });
 
+// A session of `calls` sequential lookup responses, then a final answer.
+const toolLoopSession = (
+  calls: number,
+  answer: string
+): SessionEventSpec[][] => [
+  ...Array.from({ length: calls }, (_, i) => [
+    sessionCompleted(`r${i + 1}`, {
+      function_calls: [call(`c${i + 1}`, 'lookup', '{"key":"status"}')],
+    }),
+  ]),
+  [sessionAnswer(`r${calls + 1}`, answer)],
+];
+
 const sessionCases: Record<string, Case> = {
+  // A request's session may make maxSteps (25) minus the step's index
+  // responses: 11 complete, and the 25th with work fails the run with TS's
+  // message instead of continuing.
+  'forward-native-session-response-budget-completes': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [toolLoopSession(10, 'Answer: done')],
+    responses: [],
+  },
+  'forward-native-session-response-budget-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [toolLoopSession(25, 'Answer: done')],
+    responses: [],
+  },
+  // A later step's session has one response fewer: after a feedback step
+  // (step 1), 24 lookups exhaust it.
+  'forward-native-session-response-budget-later-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    feedback_processors: [{ field: 'answer', returns: 'Check it.', times: 1 }],
+    native_session: [
+      [[sessionAnswer('r0', 'Answer: Lyon')]],
+      toolLoopSession(24, 'Answer: Paris'),
+    ],
+    responses: [],
+  },
   'forward-native-session-correction-opens-fresh-session': {
     kind: 'forward',
     signature: 'question:string -> answer:string',

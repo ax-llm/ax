@@ -3582,6 +3582,7 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selec
     else:
         pass
     request["model_config"] = model_config
+    request["_ax_step_index"] = step
     return request
 
 
@@ -5934,14 +5935,30 @@ def _date_parts_in_zone_impl(zone: Any, millis: Any) -> Any:
     return parts
 
 
-def chat_session_final_result(state: Any, response: Any) -> Any:
-    _core_coverage_mark("chat_session_final_result")
-    id = _core_get(state, "response_id", "")
-    result = chat_session_result(response, id)
-    empty_turns = []
-    turns = _core_get(state, "turns", empty_turns)
-    result["__session_turns"] = turns
-    return result
+def chat_session_step_limit_error(state: Any) -> error:
+    _core_coverage_mark("chat_session_step_limit_error")
+    running = []
+    empty_pending = {}
+    pending = _core_get(state, "pending", empty_pending)
+    pending_ids = _core_map_keys(pending)
+    for pending_id in pending_ids:
+        record = _core_get(pending, pending_id, None)
+        status = _core_get(record, "status", None)
+        is_running = _core_eq(status, "running")
+        if is_running:
+            running.append(pending_id)
+        else:
+            pass
+    count = _core_len(running)
+    ids = _core_string_join(", ", running)
+    no_ids = _core_eq(ids, "")
+    if no_ids:
+        ids = "none"
+    else:
+        pass
+    message = _core_string_format("Chat session failed: Maximum steps reached with unincorporated tool results ({}); unresolved calls: {}", count, ids)
+    error = _core_runtime_error(message)
+    return error
 
 
 def _regex_atom(s: Any) -> Any:
@@ -6211,24 +6228,6 @@ def _date_zone_offset_millis_impl(zone: Any, millis: Any) -> Any:
     return offset
 
 
-def chat_session_completion(response: Any, id: str) -> Any:
-    _core_coverage_mark("chat_session_completion")
-    completion = chat_response_to_completion(response)
-    completion["remote_id"] = id
-    return completion
-
-
-def chat_session_has_continuation_work(state: Any) -> bool:
-    _core_coverage_mark("chat_session_has_continuation_work")
-    pending = chat_session_unresolved(state)
-    pending = _core_truthy(pending)
-    native_wait = chat_session_native_wait(state)
-    continuation = _core_get(state, "needs_continuation", False)
-    work = _core_or(pending, native_wait)
-    work = _core_or(work, continuation)
-    return work
-
-
 def _date_named_timestamp_impl(parts: Any, zone: Any) -> Any:
     _core_coverage_mark("_date_named_timestamp_impl")
     utc = _date_utc_ms_impl(parts)
@@ -6253,6 +6252,16 @@ def _date_named_timestamp_impl(parts: Any, zone: Any) -> Any:
     return timestamp
 
 
+def chat_session_final_result(state: Any, response: Any) -> Any:
+    _core_coverage_mark("chat_session_final_result")
+    id = _core_get(state, "response_id", "")
+    result = chat_session_result(response, id)
+    empty_turns = []
+    turns = _core_get(state, "turns", empty_turns)
+    result["__session_turns"] = turns
+    return result
+
+
 def _stream_field_flag_impl(target: Any, snake: str, camel: str) -> bool:
     _core_coverage_mark("_stream_field_flag_impl")
     snake_value = _core_get(target, snake, False)
@@ -6261,20 +6270,11 @@ def _stream_field_flag_impl(target: Any, snake: str, camel: str) -> bool:
     return flag
 
 
-def chat_session_normalize_call(call: Any) -> Any:
-    _core_coverage_mark("chat_session_normalize_call")
-    function = _core_get(call, "function", None)
-    missing = _core_is_none(function)
-    if missing:
-        call = _completion_call_to_chat_impl(call)
-        function = _core_get(call, "function", None)
-    else:
-        pass
-    name = _core_get(function, "name", None)
-    params = _core_get(function, "params", None)
-    call["name"] = name
-    call["params"] = params
-    return call
+def chat_session_completion(response: Any, id: str) -> Any:
+    _core_coverage_mark("chat_session_completion")
+    completion = chat_response_to_completion(response)
+    completion["remote_id"] = id
+    return completion
 
 
 def _stream_field_type_label_impl(field: Any) -> str:
@@ -6341,26 +6341,15 @@ def _stream_field_type_label_impl(field: Any) -> str:
     return base
 
 
-def chat_session_defer_final_call(state: Any, call: Any) -> bool:
-    _core_coverage_mark("chat_session_defer_final_call")
-    unresolved = chat_session_unresolved(state)
-    pending = _core_truthy(unresolved)
-    updates = _core_get(state, "needs_continuation", False)
-    defer = _core_or(pending, updates)
-    if defer:
-        registered = chat_session_register_call(state, call, "blocking")
-        if registered:
-            id = _core_get(call, "id", None)
-            result = {}
-            result["function_id"] = id
-            result["result"] = "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."
-            chat_session_complete_call(state, id, result)
-        else:
-            pass
-        return registered
-    else:
-        pass
-    return False
+def chat_session_has_continuation_work(state: Any) -> bool:
+    _core_coverage_mark("chat_session_has_continuation_work")
+    pending = chat_session_unresolved(state)
+    pending = _core_truthy(pending)
+    native_wait = chat_session_native_wait(state)
+    continuation = _core_get(state, "needs_continuation", False)
+    work = _core_or(pending, native_wait)
+    work = _core_or(work, continuation)
+    return work
 
 
 def _date_parse_range_impl(value: Any, kind: Any) -> Any:
@@ -6395,6 +6384,22 @@ def _date_parse_range_impl(value: Any, kind: Any) -> Any:
     else:
         pass
     return range_millis
+
+
+def chat_session_normalize_call(call: Any) -> Any:
+    _core_coverage_mark("chat_session_normalize_call")
+    function = _core_get(call, "function", None)
+    missing = _core_is_none(function)
+    if missing:
+        call = _completion_call_to_chat_impl(call)
+        function = _core_get(call, "function", None)
+    else:
+        pass
+    name = _core_get(function, "name", None)
+    params = _core_get(function, "params", None)
+    call["name"] = name
+    call["params"] = params
+    return call
 
 
 def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
@@ -6465,29 +6470,23 @@ def _build_optimizer_evidence_batch(eval_result: Any, components: Any) -> Any:
     return out
 
 
-def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
-    _core_coverage_mark("chat_session_complete_call")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    pending = _core_get(state, "pending", None)
-    exists = _core_map_contains(pending, id)
-    missing = _core_not(exists)
-    if missing:
-        raise RuntimeError("Tool result has no registered call")
-    else:
-        pass
-    record = _core_get(pending, id, None)
-    status = _core_get(record, "status", None)
-    running = _core_eq(status, "running")
-    if running:
-        record["result"] = result
-        record["status"] = "ready"
-        pending[id] = record
-        state["pending"] = pending
-        return True
+def chat_session_defer_final_call(state: Any, call: Any) -> bool:
+    _core_coverage_mark("chat_session_defer_final_call")
+    unresolved = chat_session_unresolved(state)
+    pending = _core_truthy(unresolved)
+    updates = _core_get(state, "needs_continuation", False)
+    defer = _core_or(pending, updates)
+    if defer:
+        registered = chat_session_register_call(state, call, "blocking")
+        if registered:
+            id = _core_get(call, "id", None)
+            result = {}
+            result["function_id"] = id
+            result["result"] = "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."
+            chat_session_complete_call(state, id, result)
+        else:
+            pass
+        return registered
     else:
         pass
     return False
@@ -6565,54 +6564,32 @@ def _date_range_endpoints_impl(value: Any) -> Any:
     raise error
 
 
-def chat_session_complete_response(state: Any, id: str) -> bool:
-    _core_coverage_mark("chat_session_complete_response")
+def chat_session_complete_call(state: Any, id: str, result: Any) -> bool:
+    _core_coverage_mark("chat_session_complete_call")
     terminal = _core_get(state, "terminal", False)
     if terminal:
         return False
     else:
         pass
-    responses = _core_get(state, "responses", None)
-    duplicate = _core_map_contains(responses, id)
-    if duplicate:
-        return False
+    pending = _core_get(state, "pending", None)
+    exists = _core_map_contains(pending, id)
+    missing = _core_not(exists)
+    if missing:
+        raise RuntimeError("Tool result has no registered call")
     else:
         pass
-    steps = _core_get(state, "steps", 0)
-    limit = _core_get(state, "max_steps", None)
-    exhausted = _core_gte(steps, limit)
-    if exhausted:
-        raise RuntimeError("Maximum model steps exhausted before final completion")
+    record = _core_get(pending, id, None)
+    status = _core_get(record, "status", None)
+    running = _core_eq(status, "running")
+    if running:
+        record["result"] = result
+        record["status"] = "ready"
+        pending[id] = record
+        state["pending"] = pending
+        return True
     else:
         pass
-    next = _core_add(steps, 1)
-    responses[id] = True
-    state["responses"] = responses
-    state["response_id"] = id
-    state["steps"] = next
-    state["boundary"] = True
-    updates = _core_get(state, "updates", None)
-    update_ids = _core_map_keys(updates)
-    had_successor = False
-    for update_id in update_ids:
-        record = _core_get(updates, update_id, None)
-        parent = _core_get(record, "native_parent", None)
-        has_parent = _core_is_not_none(parent)
-        successor = _core_ne(parent, id)
-        finished = _core_and(has_parent, successor)
-        if finished:
-            had_successor = True
-            record["native_state"] = "done"
-            updates[update_id] = record
-        else:
-            pass
-    state["updates"] = updates
-    if had_successor:
-        queued = chat_session_has_queued_updates(state)
-        state["needs_continuation"] = queued
-    else:
-        pass
-    return True
+    return False
 
 
 def _stream_required_missing_error_impl(field: Any) -> error:
@@ -6647,19 +6624,55 @@ def _stream_url_error_impl(field: Any, value: Any) -> Any:
     return error
 
 
-def chat_session_has_queued_updates(state: Any) -> bool:
-    _core_coverage_mark("chat_session_has_queued_updates")
+def chat_session_complete_response(state: Any, id: str) -> bool:
+    _core_coverage_mark("chat_session_complete_response")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    responses = _core_get(state, "responses", None)
+    duplicate = _core_map_contains(responses, id)
+    if duplicate:
+        return False
+    else:
+        pass
+    steps = _core_get(state, "steps", 0)
+    limit = _core_get(state, "max_steps", None)
+    exhausted = _core_gte(steps, limit)
+    if exhausted:
+        limit_error = chat_session_step_limit_error(state)
+        raise limit_error
+    else:
+        pass
+    next = _core_add(steps, 1)
+    responses[id] = True
+    state["responses"] = responses
+    state["response_id"] = id
+    state["steps"] = next
+    state["boundary"] = True
     updates = _core_get(state, "updates", None)
-    ids = _core_map_keys(updates)
-    for id in ids:
-        record = _core_get(updates, id, None)
-        status = _core_get(record, "status", None)
-        queued = _core_eq(status, "queued")
-        if queued:
-            return True
+    update_ids = _core_map_keys(updates)
+    had_successor = False
+    for update_id in update_ids:
+        record = _core_get(updates, update_id, None)
+        parent = _core_get(record, "native_parent", None)
+        has_parent = _core_is_not_none(parent)
+        successor = _core_ne(parent, id)
+        finished = _core_and(has_parent, successor)
+        if finished:
+            had_successor = True
+            record["native_state"] = "done"
+            updates[update_id] = record
         else:
             pass
-    return False
+    state["updates"] = updates
+    if had_successor:
+        queued = chat_session_has_queued_updates(state)
+        state["needs_continuation"] = queued
+    else:
+        pass
+    return True
 
 
 def _stream_validate_constraints_impl(field: Any, value: Any, kind: str) -> None:
@@ -7015,30 +7028,6 @@ def _ace_estimate_token_count(text: str) -> i64:
     return tokens
 
 
-def chat_session_native_update(state: Any, id: str) -> bool:
-    _core_coverage_mark("chat_session_native_update")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    updates = _core_get(state, "updates", None)
-    record = _core_get(updates, id, None)
-    native_state = _core_get(record, "native_state", None)
-    new_native = _core_is_none(native_state)
-    if new_native:
-        record["native_state"] = "awaiting_ack"
-        responses = _core_get(state, "responses", None)
-        empty_baseline = {}
-        baseline = _core_map_merge(empty_baseline, responses)
-        record["native_responses"] = baseline
-        updates[id] = record
-        state["updates"] = updates
-    else:
-        pass
-    return new_native
-
-
 def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     _core_coverage_mark("_ace_recompute_playbook_stats")
     empty_map = {}
@@ -7071,23 +7060,16 @@ def _ace_recompute_playbook_stats(playbook: Any) -> Any:
     return playbook
 
 
-def chat_session_native_wait(state: Any) -> bool:
-    _core_coverage_mark("chat_session_native_wait")
+def chat_session_has_queued_updates(state: Any) -> bool:
+    _core_coverage_mark("chat_session_has_queued_updates")
     updates = _core_get(state, "updates", None)
     ids = _core_map_keys(updates)
     for id in ids:
         record = _core_get(updates, id, None)
-        native_state = _core_get(record, "native_state", None)
-        has_native = _core_is_not_none(native_state)
-        if has_native:
-            status = _core_get(record, "status", None)
-            queued = _core_eq(status, "queued")
-            successor = _core_eq(native_state, "awaiting_successor")
-            waiting = _core_or(queued, successor)
-            if waiting:
-                return True
-            else:
-                pass
+        status = _core_get(record, "status", None)
+        queued = _core_eq(status, "queued")
+        if queued:
+            return True
         else:
             pass
     return False
@@ -7174,6 +7156,139 @@ def _date_delimiter_split_impl(text: Any) -> Any:
         split["end"] = rest_trimmed
         return split
     return none
+
+
+def chat_session_native_update(state: Any, id: str) -> bool:
+    _core_coverage_mark("chat_session_native_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    updates = _core_get(state, "updates", None)
+    record = _core_get(updates, id, None)
+    native_state = _core_get(record, "native_state", None)
+    new_native = _core_is_none(native_state)
+    if new_native:
+        record["native_state"] = "awaiting_ack"
+        responses = _core_get(state, "responses", None)
+        empty_baseline = {}
+        baseline = _core_map_merge(empty_baseline, responses)
+        record["native_responses"] = baseline
+        updates[id] = record
+        state["updates"] = updates
+    else:
+        pass
+    return new_native
+
+
+def _ace_empty_playbook(description: Any, now: str) -> Any:
+    _core_coverage_mark("_ace_empty_playbook")
+    out = {}
+    out["version"] = 1
+    sections = {}
+    out["sections"] = sections
+    stats = {}
+    stats["bulletCount"] = 0
+    stats["helpfulCount"] = 0
+    stats["harmfulCount"] = 0
+    stats["tokenEstimate"] = 0
+    out["stats"] = stats
+    out["updatedAt"] = now
+    has_description = _core_truthy(description)
+    if has_description:
+        out["description"] = description
+    else:
+        pass
+    return out
+
+
+def chat_session_native_wait(state: Any) -> bool:
+    _core_coverage_mark("chat_session_native_wait")
+    updates = _core_get(state, "updates", None)
+    ids = _core_map_keys(updates)
+    for id in ids:
+        record = _core_get(updates, id, None)
+        native_state = _core_get(record, "native_state", None)
+        has_native = _core_is_not_none(native_state)
+        if has_native:
+            status = _core_get(record, "status", None)
+            queued = _core_eq(status, "queued")
+            successor = _core_eq(native_state, "awaiting_successor")
+            waiting = _core_or(queued, successor)
+            if waiting:
+                return True
+            else:
+                pass
+        else:
+            pass
+    return False
+
+
+def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_examples")
+    gen["examples"] = examples
+    return gen
+
+
+def _ace_render_playbook(playbook: Any) -> str:
+    _core_coverage_mark("_ace_render_playbook")
+    empty_map = {}
+    empty_list = []
+    description = _core_get(playbook, "description", None)
+    has_description = _core_truthy(description)
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    bullet_count = 0
+    for section_name in section_names:
+        section_bullets = _core_get(sections, section_name, empty_list)
+        section_count = _core_len(section_bullets)
+        next_bullet_count = _core_add(bullet_count, section_count)
+        bullet_count = next_bullet_count
+    has_bullets = _core_gt(bullet_count, 0)
+    no_bullets = _core_not(has_bullets)
+    no_description = _core_not(has_description)
+    empty_playbook = _core_and(no_bullets, no_description)
+    if empty_playbook:
+        return ""
+    else:
+        pass
+    header = "## Context Playbook\n"
+    if has_description:
+        trimmed_description = str(description).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        header_with_description = _core_string_format("## Context Playbook\n{}\n", trimmed_description)
+        header = header_with_description
+    else:
+        pass
+    section_blocks = []
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, None)
+        bullet_lines = []
+        for bullet in bullets:
+            id = _core_get(bullet, "id", "")
+            content = _core_get(bullet, "content", "")
+            line = _core_string_format("- [{}] {}", id, content)
+            bullet_lines.append(line)
+        body = _core_string_join("\n", bullet_lines)
+        has_body = _core_ne(body, "")
+        block = ""
+        if has_body:
+            block_with_body = _core_string_format("### {}\n{}", section_name, body)
+            block = block_with_body
+        else:
+            block_empty = _core_string_format("### {}\n_(empty)_", section_name)
+            block = block_empty
+        section_blocks.append(block)
+    joined_sections = _core_string_join("\n\n", section_blocks)
+    combined = _core_string_format("{}\n{}", header, joined_sections)
+    result = str(combined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    return result
+
+
+def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_demos")
+    gen["demos"] = demos
+    return gen
 
 
 def chat_session_native_event(state: Any, event: Any) -> Any:
@@ -7297,93 +7412,6 @@ def chat_session_native_event(state: Any, event: Any) -> Any:
             pass
     else:
         pass
-    return result
-
-
-def _ace_empty_playbook(description: Any, now: str) -> Any:
-    _core_coverage_mark("_ace_empty_playbook")
-    out = {}
-    out["version"] = 1
-    sections = {}
-    out["sections"] = sections
-    stats = {}
-    stats["bulletCount"] = 0
-    stats["helpfulCount"] = 0
-    stats["harmfulCount"] = 0
-    stats["tokenEstimate"] = 0
-    out["stats"] = stats
-    out["updatedAt"] = now
-    has_description = _core_truthy(description)
-    if has_description:
-        out["description"] = description
-    else:
-        pass
-    return out
-
-
-def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_examples")
-    gen["examples"] = examples
-    return gen
-
-
-def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_demos")
-    gen["demos"] = demos
-    return gen
-
-
-def _ace_render_playbook(playbook: Any) -> str:
-    _core_coverage_mark("_ace_render_playbook")
-    empty_map = {}
-    empty_list = []
-    description = _core_get(playbook, "description", None)
-    has_description = _core_truthy(description)
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    bullet_count = 0
-    for section_name in section_names:
-        section_bullets = _core_get(sections, section_name, empty_list)
-        section_count = _core_len(section_bullets)
-        next_bullet_count = _core_add(bullet_count, section_count)
-        bullet_count = next_bullet_count
-    has_bullets = _core_gt(bullet_count, 0)
-    no_bullets = _core_not(has_bullets)
-    no_description = _core_not(has_description)
-    empty_playbook = _core_and(no_bullets, no_description)
-    if empty_playbook:
-        return ""
-    else:
-        pass
-    header = "## Context Playbook\n"
-    if has_description:
-        trimmed_description = str(description).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-        header_with_description = _core_string_format("## Context Playbook\n{}\n", trimmed_description)
-        header = header_with_description
-    else:
-        pass
-    section_blocks = []
-    for section_name in section_names:
-        bullets = _core_get(sections, section_name, None)
-        bullet_lines = []
-        for bullet in bullets:
-            id = _core_get(bullet, "id", "")
-            content = _core_get(bullet, "content", "")
-            line = _core_string_format("- [{}] {}", id, content)
-            bullet_lines.append(line)
-        body = _core_string_join("\n", bullet_lines)
-        has_body = _core_ne(body, "")
-        block = ""
-        if has_body:
-            block_with_body = _core_string_format("### {}\n{}", section_name, body)
-            block = block_with_body
-        else:
-            block_empty = _core_string_format("### {}\n_(empty)_", section_name)
-            block = block_empty
-        section_blocks.append(block)
-    joined_sections = _core_string_join("\n\n", section_blocks)
-    combined = _core_string_format("{}\n{}", header, joined_sections)
-    result = str(combined).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     return result
 
 
@@ -7693,70 +7721,6 @@ def _append_assertion_retry_messages(messages: list[Any], response: Any, error: 
     return updated_messages
 
 
-def chat_session_boundary_action(state: Any) -> Any:
-    _core_coverage_mark("chat_session_boundary_action")
-    action = {}
-    action["type"] = "wait"
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        action["type"] = "closed"
-        return action
-    else:
-        pass
-    native_wait = chat_session_native_wait(state)
-    if native_wait:
-        return action
-    else:
-        pass
-    boundary = _core_get(state, "boundary", False)
-    active = _core_not(boundary)
-    if active:
-        return action
-    else:
-        pass
-    pending = _core_get(state, "pending", None)
-    ids = _core_map_keys(pending)
-    results = []
-    running = False
-    blocking = False
-    for id in ids:
-        record = _core_get(pending, id, None)
-        status = _core_get(record, "status", None)
-        is_running = _core_eq(status, "running")
-        execution = _core_get(record, "execution", None)
-        is_blocking = _core_eq(execution, "blocking")
-        running_barrier = _core_and(is_running, is_blocking)
-        blocking = _core_or(blocking, running_barrier)
-        running = _core_or(running, is_running)
-        ready = _core_eq(status, "ready")
-        if ready:
-            result = _core_get(record, "result", None)
-            results.append(result)
-        else:
-            pass
-    if blocking:
-        return action
-    else:
-        pass
-    has_results = _core_truthy(results)
-    if has_results:
-        action["type"] = "submit"
-        action["results"] = results
-        return action
-    else:
-        pass
-    if running:
-        return action
-    else:
-        pass
-    needs_continuation = _core_get(state, "needs_continuation", False)
-    if needs_continuation:
-        action["type"] = "continue"
-    else:
-        action["type"] = "validate"
-    return action
-
-
 def _date_strip_code_fence_impl(value: Any) -> Any:
     _core_coverage_mark("_date_strip_code_fence_impl")
     text = _date_js_trim_impl(value)
@@ -7797,12 +7761,6 @@ def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
     return None
 
 
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
-
-
 def _ace_dedupe_playbook(playbook: Any) -> Any:
     _core_coverage_mark("_ace_dedupe_playbook")
     empty_map = {}
@@ -7838,11 +7796,10 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     return recomputed
 
 
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    output = _core_json_parse_strict(text)
-    return output
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
 
 
 def _regex_word(c: Any) -> Any:
@@ -8074,6 +8031,77 @@ def _stream_field_value_impl(field: Any, text: str) -> Any:
     return out
 
 
+def chat_session_boundary_action(state: Any) -> Any:
+    _core_coverage_mark("chat_session_boundary_action")
+    action = {}
+    action["type"] = "wait"
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        action["type"] = "closed"
+        return action
+    else:
+        pass
+    native_wait = chat_session_native_wait(state)
+    if native_wait:
+        return action
+    else:
+        pass
+    boundary = _core_get(state, "boundary", False)
+    active = _core_not(boundary)
+    if active:
+        return action
+    else:
+        pass
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    results = []
+    running = False
+    blocking = False
+    for id in ids:
+        record = _core_get(pending, id, None)
+        status = _core_get(record, "status", None)
+        is_running = _core_eq(status, "running")
+        execution = _core_get(record, "execution", None)
+        is_blocking = _core_eq(execution, "blocking")
+        running_barrier = _core_and(is_running, is_blocking)
+        blocking = _core_or(blocking, running_barrier)
+        running = _core_or(running, is_running)
+        ready = _core_eq(status, "ready")
+        if ready:
+            result = _core_get(record, "result", None)
+            results.append(result)
+        else:
+            pass
+    if blocking:
+        return action
+    else:
+        pass
+    has_results = _core_truthy(results)
+    if has_results:
+        action["type"] = "submit"
+        action["results"] = results
+        return action
+    else:
+        pass
+    if running:
+        return action
+    else:
+        pass
+    needs_continuation = _core_get(state, "needs_continuation", False)
+    if needs_continuation:
+        action["type"] = "continue"
+    else:
+        action["type"] = "validate"
+    return action
+
+
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    output = _core_json_parse_strict(text)
+    return output
+
+
 def _date_string_mode_impl() -> Any:
     _core_coverage_mark("_date_string_mode_impl")
     accented = _core_len("é")
@@ -8190,19 +8218,6 @@ def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
     out["pruned"] = null_pruned
     out["section"] = section
     return out
-
-
-def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
-    _core_coverage_mark("chat_session_mark_submitted")
-    pending = _core_get(state, "pending", None)
-    for id in ids:
-        record = _core_get(pending, id, None)
-        record["status"] = "sent"
-        pending[id] = record
-    state["pending"] = pending
-    state["boundary"] = False
-    state["needs_continuation"] = False
-    return None
 
 
 def _date_native_offset_impl(units: Any, index: Any, mode: Any) -> Any:
@@ -8372,37 +8387,6 @@ def _regex_space(c: Any) -> Any:
     return t2
 
 
-def chat_session_queue_update(state: Any, update: Any) -> bool:
-    _core_coverage_mark("chat_session_queue_update")
-    terminal = _core_get(state, "terminal", False)
-    if terminal:
-        return False
-    else:
-        pass
-    target = _core_get(update, "target", "root")
-    path = _core_get(state, "path", None)
-    matches = chat_session_target_matches(target, path)
-    unmatched = _core_not(matches)
-    if unmatched:
-        return False
-    else:
-        pass
-    id = _core_get(update, "id", None)
-    updates = _core_get(state, "updates", None)
-    exists = _core_map_contains(updates, id)
-    if exists:
-        return False
-    else:
-        pass
-    record = {}
-    record["update"] = update
-    record["status"] = "queued"
-    updates[id] = record
-    state["updates"] = updates
-    state["needs_continuation"] = True
-    return True
-
-
 def _parse_json_string_for_field(field: Field, value: Any) -> Any:
     _core_coverage_mark("_parse_json_string_for_field")
     typ = _core_get(field, "type", None)
@@ -8463,27 +8447,48 @@ def _parse_json_string_for_field(field: Field, value: Any) -> Any:
     return value
 
 
-def chat_session_record_unresolved(gen: Any, state: Any) -> None:
-    _core_coverage_mark("chat_session_record_unresolved")
+def chat_session_mark_submitted(state: Any, ids: list[Any]) -> None:
+    _core_coverage_mark("chat_session_mark_submitted")
     pending = _core_get(state, "pending", None)
-    ids = _core_map_keys(pending)
     for id in ids:
         record = _core_get(pending, id, None)
-        status = _core_get(record, "status", None)
-        running = _core_eq(status, "running")
-        recorded = _core_get(record, "diagnostic_recorded", False)
-        not_recorded = _core_not(recorded)
-        needed = _core_and(running, not_recorded)
-        if needed:
-            call = _core_get(record, "call", None)
-            message = "Run closed before the started tool settled; its external effects may still complete"
-            _core_axgen_record_function_call(gen, call, message, "unresolved")
-            record["diagnostic_recorded"] = True
-            pending[id] = record
-        else:
-            pass
+        record["status"] = "sent"
+        pending[id] = record
     state["pending"] = pending
+    state["boundary"] = False
+    state["needs_continuation"] = False
     return None
+
+
+def chat_session_queue_update(state: Any, update: Any) -> bool:
+    _core_coverage_mark("chat_session_queue_update")
+    terminal = _core_get(state, "terminal", False)
+    if terminal:
+        return False
+    else:
+        pass
+    target = _core_get(update, "target", "root")
+    path = _core_get(state, "path", None)
+    matches = chat_session_target_matches(target, path)
+    unmatched = _core_not(matches)
+    if unmatched:
+        return False
+    else:
+        pass
+    id = _core_get(update, "id", None)
+    updates = _core_get(state, "updates", None)
+    exists = _core_map_contains(updates, id)
+    if exists:
+        return False
+    else:
+        pass
+    record = {}
+    record["update"] = update
+    record["status"] = "queued"
+    updates[id] = record
+    state["updates"] = updates
+    state["needs_continuation"] = True
+    return True
 
 
 def _date_js_trim_impl(text: Any) -> Any:
@@ -8680,13 +8685,6 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     return out
 
 
-def chat_session_close_state(state: Any) -> list[Any]:
-    _core_coverage_mark("chat_session_close_state")
-    state["terminal"] = True
-    unresolved = chat_session_unresolved(state)
-    return unresolved
-
-
 def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_trim_bounds_impl")
     first = _date_skip_space_impl(units, start, end)
@@ -8712,6 +8710,29 @@ def _date_trim_bounds_impl(units: Any, start: Any, end: Any) -> Any:
     return bounds
 
 
+def chat_session_record_unresolved(gen: Any, state: Any) -> None:
+    _core_coverage_mark("chat_session_record_unresolved")
+    pending = _core_get(state, "pending", None)
+    ids = _core_map_keys(pending)
+    for id in ids:
+        record = _core_get(pending, id, None)
+        status = _core_get(record, "status", None)
+        running = _core_eq(status, "running")
+        recorded = _core_get(record, "diagnostic_recorded", False)
+        not_recorded = _core_not(recorded)
+        needed = _core_and(running, not_recorded)
+        if needed:
+            call = _core_get(record, "call", None)
+            message = "Run closed before the started tool settled; its external effects may still complete"
+            _core_axgen_record_function_call(gen, call, message, "unresolved")
+            record["diagnostic_recorded"] = True
+            pending[id] = record
+        else:
+            pass
+    state["pending"] = pending
+    return None
+
+
 def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
     _core_coverage_mark("_parse_json_string_fields")
     values_is_map = _core_type_is(values, "object")
@@ -8730,116 +8751,6 @@ def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
         else:
             pass
     return values
-
-
-def chat_session_transition(state: Any, event: Any) -> Any:
-    _core_coverage_mark("chat_session_transition")
-    type = _core_get(event, "type", None)
-    call = _core_eq(type, "tool.validated")
-    result = _core_eq(type, "tool.result")
-    response = _core_eq(type, "response.completed")
-    update = _core_eq(type, "update.queued")
-    submitted = _core_eq(type, "results.submitted")
-    closed = _core_eq(type, "closed")
-    validated = _core_eq(type, "validated")
-    applied = _core_eq(type, "update.applied")
-    changed = False
-    native_queued = _core_eq(type, "native.queued")
-    if native_queued:
-        id = _core_get(event, "id", None)
-        changed = chat_session_native_update(state, id)
-        action = chat_session_boundary_action(state)
-        action["changed"] = changed
-        return action
-    else:
-        pass
-    steering = _core_eq(type, "steering")
-    if steering:
-        change = chat_session_native_event(state, event)
-        action = chat_session_boundary_action(state)
-        action = _core_map_merge(action, change)
-        return action
-    else:
-        pass
-    final_call = _core_eq(type, "tool.final")
-    if final_call:
-        tool_call = _core_get(event, "call", None)
-        changed = chat_session_defer_final_call(state, tool_call)
-        action = chat_session_boundary_action(state)
-        action["changed"] = changed
-        return action
-    else:
-        pass
-    if call:
-        tool_call = _core_get(event, "call", None)
-        execution = _core_get(event, "execution", "blocking")
-        changed = chat_session_register_call(state, tool_call, execution)
-    else:
-        if result:
-            id = _core_get(event, "id", None)
-            value = _core_get(event, "result", None)
-            changed = chat_session_complete_call(state, id, value)
-        else:
-            if response:
-                id = _core_get(event, "id", None)
-                changed = chat_session_complete_response(state, id)
-            else:
-                if update:
-                    item = _core_get(event, "update", None)
-                    changed = chat_session_queue_update(state, item)
-                else:
-                    if submitted:
-                        ids = _core_get(event, "ids", None)
-                        chat_session_mark_submitted(state, ids)
-                        changed = True
-                    else:
-                        if closed:
-                            chat_session_close_state(state)
-                            changed = True
-                        else:
-                            if validated:
-                                action = chat_session_boundary_action(state)
-                                action_type = _core_get(action, "type", None)
-                                ready = _core_eq(action_type, "validate")
-                                not_ready = _core_not(ready)
-                                if not_ready:
-                                    raise RuntimeError("Cannot finalize while model or tool work is unresolved")
-                                else:
-                                    pass
-                                state["terminal"] = True
-                                changed = True
-                            else:
-                                if applied:
-                                    id = _core_get(event, "id", None)
-                                    updates = _core_get(state, "updates", None)
-                                    exists = _core_map_contains(updates, id)
-                                    if exists:
-                                        record = _core_get(updates, id, None)
-                                        status = _core_get(record, "status", None)
-                                        queued = _core_eq(status, "queued")
-                                        if queued:
-                                            record["status"] = "applied"
-                                            updates[id] = record
-                                            state["updates"] = updates
-                                            item = _core_get(record, "update", None)
-                                            kind = _core_get(item, "type", None)
-                                            steer = _core_eq(kind, "steer")
-                                            if steer:
-                                                version = _core_get(state, "version", 0)
-                                                next_version = _core_add(version, 1)
-                                                state["version"] = next_version
-                                            else:
-                                                pass
-                                            changed = True
-                                        else:
-                                            pass
-                                    else:
-                                        pass
-                                else:
-                                    raise RuntimeError("Unknown chat session transition")
-    action = chat_session_boundary_action(state)
-    action["changed"] = changed
-    return action
 
 
 def _regex_member(n: Any, c: Any) -> Any:
@@ -9002,6 +8913,13 @@ def _date_skip_space_impl(units: Any, start: Any, end: Any) -> Any:
     return cursor
 
 
+def chat_session_close_state(state: Any) -> list[Any]:
+    _core_coverage_mark("chat_session_close_state")
+    state["terminal"] = True
+    unresolved = chat_session_unresolved(state)
+    return unresolved
+
+
 def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
     _core_coverage_mark("_parse_json_string_for_fields")
     values_is_map = _core_type_is(values, "object")
@@ -9021,6 +8939,116 @@ def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
         else:
             pass
     return values
+
+
+def chat_session_transition(state: Any, event: Any) -> Any:
+    _core_coverage_mark("chat_session_transition")
+    type = _core_get(event, "type", None)
+    call = _core_eq(type, "tool.validated")
+    result = _core_eq(type, "tool.result")
+    response = _core_eq(type, "response.completed")
+    update = _core_eq(type, "update.queued")
+    submitted = _core_eq(type, "results.submitted")
+    closed = _core_eq(type, "closed")
+    validated = _core_eq(type, "validated")
+    applied = _core_eq(type, "update.applied")
+    changed = False
+    native_queued = _core_eq(type, "native.queued")
+    if native_queued:
+        id = _core_get(event, "id", None)
+        changed = chat_session_native_update(state, id)
+        action = chat_session_boundary_action(state)
+        action["changed"] = changed
+        return action
+    else:
+        pass
+    steering = _core_eq(type, "steering")
+    if steering:
+        change = chat_session_native_event(state, event)
+        action = chat_session_boundary_action(state)
+        action = _core_map_merge(action, change)
+        return action
+    else:
+        pass
+    final_call = _core_eq(type, "tool.final")
+    if final_call:
+        tool_call = _core_get(event, "call", None)
+        changed = chat_session_defer_final_call(state, tool_call)
+        action = chat_session_boundary_action(state)
+        action["changed"] = changed
+        return action
+    else:
+        pass
+    if call:
+        tool_call = _core_get(event, "call", None)
+        execution = _core_get(event, "execution", "blocking")
+        changed = chat_session_register_call(state, tool_call, execution)
+    else:
+        if result:
+            id = _core_get(event, "id", None)
+            value = _core_get(event, "result", None)
+            changed = chat_session_complete_call(state, id, value)
+        else:
+            if response:
+                id = _core_get(event, "id", None)
+                changed = chat_session_complete_response(state, id)
+            else:
+                if update:
+                    item = _core_get(event, "update", None)
+                    changed = chat_session_queue_update(state, item)
+                else:
+                    if submitted:
+                        ids = _core_get(event, "ids", None)
+                        chat_session_mark_submitted(state, ids)
+                        changed = True
+                    else:
+                        if closed:
+                            chat_session_close_state(state)
+                            changed = True
+                        else:
+                            if validated:
+                                action = chat_session_boundary_action(state)
+                                action_type = _core_get(action, "type", None)
+                                ready = _core_eq(action_type, "validate")
+                                not_ready = _core_not(ready)
+                                if not_ready:
+                                    raise RuntimeError("Cannot finalize while model or tool work is unresolved")
+                                else:
+                                    pass
+                                state["terminal"] = True
+                                changed = True
+                            else:
+                                if applied:
+                                    id = _core_get(event, "id", None)
+                                    updates = _core_get(state, "updates", None)
+                                    exists = _core_map_contains(updates, id)
+                                    if exists:
+                                        record = _core_get(updates, id, None)
+                                        status = _core_get(record, "status", None)
+                                        queued = _core_eq(status, "queued")
+                                        if queued:
+                                            record["status"] = "applied"
+                                            updates[id] = record
+                                            state["updates"] = updates
+                                            item = _core_get(record, "update", None)
+                                            kind = _core_get(item, "type", None)
+                                            steer = _core_eq(kind, "steer")
+                                            if steer:
+                                                version = _core_get(state, "version", 0)
+                                                next_version = _core_add(version, 1)
+                                                state["version"] = next_version
+                                            else:
+                                                pass
+                                            changed = True
+                                        else:
+                                            pass
+                                    else:
+                                        pass
+                                else:
+                                    raise RuntimeError("Unknown chat session transition")
+    action = chat_session_boundary_action(state)
+    action["changed"] = changed
+    return action
 
 
 def _date_space_impl(unit: Any) -> bool:
@@ -9449,13 +9477,6 @@ def _regex_capture_ids(n: Any) -> Any:
     return out
 
 
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    _core_coverage_mark("_response_function_calls_impl")
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
-
-
 def _ace_is_noop_acknowledgment(content: str) -> bool:
     _core_coverage_mark("_ace_is_noop_acknowledgment")
     lowered = _core_string_lower(content)
@@ -9587,6 +9608,13 @@ def _ace_is_noop_acknowledgment(content: str) -> bool:
     else:
         pass
     return is_noop
+
+
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    _core_coverage_mark("_response_function_calls_impl")
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
 
 
 def _date_digits_impl(units: Any, at: Any, count: Any, end: Any) -> Any:
@@ -10292,23 +10320,6 @@ def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
     return t225
 
 
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
-
-
 def _date_scan_datetime_impl(units: Any, start: Any, end: Any) -> Any:
     _core_coverage_mark("_date_scan_datetime_impl")
     none = _core_none()
@@ -10414,6 +10425,23 @@ def _date_scan_datetime_impl(units: Any, start: Any, end: Any) -> Any:
         pass
     parts["end"] = cursor
     return parts
+
+
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
 
 
 def _stream_text_required_check_impl(values: Any, fields: list[Any]) -> None:
@@ -11095,6 +11123,37 @@ def _stream_text_final_impl(xstate: Any, values: Any, content: str, fields: list
     return None
 
 
+def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
+    _core_coverage_mark("_ace_locate_bullet_section")
+    empty_map = {}
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    none_value = _core_none()
+    found = none_value
+    for section_name in section_names:
+        already = _core_is_not_none(found)
+        still_open = _core_not(already)
+        if still_open:
+            bullets = _core_get(sections, section_name, None)
+            for bullet in bullets:
+                open = _core_is_none(found)
+                if open:
+                    current_id = _core_get(bullet, "id", "")
+                    match = _core_eq(current_id, bullet_id)
+                    if match:
+                        hit = {}
+                        hit["section"] = section_name
+                        hit["id"] = current_id
+                        found = hit
+                    else:
+                        pass
+                else:
+                    pass
+        else:
+            pass
+    return found
+
+
 def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
     _core_coverage_mark("_signature_has_complex_fields")
     option_forced_snake = _core_get(options, "force_structured", False)
@@ -11125,37 +11184,6 @@ def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
         else:
             pass
     return False
-
-
-def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
-    _core_coverage_mark("_ace_locate_bullet_section")
-    empty_map = {}
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
-    none_value = _core_none()
-    found = none_value
-    for section_name in section_names:
-        already = _core_is_not_none(found)
-        still_open = _core_not(already)
-        if still_open:
-            bullets = _core_get(sections, section_name, None)
-            for bullet in bullets:
-                open = _core_is_none(found)
-                if open:
-                    current_id = _core_get(bullet, "id", "")
-                    match = _core_eq(current_id, bullet_id)
-                    if match:
-                        hit = {}
-                        hit["section"] = section_name
-                        hit["id"] = current_id
-                        found = hit
-                    else:
-                        pass
-                else:
-                    pass
-        else:
-            pass
-    return found
 
 
 def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
@@ -14323,17 +14351,6 @@ def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
     return None
 
 
-def _cache_store_streamed_impl(cache_fn: Any, key: str, output: Any) -> None:
-    _core_coverage_mark("_cache_store_streamed_impl")
-    output_count = _core_len(output)
-    yielded = _core_gt(output_count, 0)
-    if yielded:
-        _cache_store_impl(cache_fn, key, output)
-    else:
-        pass
-    return None
-
-
 def _stream_json_flexible_impl(field: Any) -> bool:
     _core_coverage_mark("_stream_json_flexible_impl")
     typ = _core_get(field, "type", None)
@@ -14349,6 +14366,17 @@ def _stream_json_flexible_impl(field: Any) -> bool:
     open_object = _core_not(has_nested)
     flexible = _core_and(is_object, open_object)
     return flexible
+
+
+def _cache_store_streamed_impl(cache_fn: Any, key: str, output: Any) -> None:
+    _core_coverage_mark("_cache_store_streamed_impl")
+    output_count = _core_len(output)
+    yielded = _core_gt(output_count, 0)
+    if yielded:
+        _cache_store_impl(cache_fn, key, output)
+    else:
+        pass
+    return None
 
 
 def _cache_lookup_impl(gen: AxGen, values: Any, options: Any, ignore_read_errors: bool) -> Any:
@@ -14808,6 +14836,21 @@ def _function_result_text_impl(result: Any, options: Any) -> str:
     return text
 
 
+def _stream_run_state_impl(sink: Any, buffered: bool, thought_field: str) -> Any:
+    _core_coverage_mark("_stream_run_state_impl")
+    run = {}
+    run["sink"] = sink
+    run["buffered"] = buffered
+    run["thought_field"] = thought_field
+    run["current_version"] = 0
+    run["output_emitted"] = False
+    emitted_thought = []
+    run["emitted_thought"] = emitted_thought
+    buffer = []
+    run["buffer"] = buffer
+    return run
+
+
 def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], calls: list[Any], options: Any) -> list[Any]:
     _core_coverage_mark("_run_tool_calls_impl")
     for call in calls:
@@ -14840,21 +14883,6 @@ def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], 
         else:
             pass
     return messages
-
-
-def _stream_run_state_impl(sink: Any, buffered: bool, thought_field: str) -> Any:
-    _core_coverage_mark("_stream_run_state_impl")
-    run = {}
-    run["sink"] = sink
-    run["buffered"] = buffered
-    run["thought_field"] = thought_field
-    run["current_version"] = 0
-    run["output_emitted"] = False
-    emitted_thought = []
-    run["emitted_thought"] = emitted_thought
-    buffer = []
-    run["buffer"] = buffer
-    return run
 
 
 def _stream_run_new_version_impl(run: Any, version: int) -> None:

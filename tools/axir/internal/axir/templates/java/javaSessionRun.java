@@ -130,7 +130,9 @@ final class SessionRun implements AiClient,AutoCloseable {
     Map<String,Object> last;
     Live(Map<String,Object> request,AxChatSession session) {
       this.request=request;this.session=session;
-      state=Core.asMap(Core.chat_session_create_state(String.valueOf(request.get("model")),path,options.getOrDefault("maxSteps",options.getOrDefault("max_steps",10))));
+      // As TS's maxResponses: the run's maxSteps (25 by default) less the request's step.
+      int limit=Core.asInt(options.getOrDefault("maxSteps",options.getOrDefault("max_steps",25)))-Core.asInt(request.getOrDefault("_ax_step_index",0));
+      state=Core.asMap(Core.chat_session_create_state(String.valueOf(request.get("model")),path,limit));
       workers.execute(()->{try{while(!cancelled){Map<String,Object> event=session.next();if(cancelled)return;if(event==null){queue.offer(new Delivery("failure",null,null,new IllegalStateException("Session disconnected; work was not replayed")));return;}queue.put(new Delivery("provider",event,null,null));}}catch(Throwable error){if(!cancelled)queue.offer(new Delivery("failure",null,null,error));}});
     }
     private void start(Map<String,Object> originalCall) {
@@ -221,7 +223,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       return null;
     }
     private void submit(List<Object> results) throws Exception {
-      if(Core.asInt(state.get("steps"))>=Core.asInt(state.get("max_steps"))) throw new IllegalStateException("Maximum model steps exhausted before final completion");
+      if(Core.asInt(state.get("steps"))>=Core.asInt(state.get("max_steps"))) throw (RuntimeException)Core.chat_session_step_limit_error(state);
       session.submit(results);List<Object> ids=new ArrayList<>();for(Object result:results)ids.add(Core.get(result,"function_id",""));Core.chat_session_mark_submitted(state,ids);
       for(String id:applied){Core.chat_session_transition(state,Map.of("type","update.applied","id",id));emit("applied",Map.of("update_id",id,"timing","next-response"));}applied.clear();
     }
