@@ -15819,6 +15819,134 @@ func provider_route_preprocess_request(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func router_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("router_embed_request")
+	var v_request Value
+	var v_model Value
+	var v_embed_model Value
+	var v_chat_key Value
+	var v_embed_key Value
+	var v_empty Value
+	var v_out Value
+	var v_service_key Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_embed_model = args[2] }
+	_ = v_embed_model
+	_ = v_chat_key
+	_ = v_embed_key
+	_ = v_empty
+	_ = v_out
+	_ = v_service_key
+	v_empty = Object()
+	v_out = _core_map_merge(v_empty, v_request)
+	v_chat_key = _core_truthy(v_model)
+	v_embed_key = _core_truthy(v_embed_model)
+	v_service_key = _core_or(v_chat_key, v_embed_key)
+	if coreTruthy(v_service_key) {
+	// empty
+	} else {
+		_core_map_delete(v_out, "embedModel")
+		_core_map_delete(v_out, "embed_model")
+	}
+	return v_out, nil
+}
+
+func router_embed_route(args ...Value) (Value, error) {
+	axirCoverageMark("router_embed_route")
+	var v_request Value
+	var v_entries Value
+	var v_chat_model Value
+	var v_embed_model Value
+	var v_embed_snake Value
+	var v_empty Value
+	var v_entry Value
+	var v_error Value
+	var v_forwarded Value
+	var v_has_key Value
+	var v_key Value
+	var v_matches Value
+	var v_message Value
+	var v_model Value
+	var v_model_key Value
+	var v_models Value
+	var v_none Value
+	var v_out Value
+	var v_service_key Value
+	var v_snake Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_entries = args[1] }
+	_ = v_entries
+	_ = v_chat_model
+	_ = v_embed_model
+	_ = v_embed_snake
+	_ = v_empty
+	_ = v_entry
+	_ = v_error
+	_ = v_forwarded
+	_ = v_has_key
+	_ = v_key
+	_ = v_matches
+	_ = v_message
+	_ = v_model
+	_ = v_model_key
+	_ = v_models
+	_ = v_none
+	_ = v_out
+	_ = v_service_key
+	_ = v_snake
+	v_snake = coreGet(v_request, "embed_model", nil)
+	v_key = coreGet(v_request, "embedModel", v_snake)
+	v_has_key = _core_truthy(v_key)
+	if coreTruthy(v_has_key) {
+	// empty
+	} else {
+		v_error = _core_runtime_error("Embed model key must be specified for multi-service")
+		return nil, asError(v_error)
+	}
+	v_empty = MutableArray()
+	for _, v_entry = range coreIter(v_entries) {
+		v_service_key = coreGet(v_entry, "key", nil)
+		v_models = coreGet(v_entry, "models", v_empty)
+		for _, v_model = range coreIter(v_models) {
+			v_model_key = coreGet(v_model, "key", nil)
+			v_matches = _core_eq(v_model_key, v_key)
+			if coreTruthy(v_matches) {
+				v_chat_model = coreGet(v_model, "model", nil)
+				v_embed_snake = coreGet(v_model, "embed_model", nil)
+				v_embed_model = coreGet(v_model, "embedModel", v_embed_snake)
+				{ v, err := router_embed_request(v_request, v_chat_model, v_embed_model); if err != nil { return nil, err }; v_forwarded = v }
+				v_out = Object()
+				if err := coreSet(v_out, "key", v_service_key); err != nil { return nil, err }
+				if err := coreSet(v_out, "request", v_forwarded); err != nil { return nil, err }
+				return v_out, nil
+			} else {
+			// empty
+			}
+		}
+	}
+	for _, v_entry = range coreIter(v_entries) {
+		v_service_key = coreGet(v_entry, "key", nil)
+		v_matches = _core_eq(v_service_key, v_key)
+		if coreTruthy(v_matches) {
+			v_none = _core_none()
+			{ v, err := router_embed_request(v_request, v_none, v_none); if err != nil { return nil, err }; v_forwarded = v }
+			v_out = Object()
+			if err := coreSet(v_out, "key", v_service_key); err != nil { return nil, err }
+			if err := coreSet(v_out, "request", v_forwarded); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+	}
+	v_message = _core_string_format("No service found for embed model key: {}", v_key)
+	v_error = _core_runtime_error(v_message)
+	return nil, asError(v_error)
+}
+
 func _provider_route_file_content(args ...Value) (Value, error) {
 	axirCoverageMark("_provider_route_file_content")
 	var v_features Value
@@ -104858,11 +104986,7 @@ func (r *MultiServiceRouter) Embed(ctx context.Context, request map[string]Value
 		return nil, AxError{Category: "runtime", Message: "No service found for embed model key: " + embedKey}
 	}
 	r.lastUsedService = entry.Service
-	req := cloneMap(request)
-	if !entry.HasModel {
-		coreDelete(req, "embedModel")
-		coreDelete(req, "embed_model")
-	}
+	req := mustCore(router_embed_request(request, entry.Model, entry.EmbedModel)).(map[string]Value)
 	return entry.Service.Embed(ctx, req, options)
 }
 func (r *MultiServiceRouter) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {

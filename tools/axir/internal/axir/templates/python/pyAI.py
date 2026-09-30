@@ -2441,12 +2441,8 @@ class MultiServiceRouter(AxAIService):
         if entry is None:
             raise ValueError(f"No service found for embed model key: {embed_key}")
         self.last_used_service = entry["service"]
-        if "model" not in entry:
-            req = copy.deepcopy(request)
-            req.pop("embedModel", None)
-            req.pop("embed_model", None)
-            return entry["service"].embed(req, options)
-        return entry["service"].embed(copy.deepcopy(request), options)
+        req = router_embed_request(request, entry.get("model"), entry.get("embedModel"))
+        return entry["service"].embed(req, options)
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         model_key = request.get("model")

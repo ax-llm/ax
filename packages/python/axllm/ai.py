@@ -2443,12 +2443,8 @@ class MultiServiceRouter(AxAIService):
         if entry is None:
             raise ValueError(f"No service found for embed model key: {embed_key}")
         self.last_used_service = entry["service"]
-        if "model" not in entry:
-            req = copy.deepcopy(request)
-            req.pop("embedModel", None)
-            req.pop("embed_model", None)
-            return entry["service"].embed(req, options)
-        return entry["service"].embed(copy.deepcopy(request), options)
+        req = router_embed_request(request, entry.get("model"), entry.get("embedModel"))
+        return entry["service"].embed(req, options)
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         model_key = request.get("model")
@@ -7256,6 +7252,66 @@ def provider_route_preprocess_request(features: Any, request: Any, processing: A
     out = _core_map_merge(request_seed, request)
     out[prompt_key] = processed_prompt
     return out
+
+
+def router_embed_request(request: Any, model: Any, embed_model: Any) -> Any:
+    _core_coverage_mark("router_embed_request")
+    empty = {}
+    out = _core_map_merge(empty, request)
+    chat_key = _core_truthy(model)
+    embed_key = _core_truthy(embed_model)
+    service_key = _core_or(chat_key, embed_key)
+    if service_key:
+        pass
+    else:
+        _core_map_delete(out, "embedModel")
+        _core_map_delete(out, "embed_model")
+    return out
+
+
+def router_embed_route(request: Any, entries: Any) -> Any:
+    _core_coverage_mark("router_embed_route")
+    snake = _core_get(request, "embed_model", None)
+    key = _core_get(request, "embedModel", snake)
+    has_key = _core_truthy(key)
+    if has_key:
+        pass
+    else:
+        error = _core_runtime_error("Embed model key must be specified for multi-service")
+        raise error
+    empty = []
+    for entry in entries:
+        service_key = _core_get(entry, "key", None)
+        models = _core_get(entry, "models", empty)
+        for model in models:
+            model_key = _core_get(model, "key", None)
+            matches = _core_eq(model_key, key)
+            if matches:
+                chat_model = _core_get(model, "model", None)
+                embed_snake = _core_get(model, "embed_model", None)
+                embed_model = _core_get(model, "embedModel", embed_snake)
+                forwarded = router_embed_request(request, chat_model, embed_model)
+                out = {}
+                out["key"] = service_key
+                out["request"] = forwarded
+                return out
+            else:
+                pass
+    for entry in entries:
+        service_key = _core_get(entry, "key", None)
+        matches = _core_eq(service_key, key)
+        if matches:
+            none = _core_none()
+            forwarded = router_embed_request(request, none, none)
+            out = {}
+            out["key"] = service_key
+            out["request"] = forwarded
+            return out
+        else:
+            pass
+    message = _core_string_format("No service found for embed model key: {}", key)
+    error = _core_runtime_error(message)
+    raise error
 
 
 def _provider_route_file_content(features: Any, part: Any, processing: Any, slot: str) -> Any:
