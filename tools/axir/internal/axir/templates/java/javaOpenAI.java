@@ -526,9 +526,11 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     String selectedModel = String.valueOf(modelName);
     lastUsedChatModel = selectedModel;
     lastUsedModelConfig = new LinkedHashMap<>(modelConfig);
-    Map<String, Object> attributes = Map.of("ax.operation", "chat", "ax.ai", name, "ax.model", selectedModel, "ax.streaming", true);
-    AxSpan span = AxGlobals.startSpan(hooks, "ax_llm_chat", "client", attributes, AxGlobals.currentSpan());
-    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, attributes);
+    Map<String, Object> spanAttributes = Map.of("ax.operation", "chat", "ax.ai", name, "ax.model", selectedModel, "ax.streaming", true);
+    AxSpan span = AxGlobals.startSpan(hooks, "ax_llm_chat", "client", spanAttributes, AxGlobals.currentSpan());
+    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, AxGlobals.labeled(spanAttributes, this.options, callOptions, false));
+    // The duration and errors carry the custom labels cut to 100 characters.
+    Map<String, Object> attributes = AxGlobals.labeled(spanAttributes, this.options, callOptions, true);
     long started = System.nanoTime();
     Throwable failure = null;
     try {

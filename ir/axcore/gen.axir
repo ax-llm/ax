@@ -256,6 +256,21 @@ module @ax.gen version "0.1" {
         core.call intrinsic.map.delete(%runtime_options, "model_config")
         core.set %runtime_options["modelConfig"] = %merged
       }
+      // customLabels merge key by key as well: TS's AxGen passes the AI its
+      // constructor's labels with the call's over them.
+      %gen_labels_snake = core.get %gen_options["custom_labels"] default %empty
+      %gen_labels_camel = core.get %gen_options["customLabels"] default %empty
+      %call_labels_snake = core.get %call_options["custom_labels"] default %empty
+      %call_labels_camel = core.get %call_options["customLabels"] default %empty
+      %gen_labels = core.call intrinsic.map.merge(%gen_labels_snake, %gen_labels_camel)
+      %call_labels = core.call intrinsic.map.merge(%call_labels_snake, %call_labels_camel)
+      %labels = core.call intrinsic.map.merge(%gen_labels, %call_labels)
+      %labels_count = core.call intrinsic.len(%labels)
+      %has_labels = core.call intrinsic.gt(%labels_count, 0)
+      core.if %has_labels {
+        core.call intrinsic.map.delete(%runtime_options, "custom_labels")
+        core.set %runtime_options["customLabels"] = %labels
+      }
       core.return
     }
   }

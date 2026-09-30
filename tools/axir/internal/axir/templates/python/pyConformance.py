@@ -778,6 +778,8 @@ def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_usage_observer(fixture)
         elif kind == "ai_runtime_hooks":
             _run_ai_runtime_hooks(fixture)
+        elif kind == "ai_custom_labels":
+            _run_ai_custom_labels(fixture)
         elif kind == "ai_credential_wrapper":
             _run_ai_credential_wrapper(fixture)
         elif kind == "ai_error":
@@ -3641,6 +3643,53 @@ def _run_ai_usage_observer(fixture):
     client.chat(request, options)
     if len(events) != 1:
         raise FixtureError("cleared usage observer received an event")
+
+
+def _run_ai_custom_labels(fixture):
+    # A recording meter sees a chat (the service's and the call's custom
+    # labels) and an AxGen forward on the same client (its constructor's
+    # labels with the call's over them). Each expected metric's first record
+    # must carry the expected labels besides the runtime's own "ax.*"
+    # attributes.
+    records = []
+
+    class Instrument:
+        def __init__(self, name):
+            self.name = name
+
+        def add(self, _value, attributes=None):
+            records.append((self.name, dict(attributes or {})))
+
+        record = add
+
+    class RecordingMeter:
+        def create_counter(self, name, _options=None):
+            return Instrument(name)
+
+        create_histogram = create_counter
+        create_gauge = create_counter
+
+    def custom_part(name):
+        for recorded_name, attributes in records:
+            if recorded_name == name:
+                return {key: value for key, value in attributes.items() if not str(key).startswith("ax.")}
+        raise FixtureError(f"no {name} metric was recorded: {[recorded for recorded, _ in records]}")
+
+    client, _transport = _openai_fixture_client(fixture)
+    set_meter(RecordingMeter())
+    try:
+        chat = fixture.get("chat") or {}
+        client.chat(chat.get("request") or {}, {"customLabels": chat.get("custom_labels") or {}})
+        for name, expected in (fixture.get("expected_chat_custom_labels") or {}).items():
+            _assert_equal(custom_part(name), expected, f"chat {name} custom labels")
+        records.clear()
+        spec = fixture.get("forward") or {}
+        gen = ax(spec.get("signature") or "question:string -> answer:string", {"customLabels": spec.get("constructor_custom_labels") or {}})
+        gen.forward(client, spec.get("input") or {}, {"stream": False, "customLabels": spec.get("call_custom_labels") or {}})
+        for name, expected in (fixture.get("expected_forward_custom_labels") or {}).items():
+            _assert_equal(custom_part(name), expected, f"forward {name} custom labels")
+    finally:
+        set_meter(None)
 
 
 def _run_ai_runtime_hooks(fixture):

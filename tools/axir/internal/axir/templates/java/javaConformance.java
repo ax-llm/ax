@@ -853,6 +853,7 @@ public final class Conformance {
       case "ai_cancellation" -> runAICancellation(fixture);
       case "ai_usage_observer" -> runAIUsageObserver(fixture);
       case "ai_runtime_hooks" -> runAIRuntimeHooks(fixture);
+      case "ai_custom_labels" -> runAICustomLabels(fixture);
       case "ai_credential_wrapper" -> runAICredentialWrapper(fixture);
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
@@ -3468,6 +3469,63 @@ public final class Conformance {
       throw Core.asRuntime(e);
     } finally {
       AxGlobals.setUsageObserver(null);
+    }
+  }
+
+  // A recording meter sees a chat (the service's and the call's custom
+  // labels) and an AxGen forward on the same client (its constructor's labels
+  // with the call's over them). Each expected metric's first record must
+  // carry the expected labels besides the runtime's own "ax.*" attributes.
+  static void runAICustomLabels(Map<String, Object> fixture) {
+    try {
+      runAICustomLabelsChecked(fixture);
+    } catch (RuntimeException error) {
+      throw error;
+    } catch (Exception error) {
+      throw Core.asRuntime(error);
+    }
+  }
+
+  static void runAICustomLabelsChecked(Map<String, Object> fixture) throws Exception {
+    ClientFixture cf = openaiClient(fixture);
+    List<Map.Entry<String, Map<String, Object>>> records = java.util.Collections.synchronizedList(new ArrayList<>());
+    AxMeter meter = new AxMeter() {
+      public AxCounter createCounter(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> records.add(Map.entry(name, new LinkedHashMap<>(attributes))); }
+      public AxHistogram createHistogram(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> records.add(Map.entry(name, new LinkedHashMap<>(attributes))); }
+      public AxGauge createGauge(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> records.add(Map.entry(name, new LinkedHashMap<>(attributes))); }
+    };
+    java.util.function.Function<String, Object> customPart = metric -> {
+      synchronized (records) {
+        for (Map.Entry<String, Map<String, Object>> record : records) {
+          if (!record.getKey().equals(metric)) continue;
+          Map<String, Object> out = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : record.getValue().entrySet()) if (!entry.getKey().startsWith("ax.")) out.put(entry.getKey(), entry.getValue());
+          return out;
+        }
+      }
+      throw new FixtureError("no " + metric + " metric was recorded");
+    };
+    AxGlobals.setMeter(meter);
+    try {
+      Map<String, Object> chat = Core.asMap(fixture.getOrDefault("chat", Map.of()));
+      cf.client.chat(Core.asMap(chat.getOrDefault("request", Map.of())), Map.of("customLabels", chat.getOrDefault("custom_labels", Map.of())));
+      for (Map.Entry<String, Object> expected : Core.asMap(fixture.getOrDefault("expected_chat_custom_labels", Map.of())).entrySet()) {
+        assertEqual(customPart.apply(expected.getKey()), expected.getValue(), "chat " + expected.getKey() + " custom labels");
+      }
+      records.clear();
+      Map<String, Object> spec = Core.asMap(fixture.getOrDefault("forward", Map.of()));
+      Map<String, Object> constructorOptions = new LinkedHashMap<>();
+      constructorOptions.put("customLabels", spec.getOrDefault("constructor_custom_labels", Map.of()));
+      AxGen gen = new AxGen(Ax.s(String.valueOf(spec.getOrDefault("signature", "question:string -> answer:string"))), constructorOptions);
+      Map<String, Object> callOptions = new LinkedHashMap<>();
+      callOptions.put("stream", false);
+      callOptions.put("customLabels", spec.getOrDefault("call_custom_labels", Map.of()));
+      gen.forward(cf.client, Core.asMap(spec.getOrDefault("input", Map.of())), callOptions);
+      for (Map.Entry<String, Object> expected : Core.asMap(fixture.getOrDefault("expected_forward_custom_labels", Map.of())).entrySet()) {
+        assertEqual(customPart.apply(expected.getKey()), expected.getValue(), "forward " + expected.getKey() + " custom labels");
+      }
+    } finally {
+      AxGlobals.setMeter(null);
     }
   }
 

@@ -3495,6 +3495,68 @@ static void run_ai_usage_observer(Value fixture) {
   set_usage_observer({});
 }
 
+// A recording meter sees a chat (the service's and the call's custom labels)
+// and an AxGen forward on the same client (its constructor's labels with the
+// call's over them). Each expected metric's first record must carry the
+// expected labels besides the runtime's own "ax.*" attributes.
+static void run_ai_custom_labels(Value fixture) {
+  struct Records {
+    std::mutex mutex;
+    std::vector<std::pair<std::string, Value>> items;
+  };
+  auto records = std::make_shared<Records>();
+  struct Instrument final : AxCounter, AxHistogram, AxGauge {
+    std::shared_ptr<Records> records;
+    std::string name;
+    Instrument(std::shared_ptr<Records> records, std::string name) : records(std::move(records)), name(std::move(name)) {}
+    void add(double, Value attributes) override {
+      std::lock_guard<std::mutex> lock(records->mutex);
+      records->items.emplace_back(name, Core::map_merge(Value::object(), attributes));
+    }
+    void record(double value, Value attributes) override { add(value, attributes); }
+  };
+  struct RecordingMeter final : AxMeter {
+    std::shared_ptr<Records> records;
+    explicit RecordingMeter(std::shared_ptr<Records> records) : records(std::move(records)) {}
+    std::shared_ptr<AxCounter> create_counter(std::string name, AxMetricInstrumentOptions) override { return std::make_shared<Instrument>(records, name); }
+    std::shared_ptr<AxHistogram> create_histogram(std::string name, AxMetricInstrumentOptions) override { return std::make_shared<Instrument>(records, name); }
+    std::shared_ptr<AxGauge> create_gauge(std::string name, AxMetricInstrumentOptions) override { return std::make_shared<Instrument>(records, name); }
+  };
+  auto custom_part = [records](const std::string& metric) {
+    std::lock_guard<std::mutex> lock(records->mutex);
+    for (const auto& [name, attributes] : records->items) {
+      if (name != metric) continue;
+      Value out = Value::object();
+      for (const auto& key : Core::iter(Core::map_keys(attributes))) {
+        if (display(key).rfind("ax.", 0) != 0) Core::set(out, key, Core::get(attributes, key));
+      }
+      return out;
+    }
+    throw AxError("fixture", "no " + metric + " metric was recorded");
+  };
+  ClientFixture cf(fixture);
+  set_meter(std::make_shared<RecordingMeter>(records));
+  try {
+    Value chat = Core::get(fixture, "chat", Value::object());
+    cf.client->chat(Core::get(chat, "request", Value::object()), object({{"customLabels", Core::get(chat, "custom_labels", Value::object())}}));
+    Value expected_chat = Core::get(fixture, "expected_chat_custom_labels", Value::object());
+    for (const auto& name : Core::iter(Core::map_keys(expected_chat))) assert_equal(custom_part(display(name)), Core::get(expected_chat, name), "chat " + display(name) + " custom labels");
+    {
+      std::lock_guard<std::mutex> lock(records->mutex);
+      records->items.clear();
+    }
+    Value spec = Core::get(fixture, "forward", Value::object());
+    AxGen gen(Core::parse_signature(Core::get(spec, "signature", Value("question:string -> answer:string"))), object({{"customLabels", Core::get(spec, "constructor_custom_labels", Value::object())}}));
+    gen.forward(*cf.client, Core::get(spec, "input", Value::object()), object({{"stream", false}, {"customLabels", Core::get(spec, "call_custom_labels", Value::object())}}));
+    Value expected_forward = Core::get(fixture, "expected_forward_custom_labels", Value::object());
+    for (const auto& name : Core::iter(Core::map_keys(expected_forward))) assert_equal(custom_part(display(name)), Core::get(expected_forward, name), "forward " + display(name) + " custom labels");
+  } catch (...) {
+    set_meter(nullptr);
+    throw;
+  }
+  set_meter(nullptr);
+}
+
 static void run_ai_runtime_hooks(Value fixture) {
   struct FailingTracer final : AxTracer {
     std::shared_ptr<AxSpan> start_span(const AxSpanStart&) override { throw std::runtime_error("tracer failure"); }
@@ -4540,6 +4602,8 @@ static void run_kind(Value fixture) {
     run_ai_usage_observer(fixture);
   } else if (kind == "ai_runtime_hooks") {
     run_ai_runtime_hooks(fixture);
+  } else if (kind == "ai_custom_labels") {
+    run_ai_custom_labels(fixture);
   } else if (kind == "ai_credential_wrapper") {
     run_ai_credential_wrapper(fixture);
   } else if (kind == "ai_error") {

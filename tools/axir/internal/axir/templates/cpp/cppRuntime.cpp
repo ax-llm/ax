@@ -4035,12 +4035,44 @@ AxRuntimeHooks effective_runtime_hooks(const AxRuntimeHooks& call,
   return merge_runtime_hooks({call, service, snapshot_runtime_hooks()});
 }
 
+// A metric's attributes with TypeScript's custom labels (ai_custom_labels):
+// the service's customLabels, then the call's, cut to 100 characters when
+// sanitize is set (TS cuts them for the request duration and errors, not for
+// the request counter).
+static Value with_custom_labels(const Value& attributes, const Value& service_options, const Value& call_options, bool sanitize) {
+  Value out = Core::map_merge(Value::object(), attributes);
+  try {
+    Value labels = Core::ai_custom_labels(service_options.is_object() ? service_options : Value::object(), call_options.is_object() ? call_options : Value::object(), Value(sanitize));
+    for (const auto& key : Core::iter(Core::map_keys(labels))) Core::set(out, key, Core::get(labels, key));
+  } catch (...) {
+    // Labels never fail a request.
+  }
+  return out;
+}
+
+// An AxGen run's custom labels, as TypeScript's getMergedCustomLabels: the AI
+// service's, then the AxGen constructor's with the call's over them, each
+// value cut to 100 characters.
+static Value gen_metric_labels(AIClient& client, const Value& gen_options, const Value& call_options) {
+  try {
+    Value run_labels = Core::ai_custom_labels(gen_options.is_object() ? gen_options : Value::object(), call_options.is_object() ? call_options : Value::object(), Value(false));
+    Value service_options = Value::object();
+    if (auto* service = dynamic_cast<AxAIService*>(&client)) service_options = service->get_options();
+    return Core::ai_custom_labels(service_options.is_object() ? service_options : Value::object(), object({{"customLabels", run_labels}}), Value(true));
+  } catch (...) {
+    return Value::object();
+  }
+}
+
 class RuntimeHookScope {
  public:
+  // metric_labels (TS's custom labels) go on the metrics, not the span.
   RuntimeHookScope(const AxRuntimeHooks& call, const AxRuntimeHooks& program,
-                   std::string span_name, std::string metric_prefix, Value attributes)
+                   std::string span_name, std::string metric_prefix, Value attributes,
+                   Value metric_labels = Value::object())
       : metric_prefix_(std::move(metric_prefix)), attributes_(std::move(attributes)),
         started_(std::chrono::steady_clock::now()), exceptions_(std::uncaught_exceptions()) {
+    metric_attributes_ = Core::map_merge(attributes_, metric_labels);
     AxRuntimeHooks inherited;
     AxRuntimeHooks globals = snapshot_runtime_hooks();
     std::shared_ptr<AxSpan> parent;
@@ -4053,14 +4085,14 @@ class RuntimeHookScope {
     effective_ = merge_runtime_hooks({scoped, globals});
     own_span_ = start_runtime_span(effective_, std::move(span_name), "internal", attributes_, parent);
     runtime_hook_frames.push_back(RuntimeHookFrame{scoped, globals, own_span_ ? own_span_ : parent});
-    record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_requests_total", 1, attributes_);
+    record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_requests_total", 1, metric_attributes_);
   }
 
   ~RuntimeHookScope() {
     bool failed = std::uncaught_exceptions() > exceptions_;
-    if (failed) record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_errors_total", 1, attributes_);
+    if (failed) record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_errors_total", 1, metric_attributes_);
     auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started_).count();
-    record_runtime_metric(effective_.meter, "histogram", metric_prefix_ + "_duration_ms", duration, attributes_);
+    record_runtime_metric(effective_.meter, "histogram", metric_prefix_ + "_duration_ms", duration, metric_attributes_);
     finish_runtime_span(own_span_, failed);
     if (!runtime_hook_frames.empty()) runtime_hook_frames.pop_back();
   }
@@ -4070,6 +4102,7 @@ class RuntimeHookScope {
   std::shared_ptr<AxSpan> own_span_;
   std::string metric_prefix_;
   Value attributes_;
+  Value metric_attributes_;
   std::chrono::steady_clock::time_point started_;
   int exceptions_;
 };
@@ -4693,7 +4726,8 @@ Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& ca
   Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(selected_model)}, {"ax.streaming", streaming}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
   auto span = start_runtime_span(hooks, "ax_llm_chat", "client", attributes, parent);
-  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, with_custom_labels(attributes, options_, call_options, false));
+  attributes = with_custom_labels(attributes, options_, call_options, true);
   auto started = std::chrono::steady_clock::now();
   try {
     AxRequestExecutor next = [&]() { return do_chat(req, merged_options); };
@@ -4751,7 +4785,8 @@ Value AxBaseAI::embed(Value request, Value call_options, const AxRuntimeHooks& c
   Value attributes = object({{"ax.operation", "embed"}, {"ax.ai", name_}, {"ax.model", display(selected)}, {"ax.streaming", false}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
   auto span = start_runtime_span(hooks, "ax_llm_embed", "client", attributes, parent);
-  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, with_custom_labels(attributes, options_, call_options, false));
+  attributes = with_custom_labels(attributes, options_, call_options, true);
   auto started = std::chrono::steady_clock::now();
   try {
     AxRequestExecutor next = [&]() { return do_embed(req, merged_options); };
@@ -5271,7 +5306,8 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
   Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(model)}, {"ax.streaming", true}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
   auto span = start_runtime_span(hooks, "ax_llm_chat", "client", attributes, parent);
-  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, with_custom_labels(attributes, options_, call_options, false));
+  attributes = with_custom_labels(attributes, options_, call_options, true);
   auto started = std::chrono::steady_clock::now();
   bool cancelled = false;
   try {
@@ -8091,7 +8127,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}),
+                         gen_metric_labels(client, Core::get(state_, "options", Value::object()), options));
   Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);
   if(axgen_runs_in_session(state_, run_options)) {
     SessionRun session(state_,client,run_options);
@@ -8183,7 +8220,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(AxRuntimeHooks{}, program_hooks, "ax_gen_forward", "ax_gen_generation",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}),
+                         gen_metric_labels(client, Core::get(state_, "options", Value::object()), options));
   AxGenDeltaConsumer consumer(std::move(handler));
   AxGenSinkRegistration registration([&consumer](Value envelope) { consumer.deliver(envelope); });
   Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);

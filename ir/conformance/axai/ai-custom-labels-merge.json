@@ -1,0 +1,131 @@
+{
+  "chat": {
+    "custom_labels": {
+      "team": "call-team",
+      "tier": "call"
+    },
+    "request": {
+      "chat_prompt": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model_config": {
+        "stream": false
+      }
+    }
+  },
+  "expected_chat_custom_labels": {
+    "ax_llm_request_duration_ms": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "call-team",
+      "tier": "call"
+    },
+    "ax_llm_requests_total": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "call-team",
+      "tier": "call"
+    }
+  },
+  "expected_forward_custom_labels": {
+    "ax_gen_generation_duration_ms": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "constructor",
+      "tier": "call"
+    },
+    "ax_gen_generation_requests_total": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "constructor",
+      "tier": "call"
+    },
+    "ax_llm_request_duration_ms": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "constructor",
+      "tier": "call"
+    },
+    "ax_llm_requests_total": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "constructor",
+      "tier": "call"
+    }
+  },
+  "forward": {
+    "call_custom_labels": {
+      "tier": "call"
+    },
+    "constructor_custom_labels": {
+      "team": "constructor",
+      "tier": "constructor"
+    },
+    "input": {
+      "question": "Status?"
+    },
+    "signature": "question:string -> answer:string"
+  },
+  "kind": "ai_custom_labels",
+  "model": "gpt-5.4-mini",
+  "name": "ai-custom-labels-merge",
+  "provider": "openai",
+  "service_options": {
+    "customLabels": {
+      "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "region": "eu",
+      "team": "service"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Hello",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-labels",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 3,
+          "total_tokens": 5
+        }
+      },
+      "status": 200
+    },
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Answer: ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-labels",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 3,
+          "total_tokens": 5
+        }
+      },
+      "status": 200
+    }
+  ]
+}
