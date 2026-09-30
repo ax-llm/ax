@@ -476,6 +476,7 @@ struct Core {
   static Value axgen_record_function_call(Value gen, Value call, Value result, Value status);
   static Value run_control_aborted(Value control);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
+  static Value agent_program_forward(Value signature, Value program_options, Value client, Value values, Value options);
   static Value agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected);
   static Value agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink);
   static Value agent_stage_chat_log(Value stage);

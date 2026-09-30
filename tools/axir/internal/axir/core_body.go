@@ -167,6 +167,7 @@ const (
 	IntrinsicAgentRuntimeClose         CoreIntrinsic = "intrinsic.agent.runtime.close"
 	IntrinsicAgentRuntimeLanguage      CoreIntrinsic = "intrinsic.agent.runtime.language"
 	IntrinsicAgentRuntimeUsage         CoreIntrinsic = "intrinsic.agent.runtime.usage_instructions"
+	IntrinsicAgentProgramForward       CoreIntrinsic = "intrinsic.agent.program_forward"
 	IntrinsicAgentMemorySearch         CoreIntrinsic = "intrinsic.agent.memory_search"
 	IntrinsicAgentSkillSearch          CoreIntrinsic = "intrinsic.agent.skill_search"
 	IntrinsicAgentObserverNotify       CoreIntrinsic = "intrinsic.agent.observer.notify"
@@ -334,6 +335,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeClose:         "_core_agent_runtime_close",
 	IntrinsicAgentRuntimeLanguage:      "_core_agent_runtime_language",
 	IntrinsicAgentRuntimeUsage:         "_core_agent_runtime_usage_instructions",
+	IntrinsicAgentProgramForward:       "_core_agent_program_forward",
 	IntrinsicAgentMemorySearch:         "_core_agent_memory_search",
 	IntrinsicAgentSkillSearch:          "_core_agent_skill_search",
 	IntrinsicAgentObserverNotify:       "_core_agent_observer_notify",
@@ -527,6 +529,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.close":                   true,
 	"intrinsic.agent.runtime.language":                true,
 	"intrinsic.agent.runtime.usage_instructions":      true,
+	"intrinsic.agent.program_forward":                 true,
 	"intrinsic.agent.memory_search":                   true,
 	"intrinsic.agent.skill_search":                    true,
 	"intrinsic.agent.observer.notify":                 true,

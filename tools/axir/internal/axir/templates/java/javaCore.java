@@ -1566,6 +1566,12 @@ final class Core {
     }
     return program.forward(ai, asMap(values), forwarded);
   }
+  /** A one-off AxGen (the context map's distiller and cartographer), forwarded like an agent stage. */
+  static Object agentProgramForward(Object signature, Object programOptions, Object client, Object values, Object options) {
+    if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
+    AxGen program = new AxGen(AxSignature.create(String.valueOf(signature)), new LinkedHashMap<>(asMap(programOptions)));
+    return program.forward(ai, asMap(values), new LinkedHashMap<>(asMap(options)));
+  }
   static Object agentStageChatLog(Object stage) {
     if (stage instanceof AxProgram program) return program.getChatLog();
     return List.of();

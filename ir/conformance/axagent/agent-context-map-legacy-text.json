@@ -1,17 +1,21 @@
 {
   "expected_exported_state_subset": {
     "context_map": {
-      "scores": {},
-      "steps": 5,
-      "text": "## REUSABLE RESULTS\n[rr-1] France capital is Paris\n"
+      "scores": {
+        "rr-2": 1
+      },
+      "steps": 1,
+      "text": "## CONTEXT ROADMAP\n\n## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly\n\n## DOMAIN CONSTANTS\n\n## PARSING SCHEMA\n\n## REUSABLE RESULTS\n[rr-2] Refund window = 30 days\n[rr-00003] Store credit is instant\n\n## ERROR PATTERNS\n"
     }
   },
   "expected_output": {
     "answer": "Refunds take 30 days."
   },
-  "expected_request_contains": ["[rr-1] France capital is Paris"],
-  "expected_request_count": 3,
+  "expected_request_contains": ["[rr-2] Refund window = 30 days"],
+  "expected_request_count": 5,
   "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
     ["system", "user"],
     ["system", "user"],
     ["system", "user"]
@@ -19,7 +23,9 @@
   "expected_transcript": [
     "request:distiller",
     "request:executor",
-    "request:responder"
+    "request:responder",
+    "request:context_map",
+    "request:context_map"
   ],
   "features": {
     "functions": false,
@@ -30,17 +36,10 @@
     "question": "How long do refunds take?"
   },
   "kind": "agent_forward",
-  "name": "agent-context-map-read",
+  "name": "agent-context-map-legacy-text",
   "options": {
     "contextMap": {
-      "map": {
-        "evolveSteps": 0,
-        "infiniteEvolve": false,
-        "scores": {},
-        "steps": 5,
-        "text": "## REUSABLE RESULTS\n[rr-1] France capital is Paris",
-        "version": 1
-      }
+      "map": "## CONTEXT ROADMAP\n## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly\n## DOMAIN CONSTANTS\n## PARSING SCHEMA\n## REUSABLE RESULTS\n[rr-2] Refund window = 30 days\n## ERROR PATTERNS"
     },
     "directResponse": "off",
     "runtime": {
@@ -56,6 +55,12 @@
     },
     {
       "content": "Answer: Refunds take 30 days."
+    },
+    {
+      "content": "Item Tags: {\"rr-2\": \"helpful\"}"
+    },
+    {
+      "content": "Operations: [{\"type\":\"ADD\",\"section\":\"reusable_results\",\"content\":\"Store credit is instant\"}]"
     }
   ],
   "runtime_script": [
