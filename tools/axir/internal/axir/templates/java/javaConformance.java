@@ -1829,12 +1829,16 @@ public final class Conformance {
       nestedFixture.put("steps", step.getOrDefault("steps", List.of()));
       nestedFixture.put("returns", step.getOrDefault("returns", Map.of()));
       nestedFixture.put("signature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")));
+      if (fixture.containsKey("_node_control")) nestedFixture.put("_node_control", fixture.get("_node_control"));
       program = buildFlow(nestedFixture);
     } else if ("agent".equals(step.get("program"))) {
       program = Ax.agent(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))), Core.asMap(step.getOrDefault("options", Map.of())));
     } else {
       String signature = String.valueOf(step.getOrDefault("extended_signature", step.getOrDefault("extendedSignature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")))));
-      program = new AxGen(AxSignature.create(signature), Core.asMap(step.getOrDefault("options", Map.of())));
+      Map<String, Object> programOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("options", Map.of())));
+      // The node's own run control, a constructor default.
+      if (Core.truthy(step.get("constructor_control")) && fixture.get("_node_control") != null) programOptions.put("control", fixture.get("_node_control"));
+      program = new AxGen(AxSignature.create(signature), programOptions);
     }
     Map<String, Object> stepOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("forward_options", Map.of())));
     stepOptions.putAll(options);
@@ -1863,6 +1867,12 @@ public final class Conformance {
   }
 
   static void runFlow(Map<String, Object> fixture) {
+    // A step with constructor_control gets a node run control of its own;
+    // expected_node_control_events pins its lifecycle events.
+    Map<String, Object> nodeOptions = new LinkedHashMap<>();
+    List<Object> nodeEvents = attachRunControl(Map.of(), null, nodeOptions);
+    fixture = new LinkedHashMap<>(fixture);
+    fixture.put("_node_control", nodeOptions.get("control"));
     try {
       AxFlow fl = buildFlow(fixture);
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
@@ -1870,10 +1880,13 @@ public final class Conformance {
       if ("plan".equals(fixture.get("operation"))) return;
       ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))).scriptSpeak(fixture);
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+      List<Object> flowEvents = attachFixtureControl(fixture, client, forwardOptions);
       Object output = "streaming".equals(fixture.get("operation"))
         ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
         : fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "flow output");
+      if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(flowEvents), fixture.get("expected_control_events"), "flow run control events");
+      if (fixture.containsKey("expected_node_control_events")) assertEqual(new ArrayList<>(nodeEvents), fixture.get("expected_node_control_events"), "node run control events");
       if (fixture.containsKey("expected_streaming_output")) assertEqual(output, fixture.get("expected_streaming_output"), "flow streaming output");
       if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
       assertSpeakRequests(fixture, client);

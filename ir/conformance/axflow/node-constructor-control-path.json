@@ -1,0 +1,56 @@
+{
+  "expected_node_control_events": [
+    {
+      "path": "root/first",
+      "type": "started"
+    },
+    {
+      "path": "root/first",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "flow",
+  "name": "node-constructor-control-path",
+  "responses": [
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "node-constructor-control-path",
+    "observed": {
+      "output": {
+        "answer": "ok"
+      }
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "constructor_control": true,
+      "kind": "execute",
+      "name": "first",
+      "signature": "question:string -> answer:string"
+    }
+  ]
+}

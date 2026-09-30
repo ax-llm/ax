@@ -3974,6 +3974,7 @@ static Value build_flow_step(Value step, Value fixture, std::vector<std::unique_
       {"returns", Core::get(step, "returns", Value::object())},
       {"signature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))}
     });
+    if (!Core::get(fixture, "_node_control").is_null()) Core::set(nested, "_node_control", Core::get(fixture, "_node_control"));
     flows.push_back(std::make_unique<AxFlow>(build_flow(nested, programs, flows, agents)));
     return Core::_flow_step(Value(kind), Value(name), Core::agent_stage_ref(*flows.back()), step_options);
   }
@@ -3984,7 +3985,12 @@ static Value build_flow_step(Value step, Value fixture, std::vector<std::unique_
     return Core::_flow_step(Value(kind), Value(name), Core::agent_stage_ref(*agents.back()), step_options);
   }
   Value signature = Core::get(step, "extended_signature", Core::get(step, "extendedSignature", Core::get(step, "signature", Core::get(fixture, "signature", Value("question:string -> answer:string")))));
-  programs.push_back(std::make_unique<AxGen>(Core::parse_signature(signature), Core::get(step, "options", Value::object())));
+  Value program_options = Core::map_merge(Value::object(), Core::get(step, "options", Value::object()));
+  // The node's own run control, a constructor default.
+  if (Core::truthy(Core::get(step, "constructor_control", false)) && !Core::get(fixture, "_node_control").is_null()) {
+    Core::set(program_options, "control", Core::get(fixture, "_node_control"));
+  }
+  programs.push_back(std::make_unique<AxGen>(Core::parse_signature(signature), program_options));
   return Core::_flow_step(Value(kind), Value(name), Core::agent_stage_ref(*programs.back()), step_options);
 }
 
@@ -4024,17 +4030,40 @@ static void run_flow(Value fixture) {
     std::vector<std::unique_ptr<AxGen>> programs;
     std::vector<std::unique_ptr<AxFlow>> flows;
     std::vector<std::unique_ptr<AxAgent>> agents;
-    AxFlow fl = build_flow(fixture, programs, flows, agents);
+    // A step with constructor_control gets a node run control of its own;
+    // expected_node_control_events pins its lifecycle events.
+    auto node_events = std::make_shared<FixtureControlEvents>();
+    AxRunControl node_control = run_control();
+    node_control.on_event([node_events](Value event) {
+      std::string type = display(Core::get(event, "type"));
+      if (type != "started" && type != "completed" && type != "failed" && type != "aborted") return;
+      std::lock_guard<std::mutex> lock(node_events->mutex);
+      Core::append(node_events->events, object({{"path", Core::get(event, "path")}, {"type", type}}));
+    });
+    Value flow_fixture = Core::map_merge(Value::object(), fixture);
+    Core::set(flow_fixture, "_node_control", node_control.value());
+    AxFlow fl = build_flow(flow_fixture, programs, flows, agents);
     if (!Core::get(fixture, "expected_plan").is_null()) assert_equal(fl.get_plan(), Core::get(fixture, "expected_plan"), "flow plan");
     if (!Core::get(fixture, "expected_plan_subset").is_null()) assert_list_subset(fl.get_plan(), Core::get(fixture, "expected_plan_subset"), "flow plan");
     if (display(Core::get(fixture, "operation", Value(""))) == "plan") return;
     ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
     client.script_speak(fixture);
-    Value forward_options = Core::get(fixture, "forward_options", Value::object());
+    Value forward_options = Core::map_merge(Value::object(), Core::get(fixture, "forward_options", Value::object()));
+    auto flow_events = std::make_shared<FixtureControlEvents>();
+    std::optional<AxRunControl> flow_control;
+    if (Core::truthy(Core::get(fixture, "control", false))) flow_control = attach_fixture_control(fixture, client, forward_options, flow_events);
     Value output = display(Core::get(fixture, "operation", Value(""))) == "streaming"
       ? fl.streaming_forward(client, Core::get(fixture, "input", Value::object()), forward_options)
       : fl.forward(client, Core::get(fixture, "input", Value::object()), forward_options);
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "flow output");
+    if (!Core::get(fixture, "expected_control_events").is_null()) {
+      std::lock_guard<std::mutex> lock(flow_events->mutex);
+      assert_equal(flow_events->events, Core::get(fixture, "expected_control_events"), "flow run control events");
+    }
+    if (!Core::get(fixture, "expected_node_control_events").is_null()) {
+      std::lock_guard<std::mutex> lock(node_events->mutex);
+      assert_equal(node_events->events, Core::get(fixture, "expected_node_control_events"), "node run control events");
+    }
     if (!Core::get(fixture, "expected_streaming_output").is_null()) assert_equal(output, Core::get(fixture, "expected_streaming_output"), "flow streaming output");
     Value expected_count = Core::get(fixture, "expected_request_count");
     if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) throw AxError("fixture", "expected request count mismatch");
