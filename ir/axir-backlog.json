@@ -3037,6 +3037,46 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents",
+      "status": "open",
+      "title": "Honor a flat function's own namespace in the ports' agents",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
+      "tsPaths": [
+        "src/ax/agent/agentInternal/runtimeGlobals.ts",
+        "src/ax/agent/agentInternal/runtimeExecution.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "TS lists and runs fn('query').namespace('warehouse') passed flat in an agent's functions as warehouse.query (probe on this worktree: the executor lists warehouse.query(args: { region?: string }), the runtime has warehouse.query and no tools.query, and the call reaches the handler). The Python port lists and runs the same tool as tools.query (@agent_callable_implementation files every flat item under 'tools'; seen in the executor prompt and live runs). Go's and Java's Tool have no namespace field. Rust and C++ namespace tools only through with_tool_module and add_tool_module.",
+      "suggestedAxirWork": [
+        "Keep a flat tool's namespace in the callable inventory and in @agent_callable_implementation",
+        "Add the fn namespace API where a port's Tool lacks it",
+        "Pin a TS golden with a flat namespaced tool listed and called under its namespace"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime",
+      "status": "open",
+      "title": "Return console output from the Java QuickJS code runtime",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
+      "tsPaths": ["src/ax/funcs/jsRuntime.ts"],
+      "portableSurface": "runtime",
+      "impact": "TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.",
+      "suggestedAxirWork": [
+        "Capture console output in the Java QuickJS bootstrap and return it as the step's output",
+        "Pin a runtime-protocol fixture with console output reaching the action log in every port"
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

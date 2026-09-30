@@ -36,6 +36,18 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
   - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
   - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
+- `axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents` [axagent] Honor a flat function's own namespace in the ports' agents
+  - Status: open
+  - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
+  - TS paths: `src/ax/agent/agentInternal/runtimeGlobals.ts`, `src/ax/agent/agentInternal/runtimeExecution.ts`
+  - Impact: TS lists and runs fn('query').namespace('warehouse') passed flat in an agent's functions as warehouse.query (probe on this worktree: the executor lists warehouse.query(args: { region?: string }), the runtime has warehouse.query and no tools.query, and the call reaches the handler). The Python port lists and runs the same tool as tools.query (@agent_callable_implementation files every flat item under 'tools'; seen in the executor prompt and live runs). Go's and Java's Tool have no namespace field. Rust and C++ namespace tools only through with_tool_module and add_tool_module.
+  - Suggested AxIR work: Keep a flat tool's namespace in the callable inventory and in @agent_callable_implementation; Add the fn namespace API where a port's Tool lacks it; Pin a TS golden with a flat namespaced tool listed and called under its namespace
+- `axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime` [runtime] Return console output from the Java QuickJS code runtime
+  - Status: open
+  - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
+  - TS paths: `src/ax/funcs/jsRuntime.ts`
+  - Impact: TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.
+  - Suggested AxIR work: Capture console output in the Java QuickJS bootstrap and return it as the step's output; Pin a runtime-protocol fixture with console output reaching the action log in every port
 
 ## Done
 
