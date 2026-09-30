@@ -2273,14 +2273,54 @@ func _core_json_parse_strict(value Value) (Value, error) {
 // TS JSON.stringify(value): keys in insertion order, null as null.
 func _core_json_stringify(value Value) Value        { return orderedStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
-func _core_tool_invoke(fn Value, params Value) (Value, error) {
+// _core_tool_invoke runs a tool; extras (TS's sessionId, executionPath and
+// eventContext, see tool_call_extras) reach a ContextHandler through its ctx.
+func _core_tool_invoke(fn Value, params Value, extras ...Value) (Value, error) {
+	ctx := context.Background()
+	if len(extras) > 0 {
+		ctx = withToolExtras(ctx, extras[0])
+	}
 	if t, ok := fn.(Tool); ok {
-		return t.invoke(asMap(params))
+		return t.invokeContext(ctx, asMap(params))
 	}
 	if t, ok := fn.(*Tool); ok {
-		return t.invoke(asMap(params))
+		return t.invokeContext(ctx, asMap(params))
 	}
 	return nil, AxError{Category: "runtime", Message: "unknown tool"}
+}
+
+// AxToolExtras are what TypeScript gives a tool besides its arguments: the
+// run's sessionId and eventContext when set, and under a run control its
+// executionPath (<the run's path>/<the tool's name>).
+type AxToolExtras struct {
+	SessionID     string
+	ExecutionPath string
+	EventContext  Value
+}
+
+type toolExtrasContextKey struct{}
+
+// AxToolExtrasFromContext returns the extras of the tool call that a
+// ContextHandler's ctx belongs to; outside one, the zero value.
+func AxToolExtrasFromContext(ctx context.Context) AxToolExtras {
+	if ctx == nil {
+		return AxToolExtras{}
+	}
+	extras, _ := ctx.Value(toolExtrasContextKey{}).(AxToolExtras)
+	return extras
+}
+
+// withToolExtras puts a tool call's extras, a tool_call_extras map, on ctx.
+func withToolExtras(ctx context.Context, raw Value) context.Context {
+	values := asMap(raw)
+	extras := AxToolExtras{EventContext: coreGet(values, "eventContext", nil)}
+	if session := coreGet(values, "sessionId", nil); session != nil {
+		extras.SessionID = display(session)
+	}
+	if path := coreGet(values, "executionPath", nil); path != nil {
+		extras.ExecutionPath = display(path)
+	}
+	return context.WithValue(ctx, toolExtrasContextKey{}, extras)
 }
 func _core_ai_error_response(message Value, rest ...Value) Value {
 	return aiError("AxAIServiceResponseError", message, rest...)
@@ -14016,9 +14056,15 @@ func runConformancePrompt(fixture map[string]Value) {
 	}
 }
 
+// conformanceToolExtras holds the extras each record_extras tool of the
+// running fixture saw (conformanceBuildTools resets it).
+var conformanceToolExtras = MutableArray()
+
 func conformanceBuildTools(specs Value) ([]Tool, Value) {
 	tools := []Tool{}
 	calls := MutableArray()
+	conformanceToolExtras = MutableArray()
+	extrasLog := conformanceToolExtras
 	for _, raw := range asSlice(specs) {
 		spec := asMap(raw)
 		name := display(coreGet(spec, "name", "tool"))
@@ -14040,6 +14086,25 @@ func conformanceBuildTools(specs Value) ([]Tool, Value) {
 				return nil, AxError{Category: "runtime", Message: errMsg}
 			}
 			return result, nil
+		}
+		if coreTruthy(coreGet(spec, "record_extras", false)) {
+			// A context handler, recording the extras it gets.
+			handler := tool.Handler
+			tool = tool.WithContextHandler(func(ctx context.Context, args map[string]Value) (Value, error) {
+				extras := AxToolExtrasFromContext(ctx)
+				seen := Object()
+				if extras.SessionID != "" {
+					seen["sessionId"] = extras.SessionID
+				}
+				if extras.ExecutionPath != "" {
+					seen["executionPath"] = extras.ExecutionPath
+				}
+				if extras.EventContext != nil {
+					seen["eventContext"] = cloneValue(extras.EventContext)
+				}
+				coreAppend(extrasLog, Object("name", name, "extras", seen))
+				return handler(args)
+			})
 		}
 		tools = append(tools, tool)
 	}
@@ -14202,6 +14267,9 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
 		}
+		if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+			assertEqual(conformanceToolExtras, expected, "tool extras")
+		}
 		if expected := coreGet(fixture, "expected_memory_history_count", nil); expected != nil && len(asSlice(gen.Memory)) != int(num(expected)) {
 			panic(AxError{Category: "fixture", Message: "expected memory history count mismatch"})
 		}
@@ -14239,6 +14307,9 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
+		}
+		if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+			assertEqual(conformanceToolExtras, expected, "tool extras")
 		}
 	}
 }
@@ -14497,6 +14568,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 		assertEqual(calls, expected, "tool calls")
+	}
+	if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+		assertEqual(conformanceToolExtras, expected, "tool extras")
 	}
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")

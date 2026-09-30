@@ -322,9 +322,12 @@ type ToolSpec = {
   args?: Record<string, { type: string; description?: string }>;
   result?: Json;
   error?: string;
+  // Record the extras TS gives the tool: sessionId, executionPath (under a
+  // run control) and eventContext, each when set.
+  record_extras?: boolean;
 };
 
-function tsTools(specs: ToolSpec[], calls: JsonMap[]) {
+function tsTools(specs: ToolSpec[], calls: JsonMap[], extrasLog?: JsonMap[]) {
   return specs.map((spec) => {
     let builder = fn(spec.name).description(spec.description ?? spec.name);
     for (const [name, arg] of Object.entries(spec.args ?? {})) {
@@ -337,12 +340,39 @@ function tsTools(specs: ToolSpec[], calls: JsonMap[]) {
             : f.string(description);
       builder = builder.arg(name, field) as typeof builder;
     }
+    const run = (args: Record<string, unknown>) => {
+      calls.push({ name: spec.name, args: clone(args) as Json });
+      if (spec.error) throw new Error(spec.error);
+      return clone(spec.result);
+    };
+    if (spec.record_extras) {
+      return builder
+        .handler(
+          async (
+            args: Record<string, unknown>,
+            extras?: {
+              sessionId?: string;
+              executionPath?: string;
+              eventContext?: unknown;
+            }
+          ) => {
+            const seen: JsonMap = {};
+            if (extras?.sessionId !== undefined)
+              seen.sessionId = extras.sessionId;
+            if (extras?.executionPath !== undefined) {
+              seen.executionPath = extras.executionPath;
+            }
+            if (extras?.eventContext !== undefined) {
+              seen.eventContext = clone(extras.eventContext as Json);
+            }
+            extrasLog?.push({ name: spec.name, extras: seen });
+            return run(args);
+          }
+        )
+        .build();
+    }
     return builder
-      .handler(async (args: Record<string, unknown>) => {
-        calls.push({ name: spec.name, args: clone(args) as Json });
-        if (spec.error) throw new Error(spec.error);
-        return clone(spec.result);
-      })
+      .handler(async (args: Record<string, unknown>) => run(args))
       .build();
   });
 }
@@ -484,6 +514,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const kind = spec.kind ?? 'streaming_forward';
   const input = spec.input ?? { question: 'Status?' };
   const toolCalls: JsonMap[] = [];
+  const toolExtras: JsonMap[] = [];
   const processorCalls: JsonMap[] = [];
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
@@ -502,7 +533,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const constructorSignal = abortSignalFor(spec.constructor_cancellation);
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
-    functions: tsTools(spec.tools ?? [], toolCalls),
+    functions: tsTools(spec.tools ?? [], toolCalls, toolExtras),
     ...(spec.constructor_control ? { control } : {}),
     ...(constructorSignal ? { abortSignal: constructorSignal } : {}),
   });
@@ -636,6 +667,9 @@ async function record(name: string, spec: Case): Promise<void> {
     );
   }
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
+  if (spec.tools?.some((tool) => tool.record_extras)) {
+    fixture.expected_tool_extras = toolExtras;
+  }
   if (spec.request_tail !== undefined) {
     // The runners compare each message's role and content.
     fixture.expected_last_request_tail = ((prompts().at(-1) ?? []) as JsonMap[])
@@ -742,6 +776,27 @@ const describedLookupTool: ToolSpec = {
   description: 'Look up a key',
   args: { key: { type: 'string', description: 'The key to look up' } },
   result: 'status is green',
+};
+// The lookup tool, recording the extras TS gives it.
+const extrasLookupTool: ToolSpec = { ...lookupTool, record_extras: true };
+const lookupThenAnswer: ResponseSpec[] = [
+  {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+        finish_reason: 'function_call',
+      },
+    ],
+  },
+  { results: [{ index: 0, content: 'Answer: ok' }] },
+];
+const eventContextSample = {
+  runId: 'run-1',
+  routeId: 'orders',
+  attempt: 1,
+  identity: { subject: 'user-1' },
 };
 const finishTool: ToolSpec = {
   name: 'finish',
@@ -1688,6 +1743,61 @@ const cases: Record<string, Case> = {
     constructor_cancellation: { cancelled: false },
     call_cancellation: { cancelled: true, reason: 'call-stop' },
     responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  // A tool's extras: TS gives it the run's sessionId and eventContext, and
+  // under a run control its executionPath (<path>/<tool>); the AxGen
+  // constructor's are defaults that the call's replace.
+  'forward-tool-extras-session-and-event-context': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    forward_options: {
+      sessionId: 'session-1',
+      eventContext: eventContextSample,
+    },
+    responses: lookupThenAnswer,
+  },
+  'forward-tool-extras-none': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    responses: lookupThenAnswer,
+  },
+  'forward-tool-extras-execution-path-under-control': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    control: true,
+    forward_options: { sessionId: 'session-1', executionPath: 'root/orders' },
+    responses: lookupThenAnswer,
+  },
+  'forward-tool-extras-constructor-defaults': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    options: {
+      sessionId: 'constructor-session',
+      eventContext: eventContextSample,
+    },
+    forward_options: { sessionId: 'call-session' },
+    responses: lookupThenAnswer,
+  },
+  'streaming-forward-tool-extras-session-and-event-context': {
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    forward_options: {
+      sessionId: 'session-1',
+      eventContext: eventContextSample,
+    },
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: ok'), done()),
+    ],
   },
   'forward-constructor-execution-path': {
     kind: 'forward',

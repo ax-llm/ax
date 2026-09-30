@@ -725,10 +725,12 @@ impl SessionRun {
         // session that started it, never to a later one.
         let sender = self.sender.clone();
         let cancelled = self.cancelled.clone();
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        let extras = core_value_to_json(&tool_call_extras(&[core_value_from_json(&self.options), CoreValue::from(name)])?);
         let inherited=RUNTIME_HOOK_FRAMES.with(|frames|frames.borrow().clone());
         std::thread::spawn(move || {
             RUNTIME_HOOK_FRAMES.with(|frames|*frames.borrow_mut()=inherited);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()})))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()}.with_extras(&extras))))
                 .unwrap_or_else(|_| Err(AxError::runtime("Tool handler panicked")));
             if !cancelled.load(Ordering::SeqCst) {
                 let _ = sender.send(ToolResult { call, result });

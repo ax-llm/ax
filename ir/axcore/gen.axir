@@ -883,7 +883,7 @@ module @ax.gen version "0.1" {
           %messages = core.let %updated_messages
           core.for %call in %calls {
             core.try {
-              %tool_result = core.call @execute_tool_call(%functions, %call)
+              %tool_result = core.call @execute_tool_call(%functions, %call, %runtime_options)
               %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
               core.append %messages, %tool_message
               core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)
@@ -2498,7 +2498,7 @@ module @ax.gen version "0.1" {
               %messages = core.let %updated_messages
               core.for %call in %tool_calls {
                 core.try {
-                  %tool_result = core.call @execute_tool_call(%functions, %call)
+                  %tool_result = core.call @execute_tool_call(%functions, %call, %runtime_options)
                   %tool_message = core.call @tool_result_message_impl(%call, %tool_result)
                   core.append %messages, %tool_message
                   core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_result, true)

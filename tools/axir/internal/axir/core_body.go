@@ -813,7 +813,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.json.parse":                          intrinsicInfo("intrinsic.json.parse", 1, 1, false, "json"),
 	"intrinsic.json.stringify":                      intrinsicInfo("intrinsic.json.stringify", 1, 1, false, "string"),
 	"intrinsic.json.stable_stringify":               intrinsicInfo("intrinsic.json.stable_stringify", 1, 1, false, "string"),
-	"intrinsic.tool.invoke":                         intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
+	"intrinsic.tool.invoke":                         intrinsicInfo("intrinsic.tool.invoke", 2, 3, true, "json"),
 	"intrinsic.run_control.aborted":                 intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
 	"intrinsic.flow.dispatch_group":                 intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
 	"intrinsic.flow.caching_function":               intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),

@@ -915,6 +915,8 @@ struct ToolBuild {
   std::vector<Tool> tools;
   Value values = Value::array();
   Value calls = Value::array();
+  // The extras each record_extras tool saw.
+  Value extras = Value::array();
 };
 
 static ToolBuild build_tools(Value specs) {
@@ -951,6 +953,24 @@ static ToolBuild build_tools(Value specs) {
         },
         args,
         returns);
+    if (Core::truthy(Core::get(spec, "record_extras", false))) {
+      // A context handler, recording the extras it gets.
+      Value extras_log = out.extras;
+      tool.context_handler([calls, extras_log, spec, name](Value params, const AxToolContext& context) mutable {
+        Value seen = Value::object();
+        if (!context.session_id.empty()) Core::set(seen, "sessionId", context.session_id);
+        if (!context.execution_path.empty()) Core::set(seen, "executionPath", context.execution_path);
+        if (!context.event_context.is_null()) Core::set(seen, "eventContext", parse_json(stringify(context.event_context)));
+        Core::append(extras_log, object({{"name", name}, {"extras", seen}}));
+        Value call = Value::object();
+        Core::set(call, "name", name);
+        Core::set(call, "args", params);
+        Core::append(calls, call);
+        Value error = Core::get(spec, "error");
+        if (!error.is_null() && Core::truthy(error)) throw AxError("runtime", display(error));
+        return Core::get(spec, "result");
+      });
+    }
     Core::append(out.values, tool.value());
     out.tools.push_back(std::move(tool));
   }
@@ -1165,6 +1185,8 @@ static void run_forward(Value fixture) {
   }
   Value expected_tool_calls = Core::get(fixture, "expected_tool_calls");
   if (!expected_tool_calls.is_null()) assert_equal(tool_build.calls, expected_tool_calls, "tool calls");
+  Value expected_tool_extras = Core::get(fixture, "expected_tool_extras");
+  if (!expected_tool_extras.is_null()) assert_equal(tool_build.extras, expected_tool_extras, "tool extras");
   Value expected_trace = Core::get(fixture, "expected_trace");
   if (!expected_trace.is_null()) {
     Value traces = gen.get_traces();
@@ -1266,6 +1288,8 @@ static void run_streaming_forward(Value fixture) {
   assert_speak_requests(fixture, client);
   Value expected_tool_calls = Core::get(fixture, "expected_tool_calls");
   if (!expected_tool_calls.is_null()) assert_equal(tool_build.calls, expected_tool_calls, "tool calls");
+  Value expected_tool_extras = Core::get(fixture, "expected_tool_extras");
+  if (!expected_tool_extras.is_null()) assert_equal(tool_build.extras, expected_tool_extras, "tool extras");
   Value expected_processor_calls = Core::get(fixture, "expected_processor_calls");
   if (!expected_processor_calls.is_null()) assert_equal(processor_calls, expected_processor_calls, "field processor calls");
   Value expected_contains = Core::get(fixture, "expected_request_contains");

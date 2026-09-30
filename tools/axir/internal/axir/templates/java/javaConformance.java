@@ -1297,6 +1297,7 @@ public final class Conformance {
       }
     }
     if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
+    if (fixture.containsKey("expected_tool_extras")) assertEqual(new ArrayList<>(toolBuild.extras), fixture.get("expected_tool_extras"), "tool extras");
 	    if (fixture.containsKey("expected_trace")) {
 	      if (gen.getTraces().isEmpty()) throw new FixtureError("expected trace but none was recorded");
 	      assertSubset(gen.getTraces().get(gen.getTraces().size() - 1), fixture.get("expected_trace"), "trace");
@@ -1520,6 +1521,7 @@ public final class Conformance {
     }
     assertSpeakRequests(fixture, client);
     if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
+    if (fixture.containsKey("expected_tool_extras")) assertEqual(new ArrayList<>(toolBuild.extras), fixture.get("expected_tool_extras"), "tool extras");
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);
@@ -4077,6 +4079,8 @@ public final class Conformance {
   static final class ToolBuild {
     final List<Tool> tools = new ArrayList<>();
     final List<Object> calls = new ArrayList<>();
+    // The extras each record_extras tool saw.
+    final List<Object> extras = java.util.Collections.synchronizedList(new ArrayList<>());
   }
   static ToolBuild buildTools(List<Object> specs) {
     ToolBuild out = new ToolBuild();
@@ -4087,11 +4091,24 @@ public final class Conformance {
       for (Map.Entry<String, Object> e : Core.asMap(spec.get("returns")).entrySet()) builder.returnsField(e.getKey(), fieldFromSpec(Core.asMap(e.getValue())));
       Object result = spec.get("result");
       Object error = spec.get("error");
-      builder.handler(args -> {
+      Tool.Handler handler = args -> {
         out.calls.add(new LinkedHashMap<>(Map.of("name", spec.get("name"), "args", new LinkedHashMap<>(args))));
         if (error != null) throw new RuntimeException(String.valueOf(error));
         return result;
-      });
+      };
+      if (Core.truthy(spec.get("record_extras"))) {
+        // An extras handler, recording the extras it gets.
+        builder.extrasHandler((args, extras) -> {
+          Map<String, Object> seen = new LinkedHashMap<>();
+          if (extras.sessionId != null) seen.put("sessionId", extras.sessionId);
+          if (extras.executionPath != null) seen.put("executionPath", extras.executionPath);
+          if (extras.eventContext != null) seen.put("eventContext", Core.ownedCopy(extras.eventContext));
+          out.extras.add(new LinkedHashMap<>(Map.of("name", spec.get("name"), "extras", seen)));
+          return handler.call(args);
+        });
+      } else {
+        builder.handler(handler);
+      }
       out.tools.add(builder.build());
     }
     return out;

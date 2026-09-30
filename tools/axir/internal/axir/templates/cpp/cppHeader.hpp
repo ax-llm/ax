@@ -456,6 +456,8 @@ struct Core {
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
   static Value tool_invoke(Value fn, Value params, const AxToolContext& context);
+  // extras: the run's tool_call_extras map, for a context handler.
+  static Value tool_invoke(Value fn, Value params, Value extras);
   static Value legacy_response_to_chat_response(Value raw);
   static Value record_new(Value name, Value values);
   static Value field_item(Value field);
@@ -1111,7 +1113,15 @@ struct AxToolContext {
   std::shared_ptr<std::atomic<bool>> cancelled;
   std::string call_id;
   std::function<bool()> cancellation_requested;
+  // What TypeScript gives a tool besides its arguments: the run's sessionId
+  // and eventContext when set (else empty and null), and under a run control
+  // its executionPath (<the run's path>/<the tool's name>, else empty).
+  std::string session_id;
+  std::string execution_path;
+  Value event_context;
   bool is_cancelled() const {return (cancelled && cancelled->load()) || (cancellation_requested && cancellation_requested());}
+  // Sets the extras from a tool_call_extras map.
+  void set_extras(const Value& extras);
 };
 class Tool {
  public:

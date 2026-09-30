@@ -438,7 +438,9 @@ class _SessionClient:
         events, cancel = self._queue, self._cancel
         def invoke():
             try:
-                result = core._core_tool_invoke(tool, args, {"signal": cancel, "call_id": call["id"]})
+                # As TS, the tool gets the run's extras (tool_call_extras).
+                extras = core.tool_call_extras(self.options, name)
+                result = core._core_tool_invoke(tool, args, {**extras, "signal": cancel, "call_id": call["id"]})
                 events.put(("tool", (call, result, None)))
             except BaseException as error:
                 events.put(("tool", (call, None, error)))
