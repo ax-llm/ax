@@ -634,34 +634,14 @@ def _call_timeout_error(timeout_ms: Any, request: Any) -> AxAIServiceTimeoutErro
     return error
 
 
-class _AxConnectTimeoutError(AxAIServiceTimeoutError, AxAIServiceNetworkError):
-    """A connect that ran out of the client's timeout. It was an
-    AxAIServiceNetworkError before it became TS's timeout error, so it is both
-    until the next major version."""
-
-
-class _AxIncompleteReadError(AxAIServiceNetworkError, http.client.IncompleteRead):
-    """A connection that dropped mid-stream: TS's network error, and until the
-    next major version still the http.client.IncompleteRead it used to be."""
-
-    def __init__(self, source: http.client.IncompleteRead, request: Any):
-        AxAIServiceNetworkError.__init__(self, f"Network Error: {source!r}", request=request, retryable=True)
-        self.partial = source.partial
-        self.expected = source.expected
-
-    __str__ = Exception.__str__
-    __repr__ = Exception.__repr__
-
-
-def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any, connect: bool = False) -> AxAIServiceError:
+def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any) -> AxAIServiceError:
     # The client's own timeout (in seconds here) in TS's words, in milliseconds.
     # Like a call's timeoutMs, the request layer does not retry it. Without a
     # client timeout the operating system's timed out, which TS reports as a
     # network error.
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
         return _network_error(exc, request)
-    error_type = _AxConnectTimeoutError if connect else AxAIServiceTimeoutError
-    return error_type(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
+    return AxAIServiceTimeoutError(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
 
 
 # Conformance hooks for the request-layer retry: a sleep that records the
@@ -2034,7 +2014,7 @@ class ProviderOperationClient(AxBaseAI):
                             # as TS reports a failed body read.
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise _AxIncompleteReadError(exc, error_request) from exc
+                            raise _network_error(exc, error_request) from exc
                         except OSError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
@@ -2117,7 +2097,7 @@ class ProviderOperationClient(AxBaseAI):
             if isinstance(getattr(exc, "reason", None), TimeoutError):
                 if timeout_ms is not None and not opened:
                     raise _call_timeout_error(timeout_ms, error_request) from exc
-                raise _client_timeout_error(client_timeout, exc, error_request, connect=True) from exc
+                raise _client_timeout_error(client_timeout, exc, error_request) from exc
             raise _network_error(exc, error_request) from exc
 
     def _headers(self):

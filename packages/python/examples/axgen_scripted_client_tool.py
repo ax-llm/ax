@@ -99,7 +99,7 @@ assert client.calls == 1 and len(store) == 1, store
 assert "ax_gen_forward" in tracer.spans and "ax_gen_generation_requests_total" in meter.recorded
 spans, metrics = len(tracer.spans), len(meter.recorded)
 assert cached.forward(client, france) == {"answer": "Paris"}
-deltas = list(cached.streaming_forward(client, france, {"deltas": True}))
+deltas = list(cached.streaming_forward(client, france))
 assert deltas == [{"version": 0, "index": 0, "delta": {"answer": "Paris"}}], deltas
 assert client.calls == 1, "a cache hit sent a request"
 assert tracer.spans[spans:] == [] and meter.recorded[metrics:] == [], (tracer.spans[spans:], meter.recorded[metrics:])
