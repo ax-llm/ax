@@ -103,7 +103,8 @@ public final class AxGen implements AxProgram {
       signature,
       functions,
       (String) this.options.getOrDefault("structured_output_function_name", this.options.get("structuredOutputFunctionName")),
-      (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate"))
+      (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate")),
+      Core.truthy(this.options.getOrDefault("include_optional_input_fields_in_system_prompt", this.options.getOrDefault("includeOptionalInputFieldsInSystemPrompt", false)))
     );
     if (!this.instruction.isEmpty()) {
       this.promptTemplate.setInstruction(this.instruction);
@@ -509,7 +510,8 @@ public final class AxGen implements AxProgram {
         runtimeHooks,
         "ax_gen_forward",
         "ax_gen_generation",
-        Map.of("ax.program.id", programId, "ax.program.type", "AxGen"));
+        Map.of("ax.program.id", programId, "ax.program.type", "AxGen"),
+        AxGlobals.genMetricLabels(client, options, callOptions));
     try {
       return forwardUnscoped(client, values, callOptions);
     } catch (RuntimeException | Error error) {
@@ -610,7 +612,7 @@ public final class AxGen implements AxProgram {
     attributes.put("ax.program.id", programId);
     attributes.put("ax.program.type", "AxGen");
     attributes.put("ax.streaming", true);
-    AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes);
+    AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes, AxGlobals.genMetricLabels(client, options, callOptions));
     try {
       java.util.function.Consumer<Object> emit = envelope -> sink.accept(Core.asMap(envelope));
       return streamingForwardUnscoped(client, input, callOptions, emit);

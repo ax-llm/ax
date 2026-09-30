@@ -59,6 +59,12 @@
   },
   "expected_request_contains": ["Answer in French."],
   "expected_request_count": 4,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "user"],
+    ["system", "user", "user"]
+  ],
   "expected_transcript": [
     "request:distiller",
     "request:distiller",

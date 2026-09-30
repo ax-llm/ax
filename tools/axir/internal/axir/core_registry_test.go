@@ -83,6 +83,7 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 		"mcp_tool_authorization_result":        "_mcp_tool_authorization_result",
 		"mcp_inheritance_plan":                 "_mcp_inheritance_plan",
 		"mcp_oauth_validate_issuer":            "mcp_oauth_validate_issuer",
+		"mcp_tool_call_outcome":                "mcp_tool_call_outcome",
 	} {
 		if got := names[sym]; got != want {
 			t.Fatalf("registry name for @%s = %q, want %q", sym, got, want)
@@ -93,8 +94,8 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 	for _, spec := range specs {
 		byModule[spec.Module]++
 	}
-	if byModule["mcp"] != 56 {
-		t.Fatalf("expected the 56 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
+	if byModule["mcp"] != 57 {
+		t.Fatalf("expected the 57 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
 	}
 	if byModule[""] != 0 {
 		t.Fatal("registry contains specs without emit_module")

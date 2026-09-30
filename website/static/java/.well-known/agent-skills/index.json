@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:c513e3b61e7562beb51b61b14a2cb0ab88e5ce3008a2b52f3892aa85164be4ed"
+      "digest": "sha256:f44e5a863f99ce4f319cbf52d3aadc9fd95e05155519b111e61847d0194dcdb6"
     },
     {
       "name": "ax-java-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:bce8082370cce64e6cbe67adb59e6309192e8e298962006fdb72388acfce458b"
+      "digest": "sha256:4e065804176131594deb76b934891cecea63e170a80ff77e13a714edfd9a99f9"
     },
     {
       "name": "ax-java-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-java-agent/SKILL.md",
-      "digest": "sha256:8aea0b82fde2eb28b5b6fdc562545cc6c189b90c91e95ef95920477a1dda0049"
+      "digest": "sha256:842d30c3fad98d461a8cd926333d0aecc865384c54b442802b6e27b0b92e0d98"
     },
     {
       "name": "ax-java-agent-rlm",
@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-java-agent-memory-skills/SKILL.md",
-      "digest": "sha256:fcc2fcefc33d5c922359f931d4717186ddb640b6d054b5d2f2b638c3e111bf25"
+      "digest": "sha256:7e9379a4507a69feb3e152d3fddbdf629468d858b79e71ae795ce5c09b277abc"
     },
     {
       "name": "ax-java-agent-observability",

@@ -64,6 +64,7 @@ static Value merge_runtime_policy(Value base, Value options) {
 
 static const char* bootstrap_source = R"JS(
 {{AX_HOST_NAMESPACES_RAW}}
+{{AX_RUNTIME_SUPPORT_RAW}}
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
   "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
@@ -149,6 +150,7 @@ function __ax_snapshot_json() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     const value = globalThis[key];
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
@@ -160,9 +162,14 @@ function __ax_clear_user_globals() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     try { delete globalThis[key]; } catch (_) {}
   }
 }
+// The engine's own globals (Atomics, Map, the bootstrap functions, ...) are
+// not user bindings: the snapshot leaves them out, a replacing patch keeps
+// them, and a restored snapshot cannot overwrite them.
+globalThis.__ax_engine_globals = Object.getOwnPropertyNames(globalThis);
 )JS";
 
 static int quickjs_interrupt_handler(JSRuntime*, void* opaque) {
@@ -195,6 +202,7 @@ QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options, Value runti
   JS_SetPropertyStr(context_, global, "__ax_host_call", JS_NewCFunction(context_, quickjs_host_call, "__ax_host_call", 2));
   JS_FreeValue(context_, global);
   JS_FreeValue(context_, JS_Eval(context_, bootstrap_source, std::strlen(bootstrap_source), "<ax-bootstrap>", JS_EVAL_TYPE_GLOBAL));
+  engine_globals_ = eval_json("JSON.stringify(globalThis.__ax_engine_globals)");
   set_global("__ax_session_reserved", reserved_);
   for (const auto& entry : value_entries(globals)) {
     if (is_host_callable(entry.second) && !contains_name(reserved_, entry.first)) Core::append(reserved_, entry.first);
@@ -206,6 +214,7 @@ QuickJsCodeSession::QuickJsCodeSession(Value globals, Value options, Value runti
   }
   set_global("__ax_session_reserved", reserved_);
   JS_FreeValue(context_, JS_Eval(context_, "__ax_install_host_callables()", std::strlen("__ax_install_host_callables()"), "<ax-host-callables>", JS_EVAL_TYPE_GLOBAL));
+  baseline_ = eval_json("JSON.stringify(Object.getOwnPropertyNames(globalThis))");
 }
 
 QuickJsCodeSession::~QuickJsCodeSession() {
@@ -216,10 +225,31 @@ QuickJsCodeSession::~QuickJsCodeSession() {
 Value QuickJsCodeSession::execute(Value code, Value options) {
   if (closed_) return RuntimeEnvelope::session_closed("session closed");
   std::string source = display(code);
+  // TS's analysis of the turn's code: the top-level variables it writes and
+  // reads, and its qualified calls.
+  Value analysis;
+  {
+    JSValue global = JS_GetGlobalObject(context_);
+    JS_SetPropertyStr(context_, global, "__ax_code", JS_NewStringLen(context_, source.c_str(), source.size()));
+    JS_FreeValue(context_, global);
+    try {
+      analysis = eval_json("__ax_analyze_code(globalThis.__ax_code || '')");
+    } catch (...) {
+      analysis = Value();
+    }
+  }
+  Value out = execute_turn(source, options);
+  if (out.is_object() && analysis.is_object()) Core::set(out, "analysis", analysis);
+  return out;
+}
+
+Value QuickJsCodeSession::execute_turn(const std::string& source, Value options) {
   int timeout_ms = int_option(options, "timeoutMs", int_option(runtime_policy_, "timeoutMs", 5000));
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
-  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
+  static const char kBeforeExecute[] =
+      "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); __ax_install_final_evidence();";
+  JS_FreeValue(context_, JS_Eval(context_, kBeforeExecute, std::strlen(kBeforeExecute), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
   // RLM actor code uses top-level await (`await final(...)`), illegal in a plain script eval.
   // Pass the code in via a global string (avoids host-side JS escaping) and run it through the
   // AsyncFunction constructor so await is legal; then drain the job queue so awaited
@@ -311,14 +341,41 @@ Value QuickJsCodeSession::snapshot_globals(Value) {
       }
     }
   }
-  return object({{"version", 1}, {"bindings", bindings}, {"globals", bindings}});
+  return object({{"version", 1}, {"entries", inspect_entries()}, {"bindings", bindings}, {"globals", bindings}});
+}
+
+// TS's AxJSRuntime snapshot entries of the user globals.
+Value QuickJsCodeSession::inspect_entries() {
+  Value skip = Value::array();
+  for (const auto& name : Core::iter(baseline_)) Core::append(skip, name);
+  for (const auto& name : Core::iter(reserved_)) Core::append(skip, name);
+  try {
+    Value entries = eval_json("__ax_inspect_entries(" + stringify(skip) + ")");
+    return entries.is_array() ? entries : Value::array();
+  } catch (...) {
+    return Value::array();
+  }
 }
 
 Value QuickJsCodeSession::patch_globals(Value snapshot, Value) {
+  // A merge patch (the agent's own globals for the executor, as TS's
+  // patchGlobals) keeps the session's variables and updates its reserved
+  // values; any other patch replaces the user globals.
+  bool merge = Core::truthy(Core::get(snapshot, "merge", Value(false)));
   Value bindings = Core::get(snapshot, "bindings", snapshot);
-  JS_FreeValue(context_, JS_Eval(context_, "__ax_clear_user_globals()", std::strlen("__ax_clear_user_globals()"), "<ax-clear>", JS_EVAL_TYPE_GLOBAL));
+  if (merge) {
+    // The executor phase: the distiller's final no longer keeps evidence.
+    static const char kExecutorPhase[] = "globalThis.__ax_phase = 'executor';";
+    JS_FreeValue(context_, JS_Eval(context_, kExecutorPhase, std::strlen(kExecutorPhase), "<ax-phase>", JS_EVAL_TYPE_GLOBAL));
+  } else {
+    JS_FreeValue(context_, JS_Eval(context_, "__ax_clear_user_globals()", std::strlen("__ax_clear_user_globals()"), "<ax-clear>", JS_EVAL_TYPE_GLOBAL));
+  }
   for (const auto& entry : value_entries(bindings)) {
-    if (contains_name(reserved_, entry.first)) continue;
+    if (entry.first.rfind("__ax_", 0) == 0 || is_host_callable(entry.second)) continue;
+    if (contains_name(reserved_, entry.first) && !merge) continue;
+    // A snapshot saved before the engine's globals were left out (24.x
+    // listed Atomics as a binding) must not overwrite them.
+    if (contains_name(engine_globals_, entry.first)) continue;
     set_global(entry.first, entry.second);
   }
   return snapshot_globals(Value::object());
@@ -358,8 +415,12 @@ void QuickJsCodeSession::set_global(const std::string& name, const Value& value)
   JS_FreeValue(context_, JS_Eval(context_, source.c_str(), source.size(), "<ax-set-global>", JS_EVAL_TYPE_GLOBAL));
 }
 
+// TypeScript's AxJSRuntime.getUsageInstructions() in its default stdout mode.
 std::string QuickJsCodeRuntime::usage_instructions() const {
-  return "JavaScript QuickJS runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
+  return "- Don't wrap async code in (async()=>{ ... })() \xe2\x80\x94 the runtime automatically handles async execution.\n"
+         "- State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.\n"
+         "- Bare assignment (e.g. `x = 1`) also persists via `globalThis`.\n"
+         "- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.";
 }
 
 QuickJsCodeRuntime::QuickJsCodeRuntime(Value runtime_policy) : runtime_policy_(default_runtime_policy(std::move(runtime_policy))) {}

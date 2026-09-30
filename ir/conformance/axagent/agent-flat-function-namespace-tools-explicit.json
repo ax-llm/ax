@@ -1,0 +1,117 @@
+{
+  "name": "agent-flat-function-namespace-tools-explicit",
+  "description": "Port-only: flatFunctionNamespace 'tools' files every flat function under tools, as the ports did before 25.0.0.",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "options": {
+    "directResponse": "off",
+    "functions": [
+      {
+        "description": "Search public pages",
+        "name": "search",
+        "namespace": "web",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Look up a customer by id",
+        "name": "lookup",
+        "namespace": "crm",
+        "parameters": {
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Fetch a public page",
+        "name": "fetch",
+        "namespace": "web",
+        "parameters": {
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": ["url"],
+          "type": "object"
+        }
+      }
+    ],
+    "flatFunctionNamespace": "tools",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "expected_request_count": 3,
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_contains": [
+    "`tools.fetch(args: { url: string })`",
+    "`tools.lookup(args: { id: string })`",
+    "`tools.search(args: { query: string })`"
+  ],
+  "expected_stage_request_not_contains": [
+    {
+      "index": 0,
+      "absent": ["crm.lookup", "web.fetch", "web.search"]
+    },
+    {
+      "index": 1,
+      "absent": ["crm.lookup", "web.fetch", "web.search"]
+    }
+  ],
+  "expected_deprecations": []
+}

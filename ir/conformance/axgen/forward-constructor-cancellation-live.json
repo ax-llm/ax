@@ -1,0 +1,25 @@
+{
+  "constructor_cancellation": {
+    "cancelled": false
+  },
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-constructor-cancellation-live",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

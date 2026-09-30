@@ -1,0 +1,81 @@
+{
+  "description": "Port-only: an agent without a runtime runs the ports' runtime-less stages (TS's agent always has its default JavaScript runtime). Pins each stage's first request in full, as the TS goldens agent-first-requests-* pin the RLM stages', so all five ports send the same runtime-less prompts.",
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"]
+  ],
+  "expected_stage_first_requests": [
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": "<identity>\nYou will be provided with the following fields: `Input`, `Context`. Your task is to generate new fields: `Completion`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nInput:\nContext:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nCompletion (wire key: `completion`): (This JSON object field must be included)\n\n**Exact JSON shape**: `{\"completion\":{}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>",
+          "role": "system"
+        },
+        {
+          "content": "Input: {\n  \"question\": \"How long do refunds take?\"\n}\n\nContext: {}\n",
+          "role": "user"
+        }
+      ],
+      "stage": "distiller"
+    },
+    {
+      "index": 1,
+      "messages": [
+        {
+          "content": "<identity>\nYou will be provided with the following fields: `Input`, `Executor Request`, `Distilled Context`. Your task is to generate new fields: `Completion`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nInput:\nExecutor Request:\nDistilled Context:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nCompletion (wire key: `completion`): (This JSON object field must be included)\n\n**Exact JSON shape**: `{\"completion\":{}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>",
+          "role": "system"
+        },
+        {
+          "content": "Input: {\n  \"question\": \"How long do refunds take?\"\n}\n\nExecutor Request: Answer the question\n\nDistilled Context: {}\n",
+          "role": "user"
+        }
+      ],
+      "stage": "executor"
+    },
+    {
+      "index": 2,
+      "messages": [
+        {
+          "content": "<identity>\nYou will be provided with the following fields: `Question`, `Context Data`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nQuestion:\nContext Data: Context data to help synthesize the final answer.\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+          "role": "system"
+        },
+        {
+          "content": "Question: How long do refunds take?\n\nContext Data: {\n  \"task\": \"Answer the question\",\n  \"evidence\": {\n    \"policy\": \"Refunds take 30 days.\"\n  }\n}\n",
+          "role": "user"
+        }
+      ],
+      "stage": "responder"
+    }
+  ],
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-first-requests-runtime-less",
+  "options": {
+    "directResponse": "off"
+  },
+  "responses": [
+    {
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Answer the question\", {}]}}"
+    },
+    {
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Answer the question\", {\"policy\": \"Refunds take 30 days.\"}]}}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
