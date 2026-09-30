@@ -632,34 +632,14 @@ def _call_timeout_error(timeout_ms: Any, request: Any) -> AxAIServiceTimeoutErro
     return error
 
 
-class _AxConnectTimeoutError(AxAIServiceTimeoutError, AxAIServiceNetworkError):
-    """A connect that ran out of the client's timeout. It was an
-    AxAIServiceNetworkError before it became TS's timeout error, so it is both
-    until the next major version."""
-
-
-class _AxIncompleteReadError(AxAIServiceNetworkError, http.client.IncompleteRead):
-    """A connection that dropped mid-stream: TS's network error, and until the
-    next major version still the http.client.IncompleteRead it used to be."""
-
-    def __init__(self, source: http.client.IncompleteRead, request: Any):
-        AxAIServiceNetworkError.__init__(self, f"Network Error: {source!r}", request=request, retryable=True)
-        self.partial = source.partial
-        self.expected = source.expected
-
-    __str__ = Exception.__str__
-    __repr__ = Exception.__repr__
-
-
-def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any, connect: bool = False) -> AxAIServiceError:
+def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any) -> AxAIServiceError:
     # The client's own timeout (in seconds here) in TS's words, in milliseconds.
     # Like a call's timeoutMs, the request layer does not retry it. Without a
     # client timeout the operating system's timed out, which TS reports as a
     # network error.
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
         return _network_error(exc, request)
-    error_type = _AxConnectTimeoutError if connect else AxAIServiceTimeoutError
-    return error_type(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
+    return AxAIServiceTimeoutError(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
 
 
 # Conformance hooks for the request-layer retry: a sleep that records the
@@ -1370,13 +1350,9 @@ class ProviderOperationClient(AxBaseAI):
         )
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        # TS reads a per-call timeout in milliseconds; this port ignores it
-        # until the next major version and warns once, naming timeoutMs.
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         return super().chat(request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         return super().embed(request, options)
 
     def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1541,7 +1517,6 @@ class ProviderOperationClient(AxBaseAI):
             return self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
         if self.get_features(request.get("model")).get("streaming") is False:
             yield self.chat(request, {**(options or {}), "stream": False})
@@ -2032,7 +2007,7 @@ class ProviderOperationClient(AxBaseAI):
                             # as TS reports a failed body read.
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise _AxIncompleteReadError(exc, error_request) from exc
+                            raise _network_error(exc, error_request) from exc
                         except OSError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
@@ -2115,7 +2090,7 @@ class ProviderOperationClient(AxBaseAI):
             if isinstance(getattr(exc, "reason", None), TimeoutError):
                 if timeout_ms is not None and not opened:
                     raise _call_timeout_error(timeout_ms, error_request) from exc
-                raise _client_timeout_error(client_timeout, exc, error_request, connect=True) from exc
+                raise _client_timeout_error(client_timeout, exc, error_request) from exc
             raise _network_error(exc, error_request) from exc
 
     def _headers(self):
@@ -2203,7 +2178,7 @@ class AxAITypesafeClient:
         return typesafe_decode_models(self._request("GET", "/v1/models", None, "models", options))
 
     def _request(self, method, path, payload, operation, options):
-        opts = {**self._client.options, **(options or {})}
+        opts = {**self._client.options, **provider_normalize_call_options(options)}
         inherited = _check_cancelled(self._client.options)
         per_call = _check_cancelled(options)
         cancellation = inherited or per_call
@@ -2220,8 +2195,7 @@ class AxAITypesafeClient:
 
     def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
         client = copy.copy(self._client)
-        client.timeout = float(opts.get("timeout", client.timeout))
-        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts)
+        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts, timeout_ms=provider_call_timeout_ms(opts))
 
 
 def typesafe(**options) -> AxAITypesafeClient:

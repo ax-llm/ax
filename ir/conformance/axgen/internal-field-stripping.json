@@ -7,7 +7,7 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"compiler layer\",\"notes\":\"private rationale\"}"
+      "content": "Answer: compiler layer\nNotes: private rationale"
     }
   ],
   "expected_output": {

@@ -1277,7 +1277,7 @@ mod tests {
                         let headers=String::from_utf8(request).unwrap();assert!(headers.to_ascii_lowercase().contains("authorization: bearer worker-test"));
                         let length=headers.lines().find_map(|line|line.to_ascii_lowercase().strip_prefix("content-length:").map(|v|v.trim().parse::<usize>().unwrap())).unwrap();let mut body=vec![0;length];socket.read_exact(&mut body).unwrap();sender.send(serde_json::from_slice::<Value>(&body).unwrap()).unwrap();
                         let released=gate.0.lock().unwrap();let (released,timeout)=gate.1.wait_timeout_while(released,Duration::from_secs(3),|released|!*released).unwrap();if timeout.timed_out()&&!*released{return Err("Independent requests did not overlap".into());}drop(released);
-                        let body=json!({"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}).to_string();
+                        let body=json!({"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"Answer: DONE"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}).to_string();
                         write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).map_err(|e|e.to_string())?;Ok(())
                     }));
                 },Err(error) if error.kind()==std::io::ErrorKind::WouldBlock=>std::thread::sleep(Duration::from_millis(1)),Err(error)=>panic!("{error}")}
@@ -1308,9 +1308,9 @@ mod tests {
         fn send(&mut self,request:Value)->AxResult<Value>{
             let body=request["json"].to_string();let gate=&self.0;gate.started.fetch_add(1,Ordering::SeqCst);gate.all.notify_all();
             let lock=gate.lock.lock().unwrap();let (guard,timeout)=gate.all.wait_timeout_while(lock,Duration::from_secs(3),|_|gate.started.load(Ordering::SeqCst)<3).unwrap();drop(guard);if timeout.timed_out(){return Err(AxError::runtime("Independent nodes did not overlap"));}
-            let content=if body.contains("lateAnswer") {let start=Instant::now();while !gate.release.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.release.load(Ordering::SeqCst));gate.late.store(true,Ordering::SeqCst);json!({"lateAnswer":"LATE"}).to_string()}
+            let content=if body.contains("lateAnswer") {let start=Instant::now();while !gate.release.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.release.load(Ordering::SeqCst));gate.late.store(true,Ordering::SeqCst);"Late Answer: LATE".to_string()}
             // The failing node leaves its required field empty, which fails validation.
-            else if body.contains("failAnswer"){let start=Instant::now();while !gate.fast.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.fast.load(Ordering::SeqCst));"Fail Answer:".to_string()}else{json!({"fastAnswer":"DONE"}).to_string()};
+            else if body.contains("failAnswer"){let start=Instant::now();while !gate.fast.load(Ordering::SeqCst)&&start.elapsed()<Duration::from_secs(3){std::thread::sleep(Duration::from_millis(1));}assert!(gate.fast.load(Ordering::SeqCst));"Fail Answer:".to_string()}else{"Fast Answer: DONE".to_string()};
             Ok(json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}}))
         }
     }
@@ -1384,7 +1384,7 @@ mod tests {
                         .expect("tool should start while model stream is open");
                     release.send(()).unwrap();
                     sender
-                        .send(sse(completed("r1", "{\"answer\":\"provisional\"}")))
+                        .send(sse(completed("r1", "Answer: provisional")))
                         .unwrap();
                 });
                 return Ok(AxTransportStream::Reader {
@@ -1402,7 +1402,7 @@ mod tests {
                 json!([{"type":"function_call_output","call_id":"c1","output":"REF-42"}])
             );
             Ok(AxTransportStream::Buffered(
-                json!({"status":200,"body":String::from_utf8(sse(completed("r2","{\"answer\":\"REF-42\"}"))).unwrap()}),
+                json!({"status":200,"body":String::from_utf8(sse(completed("r2","Answer: REF-42"))).unwrap()}),
             ))
         }
     }
@@ -1448,7 +1448,7 @@ mod tests {
       fn stream(&mut self,request:Value)->AxResult<AxTransportStream>{
         let n=self.requests.fetch_add(1,Ordering::SeqCst)+1;
         let event=if n==1 {json!({"type":"response.completed","response":{"id":"invalid","model":"gpt-6-astra","output":[{"type":"function_call","id":"invalid-item","call_id":"invalid-call","name":"validated_lookup","arguments":self.arguments}]}})}else{
-          assert!(!self.exhausted && n==2,"Work replayed after exhaustion");let body=&request["json"];let outputs=body["input"].as_array().unwrap();assert_eq!(body["previous_response_id"],"invalid");assert_eq!(outputs.len(),1);assert_eq!(outputs[0]["call_id"],"invalid-call");assert!(outputs[0]["output"].as_str().unwrap().to_lowercase().contains("query"));completed("corrected","{\"answer\":\"CORRECTED\"}")
+          assert!(!self.exhausted && n==2,"Work replayed after exhaustion");let body=&request["json"];let outputs=body["input"].as_array().unwrap();assert_eq!(body["previous_response_id"],"invalid");assert_eq!(outputs.len(),1);assert_eq!(outputs[0]["call_id"],"invalid-call");assert!(outputs[0]["output"].as_str().unwrap().to_lowercase().contains("query"));completed("corrected","Answer: CORRECTED")
         };
         Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
       }
@@ -1481,7 +1481,7 @@ mod tests {
                 assert_eq!(body["input"][0]["role"],"user","root update must reach future nodes");
                 assert_eq!(body["input"][1],json!({"type":"function_call_output","call_id":"same-call","output":"REF-42"}));
                 assert_eq!(body["input"].as_array().unwrap().len(),2);
-                completed("node-final","{\"answer\":\"REF-42\"}")
+                completed("node-final","Answer: REF-42")
             };
             Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
         }
@@ -1536,7 +1536,7 @@ mod tests {
                 queue.push_back(ack.clone());queue.push_back(ack);
                 queue.push_back(json!({"type":"response.incomplete","response":{"id":"parent","model":"gpt-6-astra","output":[],"incomplete_details":{"reason":"steered"},"usage":{"input_tokens":3,"output_tokens":2}}}));
                 queue.push_back(json!({"type":"response.created","response":{"id":"successor"}}));
-                queue.push_back(completed("successor","{\"answer\":\"CORRECTED\"}"));
+                queue.push_back(completed("successor","Answer: CORRECTED"));
             }
             self.ready.notify_all();Ok(())
         }
@@ -1559,7 +1559,7 @@ mod tests {
             assert_eq!(request["type"],"response.create");assert_eq!(request["model"],"gpt-6-astra");assert!(request.get("stream").is_none());
             for event in [json!({"type":"response.created","response":{"id":"parent"}}),json!({"type":"response.output_text.delta","delta":"provisional"})] {socket.send(tungstenite::Message::Text(event.to_string().into())).unwrap();}
             let steer:Value=serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();assert_eq!(steer["type"],"response.steer");assert_eq!(steer["previous_response_id"],"parent");
-            for event in [json!({"type":"response.steer.accepted","steer":{"id":"s1","previous_response_id":"parent"}}),json!({"type":"response.incomplete","response":{"id":"parent","model":"gpt-6-astra","output":[],"incomplete_details":{"reason":"steered"}}}),json!({"type":"response.created","response":{"id":"successor"}}),completed("successor","{\"answer\":\"CORRECTED\"}")] {socket.send(tungstenite::Message::Text(event.to_string().into())).unwrap();}
+            for event in [json!({"type":"response.steer.accepted","steer":{"id":"s1","previous_response_id":"parent"}}),json!({"type":"response.incomplete","response":{"id":"parent","model":"gpt-6-astra","output":[],"incomplete_details":{"reason":"steered"}}}),json!({"type":"response.created","response":{"id":"successor"}}),completed("successor","Answer: CORRECTED")] {socket.send(tungstenite::Message::Text(event.to_string().into())).unwrap();}
             let closed=match socket.read(){Ok(tungstenite::Message::Close(_))=>true,Err(tungstenite::Error::Io(error))=>!matches!(error.kind(),std::io::ErrorKind::TimedOut|std::io::ErrorKind::WouldBlock),Err(_)=>true,_=>false};closed_tx.send(closed).unwrap();
         });
         let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra","base_url":endpoint}))?.with_native_session_web_socket();
@@ -1707,8 +1707,8 @@ mod tests {
     impl MCPAgentModel {
         fn event(&self,request:&Value,number:usize)->Value{
             let body=&request["json"];let actor:Vec<_>=body["tools"].as_array().into_iter().flatten().filter(|tool|tool["async"]==true).collect();
-            if self.hidden.load(Ordering::SeqCst){assert!(actor.is_empty(),"Undiscovered MCP tool exposed");return completed(&format!("hidden-{number}"),if number<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}"}else{"{\"answer\":\"not discovered\"}"});}
-            if number==1||number==5 {assert!(actor.is_empty(),"Native authority escaped executor");if number==5{assert!(body.to_string().contains("REF-42"),"Responder preceded result incorporation");}return completed(&format!("stage-{number}"),if number==1{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"{\"answer\":\"REF-42\"}"});}
+            if self.hidden.load(Ordering::SeqCst){assert!(actor.is_empty(),"Undiscovered MCP tool exposed");return completed(&format!("hidden-{number}"),if number<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}"}else{"Answer: not discovered"});}
+            if number==1||number==5 {assert!(actor.is_empty(),"Native authority escaped executor");if number==5{assert!(body.to_string().contains("REF-42"),"Responder preceded result incorporation");}return completed(&format!("stage-{number}"),if number==1{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"Answer: REF-42"});}
             if number==2 {assert_eq!(actor.len(),1);assert_eq!(actor[0]["name"],"orders_lookup");assert_eq!(actor[0]["parameters"],self.gate.schema);return json!({"type":"response.completed","response":{"id":"invalid-response","model":"gpt-6-astra","output":[{"type":"function_call","id":"invalid","call_id":"invalid-call","name":"orders_lookup","arguments":"{\"query\":\"X\"}"}]}});}
             assert_eq!(number,4);assert_eq!(body["previous_response_id"],"tool-response");let result=body["input"].as_array().unwrap().last().unwrap();assert_eq!(result["call_id"],"mcp-call");let output:Value=serde_json::from_str(result["output"].as_str().unwrap()).unwrap();assert_eq!(output["structuredContent"]["reference"],"REF-42");completed("final-response","{\"completion\":{\"type\":\"final\",\"args\":[\"Report\",{\"answer\":\"REF-42\"}]}}")
         }
@@ -1734,7 +1734,7 @@ mod tests {
         let gate=Arc::new(MCPAgentGate{started:AtomicBool::new(false),release:Mutex::new(false),ready:Condvar::new(),calls:AtomicUsize::new(0),schema});
         let mut mcp=AxMCPClient::new(Box::new(MCPAgentTransport(gate.clone())),json!({"era":"modern","namespace":"orders"}));mcp.init()?;let allowed=Arc::new(AtomicBool::new(false));let authorizations=Arc::new(AtomicUsize::new(0));let permission=allowed.clone();let counted=authorizations.clone();let schema=gate.schema.clone();mcp.set_tool_authorizer(move|client,call|{assert_eq!(client.namespace(),"orders");assert_eq!(call["namespace"],"orders");assert_eq!(call["tool"]["inputSchema"],schema);assert_eq!(call["arguments"],json!({"query":"REF-42"}));counted.fetch_add(1,Ordering::SeqCst);Ok(Some(permission.load(Ordering::SeqCst)))});let mut native=mcp.native_tools().remove(0);assert_eq!(native.execution,"blocking");native.execution="background".into();
         let denied=native.call(json!({"query":"REF-42"})).unwrap_err();assert!(denied.to_string().contains("MCP tool call denied by host policy: lookup"));assert_eq!(gate.calls.load(Ordering::SeqCst),0);allowed.store(true,Ordering::SeqCst);
-        let mut program=agent_with_options("question -> answer",json!({"functionDiscovery":true,"directResponse":"off"}))?.with_tool_module("orders",vec![native])?;
+        let mut program=agent_with_options("question -> answer",json!({"actorMode":"completion","functionDiscovery":true,"directResponse":"off"}))?.with_tool_module("orders",vec![native])?;
         let hidden=Arc::new(AtomicBool::new(true));let requests=Arc::new(AtomicUsize::new(0));let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(MCPAgentModel{gate:gate.clone(),hidden:hidden.clone(),requests:requests.clone()});
         assert_eq!(program.forward(&mut client,json!({"question":"Find reference"}))?,json!({"answer":"not discovered"}));assert_eq!(gate.calls.load(Ordering::SeqCst),0);assert_eq!(requests.load(Ordering::SeqCst),3);
         program.discover(json!({"tools":["orders"]}))?;hidden.store(false,Ordering::SeqCst);requests.store(0,Ordering::SeqCst);
@@ -1748,7 +1748,7 @@ mod tests {
             let n=self.requests.fetch_add(1,Ordering::SeqCst)+1;let body=&request["json"];
             for tool in body["tools"].as_array().into_iter().flatten(){assert_ne!(tool["async"],true,"actor authority leaked");}
             if n==1{return Ok(completed("distiller","{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}")["response"].clone());}
-            assert_eq!(n,4);assert!(body.to_string().contains("REF-42"),"responder ran before final incorporation");Ok(completed("responder","{\"answer\":\"REF-42\"}")["response"].clone())
+            assert_eq!(n,4);assert!(body.to_string().contains("REF-42"),"responder ran before final incorporation");Ok(completed("responder","Answer: REF-42")["response"].clone())
         }
         fn stream(&mut self,request:Value)->AxResult<AxTransportStream>{
             let n=self.requests.fetch_add(1,Ordering::SeqCst)+1;let body=&request["json"];
@@ -1757,7 +1757,7 @@ mod tests {
                 let stage=if n<3{"distiller"}else{"responder"};let suffix=if n==1||n==5{"-start"}else{"-final"};
                 if n==2||n==6{assert_eq!(body["previous_response_id"],format!("{stage}-start"));let input=body["input"].to_string();assert!(input.contains("ROOT-GUIDANCE"));assert_eq!(input.contains("RESPONDER-ONLY"),n==6);}
                 if n==5{assert!(body.to_string().contains("REF-42"),"Responder started before incorporation");}
-                return Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(completed(&format!("{stage}{suffix}"),if n<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"{\"answer\":\"REF-42\"}"}))).unwrap()})));
+                return Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(completed(&format!("{stage}{suffix}"),if n<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"Answer: REF-42"}))).unwrap()})));
             }
             if n==3 {
                 assert_eq!(body["tools"][0]["name"],"tools_lookup");assert_eq!(body["tools"][0]["async"],true);
@@ -1811,7 +1811,7 @@ mod tests {
             }else{assert!(body["previous_response_id"].is_null(),"child inherited conversation at request {number}: {body}");}
             if number==10{assert!(body.to_string().contains("REF-42"),"parent continued without child result");}
             let output=if stage.starts_with("root/team.researcher"){if stage.ends_with("/responder"){json!({"answer":"REF-42"})}else{json!({"completion":{"type":"final","args":["Find reference",{}]}})}}else if stage=="root/responder"{json!({"answer":"REF-42"})}else{json!({"javascriptCode":if stage=="root/executor"&&!self.delegated.load(Ordering::SeqCst){"delegate"}else{"parent-final"}})};
-            let mut event=completed(&format!("child-r{}",number+1),&output.to_string());event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});if self.cancel&&number==6{event["response"]["output"]=json!([{"type":"function_call","name":"tools_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);}
+            let mut event=completed(&format!("child-r{}",number+1),&output.get("answer").and_then(Value::as_str).map(|answer|format!("Answer: {answer}")).unwrap_or_else(||output.to_string()));event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});if self.cancel&&number==6{event["response"]["output"]=json!([{"type":"function_call","name":"tools_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);}
             Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
         }
     }
@@ -1824,7 +1824,7 @@ mod tests {
             let delegated=Arc::new(AtomicBool::new(false));let closed=Arc::new(AtomicUsize::new(0));let requests=Arc::new(Mutex::new(Vec::new()));
             let mcp_calls=Arc::new(AtomicUsize::new(0));let settled=Arc::new(AtomicBool::new(false));
             let mut mcp=AxMCPClient::new(Box::new(ChildMCPCancellation{control:control.clone(),calls:mcp_calls.clone(),settled:settled.clone()}),json!({"era":"legacy","namespace":"inventory"}));mcp.init()?;
-            let mut child=agent_with_options("question -> answer",json!({"directResponse":"off","functionDiscovery":false}))?;
+            let mut child=agent_with_options("question -> answer",json!({"actorMode":"completion","directResponse":"off","functionDiscovery":false}))?;
             if cancel{let mut native=mcp.native_tools().remove(0);native.execution="background".into();child=child.with_tool_module("tools",vec![native])?;}
             let callbacks=Arc::new(Mutex::new(std::collections::BTreeMap::new()));
             let mut parent=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_child_agent("team","researcher",child)?.with_runtime(Box::new(ChildControlRuntime{delegated:delegated.clone(),closed:closed.clone(),callbacks:callbacks.clone()}))?;
@@ -1849,7 +1849,7 @@ mod tests {
         let lookup=tool("lookup").description("Lookup").arg("query",FieldType::string()).execution("background").handler(move |args|{called.fetch_add(1,Ordering::SeqCst);started_tx.send(()).unwrap();release.lock().unwrap().recv_timeout(Duration::from_secs(2)).expect("model should overlap agent tool");Ok(args["query"].clone())});
         let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(AgentSessionTransport{requests:requests.clone(),started:Some(started_rx),release:release_tx});
         let mut client=AxBalancer::from_clients(vec![Box::new(client)],AxBalancerOptions::default())?;
-        let mut program=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_tool_module("tools",vec![lookup])?;
+        let mut program=agent_with_options("question -> answer",json!({"actorMode":"completion","directResponse":"off"}))?.with_tool_module("tools",vec![lookup])?;
         assert_eq!(program.forward_with_options(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control))?,json!({"answer":"REF-42"}));assert_eq!(calls.load(Ordering::SeqCst),1);assert_eq!(requests.load(Ordering::SeqCst),6);
         let activity:Vec<Value>=program.get_action_log().into_iter().filter(|v|v["type"]=="function_call").collect();assert_eq!(activity.len(),1);assert_eq!(activity[0]["qualified_name"],"tools.lookup");assert_eq!(activity[0]["call_id"],"agent-call");
         assert_eq!(program.invoke_callable("tools.lookup",json!({"query":"REF-42"}),json!({}))?["status"],"error");assert_eq!(calls.load(Ordering::SeqCst),1);Ok(())
@@ -1892,7 +1892,7 @@ mod tests {
         fn chat(&mut self,request:Value)->AxResult<Value>{
             assert!(!self.unused,"Pinned run changed providers");let count=self.calls.fetch_add(1,Ordering::SeqCst)+1;
             if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","type":"function","function":{"name":"lookup","params":{}}}]}]}));}
-            assert_eq!(count,2);assert_eq!(self.tools.load(Ordering::SeqCst),1,"request: {request}");assert!(request.to_string().contains("FALLBACK"));assert!(request.to_string().contains("balanced-call"));Ok(json!({"results":[{"content":"{\"answer\":\"FALLBACK\"}"}]}))
+            assert_eq!(count,2);assert_eq!(self.tools.load(Ordering::SeqCst),1,"request: {request}");assert!(request.to_string().contains("FALLBACK"));assert!(request.to_string().contains("balanced-call"));Ok(json!({"results":[{"content":"Answer: FALLBACK"}]}))
         }
         fn open_chat_session(&mut self,_:Value,_:Value)->AxResult<Option<Box<dyn AxChatSession>>>{assert!(!self.unused,"Pinned run changed providers");Ok(None)}
     }
@@ -1960,7 +1960,7 @@ mod tests {
         let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(AgentStreamTransport{requests:requests.clone()});
         let control=run_control();let events=Arc::new(Mutex::new(Vec::new()));let seen=events.clone();
         control.on_event(move |event|{if matches!(event["type"].as_str(),Some("started"|"completed"|"failed"|"aborted")){seen.lock().unwrap().push(format!("{}@{}",event["type"].as_str().unwrap_or(""),event["path"].as_str().unwrap_or("")));}});
-        let mut program=agent_with_options("question -> answer",json!({"directResponse":"off"}))?;
+        let mut program=agent_with_options("question -> answer",json!({"actorMode":"completion","directResponse":"off"}))?;
         let answer=Rc::new(RefCell::new(String::new()));let streamed=answer.clone();
         program.streaming_forward(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control),move |update|{if let Some(text)=update.delta["answer"].as_str(){streamed.borrow_mut().push_str(text);}Ok(())})?;
         assert_eq!(answer.borrow().as_str(),"REF-42");assert_eq!(requests.load(Ordering::SeqCst),3);

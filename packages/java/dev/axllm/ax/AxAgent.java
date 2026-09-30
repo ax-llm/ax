@@ -684,8 +684,7 @@ public final class AxAgent implements AxProgram {
   private void attachConfiguredPlaybook() {
     Map<String, Object> config = this.playbookConfig instanceof Map<?, ?> ? new LinkedHashMap<>(Core.asMap(this.playbookConfig)) : new LinkedHashMap<>();
     config.putIfAbsent("maxReflectorRounds", 1);
-    // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
-    // key with a deprecation warning.
+    // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
     Object seed = Core._agent_playbook_config_seed(config);
     playbook(config);
     if (seed instanceof Map<?, ?> seedMap) playbookHandle.load(Core.asMap(seedMap));

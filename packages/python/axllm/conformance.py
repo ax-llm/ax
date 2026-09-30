@@ -1452,7 +1452,7 @@ def _run_forward(fixture):
     _add_fixture_transforms(gen, fixture)
     processor_calls = []
     for spec in fixture.get("feedback_processors") or []:
-        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls), feedback=True)
+        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
     if "result_picker_index" in fixture:
@@ -1589,14 +1589,12 @@ def _run_forward(fixture):
 
 
 def _add_fixture_transforms(gen, fixture):
-    # field_transforms use add_field_transform(); field_processors use the
-    # deprecated transforming default of add_field_processor().
+    # Both fixture spellings describe local transforms. Feedback fixtures
+    # use feedback_processors and exercise add_field_processor's default.
     for spec in fixture.get("field_transforms") or []:
         gen.add_field_transform(spec.get("field"), spec.get("processor", spec.get("op")))
     for spec in fixture.get("field_processors") or fixture.get("fieldProcessors") or []:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            gen.add_field_processor(spec.get("field"), spec.get("processor", spec.get("op")))
+        gen.add_field_transform(spec.get("field"), spec.get("processor", spec.get("op")))
 
 
 def _fixture_processor(spec, calls):
@@ -1663,6 +1661,10 @@ def _assert_request_roles(fixture, client):
 
 
 def _assert_error_cause(fixture, exc):
+    from .gen import AxGenerateError
+    if fixture.get("expected_generate_error") and not isinstance(exc, AxGenerateError):
+        raise FixtureError(f"expected AxGenerateError, got {type(exc).__name__}")
+
     # "Generate failed: ..." keeps the failure it wraps as its cause.
     expected = fixture.get("expected_error_cause_contains")
     if expected is None:
@@ -1835,7 +1837,7 @@ def _run_streaming_forward(fixture):
     _add_fixture_transforms(gen, fixture)
     processor_calls = []
     for spec in fixture.get("feedback_processors") or []:
-        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls), feedback=True)
+        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
     for spec in fixture.get("streaming_processors") or []:
         gen.add_streaming_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
     if "result_picker_index" in fixture:
@@ -1853,7 +1855,7 @@ def _run_streaming_forward(fixture):
     try:
         if stop_after is not None:
             # The consumer stops the public generator after stop_after deltas.
-            stream = gen.streaming_forward(client, fixture.get("input") or {}, {**run_options, "deltas": True})
+            stream = gen.streaming_forward(client, fixture.get("input") or {}, run_options)
             try:
                 for delta in stream:
                     deltas.append(delta)
@@ -2566,7 +2568,7 @@ def _verification_instruments_summary():
         "toolName": (tool_call.get("function") or {}).get("name"),
         "profileId": profile.get("id"),
         "geminiText": gemini_transcript.get("text"),
-        "geminiAudio": gemini_speech.get("audio"),
+        "geminiAudio": gemini_speech.get("data"),
         "grokCodec": (grok_speak.get("output_format") or {}).get("codec"),
         "grokFormat": grok_transcribe.get("format"),
         "policyActions": len(_select_protocol_actions(registry)),
@@ -3637,7 +3639,7 @@ def _run_ai_cancellation(fixture):
     cancellation_flow.execute("answer", ax("question:string -> answer:string"))
     programs = [
         ("AxGen", ax("question:string -> answer:string")),
-        ("AxAgent", agent("question:string -> answer:string")),
+        ("AxAgent", agent("question:string -> answer:string", {"actorMode":"completion"})),
         ("AxFlow", cancellation_flow),
     ]
     for program_name, program in programs:

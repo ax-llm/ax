@@ -26,4 +26,4 @@ client = OpenAIResponsesClient(
     model_config={"temperature": 0},
 )
 speech = client.speak({"text": "Ax turns LLM prompts into typed programs.", "voice": "alloy", "format": "mp3"})
-print(json.dumps({"format": speech.get("format"), "transcript": speech.get("transcript"), "audioBytesBase64": len(speech.get("audio") or speech.get("data") or "")}, indent=2, sort_keys=True))
+print(json.dumps({"format": speech.get("format"), "transcript": speech.get("transcript"), "audioBytesBase64": len(speech.get("data") or "")}, indent=2, sort_keys=True))

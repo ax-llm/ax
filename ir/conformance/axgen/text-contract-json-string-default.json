@@ -1,0 +1,26 @@
+{
+  "expected_output": {
+    "answer": "{\"answer\":\"Paris\"}"
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "maxRetries": 0,
+    "stream": false
+  },
+  "input": {
+    "question": "Answer"
+  },
+  "kind": "forward",
+  "name": "text-contract-json-string-default",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Paris\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

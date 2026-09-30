@@ -146,7 +146,8 @@
           "version": 1
         }
       }
-    }
+    },
+    "actorMode": "completion"
   },
   "responses": [
     {
@@ -156,7 +157,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"the live evidence\"}]}}"
     },
     {
-      "content": "{\"answer\":\"the live evidence\"}"
+      "content": "Answer: the live evidence"
     }
   ],
   "signature": "question:string -> answer:string"

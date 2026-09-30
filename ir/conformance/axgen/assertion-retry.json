@@ -20,10 +20,10 @@
   "name": "assertion-retry",
   "responses": [
     {
-      "content": "{\"answer\":\"bad\"}"
+      "content": "Answer: bad"
     },
     {
-      "content": "{\"answer\":\"good\"}"
+      "content": "Answer: good"
     }
   ],
   "signature": "question:string -> answer:string"

@@ -41,6 +41,7 @@ import {
 import { playbook } from '../../../src/ax/dsp/playbook.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 import { ax } from '../../../src/ax/dsp/template.js';
+import { legacyCompletionFixture } from './agent-fixture-mode.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -70,9 +71,13 @@ function stable(value: unknown, parentKey = ''): unknown {
 }
 
 function writeFixture(name: string, fixture: Fixture): void {
+  const record =
+    fixture.kind === 'optimize' && (fixture.program ?? 'agent') === 'agent'
+      ? legacyCompletionFixture(fixture)
+      : fixture;
   writeFileSync(
     join(outDir, `${name}.json`),
-    `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
+    `${JSON.stringify(stable({ name, ...record }), null, 2)}\n`
   );
 }
 
@@ -963,7 +968,7 @@ writeFixture('eval-prediction-final', {
       content:
         '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
     },
-    { content: '{"answer":"Paris"}' },
+    { content: 'Answer: Paris' },
   ],
   expected_prediction_subset: {
     completionType: 'final',
@@ -1096,7 +1101,7 @@ writeFixture('candidate-evaluation-final-rollback', {
       content:
         '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
     },
-    { content: '{"answer":"Paris"}' },
+    { content: 'Answer: Paris' },
   ],
   expected_evaluation_subset: {
     avg: 1,
@@ -1702,7 +1707,7 @@ writeFixture('flow-evaluate-rollback', {
       score: 1,
     },
   ],
-  responses: [{ content: '{"answer":"Paris"}' }],
+  responses: [{ content: 'Answer: Paris' }],
   expected_evaluation_subset: {
     avg: 1,
     count: 1,
@@ -2965,7 +2970,7 @@ const writeMinerGolden = async (
   }
 
   const dataset = { train: [{ input, score: 0 }] };
-  const fixture = {
+  const fixture = legacyCompletionFixture({
     name,
     kind: 'agent_playbook_evolve',
     signature,
@@ -3016,7 +3021,7 @@ const writeMinerGolden = async (
       },
     ],
     teacher_responses: [{ content: minerAnswer }],
-  };
+  });
   writeFileSync(
     join(agentOutDir, `${name}.json`),
     `${JSON.stringify(stable(fixture), null, 2)}\n`
@@ -3204,7 +3209,7 @@ await (async () => {
     );
   }
 
-  const fixture = {
+  const fixture = legacyCompletionFixture({
     name: 'agent-playbook-evolve-runtime-on-evolve',
     kind: 'agent_playbook_evolve',
     description:
@@ -3230,7 +3235,7 @@ await (async () => {
         },
       },
     ],
-  };
+  });
   writeFileSync(
     join(agentOutDir, 'agent-playbook-evolve-runtime-on-evolve.json'),
     `${JSON.stringify(stable(fixture), null, 2)}\n`
@@ -3292,7 +3297,7 @@ await (async () => {
     if (!state || !tsAgent.executor.executorDescription?.includes(bullet)) {
       throw new Error(`${shape.name}: TS did not seed the playbook`);
     }
-    const fixture = {
+    const fixture = legacyCompletionFixture({
       name: shape.name,
       kind: 'agent_forward',
       signature: 'question:string -> answer:string',
@@ -3304,14 +3309,14 @@ await (async () => {
           content:
             '{"completion":{"type":"final","args":["Answer",{"answer":"the live evidence"}]}}',
         },
-        { content: '{"answer":"the live evidence"}' },
+        { content: 'Answer: the live evidence' },
       ],
       expected_output: { answer: 'the live evidence' },
       expected_request_contains: [bullet],
       expected_playbook_state_before_forward: state,
       expected_playbook_state: state,
       expected_playbook_config_unchanged: true,
-    };
+    });
     writeFileSync(
       join(agentOutDir, `${shape.name}.json`),
       `${JSON.stringify(stable(fixture), null, 2)}\n`
@@ -3893,7 +3898,7 @@ await (async () => {
     if (!weakness || systemPrompts.length !== 1 || userMessages.length !== 1) {
       throw new Error(`${scenario.name}: the miner did not run`);
     }
-    const fixture = {
+    const fixture = legacyCompletionFixture({
       name: scenario.name,
       kind: 'agent_playbook_evolve',
       signature: 'question:string -> answer:string',
@@ -3945,7 +3950,7 @@ await (async () => {
         },
       ],
       teacher_responses: [{ content: minerAnswer }],
-    };
+    });
     writeFileSync(
       join(agentOutDir, `${scenario.name}.json`),
       `${JSON.stringify(stable(fixture), null, 2)}\n`
@@ -4135,7 +4140,7 @@ await (async () => {
       // Fire-and-forget observers settle before the next run.
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    const fixture = {
+    const fixture = legacyCompletionFixture({
       name: scenario.name,
       kind: 'agent_forward',
       description: scenario.description,
@@ -4166,7 +4171,7 @@ await (async () => {
       expected_request_count: turn,
       expected_transcript: transcript,
       expected_observer_calls: observerCalls,
-    };
+    });
     writeFileSync(
       join(agentOutDir, `${scenario.name}.json`),
       `${JSON.stringify(stable(fixture), null, 2)}\n`

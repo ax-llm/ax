@@ -877,6 +877,7 @@ static void assert_list_subset(Value actual, Value expected, const std::string& 
 // every error in the chain keeps the class, category and type of the one it
 // wraps.
 static void assert_error_cause(Value fixture, const std::exception& error) {
+  if (Core::truthy(Core::get(fixture, "expected_generate_error", false)) && dynamic_cast<const AxGenerateError*>(&error) == nullptr) throw AxError("fixture", "expected a concrete AxGenerateError");
   Value expected = Core::get(fixture, "expected_error_cause_contains");
   if (expected.is_null()) return;
   const auto* wrapped = dynamic_cast<const AxError*>(&error);
@@ -884,6 +885,7 @@ static void assert_error_cause(Value fixture, const std::exception& error) {
   if (cause == nullptr || std::string(cause->what()).find(display(expected)) == std::string::npos) {
     throw AxError("fixture", "expected an error cause containing " + display(expected) + ", got " + (cause == nullptr ? std::string("none") : std::string(cause->what())));
   }
+  if (dynamic_cast<const AxGenerateError*>(wrapped) != nullptr) wrapped = cause;
   for (const AxError* link = cause; link != nullptr; link = link->cause()) {
     if (typeid(*link) != typeid(*wrapped) || link->category != wrapped->category || link->type != wrapped->type) {
       throw AxError("fixture", "error cause " + std::string(link->what()) + " (" + link->category + " " + link->type + ") does not keep the class, category and type of " + wrapped->what() + " (" + wrapped->category + " " + wrapped->type + ")");
@@ -981,13 +983,13 @@ static ToolBuild build_tools(Value specs) {
 }
 
 // field_transforms use add_field_transform(); field_processors use the
-// deprecated add_field_processor(field, op), which still transforms.
+// legacy field_processors entries also describe local transforms.
 static void add_fixture_transforms(AxGen& gen, Value fixture) {
   for (const auto& spec : Core::iter(Core::get(fixture, "field_transforms", Value::array()))) {
     gen.add_field_transform(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
   }
   for (const auto& spec : Core::iter(Core::get(fixture, "field_processors", Core::get(fixture, "fieldProcessors", Value::array())))) {
-    gen.add_field_processor(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
+    gen.add_field_transform(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
   }
 }
 
@@ -1107,7 +1109,7 @@ static void run_forward(Value fixture) {
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
-    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls), AxFieldProcessorMode::Feedback);
+    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
   }
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
@@ -1292,7 +1294,7 @@ static void run_streaming_forward(Value fixture) {
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
-    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls), AxFieldProcessorMode::Feedback);
+    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
   }
   for (const auto& spec : Core::iter(Core::get(fixture, "streaming_processors", Value::array()))) {
     gen.add_streaming_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
@@ -2134,7 +2136,7 @@ static Value verification_instruments_summary() {
       {"toolName", Core::get(Core::get(tool_call, "function", Value::object()), "name", Value())},
       {"profileId", Core::get(profile, "id", Value())},
       {"geminiText", Core::get(gemini_transcript, "text", Value())},
-      {"geminiAudio", Core::get(gemini_speech, "audio", Value())},
+      {"geminiAudio", Core::get(gemini_speech, "data", Value())},
       {"grokCodec", Core::get(Core::get(grok_speak, "output_format", Value::object()), "codec", Value())},
       {"grokFormat", Core::get(grok_transcribe, "format", Value())},
       {"policyActions", static_cast<int>(Core::iter(Core::_select_protocol_actions(registry)).size())},
@@ -3528,7 +3530,7 @@ static void run_ai_cancellation(Value fixture) {
   Value preflight_fixture=fixture;Core::set(preflight_fixture,"transport_responses",array({Core::get(fixture,"success_response")}));ClientFixture preflight(preflight_fixture);AxCancellationToken token;token.cancel(reason);try{preflight.client->chat(request,Value::object(),&token);throw AxError("fixture","pre-cancelled provider request unexpectedly reached transport");}catch(const AxError& error){if(error.type!="AxAIServiceAbortedError"||error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}if(!preflight.transport.requests.empty())throw AxError("fixture","pre-cancelled provider request reached transport");
 
   AxGen cancellation_gen(Core::parse_signature(Value("question:string -> answer:string")));
-  AxAgent cancellation_agent(Value("question:string -> answer:string"));
+  AxAgent cancellation_agent(Value("question:string -> answer:string"), object({{"actorMode","completion"}}));
   AxGen cancellation_flow_gen(Core::parse_signature(Value("question:string -> answer:string")));
   AxFlow cancellation_flow(Value(Object{{"id","cancellation-flow"}}));
   cancellation_flow.execute("answer",cancellation_flow_gen);

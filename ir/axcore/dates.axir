@@ -33,7 +33,7 @@ module @ax.dates version "0.1" {
       %empty = core.map
       %call_options = core.call intrinsic.map.merge(%empty, %options)
       %gen_options = core.call intrinsic.map.merge(%empty, %base_options)
-      %gen_snake = core.get %gen_options["parse_dates"] default false
+      %gen_snake = core.get %gen_options["parse_dates"] default true
       %gen_parse = core.get %gen_options["parseDates"] default %gen_snake
       %call_snake = core.get %call_options["parse_dates"] default %gen_parse
       %parse = core.get %call_options["parseDates"] default %call_snake

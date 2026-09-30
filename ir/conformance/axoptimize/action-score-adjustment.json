@@ -22,5 +22,8 @@
   "task": {
     "expectedActions": ["search_docs", "lookup"],
     "forbiddenActions": ["delete_doc"]
+  },
+  "options": {
+    "actorMode": "completion"
   }
 }

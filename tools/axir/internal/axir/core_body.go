@@ -87,6 +87,7 @@ const (
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
 	IntrinsicExceptionRewrap           CoreIntrinsic = "intrinsic.exception.rewrap"
+	IntrinsicExceptionGenerate         CoreIntrinsic = "intrinsic.exception.generate"
 	IntrinsicCryptoSha256Hex           CoreIntrinsic = "intrinsic.crypto.sha256_hex"
 	IntrinsicRuntimeError              CoreIntrinsic = "intrinsic.error.runtime"
 	IntrinsicJSONParse                 CoreIntrinsic = "intrinsic.json.parse"
@@ -160,6 +161,7 @@ const (
 	IntrinsicAgentStageTraces          CoreIntrinsic = "intrinsic.agent.stage_traces"
 	IntrinsicAgentClarificationErr     CoreIntrinsic = "intrinsic.agent.clarification_error"
 	IntrinsicAgentRuntimeCreate        CoreIntrinsic = "intrinsic.agent.runtime.create_session"
+	IntrinsicAgentRuntimeExecutable        CoreIntrinsic = "intrinsic.agent.runtime.is_executable"
 	IntrinsicAgentRuntimeExecute       CoreIntrinsic = "intrinsic.agent.runtime.execute"
 	IntrinsicAgentRuntimeInspect       CoreIntrinsic = "intrinsic.agent.runtime.inspect"
 	IntrinsicAgentRuntimeExport        CoreIntrinsic = "intrinsic.agent.runtime.export_state"
@@ -256,6 +258,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
 	IntrinsicExceptionRewrap:           "_core_exception_rewrap",
+	IntrinsicExceptionGenerate:         "_core_exception_generate",
 	IntrinsicCryptoSha256Hex:           "_core_crypto_sha256_hex",
 	IntrinsicRuntimeError:              "_core_runtime_error",
 	IntrinsicJSONParse:                 "_core_json_parse",
@@ -329,6 +332,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentStageTraces:          "_core_agent_stage_traces",
 	IntrinsicAgentClarificationErr:     "_core_agent_clarification_error",
 	IntrinsicAgentRuntimeCreate:        "_core_agent_runtime_create_session",
+	IntrinsicAgentRuntimeExecutable:        "_core_agent_runtime_is_executable",
 	IntrinsicAgentRuntimeExecute:       "_core_agent_runtime_execute",
 	IntrinsicAgentRuntimeInspect:       "_core_agent_runtime_inspect",
 	IntrinsicAgentRuntimeExport:        "_core_agent_runtime_export_state",
@@ -424,6 +428,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
 	"intrinsic.exception.rewrap":                      true,
+	"intrinsic.exception.generate":                    true,
 	"intrinsic.crypto.sha256_hex":                     true,
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
@@ -525,6 +530,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.stage_traces":                    true,
 	"intrinsic.agent.clarification_error":             true,
 	"intrinsic.agent.runtime.create_session":          true,
+	"intrinsic.agent.runtime.is_executable":          true,
 	"intrinsic.agent.runtime.execute":                 true,
 	"intrinsic.agent.runtime.inspect":                 true,
 	"intrinsic.agent.runtime.export_state":            true,
@@ -828,6 +834,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.stage_traces":                  intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),
 	"intrinsic.agent.clarification_error":           intrinsicInfo("intrinsic.agent.clarification_error", 2, 2, true, "error"),
 	"intrinsic.agent.runtime.create_session":        intrinsicInfo("intrinsic.agent.runtime.create_session", 3, 3, true, "json"),
+	"intrinsic.agent.runtime.is_executable":        intrinsicInfo("intrinsic.agent.runtime.is_executable", 1, 1, false, "bool"),
 	"intrinsic.agent.runtime.execute":               intrinsicInfo("intrinsic.agent.runtime.execute", 3, 3, true, "json"),
 	"intrinsic.agent.runtime.inspect":               intrinsicInfo("intrinsic.agent.runtime.inspect", 2, 2, true, "json"),
 	"intrinsic.agent.runtime.export_state":          intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),
@@ -851,6 +858,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.retry.sleep":                         intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
 	"intrinsic.exception.message":                   intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
 	"intrinsic.exception.rewrap":                    intrinsicInfo("intrinsic.exception.rewrap", 2, 2, true, "error"),
+	"intrinsic.exception.generate":                  intrinsicInfo("intrinsic.exception.generate", 2, 2, true, "error"),
 	"intrinsic.crypto.sha256_hex":                   intrinsicInfo("intrinsic.crypto.sha256_hex", 1, 1, true, "string"),
 	"intrinsic.exception.is_aborted":                intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":         intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),

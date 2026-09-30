@@ -13,5 +13,8 @@
   "name": "agent-stage-instruction-apply",
   "operation": "apply",
   "program": "agent",
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

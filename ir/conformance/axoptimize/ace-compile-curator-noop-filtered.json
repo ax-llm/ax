@@ -205,5 +205,8 @@
       "reasoning": "Answer already correct.",
       "rootCauseAnalysis": "none"
     }
-  ]
+  ],
+  "options": {
+    "actorMode": "completion"
+  }
 }

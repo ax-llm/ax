@@ -2,7 +2,7 @@
 // datetime, dateRange and datetimeRange output fields
 // (src/ax/dsp/datetime.ts, reached through
 // src/ax/dsp/extract/fieldValue.ts). The ports do the same when a caller
-// opts in with `parse_dates` / `parseDates`, and return what TS's JSON
+// leaves `parse_dates` / `parseDates` enabled (the default), returning TS's JSON
 // serialization of the output gives: Date.prototype.toISOString strings, and
 // {start, end} objects of them for ranges.
 //
@@ -18,7 +18,7 @@
 // - ir/conformance/axgen/date-field-values-*.json: the parser corpus, run
 //   through TS's validateAndParseFieldValue (kind date_field_value).
 // - ir/conformance/axgen/date-*.json: AxGen forward and streamingForward
-//   through AxMockAIService, with and without the opt-in.
+//   through AxMockAIService, with parsing enabled by default and explicitly disabled.
 //
 // The goldens pin TS's Intl.DateTimeFormat path: Node 22 and 26 have no
 // globalThis.Temporal, so TS never takes its Temporal branch there. The
@@ -868,10 +868,18 @@ function fixtureBase(spec: GenCase, requests: number): Record<string, unknown> {
   return fixture;
 }
 
-// A TS golden: the ports opt in with parse_dates and must match TS.
+// Date parsing defaults to the TypeScript contract.
 async function recordGolden(name: string, spec: GenCase): Promise<void> {
   const run = await runGen(spec);
   const fixture = fixtureBase(spec, run.requests.length);
+  // Exercise the new default, retaining explicit false-to-true precedence cases.
+  if (JSON.stringify(spec.options) === '{"parse_dates":true}')
+    delete fixture.options;
+  if (
+    !spec.options &&
+    JSON.stringify(spec.forward_options) === '{"parse_dates":true}'
+  )
+    delete fixture.forward_options;
   if (spec.kind === 'streaming_forward') {
     fixture.expected_deltas = run.deltas;
     if (run.error === undefined)
@@ -892,7 +900,7 @@ async function recordGolden(name: string, spec: GenCase): Promise<void> {
   writeFixture(name, fixture);
 }
 
-// Port-only: without parse_dates the ports keep the model's text for date
+// Port-only: with parse_dates false the ports keep the model's text for date
 // fields (TS always parses). The same run with the date fields typed as
 // strings gives that text; deltas keep TS's sequence for the date-typed run,
 // one whole value per field, with the text in place of the parsed value.
@@ -911,6 +919,7 @@ async function recordKeepsText(
   }
   const fixture = fixtureBase(spec, text.requests.length);
   fixture.description = note;
+  fixture.forward_options = { ...spec.forward_options, parse_dates: false };
   if (spec.kind === 'forward') {
     fixture.expected_output = text.output;
   } else {
@@ -982,7 +991,7 @@ await recordKeepsText(
     signature: allTypes,
     responses: [results(allTypesAnswer)],
   },
-  'Port-only: without parse_dates (the default until the next major version) date fields keep the model text; TS always parses them.'
+  'Port-only: with parse_dates: false date fields keep the model text; TS always parses them.'
 );
 await recordKeepsText(
   'date-forward-keeps-text-forward-false',
@@ -1002,7 +1011,7 @@ await recordKeepsText(
     signature: 'question:string -> due:date, when:datetime',
     responses: [results('Due: 2024-02-30\nWhen: next Tuesday')],
   },
-  'Port-only: without parse_dates an invalid date is not a validation error; the model text comes back as is.'
+  'Port-only: with parse_dates: false an invalid date is not a validation error; the model text comes back as is.'
 );
 await recordGolden('date-forward-parse-dates-retry', {
   kind: 'forward',
@@ -1096,7 +1105,7 @@ await recordKeepsText(
     signature: allTypes,
     responses: [streamedAnswer],
   },
-  'Port-only: without parse_dates streaming deltas carry the model text of each date field, sent whole once the field is complete, as the ports do today.'
+  'Port-only: with parse_dates false streaming deltas carry the model text of each date field, sent whole once the field is complete, as the ports do today.'
 );
 await recordGolden('date-streaming-forward-parse-dates-retry', {
   kind: 'streaming_forward',

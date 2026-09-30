@@ -695,6 +695,32 @@ pub struct AxError {
     pub cause: Option<Arc<dyn Error + Send + Sync>>,
 }
 
+/// A typed generation failure retained by the common AxError envelope.
+#[derive(Debug, Clone)]
+pub struct AxGenerateError {
+    pub message: String,
+    pub cause: Arc<AxError>,
+}
+impl fmt::Display for AxGenerateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.message) }
+}
+impl Error for AxGenerateError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> { Some(self.cause.as_ref()) }
+}
+impl From<AxGenerateError> for AxError {
+    fn from(error: AxGenerateError) -> Self {
+        let mut out = AxError::new("generate", error.message.clone());
+        out.error_type = Some("AxGenerateError".to_owned());
+        out.cause = Some(Arc::new(error));
+        out
+    }
+}
+impl AxError {
+    pub fn as_generate_error(&self) -> Option<&AxGenerateError> {
+        self.cause.as_ref()?.downcast_ref::<AxGenerateError>()
+    }
+}
+
 impl AxError {
     pub fn new(category: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -3343,7 +3369,11 @@ impl OpenAICompatibleClient {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        let (request, key_options) = self.resolve_model_key_request(&request, &json!({}), true)?;
+        self.embed_with_options(request, Value::Null)
+    }
+
+    pub fn embed_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, key_options) = self.resolve_model_key_request(&request, &options, true)?;
         self.with_key_options(&key_options, |client| client.embed_resolved(request))
     }
 
@@ -4175,7 +4205,6 @@ impl AxAIClient for OpenAICompatibleClient {
     fn transcribe(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::transcribe(self, request) }
     fn speak(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::speak(self, request) }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
-        warn_call_timeout(&options);
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
@@ -4187,7 +4216,6 @@ impl AxAIClient for OpenAICompatibleClient {
         response
     }
     fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
-        warn_call_timeout(&options);
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
@@ -6243,8 +6271,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         .as_str().unwrap_or_default().to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
-        // TS's `playbook` seed (a snapshot or a bare playbook), or the older
-        // `seed` key with a deprecation warning; else an initialPlaybook.
+        // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
         let seed = core_value_to_json(&_agent_playbook_config_seed(&[core_value_from_json(&playbook_config)])?);
         let seed = if seed.is_null() {
             config.get("initialPlaybook").or_else(|| config.get("initial_playbook")).cloned().map(|value| json!({"playbook": value}))
@@ -12030,8 +12057,11 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 
 // An AI error's type, status, message, and the strings it must never carry.
 fn expect_error_cause(error: &AxError, fixture: &Value) -> AxResult<()> {
+    if fixture.get("expected_generate_error").and_then(Value::as_bool).unwrap_or(false) && error.as_generate_error().is_none() {
+        return Err(AxError::new("fixture", "expected a concrete AxGenerateError payload"));
+    }
     if let Some(expected) = fixture.get("expected_error_cause_contains").and_then(Value::as_str) {
-        let actual = error.source().map(ToString::to_string).unwrap_or_default();
+        let actual = error.as_generate_error().map(|generated| generated.cause.to_string()).or_else(|| error.source().map(ToString::to_string)).unwrap_or_default();
         if !actual.contains(expected) {
             return Err(AxError::new("fixture", format!("expected cause containing {expected:?}, got {actual:?}")));
         }
@@ -16545,7 +16575,7 @@ fn verification_instruments_summary() -> AxResult<Value> {
         "toolName": tool_call.pointer("/function/name").cloned().unwrap_or(Value::Null),
         "profileId": profile.get("id").cloned().unwrap_or(Value::Null),
         "geminiText": gemini_transcript.get("text").cloned().unwrap_or(Value::Null),
-        "geminiAudio": gemini_speech.get("audio").cloned().unwrap_or(Value::Null),
+        "geminiAudio": gemini_speech.get("data").cloned().unwrap_or(Value::Null),
         "grokCodec": grok_speak.pointer("/output_format/codec").cloned().unwrap_or(Value::Null),
         "grokFormat": grok_transcribe.get("format").cloned().unwrap_or(Value::Null),
         "policyActions": core_value_to_json(&_select_protocol_actions(&[core_value_from_json(&registry)])?).as_array().map(|items| items.len()).unwrap_or(0),
@@ -19033,7 +19063,7 @@ fn run_ai_cancellation_fixture(fixture:&Value)->AxResult<()> {
 
     let program_input=json!({"question":"cancel"});let program_options=json!({"infraRetries":2});
     let mut generator=ax("question:string -> answer:string")?;let started=std::time::Instant::now();let error=generator.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxGen request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxGen cancellation retried or reached transport"))}
-    let mut cancellation_agent=agent("question:string -> answer:string")?;let started=std::time::Instant::now();let error=cancellation_agent.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxAgent request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxAgent cancellation retried or reached transport"))}
+    let mut cancellation_agent=agent_with_options("question:string -> answer:string",json!({"actorMode":"completion"}))?;let started=std::time::Instant::now();let error=cancellation_agent.forward_with_cancellation(&mut preflight,program_input.clone(),program_options.clone(),&token).expect_err("pre-cancelled AxAgent request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxAgent cancellation retried or reached transport"))}
     let mut cancellation_flow=flow("cancellation-flow").execute("answer",ax("question:string -> answer:string")?);let started=std::time::Instant::now();let error=cancellation_flow.forward_with_cancellation(&mut preflight,program_input,program_options,&token).expect_err("pre-cancelled AxFlow request unexpectedly succeeded");expect_cancellation_error(error,reason)?;if started.elapsed()>program_max_elapsed||!preflight_requests.lock().unwrap().is_empty(){return Err(AxError::new("fixture","AxFlow cancellation retried or reached transport"))}
 
     let backoff_token=AxCancellationToken::default();let (mut backoff,backoff_requests,backoff_cancellations)=cancellation_client(fixture,fixture["retry_response"].clone(),Some((backoff_token.clone(),reason.into())))?;let started=std::time::Instant::now();let error=backoff.stream_with_cancellation(request.clone(),&backoff_token).expect_err("provider retry backoff ignored cancellation");expect_cancellation_error(error,reason)?;if backoff_requests.lock().unwrap().len()!=1||backoff_cancellations.lock().unwrap().len()!=1||started.elapsed()>max_elapsed{return Err(AxError::new("fixture","provider retry cancellation attempted another request, skipped the custom token, or was not prompt"))}
@@ -19045,7 +19075,8 @@ fn run_ai_cancellation_fixture(fixture:&Value)->AxResult<()> {
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let output = client.embed(request)?;
+    let call_options = if fixture.get("service_options").is_some() { fixture.get("options").cloned().unwrap_or(Value::Null) } else { Value::Null };
+    let output = client.embed_with_options(request, call_options)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai embed output", &output, expected)?;
     }
@@ -24048,6 +24079,12 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 // existing handlers still match it. TS wraps it in AxGenerateError with the
 // original as its cause; Rust retains that cause through Error::source().
 #[allow(dead_code)]
+fn core_exception_generate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let error = AxGenerateError { message: core_arg(args, 1).text(), cause: Arc::new(core_as_error(&core_arg(args, 0))) };
+    Ok(CoreValue::Error(Rc::new(error.into())))
+}
+
+#[allow(dead_code)]
 fn core_exception_rewrap(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut wrapped = core_as_error(&core_arg(args, 0));
     wrapped.cause = Some(Arc::new(wrapped.clone()));
@@ -24143,7 +24180,7 @@ mod exception_rewrap_tests {
     // category, with the last validation error and the last output in its
     // message.
     #[test]
-    fn exhausted_forward_error_keeps_category() {
+    fn exhausted_forward_error_preserves_validation_cause() {
         let mut program = AxGen::new("question:string -> count:number").expect("signature parses");
         program.options = json!({"max_retries": 1});
         let mut client = FixtureClient::scripted(
@@ -24154,7 +24191,8 @@ mod exception_rewrap_tests {
             router_default_features(),
         );
         let error = program.forward(&mut client, json!({"question": "How many?"})).expect_err("retries run out");
-        assert_eq!(error.category, "validation");
+        assert_eq!(error.category, "generate");
+        assert_eq!(error.as_generate_error().expect("typed generation failure").cause.category, "validation");
         assert!(error.message.starts_with("Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots'"));
         assert!(error.message.ends_with("LLM Output:\nCount: lots"));
     }
@@ -26570,6 +26608,10 @@ fn core_agent_map(entries: &[(&str, CoreValue)]) -> Result<CoreValue, AxError> {
 
 // python: _core_agent_runtime_create_session(runtime, globals_, options)
 #[allow(dead_code)]
+fn core_agent_runtime_is_executable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(matches!(core_arg(args, 0), CoreValue::Host(host) if host.host_type() == "AxCodeRuntime")))
+}
+
 fn core_agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let runtime = core_arg(args, 0);
     let globals = core_agent_or_empty_map(core_arg(args, 1));
@@ -27475,7 +27517,7 @@ mod request_url_security_tests {
     impl AxTransport for NativeFileTransport {
         fn send(&mut self, request: Value)->AxResult<Value> {
             self.requests.lock().unwrap().push(request["json"].clone());
-            Ok(json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"{\"summary\":\"Read\"}"}}]}}))
+            Ok(json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"Summary: Read"}}]}}))
         }
     }
     #[test]
@@ -27752,12 +27794,6 @@ fn core_flow_dispatch_group(args:&[CoreValue])->AxResult<CoreValue>{
     }
     for token in tokens{token.cancel("Flow dispatcher closed");}
     Ok(core_value_from_json(&Value::Array(reports.into_iter().map(Option::unwrap).collect())))
-}
-
-// TS reads a per-call timeout in milliseconds; Rust reads it in seconds until
-// the next major version, so a call that gives it without timeoutMs warns once.
-fn warn_call_timeout(options: &Value) {
-    let _ = provider_warn_call_timeout(&[core_value_from_json(options), CoreValue::Bool(true)]);
 }
 
 // The call's timeoutMs: TS apiCall's timer bounds the wait for the headers.
@@ -28696,7 +28732,7 @@ mod axflow_caching_function_tests {
         fn send(&mut self, request: Value) -> AxResult<Value> {
             self.0.lock().unwrap().push(std::thread::current().id());
             let field = if request.to_string().contains("reply") { "reply" } else { "answer" };
-            let message = json!({"role": "assistant", "content": json!({field: "Paris"}).to_string()});
+            let message = json!({"role": "assistant", "content": format!("{}: Paris", if field == "reply" { "Reply" } else { "Answer" })});
             Ok(json!({"status": 200, "json": {"id": "reply", "choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}}))
         }
     }

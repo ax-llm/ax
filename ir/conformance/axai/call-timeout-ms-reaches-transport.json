@@ -5,10 +5,10 @@
   },
   "expected_warnings": [],
   "kind": "ai_chat",
-  "model": "gpt-5.4-mini",
+  "model": "gpt-6-luna",
   "name": "call-timeout-ms-reaches-transport",
   "options": {
-    "timeoutMs": 250
+    "timeout": 250
   },
   "provider": "openai",
   "request": {
@@ -38,7 +38,7 @@
           }
         ],
         "id": "chatcmpl_call_timeout",
-        "model": "gpt-5.4-mini",
+        "model": "gpt-6-luna",
         "object": "chat.completion",
         "usage": {
           "completion_tokens": 2,

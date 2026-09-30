@@ -2003,6 +2003,9 @@ Value Core::exception_message(Value error) {
 // category, type and fields, with the new message and the original error as
 // its cause; anything else becomes a runtime error. The IR never rewraps an
 // aborted error.
+Value Core::exception_generate(Value error, Value message) {
+  return object({{"__error", "generate"}, {"__type", "AxGenerateError"}, {"message", message}, {"cause", error}});
+}
 Value Core::exception_rewrap(Value error, Value message) {
   Object wrapped = error.is_object() && has_key(error, "__error") ? object_ref(error) : object_ref(runtime_error(message));
   wrapped["message"] = str(message);
@@ -2108,6 +2111,7 @@ AxError Core::as_error(Value error) {
   return AxError("runtime", str(error));
 }
 [[noreturn]] void Core::raise_error(Value error) {
+  if (str(get_key(error, "__type")) == "AxGenerateError") throw AxGenerateError(as_error(error));
   if (truthy(exception_is_aborted(error))) {
     std::string message = str(get_key(error, "message"));
     const std::string prefix = "Request aborted: ";
@@ -2427,6 +2431,10 @@ Value Core::agent_clarification_error(Value payload, Value state) {
       {"state", get_key(state, "runtime_state", Value::object())},
       {"payload", payload},
   });
+}
+Value Core::agent_runtime_is_executable(Value runtime) {
+  auto it = code_runtime_registry().find(str(get_key(runtime, "__code_runtime_id")));
+  return Value(it != code_runtime_registry().end() && it->second != nullptr);
 }
 Value Core::agent_runtime_create_session(Value runtime, Value globals, Value options) {
   std::string runtime_id = str(get_key(runtime, "__code_runtime_id"));
@@ -6132,10 +6140,8 @@ static std::string ax_call_base_url(const std::string& profile, const Value& des
   return resolved.is_null() ? base_url : strip_trailing_slashes(str(resolved));
 }
 
-// TS reads a per-call timeout in milliseconds; this port ignores it until the
-// next major version and warns once, naming timeoutMs.
 void OpenAICompatibleClient::check_call_options(const Value& call_options) {
-  Core::provider_warn_call_timeout(call_options, false);
+  (void)call_options;
 }
 
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
@@ -6546,14 +6552,6 @@ std::function<Value(Value, Value)> axgen_field_processor_host(AxFieldProcessor p
   };
 }
 
-void warn_field_processor_rewrite() {
-  Core::axgen_deprecation(
-      Value("cpp-add-field-processor-rewrite"),
-      Value("AxGen::add_field_processor(field, op) rewrites the field value; use add_field_transform(field, op) for that. "
-            "In the next major version add_field_processor follows TypeScript: a non-empty result goes back to the model "
-            "as a user message for another step. Opt in now with add_field_processor(field, processor, AxFieldProcessorMode::Feedback)."));
-}
-
 }  // namespace
 
 // As TypeScript addStreamingAssert, the field must be a string or code output
@@ -6595,16 +6593,6 @@ AxGen& AxGen::add_field_transform(std::string field, std::function<Value(Value)>
   Core::append(processors, spec);
   Core::set(state_, "field_processors", processors);
   return *this;
-}
-
-AxGen& AxGen::add_field_processor(std::string field, std::string op) {
-  warn_field_processor_rewrite();
-  return add_field_transform(std::move(field), std::move(op));
-}
-
-AxGen& AxGen::add_field_processor(std::string field, std::function<Value(Value)> processor) {
-  warn_field_processor_rewrite();
-  return add_field_transform(std::move(field), std::move(processor));
 }
 
 // As TypeScript addFieldProcessor, the field must be an output field.
@@ -9397,8 +9385,7 @@ void AxAgent::attach_configured_playbook() {
     throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
   }
   AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
-  // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
-  // key with a deprecation warning.
+  // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
   Value seed = Core::_agent_playbook_config_seed(config);
   AxPlaybook& handle = playbook(*student, config, teacher);
   if (seed.is_object()) handle.load(seed);

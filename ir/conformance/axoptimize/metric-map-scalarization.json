@@ -17,5 +17,8 @@
   "score_options": {
     "paretoMetricKey": "faithfulness"
   },
-  "task": {}
+  "task": {},
+  "options": {
+    "actorMode": "completion"
+  }
 }

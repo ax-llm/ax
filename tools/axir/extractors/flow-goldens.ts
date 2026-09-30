@@ -200,7 +200,7 @@ const runSimpleForward = async () => {
     returns: { answer: 'answer' },
     responses: [
       {
-        content: '{"answer":"Paris"}',
+        content: 'Answer: Paris',
         usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
       },
     ],
@@ -260,7 +260,7 @@ const writeExecutionRuntimeFixtures = async () => {
     ],
     returns: { answer: 'answer' },
     forward_options: { model: 'gpt-flow-fixture', traceLabel: 'outer' },
-    responses: [{ content: '{"answer":"dynamic"}' }],
+    responses: [{ content: 'Answer: dynamic' }],
     expected_output: { answer: 'dynamic' },
     expected_request_count: 1,
     expected_request_contains: ['gpt-flow-fixture'],
@@ -352,7 +352,7 @@ const writeExecutionRuntimeFixtures = async () => {
       },
     ],
     returns: { answer: 'answer' },
-    responses: [{ content: '{"answer":"Nested Paris"}' }],
+    responses: [{ content: 'Answer: Nested Paris' }],
     expected_output: { answer: 'Nested Paris' },
     expected_request_count: 1,
     expected_chat_log_subset: [{ name: 'nested.inner' }],
@@ -912,7 +912,7 @@ const writeControlFlowRuntimeFixtures = async () => {
     ],
     returns: { left: 'leftResult.left', right: 'rightResult.right' },
     forward_options: { autoParallel: true, record_flow_groups: true },
-    responses: [{ content: '{"left":"l"}' }, { content: '{"right":"r"}' }],
+    responses: [{ content: 'Left: l' }, { content: 'Right: r' }],
     expected_output: { left: 'l', right: 'r' },
     expected_trace_kinds: [
       'flow_start',
@@ -959,7 +959,7 @@ const writeControlFlowRuntimeFixtures = async () => {
     ],
     returns: { left: 'leftResult.left', right: 'rightResult.right' },
     forward_options: { autoParallel: false, record_flow_groups: true },
-    responses: [{ content: '{"left":"l"}' }, { content: '{"right":"r"}' }],
+    responses: [{ content: 'Left: l' }, { content: 'Right: r' }],
     expected_output: { left: 'l', right: 'r' },
     expected_trace_kinds: [
       'flow_start',
@@ -1000,7 +1000,7 @@ const writeControlFlowRuntimeFixtures = async () => {
       },
     ],
     returns: { answer: 'reasonerResult.answer' },
-    responses: [{ content: '{"reasoning":"because","answer":"ok"}' }],
+    responses: [{ content: 'Reasoning: because\nAnswer: ok' }],
     expected_output: { answer: 'ok' },
     expected_request_count: 1,
   });
@@ -1326,10 +1326,10 @@ const writeOwnedWorkerFallbackFixture = async () => {
     forward_options: {},
     responses: [
       {
-        content: '{"left":"l"}',
+        content: 'Left: l',
       },
       {
-        content: '{"right":"r"}',
+        content: 'Right: r',
       },
     ],
     expected_trace_subset: [
@@ -1356,13 +1356,13 @@ const writeOwnedWorkerFallbackFixture = async () => {
       {
         name: 'left',
         response: {
-          content: '{"left":"l"}',
+          content: 'Left: l',
         },
       },
       {
         name: 'right',
         response: {
-          content: '{"right":"r"}',
+          content: 'Right: r',
         },
       },
     ],
@@ -1481,10 +1481,7 @@ const writeParallelMergeFixtures = async () => {
         },
       ],
       returns: { aResult: 'aResult', bResult: 'bResult' },
-      responses: [
-        { content: '{"summary":"new"}' },
-        { content: '{"title":"title"}' },
-      ],
+      responses: [{ content: 'Summary: new' }, { content: 'Title: title' }],
       expected_output: output,
       expected_request_count: 2,
     });
@@ -1555,10 +1552,10 @@ const writeParallelMergeFixtures = async () => {
       ],
       returns: { aResult: 'aResult', bResult: 'bResult', round: 'round' },
       responses: [
-        { content: '{"summary":"s1"}' },
-        { content: '{"title":"t1"}' },
-        { content: '{"summary":"s2"}' },
-        { content: '{"title":"t2"}' },
+        { content: 'Summary: s1' },
+        { content: 'Title: t1' },
+        { content: 'Summary: s2' },
+        { content: 'Title: t2' },
       ],
       expected_output: output,
       expected_request_count: 4,
@@ -1624,7 +1621,7 @@ const writeParallelMergeFixtures = async () => {
         },
       ],
       returns: { label: 'label', bResult: 'bResult', round: 'round' },
-      responses: [{ content: '{"title":"t1"}' }, { content: '{"title":"t2"}' }],
+      responses: [{ content: 'Title: t1' }, { content: 'Title: t2' }],
       expected_output: output,
       expected_request_count: 2,
     });

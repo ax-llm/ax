@@ -8037,7 +8037,7 @@ mod configured_context_tests {
                     request.to_string().contains("own-call"),
                     "MCP result lost its call ID"
                 );
-                Ok(json!({"results":[{"content":"{\"answer\":\"OWN-REFERENCE\"}"}]}))
+                Ok(json!({"results":[{"content":"Answer: OWN-REFERENCE"}]}))
             }
         }
         let mut mcp = AxMCPClient::new(

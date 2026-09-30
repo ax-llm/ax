@@ -2,7 +2,10 @@
   "kind": "agent_forward",
   "name": "owned-child-mcp-inheritance-reuse",
   "signature": "question:string -> answer:string",
-  "options": { "directResponse": "off", "mcpInheritance": "all" },
+  "options": {
+    "directResponse": "off",
+    "mcpInheritance": "all"
+  },
   "mcp_clients": [
     {
       "namespace": "inventory",
@@ -14,7 +17,9 @@
             "supportedVersions": ["2026-07-28"],
             "ttlMs": 60000,
             "cacheScope": "private",
-            "capabilities": { "tools": {} }
+            "capabilities": {
+              "tools": {}
+            }
           }
         },
         {
@@ -26,7 +31,11 @@
                 "description": "Read the selected namespace",
                 "inputSchema": {
                   "type": "object",
-                  "properties": { "query": { "type": "string" } },
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
                   "required": ["query"],
                   "additionalProperties": false
                 }
@@ -42,7 +51,12 @@
               "namespace": "inventory",
               "reference": "inventory-REF"
             },
-            "content": [{ "type": "text", "text": "inventory-REF" }]
+            "content": [
+              {
+                "type": "text",
+                "text": "inventory-REF"
+              }
+            ]
           }
         },
         {
@@ -53,7 +67,12 @@
               "namespace": "inventory",
               "reference": "inventory-REF"
             },
-            "content": [{ "type": "text", "text": "inventory-REF" }]
+            "content": [
+              {
+                "type": "text",
+                "text": "inventory-REF"
+              }
+            ]
           }
         }
       ],
@@ -69,7 +88,9 @@
             "supportedVersions": ["2026-07-28"],
             "ttlMs": 60000,
             "cacheScope": "private",
-            "capabilities": { "tools": {} }
+            "capabilities": {
+              "tools": {}
+            }
           }
         },
         {
@@ -81,7 +102,11 @@
                 "description": "Read the selected namespace",
                 "inputSchema": {
                   "type": "object",
-                  "properties": { "query": { "type": "string" } },
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
                   "required": ["query"],
                   "additionalProperties": false
                 }
@@ -97,7 +122,12 @@
               "namespace": "orders",
               "reference": "orders-REF"
             },
-            "content": [{ "type": "text", "text": "orders-REF" }]
+            "content": [
+              {
+                "type": "text",
+                "text": "orders-REF"
+              }
+            ]
           }
         },
         {
@@ -108,7 +138,12 @@
               "namespace": "orders",
               "reference": "orders-REF"
             },
-            "content": [{ "type": "text", "text": "orders-REF" }]
+            "content": [
+              {
+                "type": "text",
+                "text": "orders-REF"
+              }
+            ]
           }
         }
       ],
@@ -118,14 +153,24 @@
   "runtime_script": [
     {
       "expected_code": "plan",
-      "result": { "type": "final", "args": ["Finish", { "answer": "plan" }] }
+      "result": {
+        "type": "final",
+        "args": [
+          "Finish",
+          {
+            "answer": "plan"
+          }
+        ]
+      }
     },
     {
       "expected_code": "delegate",
       "result": {
         "callable": {
           "qualified_name": "team.researcher",
-          "args": { "question": "Read permitted references" },
+          "args": {
+            "question": "Read permitted references"
+          },
           "call_id": "child-call"
         }
       }
@@ -134,19 +179,34 @@
       "expected_code": "finish",
       "result": {
         "type": "final",
-        "args": ["Finish", { "answer": "inventory,orders" }]
+        "args": [
+          "Finish",
+          {
+            "answer": "inventory,orders"
+          }
+        ]
       }
     },
     {
       "expected_code": "plan",
-      "result": { "type": "final", "args": ["Finish", { "answer": "plan" }] }
+      "result": {
+        "type": "final",
+        "args": [
+          "Finish",
+          {
+            "answer": "plan"
+          }
+        ]
+      }
     },
     {
       "expected_code": "delegate",
       "result": {
         "callable": {
           "qualified_name": "team.researcher",
-          "args": { "question": "Read permitted references" },
+          "args": {
+            "question": "Read permitted references"
+          },
           "call_id": "child-call"
         }
       }
@@ -155,7 +215,12 @@
       "expected_code": "finish",
       "result": {
         "type": "final",
-        "args": ["Finish", { "answer": "NO-ACCESS" }]
+        "args": [
+          "Finish",
+          {
+            "answer": "NO-ACCESS"
+          }
+        ]
       }
     }
   ],
@@ -164,13 +229,20 @@
       "namespace": "team",
       "name": "researcher",
       "signature": "question:string -> answer:string",
-      "options": { "directResponse": "off" },
+      "options": {
+        "directResponse": "off"
+      },
       "runtime_script": [
         {
           "expected_code": "childplan",
           "result": {
             "type": "final",
-            "args": ["Finish", { "answer": "plan" }]
+            "args": [
+              "Finish",
+              {
+                "answer": "plan"
+              }
+            ]
           }
         },
         {
@@ -178,7 +250,9 @@
           "result": {
             "callable": {
               "qualified_name": "mcp.inventory.tools.lookup_inventory",
-              "args": { "query": "scope-probe" },
+              "args": {
+                "query": "scope-probe"
+              },
               "call_id": "inventory-call"
             }
           }
@@ -188,7 +262,9 @@
           "result": {
             "callable": {
               "qualified_name": "mcp.orders.tools.lookup_orders",
-              "args": { "query": "scope-probe" },
+              "args": {
+                "query": "scope-probe"
+              },
               "call_id": "orders-call"
             }
           }
@@ -197,14 +273,24 @@
           "expected_code": "childfinish",
           "result": {
             "type": "final",
-            "args": ["Finish", { "answer": "inventory,orders" }]
+            "args": [
+              "Finish",
+              {
+                "answer": "inventory,orders"
+              }
+            ]
           }
         },
         {
           "expected_code": "childplan",
           "result": {
             "type": "final",
-            "args": ["Finish", { "answer": "plan" }]
+            "args": [
+              "Finish",
+              {
+                "answer": "plan"
+              }
+            ]
           }
         },
         {
@@ -212,7 +298,9 @@
           "result": {
             "callable": {
               "qualified_name": "mcp.inventory.tools.lookup_inventory",
-              "args": { "query": "scope-probe" },
+              "args": {
+                "query": "scope-probe"
+              },
               "call_id": "inventory-call"
             }
           }
@@ -222,7 +310,9 @@
           "result": {
             "callable": {
               "qualified_name": "mcp.orders.tools.lookup_orders",
-              "args": { "query": "scope-probe" },
+              "args": {
+                "query": "scope-probe"
+              },
               "call_id": "orders-call"
             }
           }
@@ -231,35 +321,80 @@
           "expected_code": "childfinish",
           "result": {
             "type": "final",
-            "args": ["Finish", { "answer": "NO-ACCESS" }]
+            "args": [
+              "Finish",
+              {
+                "answer": "NO-ACCESS"
+              }
+            ]
           }
         }
       ]
     }
   ],
   "responses": [
-    { "content": "{\"javascriptCode\": \"plan\"}" },
-    { "content": "{\"javascriptCode\": \"delegate\"}" },
-    { "content": "{\"javascriptCode\": \"childplan\"}" },
-    { "content": "{\"javascriptCode\": \"inventory\"}" },
-    { "content": "{\"javascriptCode\": \"orders\"}" },
-    { "content": "{\"javascriptCode\": \"childfinish\"}" },
-    { "content": "{\"answer\": \"inventory,orders\"}" },
-    { "content": "{\"javascriptCode\": \"finish\"}" },
-    { "content": "{\"answer\": \"inventory,orders\"}" },
-    { "content": "{\"javascriptCode\": \"plan\"}" },
-    { "content": "{\"javascriptCode\": \"delegate\"}" },
-    { "content": "{\"javascriptCode\": \"childplan\"}" },
-    { "content": "{\"javascriptCode\": \"inventory\"}" },
-    { "content": "{\"javascriptCode\": \"orders\"}" },
-    { "content": "{\"javascriptCode\": \"childfinish\"}" },
-    { "content": "{\"answer\": \"NO-ACCESS\"}" },
-    { "content": "{\"javascriptCode\": \"finish\"}" },
-    { "content": "{\"answer\": \"NO-ACCESS\"}" }
+    {
+      "content": "Javascript Code: plan"
+    },
+    {
+      "content": "Javascript Code: delegate"
+    },
+    {
+      "content": "Javascript Code: childplan"
+    },
+    {
+      "content": "Javascript Code: inventory"
+    },
+    {
+      "content": "Javascript Code: orders"
+    },
+    {
+      "content": "Javascript Code: childfinish"
+    },
+    {
+      "content": "Answer: inventory,orders"
+    },
+    {
+      "content": "Javascript Code: finish"
+    },
+    {
+      "content": "Answer: inventory,orders"
+    },
+    {
+      "content": "Javascript Code: plan"
+    },
+    {
+      "content": "Javascript Code: delegate"
+    },
+    {
+      "content": "Javascript Code: childplan"
+    },
+    {
+      "content": "Javascript Code: inventory"
+    },
+    {
+      "content": "Javascript Code: orders"
+    },
+    {
+      "content": "Javascript Code: childfinish"
+    },
+    {
+      "content": "Answer: NO-ACCESS"
+    },
+    {
+      "content": "Javascript Code: finish"
+    },
+    {
+      "content": "Answer: NO-ACCESS"
+    }
   ],
   "expected_output": [
-    { "answer": "inventory,orders" },
-    { "answer": "NO-ACCESS" }
+    {
+      "answer": "inventory,orders"
+    },
+    {
+      "answer": "NO-ACCESS"
+    }
   ],
   "expected_request_count": 18,
   "expected_executed": [
@@ -272,10 +407,20 @@
   ],
   "expected_mcp_calls": {
     "parent/inventory": [
-      { "name": "lookup_inventory", "arguments": { "query": "scope-probe" } }
+      {
+        "name": "lookup_inventory",
+        "arguments": {
+          "query": "scope-probe"
+        }
+      }
     ],
     "parent/orders": [
-      { "name": "lookup_orders", "arguments": { "query": "scope-probe" } }
+      {
+        "name": "lookup_orders",
+        "arguments": {
+          "query": "scope-probe"
+        }
+      }
     ]
   },
   "expected_request_checks": [
@@ -290,7 +435,11 @@
       "not_contains": [],
       "functions_absent": true
     },
-    { "index": 7, "contains": ["inventory,orders"], "functions_absent": true },
+    {
+      "index": 7,
+      "contains": ["inventory,orders"],
+      "functions_absent": true
+    },
     {
       "index": 10,
       "contains": ["mcp.inventory.tools", "mcp.orders.tools"],
@@ -302,16 +451,28 @@
       "not_contains": ["mcp.inventory.tools", "mcp.orders.tools"],
       "functions_absent": true
     },
-    { "index": 16, "contains": ["NO-ACCESS"], "functions_absent": true }
+    {
+      "index": 16,
+      "contains": ["NO-ACCESS"],
+      "functions_absent": true
+    }
   ],
   "forward_runs": [
     {
-      "input": { "question": "Read permitted references" },
-      "forward_options": { "mcpInheritance": "all" }
+      "input": {
+        "question": "Read permitted references"
+      },
+      "forward_options": {
+        "mcpInheritance": "all"
+      }
     },
     {
-      "input": { "question": "Read permitted references" },
-      "forward_options": { "mcpInheritance": "none" }
+      "input": {
+        "question": "Read permitted references"
+      },
+      "forward_options": {
+        "mcpInheritance": "none"
+      }
     }
   ]
 }

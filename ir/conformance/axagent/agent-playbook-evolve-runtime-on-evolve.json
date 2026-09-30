@@ -9,7 +9,7 @@
         },
         "metricCallsUsed": 2,
         "outcome_count": 1,
-        "reason_contains": "held-in improved (no held-out set provided — consider one)"
+        "reason_contains": "held-in improved (no held-out set provided \u2014 consider one)"
       },
       "name": "replays-run-on-the-evolve-runtime",
       "options": {

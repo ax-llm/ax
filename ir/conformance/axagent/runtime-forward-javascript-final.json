@@ -41,13 +41,13 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\": \"final(\\\"Execute runtime code\\\", {})\"}"
+      "content": "Javascript Code: final(\"Execute runtime code\", {})"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
+      "content": "Javascript Code: final(\"Answer\", {\"answer\": \"from runtime\"})"
     },
     {
-      "content": "{\"answer\":\"from runtime\"}"
+      "content": "Answer: from runtime"
     }
   ],
   "runtime_script": [

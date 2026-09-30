@@ -469,24 +469,15 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
 
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
 
-  // TS reads a per-call timeout in milliseconds; this port ignores it until the
-  // next major version and warns once, naming timeoutMs.
-  private static void warnCallTimeout(Map<String, Object> callOptions) {
-    Core.provider_warn_call_timeout(AxRuntimeHooks.strip(callOptions == null ? Map.of() : callOptions), false);
-  }
-
   @Override public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
-    warnCallTimeout(callOptions);
     return super.chat(request, callOptions);
   }
 
   @Override public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
-    warnCallTimeout(callOptions);
     return super.embed(request, callOptions);
   }
 
   @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception {
-    warnCallTimeout(options);
     Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), options, false);
     request = Core.asMap(resolved.get("request"));
     Map<String,Object> callOptions=new LinkedHashMap<>(Core.asMap(resolved.get("options")));
@@ -1165,8 +1156,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       }
       return failure instanceof AxAIServiceNetworkError ? Map.of("network", true) : null;
     }
-    // The HTTP client's own exception, which chat and embed throw until the
-    // next major version: a failed connection is retried, its timeout is not.
+    // Legacy transport exceptions: failed connections are retried, timeouts are not.
     if (failure instanceof java.net.http.HttpTimeoutException) return null;
     if (failure instanceof IOException) return Map.of("network", true);
     return null;
@@ -1313,21 +1303,14 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     return failure;
   }
 
-  // Until the next major version, chat and embed throw the HTTP client's own
-  // exception for a failed connection or the client's timeout, as they did.
-  // typedTransportErrors: true (in the client's or the call's options) throws
-  // TS's AxAIServiceNetworkError and AxAIServiceTimeoutError instead, with the
-  // JDK exception as the cause. Streams always throw the typed errors, and
-  // AxGen retries either as an infrastructure error.
+  // Typed failures retain the JDK exception as their cause. Explicit false
+  // preserves the legacy exception contract for callers migrating from 24.x.
   private boolean typedTransportErrors(Map<String, Object> callOptions) {
     Map<String, Object> resolved = callOptions == null ? options : callOptions;
-    return Core.truthy(resolved.getOrDefault("typedTransportErrors", resolved.get("typed_transport_errors")));
+    return Core.truthy(resolved.getOrDefault("typedTransportErrors", resolved.getOrDefault("typed_transport_errors", true)));
   }
 
   private static Exception untypedTransportFailure(Exception failure) {
-    if (failure instanceof IOException) {
-      Core.aiWarnOnce("typed-transport-errors", "Ax throws the HTTP client's IOException for a failed connection or timeout. Set typedTransportErrors: true for TypeScript's AxAIServiceNetworkError and AxAIServiceTimeoutError, with the JDK exception as the cause; the next major version throws those by default.");
-    }
     return failure;
   }
 

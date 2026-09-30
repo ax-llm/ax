@@ -5,7 +5,9 @@
   },
   "expected_request_count": 1,
   "expected_speak_requests": [],
-  "forward_options": {},
+  "forward_options": {
+    "renderAudio": false
+  },
   "input": {
     "question": "Say hi"
   },

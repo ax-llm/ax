@@ -422,7 +422,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"answer-one\\\", {\\\"answer\\\":\\\"one\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"one\"}"
+      "content": "Answer: one"
     },
     {
       "content": "{\"javascriptCode\":\"final(\\\"execute-two\\\", {})\"}"
@@ -431,7 +431,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"answer-two\\\", {\\\"answer\\\":\\\"two\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"two\"}"
+      "content": "Answer: two"
     },
     {
       "content": "{\"javascriptCode\":\"final(\\\"execute-three\\\", {})\"}"
@@ -440,7 +440,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"answer-three\\\", {\\\"answer\\\":\\\"three\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"three\"}"
+      "content": "Answer: three"
     },
     {
       "content": "{\"javascriptCode\":\"final(\\\"execute-four\\\", {})\"}"
@@ -449,7 +449,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"answer-four\\\", {\\\"answer\\\":\\\"four\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"four\"}"
+      "content": "Answer: four"
     }
   ],
   "runtime_script": [

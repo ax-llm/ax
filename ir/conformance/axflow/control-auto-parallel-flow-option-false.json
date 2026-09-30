@@ -1,71 +1,9 @@
 {
-  "kind": "flow",
-  "name": "control-auto-parallel-flow-option-false",
-  "source": {
-    "tsDerived": true,
-    "extractor": "tools/axir/extractors/flow-goldens.ts",
-    "reference": [
-      "src/ax/flow/flow.ts",
-      "src/ax/flow/steps.ts",
-      "src/ax/flow/executor.ts",
-      "src/ax/flow/executionPlanner.ts",
-      "src/ax/flow/mermaid.ts",
-      "src/ax/flow/dependencyAnalyzer.ts",
-      "src/ax/dsp/program.ts"
-    ],
-    "name": "control-auto-parallel-flow-option-false",
-    "observed": {
-      "rule": "TS does not re-enable constructor autoParallel:false from forward options."
-    }
-  },
-  "flow_options": {
-    "autoParallel": false
-  },
-  "input": {
-    "question": "parallel?"
-  },
-  "steps": [
-    {
-      "kind": "execute",
-      "name": "left",
-      "signature": "question:string -> left:string",
-      "options": {
-        "reads": ["question"],
-        "writes": ["leftResult"],
-        "isBarrier": false
-      }
-    },
-    {
-      "kind": "execute",
-      "name": "right",
-      "signature": "question:string -> right:string",
-      "options": {
-        "reads": ["question"],
-        "writes": ["rightResult"],
-        "isBarrier": false
-      }
-    }
-  ],
-  "returns": {
-    "left": "leftResult.left",
-    "right": "rightResult.right"
-  },
-  "forward_options": {
-    "autoParallel": true,
-    "record_flow_groups": true
-  },
-  "responses": [
-    {
-      "content": "{\"left\":\"l\"}"
-    },
-    {
-      "content": "{\"right\":\"r\"}"
-    }
-  ],
   "expected_output": {
     "left": "l",
     "right": "r"
   },
+  "expected_request_count": 2,
   "expected_trace_kinds": [
     "flow_start",
     "flow_group",
@@ -77,5 +15,67 @@
     "flow_group",
     "flow_done"
   ],
-  "expected_request_count": 2
+  "flow_options": {
+    "autoParallel": false
+  },
+  "forward_options": {
+    "autoParallel": true,
+    "record_flow_groups": true
+  },
+  "input": {
+    "question": "parallel?"
+  },
+  "kind": "flow",
+  "name": "control-auto-parallel-flow-option-false",
+  "responses": [
+    {
+      "content": "Left: l"
+    },
+    {
+      "content": "Right: r"
+    }
+  ],
+  "returns": {
+    "left": "leftResult.left",
+    "right": "rightResult.right"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "control-auto-parallel-flow-option-false",
+    "observed": {
+      "rule": "TS does not re-enable constructor autoParallel:false from forward options."
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "options": {
+        "isBarrier": false,
+        "reads": ["question"],
+        "writes": ["leftResult"]
+      },
+      "signature": "question:string -> left:string"
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "options": {
+        "isBarrier": false,
+        "reads": ["question"],
+        "writes": ["rightResult"]
+      },
+      "signature": "question:string -> right:string"
+    }
+  ]
 }

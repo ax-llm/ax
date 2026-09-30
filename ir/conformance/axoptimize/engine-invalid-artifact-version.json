@@ -16,5 +16,8 @@
   "name": "engine-invalid-artifact-version",
   "operation": "engine",
   "program": "agent",
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

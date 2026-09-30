@@ -43,7 +43,7 @@
       ]
     },
     {
-      "content": "{\"answer\":\"Docs\"}"
+      "content": "Answer: Docs"
     }
   ],
   "expected_tool_calls": [

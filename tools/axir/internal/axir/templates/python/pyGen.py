@@ -353,32 +353,20 @@ class AxGen:
         "lowercase", "trim", "prefix:...", "suffix:...") or a callable.
 
         This is a port extension; TypeScript field processors feed back to
-        the model instead (see add_field_processor(..., feedback=True)).
+        the model instead (see add_field_processor(...)).
         """
         self.field_processors.append({"field": field, "processor": processor})
         return self
 
-    def add_field_processor(self, field, processor, *, feedback=False):
-        """Add a field processor.
+    def add_field_processor(self, field, processor, *, feedback=True):
+        """Send processor(value, {"values", "done"}) feedback to the model.
 
-        With ``feedback=True`` it follows TypeScript: ``processor(value,
-        {"values", "done"})`` runs on the field's final value, and a non-empty
-        result is sent to the model as a user message for another step. The
-        default still rewrites the field like add_field_transform(), and is
-        deprecated: it becomes the feedback behavior in the next major
-        version.
+        A non-empty result requests another step. Use add_field_transform()
+        to rewrite the field locally; feedback=False retains that behavior.
         """
         if feedback:
             self.feedback_processors.append({"field": field, "processor": processor})
             return self
-        warnings.warn(
-            "add_field_processor() without feedback=True rewrites the field value; "
-            "use add_field_transform() for that. In the next major version "
-            "add_field_processor() will follow TypeScript and feed its result back "
-            "to the model.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         return self.add_field_transform(field, processor)
 
     def add_streaming_field_processor(self, field, processor):
@@ -654,25 +642,14 @@ class AxGen:
         options: dict[str, Any] | None = None,
         hooks: AxRuntimeHooks | None = None,
     ):
-        """Stream a forward.
+        """Yield {"version", "index", "delta"} field deltas by default.
 
-        With ``{"deltas": True}`` this yields TypeScript's ``{"version",
-        "index", "delta"}`` deltas: merge each index's deltas (strings and
-        lists append, other values replace) and start over when the version
-        changes. Without the flag it still yields raw provider events, which
-        is deprecated: deltas become the default in the next major version,
-        and stream_raw() keeps the raw events.
+        Merge strings and lists within an index and start over when the
+        version changes. Use stream_raw() for provider response events.
         """
         run_options = dict(options or {})
-        if run_options.pop("deltas", False):
+        if run_options.pop("deltas", True):
             return self._streaming_deltas(client, values, run_options, hooks)
-        warnings.warn(
-            "streaming_forward() without {'deltas': True} yields raw provider events; "
-            "TypeScript's {version, index, delta} deltas become the default in the next "
-            "major version. Pass {'deltas': True} now, or use stream_raw() to keep raw events.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         return self.stream_raw(client, values, run_options, hooks)
 
     def stream_raw(
@@ -1334,6 +1311,17 @@ def _core_exception_message(error):
 # The same error with a new message and the original as its cause. It keeps
 # its class, so existing handlers still catch it (TS wraps it in
 # AxGenerateError, which the ports adopt at the next major).
+class AxGenerateError(RuntimeError):
+    """Generation failed; the original failure is available as __cause__."""
+    def __init__(self, message, cause=None):
+        super().__init__(message)
+        self.__cause__ = cause
+
+
+def _core_exception_generate(error, message):
+    return AxGenerateError(message, error)
+
+
 def _core_exception_rewrap(error, message):
     try:
         wrapped = copy.copy(error)

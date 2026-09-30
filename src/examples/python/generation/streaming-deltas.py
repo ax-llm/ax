@@ -19,7 +19,7 @@ if not api_key:
 client = ai(
     "openai",
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-6-luna"),
 )
 story = ax('topic:string -> title:string, story:string "Three short sentences"')
 
@@ -27,7 +27,7 @@ story = ax('topic:string -> title:string, story:string "Three short sentences"')
 # and lists append, other values replace) and start over when the version
 # changes: a retry or a replaced step starts a new version.
 merged, version = {}, 0
-for delta in story.streaming_forward(client, {"topic": "a lighthouse keeper's cat"}, {"deltas": True}):
+for delta in story.streaming_forward(client, {"topic": "a lighthouse keeper's cat"}):
     if delta["version"] != version:
         merged, version = {}, delta["version"]
         print("\n[retry: starting over]")

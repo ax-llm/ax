@@ -92,12 +92,12 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 
 - With contextCache enabled, cached signature inputs form a stable user-message prefix; dynamic inputs follow separately. Agent stages mark stable inputs cached and keep runtime guidance and action history dynamic.
 - `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.
-- A per-call `timeout` is ignored until the next major version, which reads it in milliseconds as TypeScript does. A call that gives it without `timeoutMs` warns once, naming `timeoutMs`. The client's `timeout` argument stays in seconds.
+- A per-call `timeout` is milliseconds. `timeoutMs` remains an alias and wins when both are supplied. Model-call timeouts are not forwarded to the agent runtime; configure execution deadlines on the runtime itself. The client's constructor timeout stays in seconds.
 
 ## Transport Errors
 
 - A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). AxGen retries both as infrastructure errors.
-- The HTTP client's exception stays the error's `__cause__`. Until the next major version, a connect that runs out of the client's timeout is also an `AxAIServiceNetworkError`, and a connection dropped mid-stream is also an `http.client.IncompleteRead`, as they were.
+- The HTTP client's exception stays the error's `__cause__`. A connection timeout raises `AxAIServiceTimeoutError` without the network-error compatibility base. A dropped stream raises `AxAIServiceNetworkError` without inheriting `http.client.IncompleteRead`; its cause retains the original transport exception.
 
 ## Request Retries
 

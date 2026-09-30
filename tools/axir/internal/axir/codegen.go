@@ -229,6 +229,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxInMemoryBalancerStatsStore.java":              javaAxInMemoryBalancerStatsStore,
 		"dev/axllm/ax/AxProviderRouter.java":                          javaAxProviderRouter,
 		"dev/axllm/ax/AxBaseAI.java":                                  javaAxBaseAI,
+		"dev/axllm/ax/AxGenerateError.java":                           javaAxGenerateError,
 		"dev/axllm/ax/AxAIServiceError.java":                          javaAxAIServiceError,
 		"dev/axllm/ax/AxAIServiceAbortedError.java":                   javaAxAIServiceAbortedError,
 		"dev/axllm/ax/AxCancellationToken.java":                       javaAxCancellationToken,
@@ -1262,6 +1263,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "Errors And Values",
 			Summary: "Handle target-native errors and dynamic values at Ax host boundaries.",
 			Symbols: []APIReferenceSymbol{
+				sym("AxGenerateError", "type", "Generation boundary failure retaining the original cause; cancellation propagates unchanged.", []string{"message", "cause"}, "error"),
 				sym("AxError", "type", "Target-native error envelope for validation, provider, runtime, MCP, and optimizer failures.", []string{"category", "message", "status", "code", "retryable"}, "error"),
 				sym("Value", "type", "Dynamic JSON-like value boundary used by generated package APIs, tools, providers, MCP, and runtime sessions.", []string{"string", "number", "boolean", "object", "array", "null"}, "dynamic value"),
 			},

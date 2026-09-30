@@ -29,7 +29,8 @@
   "kind": "agent_forward",
   "name": "context-routing",
   "options": {
-    "contextFields": ["document"]
+    "contextFields": ["document"],
+    "actorMode": "completion"
   },
   "responses": [
     {
@@ -39,7 +40,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer from evidence\",{\"answer\":\"AxIR is portable\"}]}}"
     },
     {
-      "content": "{\"answer\":\"AxIR is portable\"}"
+      "content": "Answer: AxIR is portable"
     }
   ],
   "signature": "question:string, document:string -> answer:string"

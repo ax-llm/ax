@@ -28,7 +28,8 @@
   "kind": "agent_forward",
   "name": "simple-pipeline",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {
@@ -38,7 +39,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "signature": "question:string -> answer:string"

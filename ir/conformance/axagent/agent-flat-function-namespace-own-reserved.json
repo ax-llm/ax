@@ -15,7 +15,8 @@
         "namespace": "final",
         "description": "Look up a customer by id"
       }
-    ]
+    ],
+    "actorMode": "completion"
   },
   "responses": [],
   "expected_error_contains": "Agent function namespace \"final\" conflicts with an AxAgent runtime global and is reserved"

@@ -19,13 +19,13 @@
       "content": "{\"javascriptCode\":\"const r = await llmQuery([{ query: 'llmQueryTaskProbe5521', context: { detail: 'contextMarker8843' } }]); globalThis.subAnswerCapture = r;\"}"
     },
     {
-      "content": "{\"answer\":\"subAnswerMarker9931\"}"
+      "content": "Answer: subAnswerMarker9931"
     },
     {
       "content": "{\"javascriptCode\":\"final(\\\"Synthesize from the sub-query answer\\\", { answer: 'EXTRACTED_' + globalThis.subAnswerCapture[0] })\"}"
     },
     {
-      "content": "{\"answer\":\"EXTRACTED_subAnswerMarker9931\"}"
+      "content": "Answer: EXTRACTED_subAnswerMarker9931"
     }
   ],
   "expected_output": {

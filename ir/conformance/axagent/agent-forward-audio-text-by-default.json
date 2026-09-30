@@ -12,14 +12,15 @@
   "options": {
     "runtime": {
       "language": "JavaScript"
-    }
+    },
+    "renderAudio": false
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"respond(\\\"direct\\\", {\\\"source\\\":\\\"forward-skill\\\"})\"}"
+      "content": "Javascript Code: respond(\"direct\", {\"source\":\"forward-skill\"})"
     },
     {
-      "content": "{\"speech\":\"Hello there\"}"
+      "content": "Speech: Hello there"
     }
   ],
   "runtime_script": [

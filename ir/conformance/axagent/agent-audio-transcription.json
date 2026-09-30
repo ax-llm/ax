@@ -11,7 +11,8 @@
   "kind": "agent_forward",
   "name": "agent-audio-transcription",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {
@@ -21,7 +22,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "signature": "clip:audio -> answer:string",

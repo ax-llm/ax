@@ -35,7 +35,7 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"configured\"}"
+      "content": "Answer: configured"
     }
   ],
   "signature": "question:string -> answer:string"

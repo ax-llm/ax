@@ -10,10 +10,10 @@
   },
   "responses": [
     {
-      "content": "{}"
+      "content": "Answer: "
     },
     {
-      "content": "{\"answer\":\"hello\"}"
+      "content": "Answer: hello"
     }
   ],
   "expected_output": {

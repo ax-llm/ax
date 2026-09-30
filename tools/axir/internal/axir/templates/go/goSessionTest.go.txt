@@ -67,7 +67,7 @@ func TestAstraSessionBackgroundOverlapAndFinalIncorporation(t *testing.T) {
 					_ = writer.CloseWithError(ctx.Err())
 					return
 				}
-				sessionSSE(writer, sessionCompleted("r1", "{\"answer\":\"provisional\"}"))
+				sessionSSE(writer, sessionCompleted("r1", "Answer: provisional"))
 			}()
 			return AxHTTPStreamResponse{Status: 200, Body: reader}, nil
 		}
@@ -82,7 +82,7 @@ func TestAstraSessionBackgroundOverlapAndFinalIncorporation(t *testing.T) {
 			return AxHTTPStreamResponse{}, fmt.Errorf("result not incorporated exactly once: %v", items)
 		}
 		var body strings.Builder
-		sessionSSE(&body, sessionCompleted("r2", "{\"answer\":\"REF-42\"}"))
+		sessionSSE(&body, sessionCompleted("r2", "Answer: REF-42"))
 		return AxHTTPStreamResponse{Status: 200, Body: io.NopCloser(strings.NewReader(body.String()))}, nil
 	}
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport, "model_config", Object("thinkingTokenBudget", "low")))
@@ -220,7 +220,7 @@ func TestAstraFlowSessionIsolationAndFutureRootUpdates(t *testing.T) {
 			if len(input) != 2 || coreGet(input[0], "role", "") != "user" || coreGet(input[1], "call_id", "") != "same-call" || coreGet(input[1], "output", "") != "REF-42" {
 				return AxHTTPStreamResponse{}, fmt.Errorf("lost scoped update or result: %v", input)
 			}
-			event = sessionCompleted("node-final", "{\"answer\":\"REF-42\"}")
+			event = sessionCompleted("node-final", "Answer: REF-42")
 		}
 		var bodyStream strings.Builder
 		sessionSSE(&bodyStream, event)
@@ -295,7 +295,7 @@ func (s *steeringTestSocket) Send(event Value) {
 		s.inbound <- ack
 		s.inbound <- Object("type", "response.incomplete", "response", Object("id", "parent", "model", "gpt-6-astra", "incomplete_details", Object("reason", "steered"), "output", Array(), "usage", Object("input_tokens", 3, "output_tokens", 2)))
 		s.inbound <- Object("type", "response.created", "response", Object("id", "successor"))
-		s.inbound <- sessionCompleted("successor", "{\"answer\":\"CORRECTED\"}")
+		s.inbound <- sessionCompleted("successor", "Answer: CORRECTED")
 	}
 }
 func (s *steeringTestSocket) Recv() (Value, bool) {
@@ -384,14 +384,14 @@ func (t *agentSessionTransport) Call(ctx context.Context, request Value) (Value,
 	if n != 4 || !strings.Contains(stableStringify(body), "REF-42") {
 		return nil, fmt.Errorf("responder ran before final result incorporation: %d", n)
 	}
-	return coreGet(sessionCompleted("responder", "{\"answer\":\"REF-42\"}"), "response", nil), nil
+	return coreGet(sessionCompleted("responder", "Answer: REF-42"), "response", nil), nil
 }
 func (t *agentSessionTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
 	n := t.next(request)
 	body := coreGet(request, "json", Object())
     if n==1||n==2||n==5||n==6 {
         for _,tool:=range asSlice(coreGet(body,"tools",Array())){if coreTruthy(coreGet(tool,"async",false)){return AxHTTPStreamResponse{},fmt.Errorf("Actor authority leaked")}}
-        stage:="distiller";text:="{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";if n>=5{stage="responder";text="{\"answer\":\"REF-42\"}"}
+        stage:="distiller";text:="{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";if n>=5{stage="responder";text="Answer: REF-42"}
         suffix:="-start";if n==2||n==6 {suffix="-final";input:=stableStringify(coreGet(body,"input",nil));if coreGet(body,"previous_response_id","")!=stage+"-start"||!strings.Contains(input,"ROOT-GUIDANCE")||strings.Contains(input,"RESPONDER-ONLY")!=(n==6){return AxHTTPStreamResponse{},fmt.Errorf("Scoped stage update mismatch: %v",body)}}
         if n==5&&!strings.Contains(stableStringify(body),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("Responder started before incorporation")}
         var out strings.Builder;sessionSSE(&out,sessionCompleted(stage+suffix,text));return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(out.String()))},nil
@@ -440,7 +440,7 @@ func TestAstraAgentNativeToolsAndActionLog(t *testing.T) {
 	})
 	tool.Description = "Lookup"
 	tool.Args = map[string]Field{"query": {Name: "query", Type: FieldType{Name: "string"}}}
-	program := NewAgent("question -> answer", Object("functions", Array(tool), "directResponse", "off"))
+	program := NewAgent("question -> answer", Object("actorMode","completion","functions", Array(tool), "directResponse", "off"))
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -478,7 +478,7 @@ func (s *balancedChatOnlyService) Chat(ctx context.Context,request,options map[s
     if s.unused{return nil,fmt.Errorf("pinned run changed providers")};s.calls++
     if s.calls==1{return Object("results",Array(Object("function_calls",Array(Object("id","balanced-call","type","function","function",Object("name","lookup","params",Object())))))),nil}
     if s.calls!=2||s.tools.Load()!=1||!strings.Contains(display(request),"FALLBACK")||!strings.Contains(display(request),"balanced-call"){return nil,fmt.Errorf("lost tool continuation: %v",request)}
-    return Object("results",Array(Object("content","{\"answer\":\"FALLBACK\"}"))),nil
+    return Object("results",Array(Object("content","Answer: FALLBACK"))),nil
 }
 func TestAstraMixedBalancerPinsChatOnlyFallback(t *testing.T) {
     var called atomic.Int32
@@ -502,7 +502,7 @@ func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
     if exhausted||n!=2 {return AxHTTPStreamResponse{},fmt.Errorf("work replayed after step exhaustion")}
     body:=coreGet(request,"json",Object());outputs:=asSlice(coreGet(body,"input",Array()))
     if coreGet(body,"previous_response_id",nil)!="invalid"||len(outputs)!=1||coreGet(outputs[0],"call_id",nil)!="invalid-call"||!strings.Contains(strings.ToLower(display(coreGet(outputs[0],"output",""))),"query") {return AxHTTPStreamResponse{},fmt.Errorf("invalid correction continuation: %v",body)}
-    event=sessionCompleted("corrected",`{"answer":"CORRECTED"}`)
+    event=sessionCompleted("corrected",`Answer: CORRECTED`)
    }
    var data strings.Builder;sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
@@ -522,7 +522,7 @@ func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
 type nativeFileTransport struct { requests []Value }
 func (t *nativeFileTransport) Call(_ context.Context, request Value) (Value,error) {
     t.requests=append(t.requests,coreGet(request,"json",nil))
-    return Object("status",200,"json",Object("id","file-response","choices",Array(Object("index",0,"message",Object("role","assistant","content","{\"summary\":\"Read\"}"))))),nil
+    return Object("status",200,"json",Object("id","file-response","choices",Array(Object("index",0,"message",Object("role","assistant","content","Summary: Read"))))),nil
 }
 func TestNativeFileRouterBalancerHistory(t *testing.T) {
     transport:=&nativeFileTransport{}
@@ -571,7 +571,7 @@ func TestOwnedFlowWorkersOverlap(t *testing.T) {
         if started.Add(1)==2 {close(release)}
         select {case <-release: case <-r.Context().Done(): return; case <-time.After(3*time.Second): http.Error(w,"parallel nodes did not overlap",500);return}
         w.Header().Set("Content-Type","application/json")
-        fmt.Fprint(w,`{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+        fmt.Fprint(w,`{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"Answer: DONE"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
     }))
     defer server.Close()
     client := NewAI("openai",Object("api_key","worker-test","model","gpt-5.6","base_url",server.URL))
@@ -699,10 +699,10 @@ func(t *mcpAgentModelTransport) response(request Value)(Value,io.ReadCloser,erro
     t.requests++;number:=t.requests;body:=coreGet(request,"json",nil);actor:=[]Value{}
     for _,tool:=range asSlice(coreGet(body,"tools",Array())){if coreTruthy(coreGet(tool,"async",false)){actor=append(actor,tool)}}
     if t.hidden {
-        if len(actor)!=0{return nil,nil,fmt.Errorf("Undiscovered MCP tool exposed")};text:=`{"completion":{"type":"final","args":["No discovered tools",{}]}}`;if number==3{text=`{"answer":"not discovered"}`};return sessionCompleted(fmt.Sprint("hidden-",number),text),nil,nil
+        if len(actor)!=0{return nil,nil,fmt.Errorf("Undiscovered MCP tool exposed")};text:=`{"completion":{"type":"final","args":["No discovered tools",{}]}}`;if number==3{text=`Answer: not discovered`};return sessionCompleted(fmt.Sprint("hidden-",number),text),nil,nil
     }
     if number==1||number==5 {
-        if len(actor)!=0{return nil,nil,fmt.Errorf("Native authority escaped executor")};text:=`{"completion":{"type":"final","args":["Find reference",{}]}}`;if number==5{if !strings.Contains(stableStringify(body),"REF-42"){return nil,nil,fmt.Errorf("Responder preceded result incorporation")};text=`{"answer":"REF-42"}`};return sessionCompleted(fmt.Sprint("stage-",number),text),nil,nil
+        if len(actor)!=0{return nil,nil,fmt.Errorf("Native authority escaped executor")};text:=`{"completion":{"type":"final","args":["Find reference",{}]}}`;if number==5{if !strings.Contains(stableStringify(body),"REF-42"){return nil,nil,fmt.Errorf("Responder preceded result incorporation")};text=`Answer: REF-42`};return sessionCompleted(fmt.Sprint("stage-",number),text),nil,nil
     }
     if number==2 {
         if len(actor)!=1||coreGet(actor[0],"name",nil)!="orders_lookup"||stableStringify(coreGet(actor[0],"parameters",nil))!=stableStringify(t.mcp.schema){return nil,nil,fmt.Errorf("Lost native MCP schema: %v",actor)}
@@ -725,7 +725,7 @@ func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
     authorize:=func(call map[string]Value)(bool,error){if call["client"]!=mcp||call["namespace"]!="orders"||coreGet(coreGet(call,"arguments",nil),"query",nil)!="REF-42"||stableStringify(coreGet(coreGet(call,"tool",nil),"inputSchema",nil))!=stableStringify(schema){return false,fmt.Errorf("Lost MCP authorization context")};authorizations.Add(1);return allowed.Load(),nil}
     mcp=NewAxMCPClient(transport,Object("era","modern","namespace","orders","authorizeToolCall",authorize));if err:=mcp.Init();err!=nil{t.Fatal(err)};native:=mcp.NativeTools()[0];if native.ExecutionMode=="background"{t.Fatal("MCP hints enabled background work")};native=native.Execution("background")
     if _,err:=native.Handler(Object("query","REF-42"));err==nil||!strings.Contains(err.Error(),"MCP tool call denied by host policy: lookup"){t.Fatalf("Denied MCP tool executed: %v",err)};if transport.calls.Load()!=0{t.Fatal("Denied MCP request reached transport")};allowed.Store(true)
-    program:=NewAgent("question -> answer",Object("functions",Array(Object("namespace","orders","functions",Array(native))),"functionDiscovery",true,"directResponse","off"))
+    program:=NewAgent("question -> answer",Object("actorMode","completion","functions",Array(Object("namespace","orders","functions",Array(native))),"functionDiscovery",true,"directResponse","off"))
     model:=&mcpAgentModelTransport{mcp:transport,hidden:true};client:=NewAI("openai",Object("api_key","test","model","gpt-6-astra","transport",model))
     output,err:=program.Forward(context.Background(),client,Object("question","Find reference"),nil);if err!=nil||coreGet(output,"answer",nil)!="not discovered"||transport.calls.Load()!=0||model.requests!=3{t.Fatalf("Discovery boundary failed: %v %v",output,err)}
     program.Discover(Object("tools",Array("orders")));model.hidden=false;model.requests=0
@@ -772,10 +772,10 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    if number==10{raw,_:=json.Marshal(body);if !strings.Contains(string(raw),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("parent continued without child result")}}
    var output Value
    if strings.HasPrefix(stage,"root/team.researcher"){if strings.HasSuffix(stage,"/responder"){output=Object("answer","REF-42")}else{output=Object("completion",Object("type","final","args",Array("Find reference",Object())))}}else if stage=="root/responder"{output=Object("answer","REF-42")}else{code:="parent-final";if stage=="root/executor"&&!runtime.delegated{code="delegate"};output=Object("javascriptCode",code)}
-   raw,_:=json.Marshal(output);var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw));if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
+   raw,_:=json.Marshal(output);text:=string(raw);if answer:=coreGet(output,"answer",nil);answer!=nil{text="Answer: "+display(answer)};var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),text);if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
   }
-  mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
+  mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("actorMode","completion","directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
   client:=NewAI("openai",Object("model","gpt-6-astra","api_key","test","transport",transport))
   result,err:=parent.Forward(context.Background(),client,Object("question","Find reference"),Object("control",control))
   requestMu.Lock();requestCount:=len(requests);requestMu.Unlock()
@@ -812,7 +812,7 @@ func(t *actorMCPCancellationTransport)SendWithContext(ctx context.Context,m map[
 }
 func TestActorMCPInvocationCancellation(t *testing.T){
  ctx,cancel:=context.WithCancel(context.Background());defer cancel();transport:=&actorMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),cancel:cancel};client:=NewAxMCPClient(transport,Object("namespace","inventory"));client.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object"))}
- program:=NewAgent("question -> answer",Object("functions",Array(client.NativeTools()[0]),"functionDiscovery",false))
+ program:=NewAgent("question -> answer",Object("actorMode","completion","functions",Array(client.NativeTools()[0]),"functionDiscovery",false))
  defer func(){failure:=recover();if failure==nil||transport.calls!=1{t.Fatal("expected one aborted invocation",failure,transport.calls)};if _,ok:=failure.(AxAIServiceAbortedError);!ok{t.Fatalf("unexpected invocation failure: %T %v",failure,failure)}}()
  program.InvokeCallable("utils.lookup",Object("query","probe"),Object("context",ctx))
 }
@@ -1072,7 +1072,7 @@ func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
 			mu.Unlock()
 		}
 	})
-	program := NewAgent("question -> answer", Object("directResponse", "off"))
+	program := NewAgent("question -> answer", Object("actorMode","completion","directResponse", "off"))
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

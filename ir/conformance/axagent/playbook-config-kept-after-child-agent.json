@@ -60,13 +60,13 @@
   ],
   "responses": [
     {
-      "content": "{\"javascriptCode\": \"plan\"}"
+      "content": "Javascript Code: plan"
     },
     {
-      "content": "{\"javascriptCode\": \"finish\"}"
+      "content": "Javascript Code: finish"
     },
     {
-      "content": "{\"answer\": \"the live evidence\"}"
+      "content": "Answer: the live evidence"
     }
   ],
   "input": {
@@ -86,7 +86,8 @@
       "name": "helper",
       "signature": "question:string -> answer:string",
       "options": {
-        "directResponse": "off"
+        "directResponse": "off",
+        "actorMode": "completion"
       }
     }
   ]

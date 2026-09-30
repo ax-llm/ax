@@ -16,7 +16,8 @@
   "name": "agent-tombstone-llm",
   "options": {
     "contextFields": [],
-    "tombstoning": true
+    "tombstoning": true,
+    "actorMode": "completion"
   },
   "restore_runtime_state": {
     "action_log": [
@@ -47,7 +48,7 @@
       "content": "[TOMBSTONE]: Resolved the callThing TypeError by defining it before use; avoid calling undefined helpers."
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "signature": "question:string -> answer:string"

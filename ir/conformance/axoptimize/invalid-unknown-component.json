@@ -7,5 +7,8 @@
   "name": "invalid-unknown-component",
   "operation": "artifact",
   "program": "agent",
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

@@ -175,7 +175,8 @@ public final class AxGenStreamingNoKeyExample {
     try (AxGenDeltaStream stream = strict.streamingForward(failing, Map.of("question", "Status?"), Map.of())) {
       for (AxGenDelta delta : stream) beforeError.add(delta);
       throw new RuntimeException("the assertion error was not rethrown");
-    } catch (IllegalStateException expected) {
+    } catch (AxGenerateError expected) {
+      check(expected.getCause() instanceof IllegalStateException, "original assertion type was lost");
       check("Generate failed: assertion exploded".equals(expected.getMessage()), "error message: " + expected.getMessage());
       check(expected.getCause() != null && "assertion exploded".equals(expected.getCause().getMessage()), "error cause: " + expected.getCause());
     }

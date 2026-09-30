@@ -24,7 +24,7 @@
   "name": "field-processor-memory-write",
   "responses": [
     {
-      "content": "{\"answer\":\"  done  \"}"
+      "content": "Answer:   done  "
     }
   ],
   "signature": "question:string -> answer:string"

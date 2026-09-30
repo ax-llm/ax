@@ -76,7 +76,7 @@ writeFixture('examples-demos-render', {
       output: { answer: 'Demo answer' },
     },
   ],
-  responses: [{ content: '{"answer":"Current answer"}' }],
+  responses: [{ content: 'Answer: Current answer' }],
   expected_output: { answer: 'Current answer' },
   expected_request_contains: [
     'Example question?',
@@ -99,10 +99,7 @@ writeFixture('assertion-retry', {
       message: 'answer must contain good',
     },
   ],
-  responses: [
-    { content: '{"answer":"bad"}' },
-    { content: '{"answer":"good"}' },
-  ],
+  responses: [{ content: 'Answer: bad' }, { content: 'Answer: good' }],
   expected_output: { answer: 'good' },
   // As TS renders an assertion's fixing instructions: the retry asks to
   // follow the message, closed with a period.
@@ -117,7 +114,7 @@ writeFixture('field-processor', {
   signature: 'question:string -> answer:string',
   input: { question: 'Capital?' },
   field_processors: [{ field: 'answer', op: 'uppercase' }],
-  responses: [{ content: '{"answer":"paris"}' }],
+  responses: [{ content: 'Answer: paris' }],
   expected_output: { answer: 'PARIS' },
   expected_request_count: 1,
 });
@@ -126,7 +123,7 @@ writeFixture('trace-capture', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
   input: { question: 'Trace me' },
-  responses: [{ content: '{"answer":"traced"}' }],
+  responses: [{ content: 'Answer: traced' }],
   expected_output: { answer: 'traced' },
   expected_trace: {
     status: 'ok',
@@ -235,7 +232,7 @@ writeFixture('cache-field-prompt-rendering', {
     },
   },
   input: { document: 'Cached text', question: 'What is inside?' },
-  responses: [{ content: '{"answer":"Cached text"}' }],
+  responses: [{ content: 'Answer: Cached text' }],
   expected_output: { answer: 'Cached text' },
   expected_request_contains: ['Cached text', 'cache'],
   expected_request_count: 1,
@@ -415,7 +412,7 @@ writeFixture('examples-message-pairs-exact', {
   examples: [
     { input: { question: 'Example?' }, output: { answer: 'Example answer' } },
   ],
-  responses: [{ content: '{"answer":"Live answer"}' }],
+  responses: [{ content: 'Answer: Live answer' }],
   expected_output: { answer: 'Live answer' },
   expected_chat_prompt_contains: [
     'Example Input',
@@ -438,7 +435,7 @@ writeFixture('examples-in-system-legacy', {
       output: { answer: 'Legacy answer' },
     },
   ],
-  responses: [{ content: '{"answer":"Current answer"}' }],
+  responses: [{ content: 'Answer: Current answer' }],
   expected_output: { answer: 'Current answer' },
   expected_chat_prompt_contains: [
     '--- EXAMPLES ---',
@@ -458,7 +455,7 @@ writeFixture('examples-zero-false-values', {
       output: { answer: 'zero false kept' },
     },
   ],
-  responses: [{ content: '{"answer":"ok"}' }],
+  responses: [{ content: 'Answer: ok' }],
   expected_output: { answer: 'ok' },
   expected_chat_prompt_contains: [
     'Count: 0',
@@ -479,7 +476,7 @@ writeFixture('context-cache-breakpoints', {
       output: { answer: 'a' },
     },
   ],
-  responses: [{ content: '{"answer":"cached"}' }],
+  responses: [{ content: 'Answer: cached' }],
   expected_output: { answer: 'cached' },
   expected_chat_prompt_contains: ['cache', 'Example Output'],
   expected_request_count: 1,
@@ -489,14 +486,12 @@ writeFixture('memory-history-and-chat-log', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
   input: { question: 'Remember?' },
-  responses: [
-    { content: '{"answer":"remembered"}', usage: { total_tokens: 12 } },
-  ],
+  responses: [{ content: 'Answer: remembered', usage: { total_tokens: 12 } }],
   expected_output: { answer: 'remembered' },
   expected_memory_history_subset: [{ role: 'request' }, { role: 'assistant' }],
   expected_chat_log_subset: [
     {
-      response: { content: '{"answer":"remembered"}' },
+      response: { content: 'Answer: remembered' },
       usage: { total_tokens: 12 },
     },
   ],
@@ -512,7 +507,7 @@ writeFixture('thoughts-in-chat-log', {
       results: [
         {
           index: 0,
-          content: '{"answer":"kept"}',
+          content: 'Answer: kept',
           thought: 'I should preserve this summary.',
           thought_blocks: [
             {
@@ -548,12 +543,12 @@ writeFixture('empty-response-memory-skip', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
   input: { question: 'Recover from blank?' },
-  responses: [{ content: ' \n ' }, { content: '{"answer":"recovered"}' }],
+  responses: [{ content: ' \n ' }, { content: 'Answer: recovered' }],
   expected_output: { answer: 'recovered' },
   expected_memory_history_count: 2,
   expected_memory_history_subset: [
     { role: 'request' },
-    { role: 'assistant', response: { content: '{"answer":"recovered"}' } },
+    { role: 'assistant', response: { content: 'Answer: recovered' } },
   ],
   expected_request_count: 2,
 });
@@ -1033,7 +1028,7 @@ writeFixture('field-processor-memory-write', {
   signature: 'question:string -> answer:string',
   input: { question: 'Process' },
   field_transforms: [{ field: 'answer', op: 'trim' }],
-  responses: [{ content: '{"answer":"  done  "}' }],
+  responses: [{ content: 'Answer:   done  ' }],
   expected_output: { answer: 'done' },
   expected_memory_history_subset: [
     { role: 'processor', output: { answer: 'done' } },
@@ -1061,7 +1056,7 @@ writeFixture('function-call-trace-hook', {
         { id: 'call_1', name: 'search', params: { query: 'ax docs' } },
       ],
     },
-    { content: '{"answer":"Docs"}' },
+    { content: 'Answer: Docs' },
   ],
   expected_output: { answer: 'Docs' },
   expected_function_traces_subset: [
@@ -1115,7 +1110,7 @@ writeFixture('reasoning-tool-loop-replay', {
       results: [
         {
           index: 0,
-          content: '{"answer":"42"}',
+          content: 'Answer: 42',
           finish_reason: 'stop',
         },
       ],
@@ -1154,7 +1149,7 @@ writeFixture('unknown-tool-call-correction', {
         { id: 'call_1', name: 'lookup', params: { query: 'docs' } },
       ],
     },
-    { content: '{"answer":"No lookup tool is registered."}' },
+    { content: 'Answer: No lookup tool is registered.' },
   ],
   expected_output: { answer: 'No lookup tool is registered.' },
   expected_function_traces_subset: [
@@ -1178,7 +1173,7 @@ writeFixture('prompt-cache-key-forward-options', {
     sessionId: 'loses',
     contextCache: {},
   },
-  responses: [{ content: '{"answer":"cached"}' }],
+  responses: [{ content: 'Answer: cached' }],
   expected_output: { answer: 'cached' },
   expected_chat_options_subset: {
     promptCacheKey: 'conversation-42',
@@ -1189,23 +1184,22 @@ writeFixture('prompt-cache-key-forward-options', {
 });
 
 // TS AxGen passes a call's timeout (milliseconds) to ai.chat, from the call or
-// else the constructor. Until the next major version the ports take it as
-// timeoutMs.
-for (const [name, forwardOptions, timeoutMs] of [
-  ['call-timeout-ms-forward-option', { timeoutMs: 250 }, 250],
+// else the constructor.
+for (const [name, forwardOptions, timeout] of [
+  ['call-timeout-ms-forward-option', { timeout: 250 }, 250],
   ['call-timeout-ms-constructor-option', undefined, 1000],
 ] as const) {
   writeFixture(name, {
     description:
-      'Port-only: AxGen passes timeoutMs to ai.chat from the forward call, else the constructor, as TS passes its per-call timeout.',
+      'AxGen passes timeout to ai.chat from the forward call, else the constructor, as TS passes its per-call timeout.',
     kind: 'forward',
     signature: 'question:string -> answer:string',
     input: { question: 'Answer within the timeout' },
-    options: { timeoutMs: 1000 },
+    options: { timeout: 1000 },
     ...(forwardOptions ? { forward_options: forwardOptions } : {}),
-    responses: [{ content: '{"answer":"on time"}' }],
+    responses: [{ content: 'Answer: on time' }],
     expected_output: { answer: 'on time' },
-    expected_chat_options_subset: { timeoutMs },
+    expected_chat_options_subset: { timeoutMs: timeout },
     expected_request_count: 1,
   });
 }
@@ -1808,7 +1802,7 @@ writeFixture('json-input-prompt-plain-json', {
   kind: 'forward',
   signature: 'plan:json -> answer:string',
   input: { plan: { zeta: 1, alpha: { inner: true }, tag: '<b>&' } },
-  responses: [{ content: '{"answer":"ok"}' }],
+  responses: [{ content: 'Answer: ok' }],
   expected_output: { answer: 'ok' },
   expected_request_count: 1,
   expected_chat_prompt_contains: ['<b>&', 'inner'],
@@ -2033,6 +2027,88 @@ for (const [
       expected_memory_function_results: memory,
     });
   }
+}
+
+{
+  const client = new AxMockAIService({
+    features: { functions: false, streaming: false, structuredOutputs: false },
+    chatResponse: {
+      results: [{ index: 0, content: 'Count: many', finishReason: 'stop' }],
+    },
+  });
+  let error: Error | undefined;
+  try {
+    await ax('question:string -> count:number').forward(
+      client,
+      { question: 'Count' },
+      { maxRetries: 0, stream: false }
+    );
+  } catch (cause) {
+    error = cause as Error;
+  }
+  if (error?.name !== 'AxGenerateError' || !error.cause)
+    throw new Error('TypeScript must expose AxGenerateError and its cause');
+  writeFixture('generate-error-typed-validation-cause', {
+    kind: 'forward',
+    signature: 'question:string -> count:number',
+    input: { question: 'Count' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    forward_options: { maxRetries: 0, stream: false },
+    responses: [{ content: 'Count: many' }],
+    expected_error_contains: error.message,
+    expected_generate_error: true,
+    expected_error_cause_contains: String(
+      error.cause instanceof Error ? error.cause.message : error.cause
+    ),
+    expected_request_count: 1,
+  });
+}
+
+// JSON-looking text stays text; native structured output is selected separately.
+for (const [name, signature, content] of [
+  [
+    'text-contract-json-string-default',
+    'question:string -> answer:string',
+    '{"answer":"Paris"}',
+  ],
+  [
+    'text-contract-json-multifield-rejected',
+    'question:string -> answer:string, score:number',
+    '{"answer":"Paris","score":1}',
+  ],
+  [
+    'text-contract-optional-null-omitted',
+    'question:string -> displayName:string, middleName?:string',
+    'Display Name: Ada\nMiddle Name: null',
+  ],
+] as const) {
+  const client = new AxMockAIService({
+    features: { functions: false, streaming: false, structuredOutputs: false },
+    chatResponse: { results: [{ index: 0, content, finishReason: 'stop' }] },
+  });
+  let output: unknown;
+  let error: string | undefined;
+  try {
+    output = await ax(signature).forward(
+      client,
+      { question: 'Answer' },
+      { stream: false, maxRetries: 0 }
+    );
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : String(cause);
+  }
+  writeFixture(name, {
+    kind: 'forward',
+    signature,
+    input: { question: 'Answer' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    forward_options: { stream: false, maxRetries: 0 },
+    responses: [{ content }],
+    ...(error === undefined
+      ? { expected_output: output as Json }
+      : { expected_error_contains: error }),
+    expected_request_count: 1,
+  });
 }
 
 // Pin cached/dynamic user-message boundaries against the real TS generator.

@@ -24,7 +24,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-6-luna" : model},
   }));
 
   axllm::Value bullet = axllm::object({
@@ -52,7 +52,7 @@ int main() {
           {"ai", axllm::Core::client_ref(*client)},
           {"contextFields", axllm::array({})},
           {"runtime", axllm::object({{"language", "JavaScript"}})},
-          {"playbook", axllm::object({{"seed", seed}})},
+          {"playbook", axllm::object({{"playbook", seed}, {"seed", 7}})},
           {"citations", axllm::object({{"surface", "hidden"}})},
       }));
   assistant

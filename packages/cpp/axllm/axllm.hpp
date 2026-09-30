@@ -258,6 +258,11 @@ class AxError : public std::runtime_error {
   std::shared_ptr<const AxError> cause_;
 };
 
+class AxGenerateError : public AxError {
+ public:
+  explicit AxGenerateError(const AxError& error) : AxError(error) {}
+};
+
 class AxAIServiceAbortedError : public AxError {
  public:
   explicit AxAIServiceAbortedError(std::string reason = "")
@@ -459,6 +464,7 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  static Value exception_generate(Value error, Value message);
   // The lowercase hex SHA-256 of the text's UTF-8 bytes.
   static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);
@@ -532,6 +538,7 @@ struct Core {
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
   static Value agent_clarification_error(Value payload, Value state);
+  static Value agent_runtime_is_executable(Value runtime);
   static Value agent_runtime_create_session(Value runtime, Value globals, Value options);
   static Value agent_runtime_execute(Value session, Value code, Value options);
   static Value agent_runtime_inspect(Value session, Value options);
@@ -700,8 +707,8 @@ struct Core {
   static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value chat_response_to_completion(Value response);
   static Value _openai_normalize_tool_calls_impl(Value calls);
-  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value _openai_finish_reason_impl(Value value);
+  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
@@ -911,7 +918,7 @@ struct Core {
   static Value _openai_responses_apply_prompt_cache_key(Value payload, Value options);
   static Value provider_call_timeout_ms(Value options);
   static Value provider_call_timeout_message(Value timeout_ms);
-  static Value provider_warn_call_timeout(Value options, Value seconds);
+  static Value provider_normalize_call_options(Value options);
   static Value _provider_sampling_is_one_impl(Value value);
   static Value _anthropic_sampling_impl(Value payload, Value model_config, Value model, Value explicit_keys, Value is_vertex);
   static Value _anthropic_deprecates_sampling_impl(Value model);
@@ -992,12 +999,12 @@ struct Core {
   static Value _date_zone_resolve_impl(Value units, Value start, Value end, Value zone, Value probe);
   static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value _stream_js_string_impl(Value value);
+  static Value _select_sample_index(Value samples, Value options);
   static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
   static Value chat_session_record_result(Value gen, Value state, Value call, Value result, Value ok, Value options);
-  static Value _select_sample_index(Value samples, Value options);
   static Value _filter_optimization_components(Value components, Value target);
-  static Value _regex_class_atom(Value s);
   static Value _forward_impl(Value gen, Value client, Value values, Value options);
+  static Value _regex_class_atom(Value s);
   static Value _date_offset_zone_minutes_impl(Value units, Value start, Value end);
   static Value _stream_js_number_impl(Value value);
   static Value _regex_character_class(Value s);
@@ -1047,15 +1054,15 @@ struct Core {
   static Value _set_examples(Value gen, Value examples);
   static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
   static Value _set_demos(Value gen, Value demos);
+  static Value _render_examples(Value gen);
   static Value _regex_alternative(Value s);
   static Value chat_session_has_queued_updates(Value state);
-  static Value _render_examples(Value gen);
   static Value _render_demos(Value gen);
   static Value chat_session_native_update(Value state, Value id);
   static Value _date_strip_code_fence_impl(Value value);
   static Value _apply_field_processors(Value gen, Value output);
-  static Value _ace_dedupe_playbook(Value playbook);
   static Value _run_assertions(Value gen, Value output);
+  static Value _ace_dedupe_playbook(Value playbook);
   static Value chat_session_native_wait(Value state);
   static Value _regex_word(Value c);
   static Value _stream_field_value_impl(Value field, Value text);
@@ -1063,8 +1070,8 @@ struct Core {
   static Value chat_session_native_event(Value state, Value event);
   static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
-  static Value _date_native_offset_impl(Value units, Value index, Value mode);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
+  static Value _date_native_offset_impl(Value units, Value index, Value mode);
   static Value _regex_space(Value c);
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _parse_output_impl(Value content);
@@ -1078,12 +1085,12 @@ struct Core {
   static Value chat_session_boundary_action(Value state);
   static Value _date_skip_space_impl(Value units, Value start, Value end);
   static Value _date_space_impl(Value unit);
-  static Value _stream_text_state_impl();
   static Value _parse_json_string_fields(Value output_fields, Value values);
+  static Value _stream_text_state_impl();
   static Value chat_session_mark_submitted(Value state, Value ids);
   static Value _date_is_line_terminator_impl(Value unit);
-  static Value _stream_text_note_field_impl(Value xstate, Value field, Value init_streamed);
   static Value _parse_json_string_for_fields(Value fields_map, Value values);
+  static Value _stream_text_note_field_impl(Value xstate, Value field, Value init_streamed);
   static Value chat_session_queue_update(Value state, Value update);
   static Value _date_ascii_letter_impl(Value unit);
   static Value _validate_exact_output_keys(Value fields, Value values, Value context);
@@ -1095,8 +1102,8 @@ struct Core {
   static Value _ace_is_noop_acknowledgment(Value content);
   static Value chat_session_close_state(Value state);
   static Value _date_digits_impl(Value units, Value at, Value count, Value end);
-  static Value chat_session_transition(Value state, Value event);
   static Value _tool_spec_impl(Value fn);
+  static Value chat_session_transition(Value state, Value event);
   static Value _function_call_mode_impl(Value mode);
   static Value _date_expect_unit_impl(Value units, Value at, Value end, Value expected);
   static Value _regex_push(Value stack, Value top, Value value);
@@ -1127,10 +1134,10 @@ struct Core {
   static Value _signature_has_complex_fields(Value signature, Value options);
   static Value _date_js_json_impl(Value value);
   static Value _stream_text_extract_values_impl(Value content, Value fields, Value strict_mode);
-  static Value _stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete);
   static Value _caller_function_call_impl(Value options);
-  static Value _date_js_json_string_impl(Value text);
+  static Value _stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete);
   static Value _function_call_forces_tool_impl(Value choice);
+  static Value _date_js_json_string_impl(Value text);
   static Value _function_call_names_output_impl(Value choice);
   static Value _append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage);
   static Value _ace_normalize_reflection_bullet_tags(Value reflection);
@@ -1164,44 +1171,44 @@ struct Core {
   static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _regex_copy_map(Value value);
   static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
-  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode);
+  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _generate_failed_impl(Value error);
   static Value _unable_to_fix_impl(Value error, Value output);
-  static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
   static Value _attempt_output_impl(Value response);
   static Value _max_tokens_error_impl(Value response);
-  static Value _stream_json_select_fields_impl(Value fields, Value values);
+  static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
   static Value _strict_mode_option_impl(Value base_options, Value options);
   static Value _feedback_message_impl(Value text);
-  static Value _stream_json_nested_fields_impl(Value fields_map);
   static Value _caching_function_option_impl(Value gen, Value options);
-  static Value _stream_json_flexible_impl(Value field);
+  static Value _stream_json_select_fields_impl(Value fields, Value values);
   static Value _cache_key_impl(Value gen, Value values);
-  static Value _stream_json_string_value_impl(Value field, Value value);
-  static Value _stream_json_strings_for_field_impl(Value field, Value value);
+  static Value _stream_json_nested_fields_impl(Value fields_map);
+  static Value _stream_json_flexible_impl(Value field);
   static Value _cache_store_impl(Value cache_fn, Value key, Value output);
+  static Value _stream_json_string_value_impl(Value field, Value value);
   static Value _cache_store_streamed_impl(Value cache_fn, Value key, Value output);
+  static Value _stream_json_strings_for_field_impl(Value field, Value value);
   static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
-  static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
-  static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _cache_lookup_option_impl(Value options);
   static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
-  static Value _stream_state_impl(Value index);
-  static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
+  static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
+  static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _structured_output_render_options_impl(Value selection);
+  static Value _stream_state_impl(Value index);
   static Value _completion_function_call_problems(Value response);
+  static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
   static Value _check_completion_function_calls(Value response, Value options);
-  static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);
   static Value _include_optional_render_option_impl(Value render_options, Value options);
+  static Value _memory_cleanup_option_impl(Value options);
+  static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);
+  static Value _settle_failed_attempts_impl(Value messages, Value failed, Value cleanup);
   static Value _stream_run_new_version_impl(Value run, Value version);
   static Value _stream_yield_impl(Value run, Value version, Value index, Value delta);
-  static Value _memory_cleanup_option_impl(Value options);
-  static Value _settle_failed_attempts_impl(Value messages, Value failed, Value cleanup);
   static Value _function_result_text_impl(Value result, Value options);
-  static Value _stream_marker_incomplete_impl(Value marker);
   static Value _run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options);
+  static Value _stream_marker_incomplete_impl(Value marker);
   static Value _stream_apply_structured_impl(Value state, Value fields, Value parsed, Value marker, Value held);
   static Value _stream_feedback_text_impl(Value result);
   static Value _stream_run_processors_impl(Value gen, Value kind, Value state, Value content, Value done);
@@ -1456,6 +1463,9 @@ struct Core {
   static Value _agent_stage_render_audio(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _agent_actor_stage_signatures(Value state, Value runtime_enabled, Value contract);
+  static Value _agent_resolve_actor_mode(Value options);
+  static Value _agent_resolve_run_actor_mode(Value state, Value options);
+  static Value _agent_validate_run_runtime(Value state, Value options);
   static Value _agent_runtime_configured(Value state);
   static Value _agent_stage_mode_fields(Value state);
   static Value _agent_runtime_stage_fields(Value state, Value runtime);
@@ -2349,18 +2359,13 @@ class AxGen : public AxProgram {
   // sends it once, transformed.
   AxGen& add_field_transform(std::string field, std::string op);
   AxGen& add_field_transform(std::string field, std::function<Value(Value)> transform);
-  // Deprecated: rewrites the field like add_field_transform and warns once.
-  // In the next major version add_field_processor follows TypeScript (the
-  // Feedback mode below).
-  AxGen& add_field_processor(std::string field, std::string op);
-  AxGen& add_field_processor(std::string field, std::function<Value(Value)> processor);
   // Feedback: TypeScript's addFieldProcessor. processor runs on the field's
   // final value, and a non-empty result is sent to the model as a user
   // message for another step, whose answer replaces the earlier one.
   // Transform: the result replaces the field value, as add_field_transform.
   // An exception processor throws ends the forward without a retry. Throws
   // AxError when field is not an output field.
-  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode);
+  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode = AxFieldProcessorMode::Feedback);
   // TypeScript's addStreamingFieldProcessor: processor runs on each streamed
   // chunk of a string or code field with the field's text so far, and a
   // non-empty result goes back to the model as in Feedback mode. Throws

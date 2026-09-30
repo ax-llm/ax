@@ -16,7 +16,7 @@
   "name": "field-processor",
   "responses": [
     {
-      "content": "{\"answer\":\"paris\"}"
+      "content": "Answer: paris"
     }
   ],
   "signature": "question:string -> answer:string"

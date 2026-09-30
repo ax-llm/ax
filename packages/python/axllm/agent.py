@@ -2278,8 +2278,7 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
-        # `seed` key with a deprecation warning.
+        # TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
         seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:
@@ -2681,6 +2680,10 @@ def _core_agent_clarification_error(payload, state):
     )
 
 
+def _core_agent_runtime_is_executable(runtime):
+    return callable(getattr(runtime, "create_session", None))
+
+
 def _core_agent_runtime_create_session(runtime, globals_, options):
     if not hasattr(runtime, "create_session"):
         raise RuntimeError("agent runtime does not implement AxCodeRuntime")
@@ -2911,11 +2914,8 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     status_log = []
     state = {}
     runtime_contract = _normalize_agent_runtime(options)
-    has_runtime_direct = _core_map_contains(options, "runtime")
-    has_runtime_config = _core_map_contains(options, "runtimeConfig")
-    has_runtime_config_snake = _core_map_contains(options, "runtime_config")
-    has_any_runtime_config = _core_or(has_runtime_config, has_runtime_config_snake)
-    runtime_enabled = _core_or(has_runtime_direct, has_any_runtime_config)
+    actor_mode = _agent_resolve_actor_mode(options)
+    runtime_enabled = _core_eq(actor_mode, "runtime")
     context_policy = _resolve_agent_context_policy(options)
     executor_model_policy = _resolve_agent_executor_model_policy(options)
     callable_inventory = _normalize_agent_callable_inventory(options)
@@ -3198,7 +3198,8 @@ def _agent_runtime_code_fence_language(tokens: Any, alias_key: str, is_javascrip
 def _normalize_agent_runtime(options: Any) -> Any:
     _core_coverage_mark("_normalize_agent_runtime")
     empty_map = {}
-    runtime_camel = _core_get(options, "runtimeConfig", empty_map)
+    runtime_snake = _core_get(options, "runtime_config", empty_map)
+    runtime_camel = _core_get(options, "runtimeConfig", runtime_snake)
     runtime = _core_get(options, "runtime", runtime_camel)
     raw_language = _core_get(runtime, "language", "JavaScript")
     trimmed_language = str(raw_language).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
@@ -8747,13 +8748,9 @@ def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
     _core_map_delete(runtime_options, "mcpContext")
     _core_map_delete(runtime_options, "functions")
     runtime_options["reservedNames"] = reserved_names
-    timeout_ms = _core_get(options, "timeout_ms", None)
-    timeout = _core_get(options, "timeout", timeout_ms)
-    has_timeout = _core_is_not_none(timeout)
-    if has_timeout:
-        runtime_options["timeout"] = timeout
-    else:
-        pass
+    _core_map_delete(runtime_options, "timeout")
+    _core_map_delete(runtime_options, "timeout_ms")
+    _core_map_delete(runtime_options, "timeoutMs")
     abort_snake = _core_get(options, "abort", False)
     aborted = _core_get(options, "aborted", abort_snake)
     abort_signal = _core_get(options, "abortSignal", aborted)
@@ -10472,20 +10469,6 @@ def _agent_playbook_config_seed(config: Any) -> Any:
         return bare
     else:
         pass
-    legacy = _core_get(config, "seed", None)
-    legacy_is_object = _core_type_is(legacy, "object")
-    if legacy_is_object:
-        _core_axgen_deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
-        legacy_has_playbook = _core_map_contains(legacy, "playbook")
-        if legacy_has_playbook:
-            return legacy
-        else:
-            pass
-        wrapped = {}
-        wrapped["playbook"] = legacy
-        return wrapped
-    else:
-        pass
     artifact = _core_get(config, "artifact", None)
     has_artifact_only = _core_is_not_none(artifact)
     if has_artifact_only:
@@ -11976,6 +11959,7 @@ def _agent_run_llm_query_one(sub_gen: Any, client: Any, item: Any, options: Any)
     values["task"] = query
     values["context"] = context
     sub_options = _core_map_merge(empty_map, options)
+    _core_map_delete(sub_options, "runtime")
     parent_snake = _core_get(options, "execution_path", "root")
     parent = _core_get(options, "executionPath", parent_snake)
     path = _core_string_format("{}/llmQuery", parent)
@@ -12931,6 +12915,84 @@ def _agent_actor_stage_signatures(state: Any, runtime_enabled: bool, contract: A
     return out
 
 
+def _agent_resolve_actor_mode(options: Any) -> str:
+    _core_coverage_mark("_agent_resolve_actor_mode")
+    camel = _core_get(options, "actorMode", "runtime")
+    mode = _core_get(options, "actor_mode", camel)
+    runtime = _core_eq(mode, "runtime")
+    completion = _core_eq(mode, "completion")
+    valid = _core_or(runtime, completion)
+    invalid = _core_not(valid)
+    if invalid:
+        error = _core_runtime_error("actorMode must be 'runtime' or 'completion'")
+        raise error
+    else:
+        pass
+    if completion:
+        direct = _core_get(options, "runtime", None)
+        camel_config = _core_get(options, "runtimeConfig", None)
+        config = _core_get(options, "runtime_config", camel_config)
+        has_direct = _core_is_not_none(direct)
+        has_config = _core_is_not_none(config)
+        conflict = _core_or(has_direct, has_config)
+        if conflict:
+            error = _core_runtime_error("actorMode 'completion' cannot be combined with a runtime")
+            raise error
+        else:
+            pass
+    else:
+        pass
+    return mode
+
+
+def _agent_resolve_run_actor_mode(state: Any, options: Any) -> str:
+    _core_coverage_mark("_agent_resolve_run_actor_mode")
+    configured = _core_get(state, "options", None)
+    default_mode = _agent_resolve_actor_mode(configured)
+    camel = _core_get(options, "actorMode", default_mode)
+    mode = _core_get(options, "actor_mode", camel)
+    copy = {}
+    copy = _core_map_merge(copy, configured)
+    copy["actorMode"] = mode
+    copy["actor_mode"] = mode
+    resolved = _agent_resolve_actor_mode(copy)
+    return resolved
+
+
+def _agent_validate_run_runtime(state: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_validate_run_runtime")
+    configured = _core_get(state, "options", None)
+    mode = _agent_resolve_run_actor_mode(state, options)
+    call_runtime = _core_get(options, "runtime", None)
+    completion = _core_eq(mode, "completion")
+    if completion:
+        has_runtime = _core_is_not_none(call_runtime)
+        if has_runtime:
+            error = _core_runtime_error("actorMode 'completion' cannot be combined with a runtime")
+            raise error
+        else:
+            pass
+        return call_runtime
+    else:
+        pass
+    constructor_runtime = _core_get(configured, "runtime", None)
+    constructor_executable = _core_agent_runtime_is_executable(constructor_runtime)
+    runtime = call_runtime
+    if constructor_executable:
+        runtime = constructor_runtime
+    else:
+        pass
+    executable = _core_agent_runtime_is_executable(runtime)
+    missing = _core_not(executable)
+    if missing:
+        error = _core_runtime_error("Agent runtime mode requires an executable AxCodeRuntime before forward; pass a runtime or select actorMode 'completion'")
+        raise error
+    else:
+        pass
+    options["runtime"] = runtime
+    return runtime
+
+
 def _agent_runtime_configured(state: Any) -> bool:
     _core_coverage_mark("_agent_runtime_configured")
     empty_map = {}
@@ -12995,13 +13057,21 @@ def _agent_runtime_stage_fields(state: Any, runtime: Any) -> Any:
 
 def _agent_use_stage_mode(state: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_use_stage_mode")
+    state_options = _core_get(state, "options", None)
+    actor_mode = _agent_resolve_run_actor_mode(state, options)
+    runtime_mode = _core_eq(actor_mode, "runtime")
     configured = _agent_runtime_configured(state)
-    runtime = _core_get(options, "runtime", None)
-    has_runtime = _core_is_not_none(runtime)
-    runtime_mode = _core_or(configured, has_runtime)
+    runtime = _agent_validate_run_runtime(state, options)
     mode = "plain"
     if runtime_mode:
         mode = "runtime"
+        unconfigured = _core_not(configured)
+        if unconfigured:
+            language = _core_agent_runtime_language(runtime)
+            usage = _core_agent_runtime_usage_instructions(runtime)
+            mode = _core_string_format("runtime:{}:{}", language, usage)
+        else:
+            pass
     else:
         pass
     state_runtime = _core_get(state, "runtime_enabled", False)
@@ -13022,7 +13092,16 @@ def _agent_use_stage_mode(state: Any, options: Any) -> Any:
         if cached:
             pass
         else:
-            target = _agent_runtime_stage_fields(state, runtime)
+            if runtime_mode:
+                target = _agent_runtime_stage_fields(state, runtime)
+            else:
+                plain_options = {}
+                plain_options = _core_map_merge(plain_options, state_options)
+                plain_options["actorMode"] = "completion"
+                plain_options["actor_mode"] = "completion"
+                signature = _core_get(state, "signature", None)
+                plain_state = _agent_factory(signature, plain_options)
+                target = _agent_stage_mode_fields(plain_state)
         for field in target:
             field_value = _core_get(target, field, None)
             state[field] = field_value

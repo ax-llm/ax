@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:7e235651da4af21736dd128edb4e3024bf12180c471763575724244be64cdb22"
+      "digest": "sha256:39e37cb80acb5469eabf035a5b8e42d5291d9814ff7e99e613bbfc6a0c1d7438"
     },
     {
       "name": "ax-cpp-typesafe",
@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-cpp-audio/SKILL.md",
-      "digest": "sha256:feab5be48ca0b9b4bcc15a819862b44915cf9978f82e91de43229c74c9b3ae10"
+      "digest": "sha256:c4683b6b553bc05d439710a21232b377c0838ddae48fa98e8871ae6e4a6f9039"
     },
     {
       "name": "ax-cpp-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:2c121ce8a8ac7e9ab40ba035be03c2c2c3fc815f2ec6f1d92a48fdf6753d6c62"
+      "digest": "sha256:7b09794e7fb342682d1268283a6a21829d4c185a7c2ed79810eedfe523b55ef2"
     },
     {
       "name": "ax-cpp-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:1be89993b3f3b2ba8d0bc91c5c913b8c42f151bf6546817ac7781bf8bb367bfb"
+      "digest": "sha256:3099c87b889ea074038f127c16d6faf5f7e6d083aaf9c2aca9c70b2fafc24458"
     },
     {
       "name": "ax-cpp-agent-rlm",

@@ -1,5 +1,5 @@
 {
-  "description": "Port-only: an agent forward timeoutMs reaches each of the 3 stage ai.chat calls, as TS's forward timeout does (this extractor checks TS with timeout: 250).",
+  "description": "An agent forward timeout reaches each of the 3 stage ai.chat calls, as TS's forward timeout does (this extractor checks TS with timeout: 250).",
   "expected_chat_options_all_subset": {
     "timeoutMs": 250
   },
@@ -23,7 +23,7 @@
     "structured_outputs": false
   },
   "forward_options": {
-    "timeoutMs": 250
+    "timeout": 250
   },
   "input": {
     "question": "How long do refunds take?"

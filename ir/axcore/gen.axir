@@ -485,7 +485,7 @@ module @ax.gen version "0.1" {
         %output = core.map
         %extracted = core.let false
         core.if %text_contract {
-          // TS extractValues, after the port-only JSON object fallback.
+          // TS extractValues for the text contract.
           %text_parsed = core.call @parse_text_contract_output_impl(%content, %output_fields, %strict_mode)
           %output = core.get %text_parsed["values"]
           %extracted = core.get %text_parsed["extracted"] default false
@@ -516,11 +516,6 @@ module @ax.gen version "0.1" {
         core.if %not_extracted {
           %recovered = core.call @parse_json_string_fields(%output_fields, %output)
           %validated = core.call @stream_json_validate_output_impl(%output_fields, %recovered)
-          core.if %text_contract {
-            // The deprecated JSON object fallback stands in for the text
-            // contract, whose required check includes internal fields.
-            core.call @stream_text_required_check_impl(%validated, %output_fields)
-          }
         }
         // The answer's values parsed: TS's memory cleanup runs here, before
         // the field processors and assertions (response/nonStreaming.ts).
@@ -2589,47 +2584,8 @@ module @ax.gen version "0.1" {
     tag "src/ax/dsp/extract/streamingText.ts"
     type signature = "(string, list<Field>, bool) -> json throws"
     body @entry(%content: string, %output_fields: list<Field>, %strict_mode: bool) {
-      // TS extractValues parses `Label: value` answers. For compatibility the
-      // ports still read an answer that is exactly one JSON object whose keys
-      // are all output fields; that fallback is deprecated and TS treats such
-      // an answer as text. Strict mode, which requires labels, skips it.
+      // Text answers always follow TypeScript extractValues.
       %out = core.map
-      %trimmed = core.string_trim %content
-      %opens_object = core.call intrinsic.string.starts_with(%trimmed, "{")
-      %lenient = core.call intrinsic.not(%strict_mode)
-      %looks_json = core.call intrinsic.and(%opens_object, %lenient)
-      core.if %looks_json {
-        %candidate = core.call intrinsic.none()
-        core.try {
-          %candidate = core.call intrinsic.json.parse_strict(%trimmed)
-        } catch %not_json {
-        }
-        %is_object = core.type_is %candidate type "object"
-        core.if %is_object {
-          %declared_only = core.let true
-          %keys = core.call intrinsic.map.keys(%candidate)
-          core.for %key in %keys {
-            %declared = core.let false
-            core.for %field in %output_fields {
-              %field_name = core.get %field["name"] default ""
-              %same = core.call intrinsic.eq(%field_name, %key)
-              core.if %same {
-                %declared = core.let true
-              }
-            }
-            %undeclared = core.call intrinsic.not(%declared)
-            core.if %undeclared {
-              %declared_only = core.let false
-            }
-          }
-          core.if %declared_only {
-            core.call intrinsic.axgen.deprecation("json-text-contract", "A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")
-            core.set %out["values"] = %candidate
-            core.set %out["extracted"] = false
-            core.return %out
-          }
-        }
-      }
       %values = core.call @stream_text_extract_values_impl(%content, %output_fields, %strict_mode)
       core.set %out["values"] = %values
       core.set %out["extracted"] = true
@@ -2646,15 +2602,13 @@ module @ax.gen version "0.1" {
     body @entry(%error: error) {
       // enhanceError: a generation failure surfaces as "Generate failed: ..."
       // with the original error as its cause; an abort surfaces as it is.
-      // TS wraps it in AxGenerateError; the ports keep the original error's
-      // class until the next major.
       %aborted = core.call intrinsic.exception.is_aborted(%error)
       core.if %aborted {
         core.return %error
       }
       %text = core.call intrinsic.exception.message(%error)
       %message = core.call intrinsic.add("Generate failed: ", %text)
-      %wrapped = core.call intrinsic.exception.rewrap(%error, %message)
+      %wrapped = core.call intrinsic.exception.generate(%error, %message)
       core.return %wrapped
     }
   }

@@ -1,117 +1,19 @@
 {
-  "kind": "flow",
-  "name": "simple-forward-returns",
-  "program_id": "qa.flow",
-  "source": {
-    "tsDerived": true,
-    "extractor": "tools/axir/extractors/flow-goldens.ts",
-    "reference": [
-      "src/ax/flow/flow.ts",
-      "src/ax/flow/steps.ts",
-      "src/ax/flow/executor.ts",
-      "src/ax/flow/executionPlanner.ts",
-      "src/ax/flow/mermaid.ts",
-      "src/ax/flow/dependencyAnalyzer.ts",
-      "src/ax/dsp/program.ts"
-    ],
-    "name": "simple-forward-returns",
-    "observed": {
-      "output": {
-        "answer": "Paris"
-      },
-      "plan": {
-        "totalSteps": 2,
-        "parallelGroups": 2,
-        "maxParallelism": 1,
-        "steps": [
-          {
-            "name": "qa",
-            "kind": "execute",
-            "reads": ["question"],
-            "writes": ["qaResult"],
-            "barrier": false,
-            "stepIndex": 0
-          },
-          {
-            "name": "returns",
-            "kind": "returns",
-            "reads": [],
-            "writes": [],
-            "barrier": true,
-            "stepIndex": 1
-          }
-        ],
-        "groups": [
-          {
-            "level": 0,
-            "steps": [
-              {
-                "name": "qa",
-                "kind": "execute",
-                "reads": ["question"],
-                "writes": ["qaResult"],
-                "barrier": false,
-                "stepIndex": 0
-              }
-            ]
-          },
-          {
-            "level": 1,
-            "steps": [
-              {
-                "name": "returns",
-                "kind": "returns",
-                "reads": [],
-                "writes": [],
-                "barrier": true,
-                "stepIndex": 1
-              }
-            ]
-          }
-        ]
-      },
-      "chatLogNames": ["qa"],
-      "usageCount": 1,
-      "traceCount": 1
-    }
-  },
-  "input": {
-    "question": "Capital of France?"
-  },
-  "steps": [
+  "expected_chat_log_subset": [
     {
-      "kind": "execute",
-      "name": "qa",
-      "signature": "question:string -> answer:string",
-      "options": {
-        "reads": ["question"],
-        "writes": ["qaResult"],
-        "isBarrier": false
-      }
+      "name": "qa"
     }
   ],
-  "returns": {
-    "answer": "answer"
-  },
-  "responses": [
+  "expected_components_subset": [
     {
-      "content": "{\"answer\":\"Paris\"}",
-      "usage": {
-        "prompt_tokens": 1,
-        "completion_tokens": 2,
-        "total_tokens": 3
-      }
+      "id": "qa.flow::graph-plan",
+      "kind": "flow-graph"
     }
   ],
   "expected_output": {
     "answer": "Paris"
   },
   "expected_request_count": 1,
-  "expected_chat_log_subset": [
-    {
-      "name": "qa"
-    }
-  ],
   "expected_trace_kinds": [
     "flow_start",
     "flow_step",
@@ -127,16 +29,114 @@
   "expected_usage_subset": {
     "qa": [
       {
-        "prompt_tokens": 1,
         "completion_tokens": 2,
+        "prompt_tokens": 1,
         "total_tokens": 3
       }
     ]
   },
-  "expected_components_subset": [
+  "input": {
+    "question": "Capital of France?"
+  },
+  "kind": "flow",
+  "name": "simple-forward-returns",
+  "program_id": "qa.flow",
+  "responses": [
     {
-      "id": "qa.flow::graph-plan",
-      "kind": "flow-graph"
+      "content": "Answer: Paris",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "total_tokens": 3
+      }
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
+  "source": {
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "simple-forward-returns",
+    "observed": {
+      "chatLogNames": ["qa"],
+      "output": {
+        "answer": "Paris"
+      },
+      "plan": {
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "barrier": false,
+                "kind": "execute",
+                "name": "qa",
+                "reads": ["question"],
+                "stepIndex": 0,
+                "writes": ["qaResult"]
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "barrier": true,
+                "kind": "returns",
+                "name": "returns",
+                "reads": [],
+                "stepIndex": 1,
+                "writes": []
+              }
+            ]
+          }
+        ],
+        "maxParallelism": 1,
+        "parallelGroups": 2,
+        "steps": [
+          {
+            "barrier": false,
+            "kind": "execute",
+            "name": "qa",
+            "reads": ["question"],
+            "stepIndex": 0,
+            "writes": ["qaResult"]
+          },
+          {
+            "barrier": true,
+            "kind": "returns",
+            "name": "returns",
+            "reads": [],
+            "stepIndex": 1,
+            "writes": []
+          }
+        ],
+        "totalSteps": 2
+      },
+      "traceCount": 1,
+      "usageCount": 1
+    },
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "qa",
+      "options": {
+        "isBarrier": false,
+        "reads": ["question"],
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
     }
   ]
 }

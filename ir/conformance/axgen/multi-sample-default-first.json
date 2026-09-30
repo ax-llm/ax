@@ -13,17 +13,17 @@
       "results": [
         {
           "index": 0,
-          "content": "{\"answer\":\"first\"}",
+          "content": "Answer: first",
           "function_calls": []
         },
         {
           "index": 1,
-          "content": "{\"answer\":\"second\"}",
+          "content": "Answer: second",
           "function_calls": []
         },
         {
           "index": 2,
-          "content": "{\"answer\":\"third\"}",
+          "content": "Answer: third",
           "function_calls": []
         }
       ]

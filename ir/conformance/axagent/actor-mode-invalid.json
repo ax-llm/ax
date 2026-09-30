@@ -1,0 +1,9 @@
+{
+  "expected_error_contains": "actorMode must be 'runtime' or 'completion'",
+  "kind": "agent_runtime_policy",
+  "name": "actor-mode-invalid",
+  "options": {
+    "actorMode": "invalid"
+  },
+  "signature": "question:string -> answer:string"
+}

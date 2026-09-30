@@ -43,7 +43,7 @@
       "content": "{\"javascriptCode\":\"const r = await crm.lookup({ id: 'c-7' }); final(\\\"Report the tier\\\", { tierProbe: r.tier + ':' + (6 * 7) })\"}"
     },
     {
-      "content": "{\"answer\":\"gold\"}"
+      "content": "Answer: gold"
     }
   ],
   "expected_output": {

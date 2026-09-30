@@ -76,5 +76,8 @@
       "content": "{\"answer\":\"Paris\"}"
     }
   ],
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

@@ -18,10 +18,10 @@
   "name": "parallel-group-keeps-earlier-step-update",
   "responses": [
     {
-      "content": "{\"summary\":\"new\"}"
+      "content": "Summary: new"
     },
     {
-      "content": "{\"title\":\"title\"}"
+      "content": "Title: title"
     }
   ],
   "returns": {

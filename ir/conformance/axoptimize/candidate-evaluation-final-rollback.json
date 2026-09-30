@@ -49,8 +49,11 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

@@ -1543,6 +1543,8 @@ func outermostAxError(err error) (AxError, bool) {
 		switch e := err.(type) {
 		case AxError:
 			return e, true
+		case AxGenerateError:
+			return e.AxError, true
 		case AxAIServiceAbortedError:
 			return e.AIServiceError.AxError, true
 		case AIServiceError:
@@ -2218,8 +2220,15 @@ func _core_exception_message(err Value) Value { return display(coreGet(err, "mes
 // _core_exception_rewrap is the error with a new message and the original as
 // its cause (Unwrap). It keeps the error's class and category: an error value
 // the IR caught becomes the AxError it raises as, and a Go Ax error keeps its
-// concrete type. TS wraps it in AxGenerateError, which the ports adopt at the
-// next major.
+// concrete type for intermediate context; the generation boundary wraps it
+// in AxGenerateError.
+// AxGenerateError preserves the generation failure for errors.As/Unwrap.
+type AxGenerateError struct { AxError }
+
+func _core_exception_generate(err Value, message Value) Value {
+    return AxGenerateError{AxError{Category: "generate", Type: "AxGenerateError", Message: display(message), cause: asError(err)}}
+}
+
 func _core_exception_rewrap(err Value, message Value) Value {
 	original := asError(err)
 	text := display(message)
@@ -4004,12 +4013,6 @@ func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first
 	}
 }
 
-// warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
-// ignores it until the next major version and warns once, naming timeoutMs.
-func warnCallTimeout(options map[string]Value) {
-	mustCore(provider_warn_call_timeout(stripRuntimeHooks(options), false))
-}
-
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
 	ctx, timer := startRequestTimer(ctx, req)
@@ -4179,7 +4182,7 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
     return models, err
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
-    opts := mergeAIOptions(c.client.optionsSnapshot(), options)
+    opts := mergeAIOptions(c.client.optionsSnapshot(), asMap(mustCore(provider_normalize_call_options(options))))
     timeout := num(coreGet(opts, "timeout", 0))
     config := mustCore(resolve_stream_retry(Value(opts)))
     for attempt := 0; ; attempt++ {
@@ -4522,7 +4525,6 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -4786,7 +4788,6 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -4924,7 +4925,6 @@ func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, req
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
-    warnCallTimeout(options)
     request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
@@ -5263,7 +5263,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	}
 	// The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds the
 	// wait for the response headers; HTTPTransport honors it.
-	if operation == "chat" || operation == "stream_chat" || operation == "embed" {
+	if operation == "chat" || operation == "stream_chat" || operation == "embed" || operation == "models" {
 		if timeoutMs := mustCore(provider_call_timeout_ms(opts)); timeoutMs != nil {
 			coreSet(out, "timeout_ms", timeoutMs)
 		}
@@ -7562,6 +7562,9 @@ func (g *AxGen) runCancellation(ctx context.Context, options map[string]Value) (
 		return ctx, func() {}
 	}
 	run, cancel := context.WithCancelCause(ctx)
+	// AfterFunc runs asynchronously even for an already cancelled token.
+	// Preserve preflight cancellation before the first provider call.
+	if token.Err() != nil { cancel(context.Cause(token)) }
 	release := context.AfterFunc(token, func() { cancel(context.Cause(token)) })
 	return run, func() {
 		release()
@@ -8797,8 +8800,7 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	if config == nil {
 		config = Object()
 	}
-	// TS's `playbook` seed (a snapshot or a bare playbook), or the older
-	// `seed` key with a deprecation warning.
+	// TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
 	seed := mustCore(_agent_playbook_config_seed(config))
 	options := cloneMap(config)
 	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {
@@ -12279,6 +12281,7 @@ func _core_agent_clarification_error(values ...Value) Value {
 	}
 	return Object("__error", "clarification", "message", message, "payload", payload)
 }
+func _core_agent_runtime_is_executable(runtime Value) Value { _, ok := runtime.(CodeRuntime); return ok }
 func _core_agent_runtime_create_session(values ...Value) (Value, error) {
 	if len(values) < 1 {
 		return nil, AxError{Category: "runtime", Message: "agent runtime create session missing arguments"}
@@ -15779,7 +15782,7 @@ func runConformanceAICancellation(fixture map[string]Value) {
 	cancellationFlow := NewFlow(Object("id", "cancellation-flow"))
 	cancellationFlow.Execute("answer", flowGen, nil)
 	cancellationGen := NewAx("question:string -> answer:string", nil)
-	cancellationAgent := NewAgent("question:string -> answer:string", nil)
+	cancellationAgent := NewAgent("question:string -> answer:string", Object("actorMode", "completion"))
 	programs := []struct{name string; forward func() (Value, error)}{
 		{"AxGen", func() (Value, error) { return cancellationGen.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
 		{"AxAgent", func() (Value, error) { return cancellationAgent.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
@@ -16829,7 +16832,7 @@ func conformanceVerificationSummary() Value {
 		"toolName", coreGet(coreGet(toolCall, "function", Object()), "name", nil),
 		"profileId", coreGet(profile, "id", nil),
 		"geminiText", coreGet(geminiTranscript, "text", nil),
-		"geminiAudio", coreGet(geminiSpeech, "audio", nil),
+		"geminiAudio", coreGet(geminiSpeech, "data", nil),
 		"grokCodec", coreGet(coreGet(grokSpeak, "output_format", Object()), "codec", nil),
 		"grokFormat", coreGet(grokTranscribe, "format", nil),
 		"policyActions", len(asSlice(mustCore(_select_protocol_actions(registry)))),
@@ -18742,6 +18745,10 @@ func assertExpectedErrorCategory(caught any, fixture map[string]Value) {
 // assertExpectedErrorCause checks expected_error_cause_contains: "Generate
 // failed: ..." keeps the failure it wraps as its direct cause.
 func assertExpectedErrorCause(err error, fixture map[string]Value) {
+    if coreTruthy(coreGet(fixture, "expected_generate_error", false)) {
+        var generated AxGenerateError
+        if !errors.As(err, &generated) { panic(FixtureError{Message: "expected a concrete AxGenerateError"}) }
+    }
 	expected := coreGet(fixture, "expected_error_cause_contains", nil)
 	if expected == nil {
 		return
@@ -18755,14 +18762,10 @@ func assertExpectedErrorCause(err error, fixture map[string]Value) {
 // axErrorCause is the cause of the first Ax error in err's chain: the error
 // it was rewrapped from, or nil.
 func axErrorCause(err error) error {
-	for err != nil {
-		if e, ok := err.(AxError); ok {
-			return e.cause
-		}
-		err = errors.Unwrap(err)
-	}
-	return nil
+    if envelope, ok := outermostAxError(err); ok { return envelope.cause }
+    return nil
 }
+
 func assertEqual(actual Value, expected Value, label string) {
 	if !equal(actual, expected) {
 		panic(AxError{Category: "fixture", Message: label + " mismatch\nactual: " + stableStringify(actual) + "\nexpected: " + stableStringify(expected)})

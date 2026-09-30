@@ -1041,11 +1041,12 @@ public final class Conformance {
   // the Java port each rewrap also keeps the class, so the category, of the
   // error it wraps (TS wraps it in AxGenerateError).
   static void assertErrorCause(RuntimeException e, Map<String, Object> fixture) {
+    if (Boolean.TRUE.equals(fixture.get("expected_generate_error")) && !(e instanceof AxGenerateError)) throw new FixtureError("expected AxGenerateError, got " + e.getClass());
     Object expected = fixture.get("expected_error_cause_contains");
     if (expected == null) return;
     Throwable cause = e.getCause();
     if (cause == null || !String.valueOf(cause.getMessage()).contains(String.valueOf(expected))) throw new FixtureError("expected an error cause containing " + expected + ", got " + cause);
-    for (Throwable link = e; isRewrap(link); link = link.getCause()) {
+    for (Throwable link = e instanceof AxGenerateError ? e.getCause() : e; link != null && isRewrap(link); link = link.getCause()) {
       if (link.getCause() == null || link.getCause().getClass() != link.getClass()) throw new FixtureError("expected " + link.getClass().getName() + " to wrap an error of its own class, got " + link.getCause());
     }
   }
@@ -1292,7 +1293,7 @@ public final class Conformance {
     List<Object> processorCalls = new ArrayList<>();
     for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls), AxFieldProcessorMode.FEEDBACK);
+      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
     }
     if (fixture.containsKey("stop_functions") || fixture.containsKey("stopFunctions")) {
       List<String> names = new ArrayList<>();
@@ -1388,9 +1389,8 @@ public final class Conformance {
 	    }
 	  }
 
-  // field_transforms use the transform API; field_processors use the
-  // deprecated transforming addFieldProcessor() path, which behaves the same.
-  @SuppressWarnings("deprecation")
+  // Both fixture spellings describe local transforms; feedback fixtures
+  // exercise addFieldProcessor with its default mode.
   static void addFixtureTransforms(AxGen gen, Map<String, Object> fixture) {
     for (Object item : Core.asList(fixture.getOrDefault("field_transforms", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
@@ -1398,7 +1398,7 @@ public final class Conformance {
     }
     for (Object item : Core.asList(fixture.getOrDefault("field_processors", fixture.getOrDefault("fieldProcessors", List.of())))) {
       Map<String, Object> spec = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(spec.get("field")), String.valueOf(spec.getOrDefault("processor", spec.get("op"))));
+      gen.addFieldTransform(String.valueOf(spec.get("field")), String.valueOf(spec.getOrDefault("processor", spec.get("op"))));
     }
   }
 
@@ -1440,7 +1440,7 @@ public final class Conformance {
     addFixtureTransforms(gen, fixture);
     for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls), AxFieldProcessorMode.FEEDBACK);
+      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
     }
     for (Object item : Core.asList(fixture.getOrDefault("streaming_processors", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
@@ -2493,7 +2493,7 @@ public final class Conformance {
     out.put("toolName", Core.get(Core.get(toolCall, "function", Map.of()), "name", null));
     out.put("profileId", Core.get(profile, "id", null));
     out.put("geminiText", Core.get(geminiTranscript, "text", null));
-    out.put("geminiAudio", Core.get(geminiSpeech, "audio", null));
+    out.put("geminiAudio", Core.get(geminiSpeech, "data", null));
     out.put("grokCodec", Core.get(Core.get(grokSpeak, "output_format", Map.of()), "codec", null));
     out.put("grokFormat", Core.get(grokTranscribe, "format", null));
     out.put("policyActions", Core.asList(Core._select_protocol_actions(registry)).size());
@@ -3508,7 +3508,7 @@ public final class Conformance {
     int programRequestCount=preflight.transport.requests.size();
     AxFlow cancellationFlow=Ax.flow(Map.of("id","cancellation-flow")).execute("answer",Ax.ax("question:string -> answer:string"));
     AxGen cancellationGen=Ax.ax("question:string -> answer:string");
-    AxAgent cancellationAgent=Ax.agent("question:string -> answer:string",Map.of());
+    AxAgent cancellationAgent=Ax.agent("question:string -> answer:string",Map.of("actorMode","completion"));
     List<Map.Entry<String,java.util.concurrent.Callable<Map<String,Object>>>> programCalls=List.of(
       Map.entry("AxGen",()->cancellationGen.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
       Map.entry("AxAgent",()->cancellationAgent.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),

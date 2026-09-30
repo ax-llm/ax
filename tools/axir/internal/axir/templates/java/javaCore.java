@@ -690,6 +690,9 @@ final class Core {
   // its class and the Ax error fields, so existing handlers still catch it (TS
   // wraps it in AxGenerateError, which the ports adopt at the next major). An
   // error this cannot rebuild becomes a RuntimeException.
+  static Object exceptionGenerate(Object error, Object message) {
+    return new AxGenerateError(String.valueOf(message), error instanceof Throwable cause ? cause : null);
+  }
   static Object exceptionRewrap(Object error, Object message) {
     String text = String.valueOf(message);
     if (!(error instanceof Throwable original)) return new RuntimeException(text);
@@ -732,7 +735,7 @@ final class Core {
   }
   static Object exceptionIsAborted(Object error) {
     Object current=error;
-    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
+    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError || throwable instanceof java.util.concurrent.CancellationException)return true;current=throwable.getCause();}
     return false;
   }
   // TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
@@ -1611,6 +1614,7 @@ final class Core {
     Object clarification = asList(args).isEmpty() ? payload : asList(args).get(0);
     return new AxAgentClarificationException(clarification, get(state, "runtime_state", Map.of()), payload);
   }
+  static Object agentRuntimeIsExecutable(Object runtime) { return runtime instanceof AxCodeRuntime; }
   static Object agentRuntimeCreateSession(Object runtime, Object globals, Object options) {
     if (!(runtime instanceof AxCodeRuntime rt)) throw new RuntimeException("agent runtime does not implement AxCodeRuntime");
     AxCodeSession session = rt.createSession(asMap(globals), asMap(options));

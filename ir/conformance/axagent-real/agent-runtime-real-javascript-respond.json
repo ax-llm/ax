@@ -16,7 +16,7 @@
       "content": "{\"javascriptCode\":\"respond(\\\"Answer with the runtime value\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"from runtime\"}"
+      "content": "Answer: from runtime"
     }
   ],
   "expected_output": {

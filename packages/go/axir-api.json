@@ -1148,6 +1148,19 @@
       "symbols": [
         {
           "target_name": "go",
+          "canonical_name": "AxGenerateError",
+          "public_name": "axllm.AxGenerateError",
+          "kind": "type",
+          "description": "Generation boundary failure retaining the original cause; cancellation propagates unchanged.",
+          "form": "axllm.AxGenerateError",
+          "important_options": [
+            "message",
+            "cause"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "AxError",
           "public_name": "axllm.AxError",
           "kind": "type",

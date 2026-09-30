@@ -92,5 +92,8 @@
   },
   "kind": "optimize",
   "name": "gepa-compatible-evidence-batch",
-  "operation": "evidence"
+  "operation": "evidence",
+  "options": {
+    "actorMode": "completion"
+  }
 }

@@ -32,7 +32,7 @@ func main() {
 	}
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.4-mini"
+		model = "gpt-6-luna"
 	}
 	client := ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model})
 
@@ -64,7 +64,7 @@ func main() {
 			"contextFields", ax.Array(),
 			"runtime", ax.Object("language", "JavaScript"),
 			"playbook", ax.Object(
-				"seed", seed,
+				"playbook", seed, "seed", 7,
 				"onUpdate", func(value ax.Value) { playbookUpdates = append(playbookUpdates, value) },
 			),
 			"citations", ax.Object(

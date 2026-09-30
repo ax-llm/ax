@@ -634,34 +634,14 @@ def _call_timeout_error(timeout_ms: Any, request: Any) -> AxAIServiceTimeoutErro
     return error
 
 
-class _AxConnectTimeoutError(AxAIServiceTimeoutError, AxAIServiceNetworkError):
-    """A connect that ran out of the client's timeout. It was an
-    AxAIServiceNetworkError before it became TS's timeout error, so it is both
-    until the next major version."""
-
-
-class _AxIncompleteReadError(AxAIServiceNetworkError, http.client.IncompleteRead):
-    """A connection that dropped mid-stream: TS's network error, and until the
-    next major version still the http.client.IncompleteRead it used to be."""
-
-    def __init__(self, source: http.client.IncompleteRead, request: Any):
-        AxAIServiceNetworkError.__init__(self, f"Network Error: {source!r}", request=request, retryable=True)
-        self.partial = source.partial
-        self.expected = source.expected
-
-    __str__ = Exception.__str__
-    __repr__ = Exception.__repr__
-
-
-def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any, connect: bool = False) -> AxAIServiceError:
+def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any) -> AxAIServiceError:
     # The client's own timeout (in seconds here) in TS's words, in milliseconds.
     # Like a call's timeoutMs, the request layer does not retry it. Without a
     # client timeout the operating system's timed out, which TS reports as a
     # network error.
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
         return _network_error(exc, request)
-    error_type = _AxConnectTimeoutError if connect else AxAIServiceTimeoutError
-    return error_type(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
+    return AxAIServiceTimeoutError(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
 
 
 # Conformance hooks for the request-layer retry: a sleep that records the
@@ -1372,13 +1352,9 @@ class ProviderOperationClient(AxBaseAI):
         )
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        # TS reads a per-call timeout in milliseconds; this port ignores it
-        # until the next major version and warns once, naming timeoutMs.
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         return super().chat(request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         return super().embed(request, options)
 
     def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1543,7 +1519,6 @@ class ProviderOperationClient(AxBaseAI):
             return self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
         if self.get_features(request.get("model")).get("streaming") is False:
             yield self.chat(request, {**(options or {}), "stream": False})
@@ -2034,7 +2009,7 @@ class ProviderOperationClient(AxBaseAI):
                             # as TS reports a failed body read.
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
-                            raise _AxIncompleteReadError(exc, error_request) from exc
+                            raise _network_error(exc, error_request) from exc
                         except OSError as exc:
                             self.close()
                             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
@@ -2117,7 +2092,7 @@ class ProviderOperationClient(AxBaseAI):
             if isinstance(getattr(exc, "reason", None), TimeoutError):
                 if timeout_ms is not None and not opened:
                     raise _call_timeout_error(timeout_ms, error_request) from exc
-                raise _client_timeout_error(client_timeout, exc, error_request, connect=True) from exc
+                raise _client_timeout_error(client_timeout, exc, error_request) from exc
             raise _network_error(exc, error_request) from exc
 
     def _headers(self):
@@ -2205,7 +2180,7 @@ class AxAITypesafeClient:
         return typesafe_decode_models(self._request("GET", "/v1/models", None, "models", options))
 
     def _request(self, method, path, payload, operation, options):
-        opts = {**self._client.options, **(options or {})}
+        opts = {**self._client.options, **provider_normalize_call_options(options)}
         inherited = _check_cancelled(self._client.options)
         per_call = _check_cancelled(options)
         cancellation = inherited or per_call
@@ -2222,8 +2197,7 @@ class AxAITypesafeClient:
 
     def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
         client = copy.copy(self._client)
-        client.timeout = float(opts.get("timeout", client.timeout))
-        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts)
+        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts, timeout_ms=provider_call_timeout_ms(opts))
 
 
 def typesafe(**options) -> AxAITypesafeClient:
@@ -4002,6 +3976,7 @@ def _openai_apply_cache_breakpoint_impl(message: Any) -> Any:
 
 def resolve_model_key(client_options: Any, request: Any, options: Any, default_model: Any, embed: bool) -> Any:
     _core_coverage_mark("resolve_model_key")
+    options = provider_normalize_call_options(options)
     empty_models = []
     model_list_camel = _core_get(client_options, "modelList", empty_models)
     model_list_snake = _core_get(client_options, "model_list", model_list_camel)
@@ -4748,7 +4723,7 @@ def validate_chat_request(request: AxChatRequest) -> None:
                 if item_not_map:
                     item_json = _core_json_pretty(item)
                     item_text = _core_string_format("User message content item at index {} must be an object, received: {}", item_index, item_json)
-                    item_error = _core_ai_error_unsupported(item_text)
+                    item_error = _core_ai_error_response(item_text)
                     raise item_error
                 else:
                     pass
@@ -4767,7 +4742,7 @@ def validate_chat_request(request: AxChatRequest) -> None:
                     else:
                         pass
                     type_text = _core_string_format("User message content item at index {} must have a type, received: {}", item_index, received_type)
-                    type_error = _core_ai_error_unsupported(type_text)
+                    type_error = _core_ai_error_response(type_text)
                     raise type_error
                 else:
                     pass
@@ -5871,6 +5846,34 @@ def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
     return out
 
 
+def _openai_finish_reason_impl(value: Any) -> Any:
+    _core_coverage_mark("_openai_finish_reason_impl")
+    is_stop = _core_eq(value, "stop")
+    if is_stop:
+        return "stop"
+    else:
+        pass
+    is_length = _core_eq(value, "length")
+    if is_length:
+        return "length"
+    else:
+        pass
+    is_content_filter = _core_eq(value, "content_filter")
+    if is_content_filter:
+        return "error"
+    else:
+        pass
+    is_tool_calls = _core_eq(value, "tool_calls")
+    is_function_call = _core_eq(value, "function_call")
+    is_call = _core_or(is_tool_calls, is_function_call)
+    if is_call:
+        return "function_call"
+    else:
+        pass
+    none = _core_none()
+    return none
+
+
 def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
     _core_coverage_mark("ai_context_cache_rejection")
     status_400_min = _core_gte(status, 400)
@@ -5899,34 +5902,6 @@ def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
     cache_rejection = _core_or(names_cache, invalid_cache)
     out = _core_and(valid_status, cache_rejection)
     return out
-
-
-def _openai_finish_reason_impl(value: Any) -> Any:
-    _core_coverage_mark("_openai_finish_reason_impl")
-    is_stop = _core_eq(value, "stop")
-    if is_stop:
-        return "stop"
-    else:
-        pass
-    is_length = _core_eq(value, "length")
-    if is_length:
-        return "length"
-    else:
-        pass
-    is_content_filter = _core_eq(value, "content_filter")
-    if is_content_filter:
-        return "error"
-    else:
-        pass
-    is_tool_calls = _core_eq(value, "tool_calls")
-    is_function_call = _core_eq(value, "function_call")
-    is_call = _core_or(is_tool_calls, is_function_call)
-    if is_call:
-        return "function_call"
-    else:
-        pass
-    none = _core_none()
-    return none
 
 
 def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
@@ -10989,11 +10964,7 @@ def provider_normalize_speak_response(profile: str, raw: Any, request: Any, cont
     else:
         json_speech = _speech_json_response_impl(raw, format, transcript)
         speech = json_speech
-    out = {}
-    data = _core_get(speech, "data", None)
-    out["audio"] = data
-    out = _core_map_merge(out, speech)
-    return out
+    return speech
 
 
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -12281,19 +12252,7 @@ def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
     transcript = _speech_request_text_impl(request)
     none = _core_none()
     speech = _speech_json_response_impl(raw, none, transcript)
-    out = {}
-    data = _core_get(speech, "data", None)
-    out["audio"] = data
-    named_mime = _speech_json_named_mime_type_impl(raw)
-    has_named_mime = _core_truthy(named_mime)
-    if has_named_mime:
-        out["mime_type"] = named_mime
-        mime_params = _audio_mime_params_impl(named_mime)
-        out = _core_map_merge(out, mime_params)
-    else:
-        pass
-    out = _core_map_merge(out, speech)
-    return out
+    return speech
 
 
 def _speech_request_text_impl(request: Any) -> Any:
@@ -12358,19 +12317,8 @@ def _speech_json_response_impl(json: Any, format: Any, transcript: Any) -> Any:
     if data_is_text:
         pass
     else:
-        json_is_object = _core_type_is(json, "object")
-        older = _core_none()
-        if json_is_object:
-            older = _core_get(json, "audio", None)
-        else:
-            pass
-        older_is_text = _core_type_is(older, "string")
-        if older_is_text:
-            _core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
-            data = older
-        else:
-            error = _core_ai_error_response("Speech response JSON did not include audio data", json)
-            raise error
+        error = _core_ai_error_response("Speech response JSON did not include audio data", json)
+        raise error
     mime_type = _speech_json_named_mime_type_impl(json)
     has_mime = _core_truthy(mime_type)
     if has_mime:
@@ -16293,24 +16241,20 @@ def provider_call_timeout_message(timeout_ms: Any) -> str:
     return message
 
 
-def provider_warn_call_timeout(options: Any, seconds: bool) -> None:
-    _core_coverage_mark("provider_warn_call_timeout")
-    timeout = _core_get(options, "timeout", None)
-    timeout_ms = _core_get(options, "timeoutMs", None)
-    has_timeout = _core_is_not_none(timeout)
-    has_timeout_ms = _core_is_not_none(timeout_ms)
-    without_ms = _core_not(has_timeout_ms)
-    warn = _core_and(has_timeout, without_ms)
-    if warn:
-        message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
-        if seconds:
-            message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
-        else:
-            pass
-        _core_ai_warn_once("call-timeout", message)
+def provider_normalize_call_options(options: Any) -> Any:
+    _core_coverage_mark("provider_normalize_call_options")
+    empty = {}
+    source = _core_coalesce(options, empty)
+    out = _core_map_merge(empty, source)
+    timeout = _core_get(source, "timeout", None)
+    alias = _core_get(source, "timeoutMs", timeout)
+    has_timeout = _core_is_not_none(alias)
+    if has_timeout:
+        out["timeoutMs"] = alias
     else:
         pass
-    return None
+    _core_map_delete(out, "timeout")
+    return out
 
 
 def _provider_sampling_is_one_impl(value: Any) -> bool:

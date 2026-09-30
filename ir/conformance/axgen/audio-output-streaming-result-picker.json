@@ -30,7 +30,6 @@
     }
   ],
   "forward_options": {
-    "renderAudio": true,
     "sample_count": 2
   },
   "input": {

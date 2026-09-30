@@ -39,45 +39,45 @@
     },
     "stageRequests": [
       {
-        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` \u2014 Invoice status lookup \u2014 invoice status billing lookup\n- `skill-beyond-limit` \u2014 Archive helper \u2014 archive helper\n- `unrelated-skill` \u2014 Weather helper \u2014 weather forecast",
         "loadedSkills": "",
         "memories": "Memories: ### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
         "relevanceHints": "",
         "stage": "distiller"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` \u2014 Invoice status lookup \u2014 invoice status billing lookup\n- `skill-beyond-limit` \u2014 Archive helper \u2014 archive helper\n- `unrelated-skill` \u2014 Weather helper \u2014 weather forecast",
         "loadedSkills": "",
         "memories": "Memories: ### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
-        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` \u2014 Invoice status lookup\nMemories:\n- `deploy-primary` \u2014 Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` \u2014 Invoice status lookup \u2014 invoice status billing lookup\n- `skill-beyond-limit` \u2014 Archive helper \u2014 archive helper\n- `unrelated-skill` \u2014 Weather helper \u2014 weather forecast",
         "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
         "memories": "Memories: ### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
-        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` \u2014 Invoice status lookup\nMemories:\n- `deploy-primary` \u2014 Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` \u2014 Invoice status lookup \u2014 invoice status billing lookup\n- `skill-beyond-limit` \u2014 Archive helper \u2014 archive helper\n- `unrelated-skill` \u2014 Weather helper \u2014 weather forecast",
         "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
         "memories": "Memories: ### Memory\n\nID: `deploy-primary`\n\nDeploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET\n\n### Memory\n\nID: `deploy-secondary`\n\ndeploy secondary note\n\n### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
-        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` \u2014 Invoice status lookup\nMemories:\n- `deploy-primary` \u2014 Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` \u2014 Invoice status lookup \u2014 invoice status billing lookup\n- `skill-beyond-limit` \u2014 Archive helper \u2014 archive helper\n- `unrelated-skill` \u2014 Weather helper \u2014 weather forecast",
         "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
         "memories": "Memories: ### Memory\n\nID: `deploy-primary`\n\nDeploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET\n\n### Memory\n\nID: `deploy-secondary`\n\ndeploy secondary note\n\n### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
-        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` \u2014 Invoice status lookup\nMemories:\n- `deploy-primary` \u2014 Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` \u2014 Invoice status lookup \u2014 invoice status billing lookup\n- `skill-beyond-limit` \u2014 Archive helper \u2014 archive helper\n- `unrelated-skill` \u2014 Weather helper \u2014 weather forecast",
         "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
         "memories": "Memories: ### Memory\n\nID: `deploy-primary`\n\nDeploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET\n\n### Memory\n\nID: `deploy-secondary`\n\ndeploy secondary note\n\n### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
-        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` \u2014 Invoice status lookup\nMemories:\n- `deploy-primary` \u2014 Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "stage": "executor"
       },
       {
@@ -192,15 +192,15 @@
   "ranking_probe": [
     {
       "label": "identifier_skill",
-      "needle": "`lookupInvoiceStatus` —"
+      "needle": "`lookupInvoiceStatus` \u2014"
     },
     {
       "label": "ranked_memory",
-      "needle": "`deploy-primary` —"
+      "needle": "`deploy-primary` \u2014"
     },
     {
       "label": "loaded_memory_excluded",
-      "needle": "`loaded-deploy` —"
+      "needle": "`loaded-deploy` \u2014"
     },
     {
       "label": "memory_snippet_80",
@@ -239,7 +239,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"catalog done\\\", {\\\"answer\\\":\\\"catalog\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"catalog\"}"
+      "content": "Answer: catalog"
     }
   ],
   "runtime_script": [

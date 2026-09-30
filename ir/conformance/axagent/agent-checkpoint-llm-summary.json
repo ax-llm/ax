@@ -16,7 +16,8 @@
   "name": "agent-checkpoint-llm-summary",
   "options": {
     "contextFields": [],
-    "summarizerOptions": {}
+    "summarizerOptions": {},
+    "actorMode": "completion"
   },
   "restore_runtime_state": {
     "checkpoint_state": {
@@ -38,7 +39,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "signature": "question:string -> answer:string"

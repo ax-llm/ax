@@ -258,6 +258,11 @@ class AxError : public std::runtime_error {
   std::shared_ptr<const AxError> cause_;
 };
 
+class AxGenerateError : public AxError {
+ public:
+  explicit AxGenerateError(const AxError& error) : AxError(error) {}
+};
+
 class AxAIServiceAbortedError : public AxError {
  public:
   explicit AxAIServiceAbortedError(std::string reason = "")
@@ -459,6 +464,7 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  static Value exception_generate(Value error, Value message);
   // The lowercase hex SHA-256 of the text's UTF-8 bytes.
   static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);
@@ -532,6 +538,7 @@ struct Core {
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
   static Value agent_clarification_error(Value payload, Value state);
+  static Value agent_runtime_is_executable(Value runtime);
   static Value agent_runtime_create_session(Value runtime, Value globals, Value options);
   static Value agent_runtime_execute(Value session, Value code, Value options);
   static Value agent_runtime_inspect(Value session, Value options);
@@ -1305,18 +1312,13 @@ class AxGen : public AxProgram {
   // sends it once, transformed.
   AxGen& add_field_transform(std::string field, std::string op);
   AxGen& add_field_transform(std::string field, std::function<Value(Value)> transform);
-  // Deprecated: rewrites the field like add_field_transform and warns once.
-  // In the next major version add_field_processor follows TypeScript (the
-  // Feedback mode below).
-  AxGen& add_field_processor(std::string field, std::string op);
-  AxGen& add_field_processor(std::string field, std::function<Value(Value)> processor);
   // Feedback: TypeScript's addFieldProcessor. processor runs on the field's
   // final value, and a non-empty result is sent to the model as a user
   // message for another step, whose answer replaces the earlier one.
   // Transform: the result replaces the field value, as add_field_transform.
   // An exception processor throws ends the forward without a retry. Throws
   // AxError when field is not an output field.
-  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode);
+  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode = AxFieldProcessorMode::Feedback);
   // TypeScript's addStreamingFieldProcessor: processor runs on each streamed
   // chunk of a string or code field with the field's text so far, and a
   // non-empty result goes back to the model as in Feedback mode. Throws

@@ -1,12 +1,9 @@
 {
   "expected_output": {
-    "audio": "AAAAAA==",
     "channels": 2,
     "data": "AAAAAA==",
     "format": "pcm16",
-    "mime_type": "audio/L16;codec=pcm;RATE=16000;Channels=2",
     "mimeType": "audio/L16;codec=pcm;RATE=16000;Channels=2",
-    "sample_rate": 16000,
     "sampleRate": 16000,
     "transcript": "Hello from Ax."
   },

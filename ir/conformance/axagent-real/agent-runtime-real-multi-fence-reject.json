@@ -26,7 +26,7 @@
       "content": "{\"javascriptCode\":\"if (typeof globalThis.axRejectedFenceOne !== 'undefined' || typeof globalThis.axRejectedFenceTwo !== 'undefined') { throw new Error('a rejected fenced block executed'); }\\nfinal(\\\"done\\\", { answer: 'both blocks rejected' })\"}"
     },
     {
-      "content": "{\"answer\":\"both blocks rejected\"}"
+      "content": "Answer: both blocks rejected"
     }
   ],
   "expected_output": {

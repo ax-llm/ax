@@ -15,14 +15,14 @@ use std::{env, fs};
 
 fn openai_client() -> AxResult<OpenAICompatibleClient> {
     let api_key = env::var("OPENAI_API_KEY").or_else(|_| env::var("OPENAI_APIKEY")).map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example."))?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-6-luna".to_string());
     axllm::ai("openai", json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}))
 }
 
 fn main() -> AxResult<()> {
     let mut client = openai_client()?;
     let speech = client.speak(json!({"text": "Ax turns LLM prompts into typed programs.", "voice": "alloy", "format": "mp3"}))?;
-    let audio_len = speech["audio"].as_str().unwrap_or("").len();
+    let audio_len = speech["data"].as_str().unwrap_or("").len();
     println!("{}", serde_json::to_string_pretty(&json!({"format": speech["format"].clone(), "audioBytesBase64": audio_len}))?);
     Ok(())
 }

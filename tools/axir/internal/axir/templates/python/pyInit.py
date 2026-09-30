@@ -60,7 +60,7 @@ from .ai import (
     set_usage_observer,
     update_balancer_route_stats,
 )
-from .gen import AxGen, AxMemory, ax
+from .gen import AxGenerateError, AxGen, AxMemory, ax
 from .session import AxChatSession, AxRunControl, run_control
 from .agent import AxAgent, AxAgentClarificationError, AxBootstrapFewShot, AxCodeRuntime, AxCodeSession, AxGEPA, AxPlaybook, OptimizerEngine, OptimizerEvaluator, agent, optimize, playbook
 from .flow import AxFlow, AxProgram, flow
@@ -95,6 +95,7 @@ __all__ = [
     "AxBalancerStatsStore",
     "AxInMemoryBalancerStatsStore",
     "AxGen",
+    "AxGenerateError",
     "AxRunControl",
     "AxChatSession",
     "run_control",

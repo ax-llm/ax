@@ -100,45 +100,45 @@
     },
     "stageRequests": [
       {
-        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` \u2014 Catalog incident \u2014 incident response\n- `catalog-release` \u2014 Catalog release \u2014 release checklist",
         "loadedSkills": "",
         "memories": "Memories: ### Memory\n\nID: `mem-a`\n\nPRELOADED MEMORY\n\n### Memory\n\nID: `z-memory`",
         "relevanceHints": "",
         "stage": "distiller"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` \u2014 Catalog incident \u2014 incident response\n- `catalog-release` \u2014 Catalog release \u2014 release checklist",
         "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
         "memories": "Memories: ### Memory\n\nID: `mem-a`\n\nPRELOADED MEMORY\n\n### Memory\n\nID: `z-memory`",
-        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` \u2014 Catalog release\nMemories:\n- `catalog-deploy` \u2014 CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` \u2014 Catalog incident \u2014 incident response\n- `catalog-release` \u2014 Catalog release \u2014 release checklist",
         "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
         "memories": "Memories: ### Memory\n\nID: `mem-a`\n\nPRELOADED MEMORY\n\n### Memory\n\nID: `z-memory`",
-        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` \u2014 Catalog release\nMemories:\n- `catalog-deploy` \u2014 CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` \u2014 Catalog incident \u2014 incident response\n- `catalog-release` \u2014 Catalog release \u2014 release checklist",
         "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
         "memories": "Memories: ### Memory\n\nID: `host-memory`\n\nHOST MEMORY\n\n### Memory\n\nID: `mem-a`\n\nHOST MEMORY OVERRIDE\n\n### Memory\n\nID: `z-memory`",
-        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` \u2014 Catalog release\nMemories:\n- `catalog-deploy` \u2014 CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` \u2014 Catalog incident \u2014 incident response\n- `catalog-release` \u2014 Catalog release \u2014 release checklist",
         "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
         "memories": "Memories: ### Memory\n\nID: `host-memory`\n\nHOST MEMORY\n\n### Memory\n\nID: `mem-a`\n\nHOST MEMORY OVERRIDE\n\n### Memory\n\nID: `z-memory`",
-        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` \u2014 Catalog release\nMemories:\n- `catalog-deploy` \u2014 CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
         "stage": "executor"
       },
       {
-        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` \u2014 Catalog incident \u2014 incident response\n- `catalog-release` \u2014 Catalog release \u2014 release checklist",
         "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
         "memories": "Memories: ### Memory\n\nID: `host-memory`\n\nHOST MEMORY\n\n### Memory\n\nID: `mem-a`\n\nHOST MEMORY OVERRIDE\n\n### Memory\n\nID: `z-memory`",
-        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` \u2014 Catalog release\nMemories:\n- `catalog-deploy` \u2014 CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
         "stage": "executor"
       },
       {
@@ -450,25 +450,25 @@
   ],
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"execute\\\", {\\\"context\\\":\\\"ready\\\"})\"}"
+      "content": "Javascript Code: final(\"execute\", {\"context\":\"ready\"})"
     },
     {
-      "content": "{\"javascriptCode\":\"discover({\\\"skills\\\":[\\\"release\\\"]})\"}"
+      "content": "Javascript Code: discover({\"skills\":[\"release\"]})"
     },
     {
-      "content": "{\"javascriptCode\":\"recall([\\\"deploy\\\"])\"}"
+      "content": "Javascript Code: recall([\"deploy\"])"
     },
     {
-      "content": "{\"javascriptCode\":\"used(\\\"shared\\\", \\\"forward override used\\\")\"}"
+      "content": "Javascript Code: used(\"shared\", \"forward override used\")"
     },
     {
-      "content": "{\"javascriptCode\":\"used(\\\"mem-a\\\", \\\"preload then recall override used\\\")\"}"
+      "content": "Javascript Code: used(\"mem-a\", \"preload then recall override used\")"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"done\\\", {\\\"answer\\\":\\\"oracle\\\"})\"}"
+      "content": "Javascript Code: final(\"done\", {\"answer\":\"oracle\"})"
     },
     {
-      "content": "{\"answer\":\"oracle\"}"
+      "content": "Answer: oracle"
     }
   ],
   "runtime_script": [

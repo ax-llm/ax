@@ -17,15 +17,15 @@ public final class FieldProcessorsExample {
     if (apiKey == null || apiKey.isBlank()) throw new IllegalStateException("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.");
     AxAIService client = Ax.ai("openai", Map.of(
         "api_key", apiKey,
-        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini")));
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-6-luna")));
     AxGen summarize = Ax.ax("text:string -> summary:string");
 
-    // With FEEDBACK a non-null result goes back to the model as a user
+    // A non-null result goes back to the model as a user
     // message, and the next step's answer replaces this one.
     summarize.addFieldProcessor("summary", (value, context) -> {
       int words = String.valueOf(value).trim().split("\\s+").length;
       return words > 12 ? "That summary has " + words + " words; answer again in at most 12 words." : null;
-    }, AxFieldProcessorMode.FEEDBACK);
+    });
     summarize.addFieldTransform("summary", "trim");
 
     String text = "The committee met on Tuesday to review the budget. After a long debate about "

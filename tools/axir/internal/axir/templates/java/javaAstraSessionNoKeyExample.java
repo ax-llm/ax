@@ -27,7 +27,7 @@ public final class AstraSessionTest {
   }
   @SuppressWarnings("unchecked") static void nativeFiles() throws Exception {
     var requests=new ArrayList<Map<String,Object>>();
-    OpenAICompatibleClient.Transport transport=request->{requests.add((Map<String,Object>)request.get("json"));return Map.of("status",200,"json",Map.of("id","file-response","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","{\"summary\":\"Read\"}")))));};
+    OpenAICompatibleClient.Transport transport=request->{requests.add((Map<String,Object>)request.get("json"));return Map.of("status",200,"json",Map.of("id","file-response","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","Summary: Read")))));};
     var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-5.6","transport",transport));
     var balancer=new AxBalancer(List.of(client));
     AxProviderRouter.FileToText extractor=(data,mime)->{throw new AssertionError("Native file extracted");};
@@ -73,7 +73,7 @@ public final class AstraSessionTest {
       if(!"Bearer worker-test".equals(exchange.getRequestHeaders().getFirst("Authorization")))throw new AssertionError("Worker lost authentication");
       requests.add(Json.parse(new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8)));
       barrier.await(3,TimeUnit.SECONDS);
-      byte[] body=Json.stringify(Map.of("id","reply","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","{\"answer\":\"DONE\"}"),"finish_reason","stop")),"usage",Map.of("prompt_tokens",2,"completion_tokens",1,"total_tokens",3))).getBytes(StandardCharsets.UTF_8);
+      byte[] body=Json.stringify(Map.of("id","reply","choices",List.of(Map.of("index",0,"message",Map.of("role","assistant","content","Answer: DONE"),"finish_reason","stop")),"usage",Map.of("prompt_tokens",2,"completion_tokens",1,"total_tokens",3))).getBytes(StandardCharsets.UTF_8);
       exchange.getResponseHeaders().set("Content-Type","application/json");exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);
     }catch(Exception error){exchange.sendResponseHeaders(500,0);}finally{exchange.close();}});
     server.start();try{
@@ -120,16 +120,16 @@ public final class AstraSessionTest {
     var mcp=new AxMCPClient(mcpTransport,Map.of("era","modern","namespace","orders","authorizeToolCall",authorize));clientRef.set(mcp);mcp.init();var original=mcp.nativeTools().get(0);if(!"blocking".equals(original.execution))throw new AssertionError("MCP hint enabled background work");
     try{original.handler.call(Map.of("query","REF-42"));throw new AssertionError("Denied MCP tool executed");}catch(RuntimeException error){if(!error.getMessage().contains("MCP tool call denied by host policy: lookup"))throw error;}if(!calls.isEmpty())throw new AssertionError("Denied MCP request reached transport");allowed.set(true);
     var nativeTool=Ax.fn(original.name).description(original.description).parameters(original.schema()).execution("background").handler(original.handler).build();
-    var program=Ax.agent("question -> answer",Map.of("functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
       public Object call(Map<String,Object> request)throws Exception{return event(request,false);}
       public Object stream(Map<String,Object> request)throws Exception{return event(request,true);}
       private Object event(Map<String,Object> request,boolean streaming)throws Exception {
         var body=(Map<String,Object>)request.get("json");requests.add(body);int number=requests.size();var tools=(List<Map<String,Object>>)body.getOrDefault("tools",List.of());var actor=tools.stream().filter(tool->Boolean.TRUE.equals(tool.get("async"))).toList();Map<String,Object> event;
         if(hidden.get()){
-          if(!actor.isEmpty())throw new AssertionError("Undiscovered tool exposed");event=completed("hidden-"+number,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}":"{\"answer\":\"not discovered\"}");
+          if(!actor.isEmpty())throw new AssertionError("Undiscovered tool exposed");event=completed("hidden-"+number,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}":"Answer: not discovered");
         }else if(number==1||number==5){
-          if(!actor.isEmpty())throw new AssertionError("Native authority escaped executor");if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder preceded result incorporation");event=completed("stage-"+number,number==1?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}");
+          if(!actor.isEmpty())throw new AssertionError("Native authority escaped executor");if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder preceded result incorporation");event=completed("stage-"+number,number==1?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"Answer: REF-42");
         }else if(number==2){
           if(actor.size()!=1||!"orders_lookup".equals(actor.get(0).get("name"))||!schema.equals(actor.get(0).get("parameters")))throw new AssertionError("Lost native MCP schema: "+actor);
           event=Map.of("type","response.completed","response",Map.of("id","invalid-response","model","gpt-6-astra","output",List.of(Map.of("type","function_call","id","invalid","call_id","invalid-call","name","orders_lookup","arguments","{\"query\":\"X\"}"))));
@@ -156,11 +156,11 @@ public final class AstraSessionTest {
     class Transport implements OpenAICompatibleClient.Transport {
       public java.util.function.Supplier<OpenAICompatibleClient.Transport> ownedWorkerFactory(){return Transport::new;}
       public Object call(Map<String,Object> request)throws Exception {
-        String body=Json.stringify(request.get("json"));requests.incrementAndGet();gate.await(3,TimeUnit.SECONDS);String content="{\"fastAnswer\":\"DONE\"}";
+        String body=Json.stringify(request.get("json"));requests.incrementAndGet();gate.await(3,TimeUnit.SECONDS);String content="Fast Answer: DONE";
         if(body.contains("lateAnswer")){
           // Deliberately ignore interrupts to exercise retained worker ownership.
           long deadline=System.nanoTime()+3_000_000_000L;while(release.getCount()!=0&&System.nanoTime()<deadline){try{release.await(20,TimeUnit.MILLISECONDS);}catch(InterruptedException ignored){}}
-          if(release.getCount()!=0)throw new AssertionError("Late worker was not released");content="{\"lateAnswer\":\"LATE\"}";late.countDown();
+          if(release.getCount()!=0)throw new AssertionError("Late worker was not released");content="Late Answer: LATE";late.countDown();
         }else if(body.contains("failAnswer")){if(!fast.await(3,TimeUnit.SECONDS))throw new AssertionError("Completed sibling was not reported");
           // A label without a value fails the text contract; as in TypeScript,
           // any other text (even JSON with other keys) is the answer.
@@ -240,7 +240,7 @@ public final class AstraSessionTest {
         if(stage.startsWith("root/team.researcher"))output=stage.endsWith("/responder")?Map.of("answer","REF-42"):Map.of("completion",Map.of("type","final","args",List.of("Find reference",Map.of())));
         else if(stage.equals("root/responder"))output=Map.of("answer","REF-42");
         else output=Map.of("javascriptCode",stage.equals("root/executor")&&!runtime.delegated?"delegate":"parent-final");
-        var response=new LinkedHashMap<String,Object>(Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",Json.stringify(output)))))));
+        var response=new LinkedHashMap<String,Object>(Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",output instanceof Map<?,?> answerOutput && answerOutput.containsKey("answer") ? "Answer: "+answerOutput.get("answer") : Json.stringify(output)))))));
         if(cancel&&number==6)response.put("output",List.of(Map.of("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")));
         return new ByteArrayInputStream(("data: "+Json.stringify(Map.of("type","response.completed","response",response))+"\n\n").getBytes(StandardCharsets.UTF_8));
       };
@@ -261,7 +261,7 @@ public final class AstraSessionTest {
         }
       };
       var mcp=new AxMCPClient(mcpTransport,Map.of("era","legacy","namespace","inventory"));mcp.init();var imported=mcp.nativeTools().get(0);
-      var childOptions=new LinkedHashMap<String,Object>(Map.of("directResponse","off"));
+      var childOptions=new LinkedHashMap<String,Object>(Map.of("actorMode","completion","directResponse","off"));
       if(cancel){childOptions.put("functionDiscovery",false);childOptions.put("functions",List.of(Ax.fn(imported.name).description("Lookup").parameters(imported.schema()).execution("background").contextHandler(imported::call).build()));}
       var child=Ax.agent("question -> answer",childOptions);
       var parent=Ax.agent("question -> answer",Map.of("directResponse","off","runtime",runtime)).addChildAgent("team","researcher",child);
@@ -307,14 +307,14 @@ public final class AstraSessionTest {
             var call=Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","i1","call_id","c1","name","lookup","arguments","{}"));
             emit(output,call);emit(output,call);
             if(!started.await(5,TimeUnit.SECONDS))throw new AssertionError("Tool did not start while model work was pending");
-            release.countDown();emit(output,completed("r1","{\"answer\":\"provisional\"}"));
+            release.countDown();emit(output,completed("r1","Answer: provisional"));
           }catch(Exception error){throw new RuntimeException(error);}});reader.setDaemon(true);reader.start();return input;
         }
         if(number!=2)throw new AssertionError("Unexpected replay");
         if(!"r1".equals(body.get("previous_response_id")))throw new AssertionError("Lost response ID");
         var expected=List.of(Map.of("type","function_call_output","call_id","c1","output","REF-42"));
         if(!expected.equals(body.get("input")))throw new AssertionError("Result was not incorporated exactly once: "+body.get("input"));
-        return "data: "+Json.stringify(completed("r2","{\"answer\":\"REF-42\"}"))+"\n\n";
+        return "data: "+Json.stringify(completed("r2","Answer: REF-42"))+"\n\n";
       }
     };
     AiClient client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport,"model_config",Map.of("thinkingTokenBudget","low")));
@@ -359,7 +359,7 @@ public final class AstraSessionTest {
         writer.setDaemon(true);writer.start();return input;
       }
     };
-    var program=Ax.agent("question -> answer",Map.of("directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
     var answer=new StringBuilder();
     try(var stream=program.streamingForward(client,Map.of("question","Find reference"),Map.of("control",Ax.runControl()))){
       for(var delta:stream){answer.append(String.valueOf(delta.delta().getOrDefault("answer","")));firstDelta.countDown();}
@@ -376,7 +376,7 @@ public final class AstraSessionTest {
         public Object call(Map<String,Object> request){throw new AssertionError("Expected streaming");}
         public Object stream(Map<String,Object> request){int n=requests.incrementAndGet();Map<String,Object> event;
           if(n==1)event=Map.of("type","response.completed","response",Map.of("id","invalid","model","gpt-6-astra","output",List.of(Map.of("type","function_call","id","invalid-item","call_id","invalid-call","name","validated_lookup","arguments",rawArguments))));
-          else {if(exhausted||n!=2)throw new AssertionError("Work replayed after exhaustion");var body=(Map<String,Object>)request.get("json");var outputs=(List<Map<String,Object>>)body.get("input");if(!"invalid".equals(body.get("previous_response_id"))||outputs.size()!=1||!"invalid-call".equals(outputs.get(0).get("call_id"))||!String.valueOf(outputs.get(0).get("output")).toLowerCase(Locale.ROOT).contains("query"))throw new AssertionError("Invalid correction continuation: "+body);event=completed("corrected","{\"answer\":\"CORRECTED\"}");}
+          else {if(exhausted||n!=2)throw new AssertionError("Work replayed after exhaustion");var body=(Map<String,Object>)request.get("json");var outputs=(List<Map<String,Object>>)body.get("input");if(!"invalid".equals(body.get("previous_response_id"))||outputs.size()!=1||!"invalid-call".equals(outputs.get(0).get("call_id"))||!String.valueOf(outputs.get(0).get("output")).toLowerCase(Locale.ROOT).contains("query"))throw new AssertionError("Invalid correction continuation: "+body);event=completed("corrected","Answer: CORRECTED");}
           return "data: "+Json.stringify(event)+"\n\n";
         }
       };
@@ -395,7 +395,7 @@ public final class AstraSessionTest {
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
       public Object call(Map<String,Object> request){int number=requests.incrementAndGet();var body=(Map<String,Object>)request.get("json");for(var tool:(List<Map<String,Object>>)body.getOrDefault("tools",List.of()))if(Boolean.TRUE.equals(tool.get("async")))throw new AssertionError("Actor authority leaked to another stage");
         if(number==1)return completed("distiller","{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}").get("response");
-        if(number!=4||!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder ran before final result incorporation");return completed("responder","{\"answer\":\"REF-42\"}").get("response");
+        if(number!=4||!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder ran before final result incorporation");return completed("responder","Answer: REF-42").get("response");
       }
       public Object stream(Map<String,Object> request)throws Exception {int number=requests.incrementAndGet();var body=(Map<String,Object>)request.get("json");
         if(number==1||number==2||number==5||number==6){
@@ -403,7 +403,7 @@ public final class AstraSessionTest {
           String stage=number<3?"distiller":"responder",suffix=(number==1||number==5)?"-start":"-final";
           if(number==2||number==6){String input=Json.stringify(body.get("input"));if(!((stage+"-start").equals(body.get("previous_response_id")))||!input.contains("ROOT-GUIDANCE")||input.contains("RESPONDER-ONLY")!=(number==6))throw new AssertionError("Scoped stage update mismatch: "+body);}
           if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder started before incorporation");
-          return "data: "+Json.stringify(completed(stage+suffix,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}"))+"\n\n";
+          return "data: "+Json.stringify(completed(stage+suffix,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"Answer: REF-42"))+"\n\n";
         }
         if(number==3){var tools=(List<Map<String,Object>>)body.get("tools");if(tools.size()!=1||!"utils_lookup".equals(tools.get(0).get("name"))||!Boolean.TRUE.equals(tools.get(0).get("async")))throw new AssertionError("Missing native actor tool");
           var input=new PipedInputStream(8192);var output=new PipedOutputStream(input);Thread worker=new Thread(()->{try(output){emit(output,Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","agent-call","name","utils_lookup","arguments","{\"query\":\"REF-42\"}")));if(!started.await(2,TimeUnit.SECONDS))throw new AssertionError("Agent tool did not overlap model work");release.countDown();emit(output,completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"));}catch(Exception error){throw new RuntimeException(error);}});worker.setDaemon(true);worker.start();return input;
@@ -414,7 +414,7 @@ public final class AstraSessionTest {
       }
     };
     var tool=Ax.fn("lookup").description("Lookup").arg("query",Ax.f().string()).execution("background").handler(args->{calls.incrementAndGet();started.countDown();if(!release.await(2,TimeUnit.SECONDS))throw new AssertionError("Model did not overlap the handler");return args.get("query");}).build();
-    var program=Ax.agent("question -> answer",Map.of("functions",List.of(tool),"directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","functions",List.of(tool),"directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
     var result=program.forward(client,Map.of("question","Find reference"),Map.of("control",control));if(!"REF-42".equals(result.get("answer"))||calls.get()!=1||requests.get()!=6)throw new AssertionError("Invalid native agent result");
     var activity=program.getActionLog().stream().map(entry->(Map<String,Object>)entry).filter(entry->"function_call".equals(entry.get("type"))).toList();
     if(activity.size()!=1||!"utils.lookup".equals(activity.get(0).get("qualified_name"))||!"agent-call".equals(activity.get(0).get("call_id")))throw new AssertionError("Lost native activity: "+activity);
@@ -475,7 +475,7 @@ public final class AstraSessionTest {
           incoming.add(ack);incoming.add(ack);
           incoming.add(Map.of("type","response.incomplete","response",Map.of("id","parent","model","gpt-6-astra","output",List.of(),"incomplete_details",Map.of("reason","steered"),"usage",Map.of("input_tokens",3,"output_tokens",2))));
           incoming.add(Map.of("type","response.created","response",Map.of("id","successor")));
-          incoming.add(completed("successor","{\"answer\":\"CORRECTED\"}"));
+          incoming.add(completed("successor","Answer: CORRECTED"));
         }
       }
       public Map<String,Object> recv(){try{var event=incoming.poll(5,TimeUnit.SECONDS);return event==null || event.isEmpty()?null:event;}catch(InterruptedException error){Thread.currentThread().interrupt();return null;}}
@@ -508,7 +508,7 @@ public final class AstraSessionTest {
           if(!"node-start".equals(body.get("previous_response_id")))throw new AssertionError("Lost node response ID");
           var input=(List<Map<String,Object>>)body.get("input");
           if(input.size()!=2 || !"user".equals(input.get(0).get("role")) || !Map.of("type","function_call_output","call_id","same-call","output","REF-42").equals(input.get(1)))throw new AssertionError("Lost scoped update or result: "+input);
-          event=completed("node-final","{\"answer\":\"REF-42\"}");
+          event=completed("node-final","Answer: REF-42");
         }
         final Object completedEvent=event;
         return (Iterable<Object>)()->new Iterator<>() {
@@ -566,7 +566,7 @@ public final class AstraSessionTest {
         if(unused)throw new AssertionError("Pinned run changed providers");calls++;
         if(calls==1)return Map.of("results",List.of(Map.of("function_calls",List.of(Map.of("id","balanced-call","type","function","function",Map.of("name","lookup","params",Map.of()))))));
         if(calls!=2||tools.get()!=1||!request.toString().contains("FALLBACK")||!request.toString().contains("balanced-call"))throw new AssertionError("Lost tool continuation: "+request);
-        return Map.of("results",List.of(Map.of("content","{\"answer\":\"FALLBACK\"}")));
+        return Map.of("results",List.of(Map.of("content","Answer: FALLBACK")));
       }
       public AxChatSession openChatSession(Map<String,Object> request,Map<String,Object> options){throw new AssertionError("Chat-only selection opened a session");}
     }
@@ -650,7 +650,7 @@ public final class AstraSessionTest {
         return "data: "+Json.stringify(Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","mcp-pending","name","utils_lookup","arguments","{}")))+"\n\n"+"data: "+Json.stringify(completed("actor","{\"completion\":{\"type\":\"final\",\"args\":[\"provisional\",{}]}}"))+"\n\n";
       }
     };
-    var program=Ax.agent("question -> answer",Map.of("functions",List.of(nativeTool),"functionDiscovery",false,"directResponse","off"));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","functions",List.of(nativeTool),"functionDiscovery",false,"directResponse","off"));
     var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",model));
     try{program.forward(client,Map.of("question","Find reference"),Map.of("control",control));throw new AssertionError("Cancelled agent succeeded");}
     catch(RuntimeException error){if(!error.toString().toLowerCase().contains("abort"))throw error;}

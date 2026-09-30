@@ -95,7 +95,10 @@
       "input": {
         "question": "How long do refunds take?"
       },
-      "without_runtime": true
+      "without_runtime": true,
+      "forward_options": {
+        "actorMode": "completion"
+      }
     },
     {
       "input": {

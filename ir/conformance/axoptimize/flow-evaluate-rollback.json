@@ -44,7 +44,7 @@
   "program_id": "root.flow",
   "responses": [
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "returns": {

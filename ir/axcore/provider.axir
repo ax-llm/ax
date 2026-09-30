@@ -5733,12 +5733,7 @@ module @ax.provider version "0.1" {
         %json_speech = core.call @speech_json_response_impl(%raw, %format, %transcript)
         %speech = core.let %json_speech
       }
-      // The older key, kept until the next major version: audio beside data.
-      %out = core.map
-      %data = core.get %speech["data"]
-      core.set %out["audio"] = %data
-      %out = core.call intrinsic.map.merge(%out, %speech)
-      core.return %out
+      core.return %speech
     }
   }
 
@@ -7142,21 +7137,7 @@ module @ax.provider version "0.1" {
       %transcript = core.call @speech_request_text_impl(%request)
       %none = core.call intrinsic.none()
       %speech = core.call @speech_json_response_impl(%raw, %none, %transcript)
-      // The older keys, kept until the next major version: audio beside data,
-      // and mime_type, sample_rate and channels when the body names a mime
-      // type.
-      %out = core.map
-      %data = core.get %speech["data"]
-      core.set %out["audio"] = %data
-      %named_mime = core.call @speech_json_named_mime_type_impl(%raw)
-      %has_named_mime = core.call intrinsic.truthy(%named_mime)
-      core.if %has_named_mime {
-        core.set %out["mime_type"] = %named_mime
-        %mime_params = core.call @audio_mime_params_impl(%named_mime)
-        %out = core.call intrinsic.map.merge(%out, %mime_params)
-      }
-      %out = core.call intrinsic.map.merge(%out, %speech)
-      core.return %out
+      core.return %speech
     }
   }
 
@@ -7242,27 +7223,13 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/audio/api.ts"
     type signature = "(json, json, json) -> json throws"
     body @entry(%json: json, %format: json, %transcript: json) {
-      // TS axFetchJsonSpeech: the audio is audio_data, audioData, data,
-      // audio.data, output.audio.data, or a Gemini candidate part's inline
-      // data. The ports' older `audio` text still works, with a deprecation
-      // warning, until the next major version; anything else is TS's error.
+      // Read the same JSON audio keys as TypeScript's axFetchJsonSpeech.
       %data = core.call @speech_json_data_impl(%json)
       %data_is_text = core.type_is %data type "string"
       core.if %data_is_text {
       } else {
-        %json_is_object = core.type_is %json type "object"
-        %older = core.call intrinsic.none()
-        core.if %json_is_object {
-          %older = core.get %json["audio"]
-        }
-        %older_is_text = core.type_is %older type "string"
-        core.if %older_is_text {
-          core.call intrinsic.axgen.deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
-          %data = core.let %older
-        } else {
-          %error = core.call intrinsic.ai.error.response("Speech response JSON did not include audio data", %json)
-          core.raise %error
-        }
+        %error = core.call intrinsic.ai.error.response("Speech response JSON did not include audio data", %json)
+        core.raise %error
       }
       %mime_type = core.call @speech_json_named_mime_type_impl(%json)
       %has_mime = core.call intrinsic.truthy(%mime_type)
@@ -11459,8 +11426,8 @@ module @ax.provider version "0.1" {
     body @entry(%options: json) {
       // TS bounds each HTTP request with the call's timeout in milliseconds
       // (base.ts: options.timeout ?? this.timeout); apiCall ends a request whose
-      // response headers have not arrived by then. Until the next major version
-      // the ports take that per-call value as timeoutMs. A positive number
+      // response headers have not arrived by then. Call options normalize
+      // timeout to timeoutMs before merging client options. A positive number
       // applies; anything else leaves the client's own timeout.
       %value = core.get %options["timeoutMs"] default null
       %is_number = core.type_is %value type "number"
@@ -11486,30 +11453,25 @@ module @ax.provider version "0.1" {
     }
   }
 
-  op ax.provider.semantic @provider_warn_call_timeout {
+  op ax.provider.semantic @provider_normalize_call_options {
     attr core_kind = "func"
     attr emit_module = "ai"
     tag "src/ax/ai/base.ts"
-    type signature = "(options:json, seconds:bool) -> void"
-    body @entry(%options: json, %seconds: bool) {
-      // TS reads a per-call timeout in milliseconds. Until the next major
-      // version, Python, Go, Java and C++ ignore it and Rust reads it in
-      // seconds, so a call that gives timeout without timeoutMs warns once,
-      // naming timeoutMs.
-      %timeout = core.get %options["timeout"] default null
-      %timeout_ms = core.get %options["timeoutMs"] default null
-      %has_timeout = core.call intrinsic.is_not_none(%timeout)
-      %has_timeout_ms = core.call intrinsic.is_not_none(%timeout_ms)
-      %without_ms = core.call intrinsic.not(%has_timeout_ms)
-      %warn = core.call intrinsic.and(%has_timeout, %without_ms)
-      core.if %warn {
-        %message = core.let "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
-        core.if %seconds {
-          %message = core.let "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
-        }
-        core.call intrinsic.ai.warn_once("call-timeout", %message)
+    type signature = "(options:json) -> json"
+    body @entry(%options: json) {
+      %empty = core.map
+      %source = core.call intrinsic.coalesce(%options, %empty)
+      %out = core.call intrinsic.map.merge(%empty, %source)
+      %timeout = core.get %source["timeout"] default null
+      %alias = core.get %source["timeoutMs"] default %timeout
+      %has_timeout = core.call intrinsic.is_not_none(%alias)
+      core.if %has_timeout {
+        core.set %out["timeoutMs"] = %alias
       }
-      core.return
+      // Do not overwrite the client's seconds-based transport timeout when
+      // these call options are merged with constructor options.
+      core.call intrinsic.map.delete(%out, "timeout")
+      core.return %out
     }
   }
 

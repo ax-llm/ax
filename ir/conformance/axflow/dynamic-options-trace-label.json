@@ -1,9 +1,40 @@
 {
+  "expected_output": {
+    "answer": "dynamic"
+  },
+  "expected_request_contains": ["gpt-flow-fixture"],
+  "expected_request_count": 1,
+  "forward_options": {
+    "model": "gpt-flow-fixture",
+    "traceLabel": "outer"
+  },
+  "input": {
+    "question": "dynamic?"
+  },
   "kind": "flow",
   "name": "dynamic-options-trace-label",
+  "responses": [
+    {
+      "content": "Answer: dynamic"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
   "source": {
-    "tsDerived": true,
     "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "dynamic-options-trace-label",
+    "observed": {
+      "childCallOptions": {
+        "abortSignal": {},
+        "executionPath": "root/qa",
+        "model": "gpt-flow-fixture",
+        "traceLabel": "Node:qa (outer)"
+      },
+      "output": {
+        "answer": "dynamic"
+      }
+    },
     "reference": [
       "src/ax/flow/flow.ts",
       "src/ax/flow/steps.ts",
@@ -13,49 +44,18 @@
       "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
-    "name": "dynamic-options-trace-label",
-    "observed": {
-      "output": {
-        "answer": "dynamic"
-      },
-      "childCallOptions": {
-        "model": "gpt-flow-fixture",
-        "traceLabel": "Node:qa (outer)",
-        "abortSignal": {},
-        "executionPath": "root/qa"
-      }
-    }
-  },
-  "input": {
-    "question": "dynamic?"
+    "tsDerived": true
   },
   "steps": [
     {
       "kind": "execute",
       "name": "qa",
-      "signature": "question:string -> answer:string",
       "options": {
+        "isBarrier": false,
         "reads": ["question"],
-        "writes": ["qaResult"],
-        "isBarrier": false
-      }
+        "writes": ["qaResult"]
+      },
+      "signature": "question:string -> answer:string"
     }
-  ],
-  "returns": {
-    "answer": "answer"
-  },
-  "forward_options": {
-    "model": "gpt-flow-fixture",
-    "traceLabel": "outer"
-  },
-  "responses": [
-    {
-      "content": "{\"answer\":\"dynamic\"}"
-    }
-  ],
-  "expected_output": {
-    "answer": "dynamic"
-  },
-  "expected_request_count": 1,
-  "expected_request_contains": ["gpt-flow-fixture"]
+  ]
 }

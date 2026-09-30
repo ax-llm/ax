@@ -30,7 +30,7 @@ GATEWAY_RESPONSE = (
     + GATEWAY_BODY
 )
 DROP_EVENT = (
-    b'data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-5.4-mini",'
+    b'data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-6-luna",'
     b'"choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
 )
 
@@ -104,7 +104,7 @@ def closed_port():
 
 
 def client(port, **options):
-    return OpenAICompatibleClient(api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-5.4-mini", **options)
+    return OpenAICompatibleClient(api_key="test-key", base_url=f"http://127.0.0.1:{port}", model="gpt-6-luna", **options)
 
 
 def expect(label, error_type, prefix, run):
@@ -164,7 +164,8 @@ assert answered["connections"] == 3, f"gateway stream: {answered['connections']}
 # not started, in TS's words, and the request layer does not retry it.
 silent, held = serve("hold")
 before = held["connections"]
-expect("timed-out chat", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: client(silent, timeout=0.3).chat(request, {"stream": False}))
+timeout_error = expect("timed-out chat", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: client(silent, timeout=0.3).chat(request, {"stream": False}))
+assert not isinstance(timeout_error, AxAIServiceNetworkError)
 expect("timed-out stream", AxAIServiceTimeoutError, "Request timed out after 300ms", lambda: list(client(silent, timeout=0.3).stream(request, {"retry": fast_retry})))
 assert held["connections"] - before == 2, f"a timed-out request was retried: {held['connections'] - before} requests"
 
@@ -180,8 +181,9 @@ def consume():
 
 
 dropped_error = expect("dropped stream", AxAIServiceNetworkError, "Network Error: ", consume)
-# Until the next major version it is still the IncompleteRead it used to be.
-assert isinstance(dropped_error, http.client.IncompleteRead), f"dropped stream: {type(dropped_error).__mro__}"
+# Ax25 exposes the Ax error type and preserves the native exception as its cause.
+assert not isinstance(dropped_error, http.client.IncompleteRead), f"dropped stream: {type(dropped_error).__mro__}"
+assert isinstance(dropped_error.__cause__, http.client.IncompleteRead)
 assert len(delivered) == 1 and dropped["connections"] == 1, f"dropped stream: {len(delivered)} events, {dropped['connections']} requests"
 
 # The Typesafe client types the same failures, and does not retry a timeout.

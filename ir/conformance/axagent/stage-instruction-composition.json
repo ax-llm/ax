@@ -15,7 +15,8 @@
   "set_instruction": "Verify every claim before finalizing.",
   "add_actor_instruction": "Record the evidence id before answering.",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {
@@ -25,7 +26,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"verified\":true}]}}"
     },
     {
-      "content": "{\"answer\":\"Verified.\"}"
+      "content": "Answer: Verified."
     }
   ],
   "signature": "question:string -> answer:string"

@@ -21,7 +21,7 @@ if not api_key:
 client = ai(
     "openai",
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-6-luna"),
     model_config={"temperature": 0},
 )
 
@@ -53,7 +53,7 @@ handbook = """
 assistant = agent(
     'question:string, handbook:string -> answer:string, citations:string[] "Handbook sections the answer relies on"',
     # Keep the handbook in the runtime, out of the prompt.
-    {"contextFields": ["handbook"], "runtime": {"language": "JavaScript"}},
+    {"contextFields": ["handbook"]},
 )
 
 result = assistant.forward(

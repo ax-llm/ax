@@ -30,7 +30,6 @@
     }
   ],
   "forward_options": {
-    "renderAudio": true,
     "speech": {
       "fields": {
         "outro": {

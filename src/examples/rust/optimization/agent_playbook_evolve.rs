@@ -20,7 +20,7 @@ fn openai_client() -> AxResult<OpenAICompatibleClient> {
         .map_err(|_| {
             axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
         })?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-6-luna".to_string());
     axllm::ai("openai", json!({"api_key": api_key, "model": model}))
 }
 
@@ -51,7 +51,7 @@ fn main() -> AxResult<()> {
         json!({
             "contextFields": [],
             "runtime": {"language": "JavaScript"},
-            "playbook": {"seed": seed},
+            "playbook": {"playbook": seed, "seed": 7},
             "citations": {"surface": "hidden"}
         }),
     )?

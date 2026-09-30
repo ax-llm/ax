@@ -37,5 +37,8 @@
   },
   "kind": "optimize",
   "name": "dataset-normalization-split",
-  "operation": "dataset"
+  "operation": "dataset",
+  "options": {
+    "actorMode": "completion"
+  }
 }

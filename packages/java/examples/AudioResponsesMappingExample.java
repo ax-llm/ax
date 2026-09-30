@@ -9,7 +9,7 @@ public final class AudioResponsesMappingExample {
           transportRequests.add(new LinkedHashMap<>(request));
           String url = String.valueOf(request.get("url"));
           if (url.endsWith("/audio/speech")) {
-            return Map.of("status", 200, "json", Map.of("audio", "base64-speech"));
+            return Map.of("status", 200, "json", Map.of("data", "base64-speech"));
           }
           if (url.endsWith("/audio/transcriptions")) {
             return Map.of(
@@ -28,7 +28,7 @@ public final class AudioResponsesMappingExample {
     Map<String, Object> transcript =
         client.transcribe(
             Map.of("audio", "base64-audio", "language", "en", "model", "whisper-1", "format", "json"));
-    if (!"base64-speech".equals(speech.get("audio"))) throw new RuntimeException("bad speech: " + speech);
+    if (!"base64-speech".equals(speech.get("data"))) throw new RuntimeException("bad speech: " + speech);
     if (!"hello world".equals(transcript.get("text"))) throw new RuntimeException("bad transcript: " + transcript);
 
     System.out.println("normalized output:");

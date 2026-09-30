@@ -29,7 +29,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"done\\\", { answer: 'mitigated' })\"}"
     },
     {
-      "content": "{\"answer\":\"mitigated\"}"
+      "content": "Answer: mitigated"
     }
   ],
   "expected_output": {

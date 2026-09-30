@@ -1,7 +1,7 @@
 // ax-example:start
 // title: C++ Prompt-Cached Generation
 // group: generation
-// description: Runs GPT-5.6 structured generation with stable OpenAI prompt-cache affinity.
+// description: Runs GPT-6 structured generation with stable OpenAI prompt-cache affinity.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -25,12 +25,12 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.6-luna" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-6-luna" : model},
   }));
   axllm::AxGen program = axllm::ax("question:string -> answer:string");
   axllm::Value output = program.forward(
       *client,
       axllm::object({{"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}}),
-      axllm::object({{"promptCacheKey", "ax-openai-example"}, {"contextCache", axllm::object({})}}));
+      axllm::object({{"timeout", 30000}, {"promptCacheKey", "ax-openai-example"}, {"contextCache", axllm::object({})}}));
   std::cout << axllm::stringify(output) << "\n";
 }

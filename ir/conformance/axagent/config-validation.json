@@ -6,9 +6,8 @@
   "kind": "agent_forward",
   "name": "config-validation",
   "options": {
-    "contextFields": [
-      "missing"
-    ]
+    "contextFields": ["missing"],
+    "actorMode": "completion"
   },
   "responses": [],
   "signature": "question:string -> answer:string"

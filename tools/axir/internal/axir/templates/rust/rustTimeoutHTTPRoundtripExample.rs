@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 // Time requests out through the REAL reqwest transport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -78,11 +78,11 @@ fn main() -> AxResult<()> {
 
     let mut chat_client = client(silent_port);
     expect_timeout("chat", "Request timed out after 200ms", || {
-        chat_client.chat_with_options(request.clone(), json!({"timeoutMs": 200}))
+        chat_client.chat_with_options(request.clone(), json!({"timeout": 200}))
     });
     let mut stream_client = client(silent_port);
     expect_timeout("stream", "Request timed out after 200ms", || {
-        stream_client.stream_with_options(request.clone(), json!({"timeoutMs": 200})).map(Value::Array)
+        stream_client.stream_with_options(request.clone(), json!({"timeout": 200})).map(Value::Array)
     });
     assert_eq!(accepted.load(Ordering::SeqCst), 2, "a timed-out request was retried");
 
@@ -99,7 +99,7 @@ fn main() -> AxResult<()> {
     assert!(started.elapsed() < Duration::from_secs(5), "the stream ignored its per-call timeout: {:?}", started.elapsed());
 
     // A stream whose headers arrive at once and whose second event comes after
-    // more than the timeoutMs.
+    // more than the timeout.
     let slow = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let slow_port = slow.local_addr().unwrap().port();
     let server = thread::spawn(move || {
@@ -119,7 +119,7 @@ fn main() -> AxResult<()> {
     });
     let mut slow_client = client(slow_port);
     let events = slow_client
-        .stream_with_options(request, json!({"timeoutMs": 1000}))
+        .stream_with_options(request, json!({"timeout": 1000}))
         .expect("a started stream was cut off");
     server.join().expect("loopback server");
     let text: String = events

@@ -12,7 +12,7 @@
   "name": "cache-field-prompt-rendering",
   "responses": [
     {
-      "content": "{\"answer\":\"Cached text\"}"
+      "content": "Answer: Cached text"
     }
   ],
   "signature_spec": {

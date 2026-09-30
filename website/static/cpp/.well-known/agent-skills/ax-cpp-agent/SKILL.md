@@ -68,8 +68,8 @@ Use the provider-backed Astra examples under `src/examples/cpp/generation/`, `sh
 Give the agent a code runtime on the constructor (`"runtime"`: `axllm::Core::code_runtime_ref(runtime)`, or a `{"language": ...}` config with the runtime passed per call) or on a forward call's options (`{"runtime", axllm::Core::code_runtime_ref(runtime)}`). The constructor's runtime wins; without one, a run uses the forward call's. Playbook evolve and agent optimize take a runtime in their options the same way, and run each task on it.
 
 - A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.
-- A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.
-- Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
+- JavaScript actor stages are the default. Engines remain optional dependencies: forward requires an executable runtime and fails before any model request if none is supplied. Set `actorMode: 'completion'` or `actor_mode` on the constructor or a call for legacy completion-payload stages; that mode rejects a runtime.
+- Calls can switch modes explicitly; runtime stage sets follow the supplied language and usage guidance. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
 
 ## Flat Function Namespaces
 
@@ -77,6 +77,7 @@ Give the agent a code runtime on the constructor (`"runtime"`: `axllm::Core::cod
 - `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'`, the default since 25.0.0, is the above; `'tools'` calls every flat function `tools.<name>`, as the ports did before 25.0.0.
 - A flat function without its own namespace uses `utils`, matching TypeScript. Explicit `'tools'` mode retains the legacy namespace.
 - `clarificationShape` / `clarification_shape` defaults to `'structured'`: clarifications carry `{question, ...}`. Explicit `'raw'` retains the original payload. `inputValidation` / `input_validation` defaults to `'fail'`: missing required context fails before any request; explicit `'lenient'` retains the old behavior.
+- Initialize saved state with `playbook.playbook` (a snapshot or bare playbook). `playbook.seed` is the numeric random seed; object seeds no longer load state.
 - Task evaluation returns an error prediction for a thrown run in every language. Playbook evolve records keep the error without an extra error prediction, and evaluation does not trigger run-end learning.
 - Host `Tool`s go under a namespace with `add_tool_module("crm", tools)`, which needs no option; `'own'` reads a function spec's `"namespace"` key.
 
@@ -88,7 +89,7 @@ Give the agent a code runtime on the constructor (`"runtime"`: `axllm::Core::cod
 - The deltas are the responder's AxGen deltas: merge each index's deltas (strings and lists append, other values replace) and start over when the version changes. A responder retry, such as a citation correction, streams a new version.
 - With `citations` on, the responder's assertion checks the cited ids against the run's evidence and retries with TypeScript's correction message, in forward and streaming alike. With `surface: "hidden"` each delta leaves out the citation field, so a delta can be empty, and the citations observer gets the ids streamed in the last version that streamed any.
 - As in forward, the used-memory and used-skill observers run before the responder, and the context map and the playbook learn after it.
-- `parseDates` / `parse_dates` on the agent or on the forward call (the call's wins) reaches the responder, so its `date`, `datetime`, `dateRange` and `datetimeRange` output fields come back parsed as AxGen parses them, in forward outputs and streamed deltas alike. Without it they keep the model's text, as before.
+- `parseDates` / `parse_dates` on the agent or on the forward call (the call's wins) reaches the responder, so its `date`, `datetime`, `dateRange` and `datetimeRange` output fields come back parsed as AxGen parses them, in forward outputs and streamed deltas alike. Parsing is enabled by default; set it to false to retain text.
 - A run `control` hears the run at its own path (`root`) and each stage at `root/distiller`, `root/executor` and `root/responder`, in forward and streaming alike. Stopping the stream early ends the responder and the run as `aborted`. A steer queued while a stage's request is in flight makes that stage take another step, as AxGen does, and a steer without a target reaches every later stage too.
 - Under a run `control` on a client that opens native chat sessions (such as `gpt-6-astra`), each stage's model request runs in its own session, and the responder streams its session's output as it arrives, as AxGen streaming does. Without sessions the responder streams through the request boundary.
 

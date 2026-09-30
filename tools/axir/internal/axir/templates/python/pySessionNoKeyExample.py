@@ -21,7 +21,7 @@ def transport(req):
     assert len(requests)==2, 'unexpected replay'
     assert req['json']['previous_response_id']=='r1'
     assert req['json']['input']==[{'type':'function_call_output','call_id':'c1','output':'REF-42'}], req['json']['input']
-    return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':{'id':'r2','model':'gpt-6-astra','output':[{'type':'message','id':'m2','content':[{'type':'output_text','text':'{"answer":"REF-42"}'}]}]}})+'\n\n'}
+    return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':{'id':'r2','model':'gpt-6-astra','output':[{'type':'message','id':'m2','content':[{'type':'output_text','text':'Answer: REF-42'}]}]}})+'\n\n'}
 client=ai('openai',model='gpt-6-astra',api_key='test',transport=transport,model_config={'thinkingTokenBudget':'low'})
 client=ProviderRouter({'providers':{'primary':client}})
 tool=fn('lookup').description('Look up a reference').execution('background').handler(lookup).build()
@@ -47,7 +47,7 @@ def flow_transport(req):
         assert body['previous_response_id']=='node-start'
         assert body['input'][-1]=={'type':'function_call_output','call_id':'same-call','output':'REF-42'}, body['input']
         assert body['input'][0]['role']=='user', 'root update did not reach this node'
-        response={'id':'node-final','model':'gpt-6-astra','output':[{'type':'message','id':'msg','content':[{'type':'output_text','text':'{"answer":"REF-42"}'}]}]}
+        response={'id':'node-final','model':'gpt-6-astra','output':[{'type':'message','id':'msg','content':[{'type':'output_text','text':'Answer: REF-42'}]}]}
     return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
 flow_client=ai('openai',model='gpt-6-astra',api_key='test',transport=flow_transport)
 flow_client=MultiServiceRouter([{'key':'smart','service':flow_client}])
@@ -87,7 +87,7 @@ class SteeringSocket:
             self.inbound.put(accepted);self.inbound.put(accepted)
             self.inbound.put({'type':'response.incomplete','response':{'id':'parent','model':'gpt-6-astra','incomplete_details':{'reason':'steered'},'output':[],'usage':{'input_tokens':3,'output_tokens':2}}})
             self.inbound.put({'type':'response.created','response':{'id':'successor'}})
-            self.inbound.put({'type':'response.completed','response':{'id':'successor','model':'gpt-6-astra','output':[{'type':'message','id':'msg','content':[{'type':'output_text','text':'{"answer":"CORRECTED"}'}]}],'usage':{'input_tokens':4,'output_tokens':3}}})
+            self.inbound.put({'type':'response.completed','response':{'id':'successor','model':'gpt-6-astra','output':[{'type':'message','id':'msg','content':[{'type':'output_text','text':'Answer: CORRECTED'}]}],'usage':{'input_tokens':4,'output_tokens':3}}})
     def recv(self):return self.inbound.get()
     def close(self):self.closed=True;self.inbound.put(None)
 controller=run_control();native_events=[];steered=[]
@@ -184,7 +184,7 @@ def agent_transport(request):
             assert body['previous_response_id']==stage+'-start',body
             assert 'ROOT-GUIDANCE' in json.dumps(body['input']),body
             assert ('RESPONDER-ONLY' in json.dumps(body['input'])) == (number==6),body
-        text='{"completion":{"type":"final","args":["Find reference",{}]}}' if number<3 else '{"answer":"REF-42"}'
+        text='{"completion":{"type":"final","args":["Find reference",{}]}}' if number<3 else 'Answer: REF-42'
         if number==5:assert 'REF-42' in json.dumps(body), 'responder ran before final tool incorporation'
         response=agent_response(stage+('-start' if number in (1,5) else '-final'),text)
         return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
@@ -202,7 +202,7 @@ def agent_transport(request):
     assert body.get('reasoning')==agent_requests[2]['json'].get('reasoning'), 'reasoning update changed original cache prefix'
     return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('executor2','{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}')})+'\n\n'}
 agent_tool=fn('lookup').description('Lookup').arg('query',f.string()).execution('background').context_handler(agent_lookup).build()
-agent_program=agent('question -> answer',{'functions':[agent_tool],'directResponse':'off'})
+agent_program=agent('question -> answer',{'actorMode':'completion','functions':[agent_tool],'directResponse':'off'})
 assert agent_program.forward(ai('openai',model='gpt-6-astra',api_key='test',transport=agent_transport),{'question':'Find reference'},{'control':agent_control})=={'answer':'REF-42'}
 assert agent_calls==['REF-42'] and len(agent_requests)==6
 assert len([event for event in agent_control_events if event['type']=='applied'])==5
@@ -229,7 +229,7 @@ def stream_session_transport(request):
         {'type':'response.output_text.delta','delta':'-42'},
         {'type':'response.completed','response':agent_response('responder','Answer: REF-42')}]
     return {'status':200,'body':''.join('data: '+json.dumps(event)+'\n\n' for event in events)}
-stream_agent=agent('question -> answer',{'directResponse':'off'})
+stream_agent=agent('question -> answer',{'actorMode':'completion','directResponse':'off'})
 stream_deltas=list(stream_agent.streaming_forward(ai('openai',model='gpt-6-astra',api_key='test',transport=stream_session_transport),{'question':'Find reference'},{'control':run_control()}))
 streamed_answer=''.join(str(delta['delta'].get('answer','')) for delta in stream_deltas)
 assert streamed_answer=='REF-42', stream_deltas
@@ -301,7 +301,7 @@ def ordinary_transport(request):
         assert len(balanced_requests)==2 and balanced_calls==['done']
         # A string tool result goes as it is, as TS's functionResultFormatter writes it.
         assert any(message.get('tool_call_id')=='balanced-call' and message.get('content')=='FALLBACK' for message in body['messages']),body
-        message={'role':'assistant','content':json.dumps({'answer':'FALLBACK'})}
+        message={'role':'assistant','content':'Answer: FALLBACK'}
         finish='stop'
     return {'status':200,'json':{'id':'balanced-'+str(len(balanced_requests)),'model':'gpt-5.6','choices':[{'index':0,'message':message,'finish_reason':finish}]}}
 def unused_candidate(request):
@@ -330,7 +330,7 @@ for exhausted, raw_arguments in [(exhausted, arguments) for exhausted in (False,
             outputs=[item for item in body['input'] if item['type']=='function_call_output']
             assert len(outputs)==1 and outputs[0]['call_id']=='invalid-call', outputs
             assert 'query' in outputs[0]['output'].lower(), outputs
-            response={'id':'corrected','model':'gpt-6-astra','output':[{'type':'message','id':'corrected-msg','content':[{'type':'output_text','text':'{"answer":"CORRECTED"}'}]}]}
+            response={'id':'corrected','model':'gpt-6-astra','output':[{'type':'message','id':'corrected-msg','content':[{'type':'output_text','text':'Answer: CORRECTED'}]}]}
         return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
     failure_client=ai('openai',model='gpt-6-astra',api_key='test',transport=failure_transport)
     validated=fn('validated_lookup').description('Requires a query').arg('query',f.string()).execution('background').handler(lambda args: failure_calls.append(args)).build()
@@ -351,7 +351,7 @@ from axllm import AxBalancer
 file_requests=[]
 def file_transport(request):
     file_requests.append(copy.deepcopy(request['json']))
-    return {'status':200,'json':{'id':'file-response','choices':[{'index':0,'message':{'role':'assistant','content':'{"summary":"Read"}'}}]}}
+    return {'status':200,'json':{'id':'file-response','choices':[{'index':0,'message':{'role':'assistant','content':'Summary: Read'}}]}}
 def unexpected_extraction(*args):
     raise AssertionError('Native file was extracted')
 file_client=ai('openai',api_key='test',model='gpt-5.6',transport=file_transport)
@@ -419,7 +419,7 @@ def owned_flow_overlap():
             try: barrier.wait()
             except threading.BrokenBarrierError:
                 self.send_error(500, 'parallel nodes did not overlap'); return
-            data = json.dumps({'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':'{"answer":"DONE"}'},'finish_reason':'stop'}], 'usage':{'prompt_tokens':2,'completion_tokens':1,'total_tokens':3}}).encode()
+            data = json.dumps({'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':'Answer: DONE'},'finish_reason':'stop'}], 'usage':{'prompt_tokens':2,'completion_tokens':1,'total_tokens':3}}).encode()
             self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -458,7 +458,7 @@ def owned_flow_failure():
             if 'lateAnswer' in body:
                 try:
                     assert release.wait(3), 'test did not release noncooperative worker'
-                    content = {'lateAnswer':'LATE'}
+                    content = 'Late Answer: LATE'
                 finally: late_finished.set()
             elif 'failAnswer' in body:
                 assert fast_completed.wait(3), 'completed sibling was not reported'
@@ -466,7 +466,7 @@ def owned_flow_failure():
                 # TypeScript, any other text (even JSON with other keys) is the
                 # answer.
                 content = 'Fail Answer:'
-            else: content = {'fastAnswer':'DONE'}
+            else: content = 'Fast Answer: DONE'
             text = content if isinstance(content, str) else json.dumps(content)
             return {'status':200,'json':{'id':'reply','choices':[{'index':0,'message':{'role':'assistant','content':text},'finish_reason':'stop'}]}}
     control=run_control()
@@ -578,7 +578,7 @@ def native_mcp_agent_discovery():
     assert not calls
     allowed.set()
     native=replace(native,execution='background')
-    program=agent('question -> answer',{'functions':[{'namespace':'orders','functions':[native]}],'functionDiscovery':True,'directResponse':'off'})
+    program=agent('question -> answer',{'actorMode':'completion','functions':[{'namespace':'orders','functions':[native]}],'functionDiscovery':True,'directResponse':'off'})
     hidden=True
     def model(request):
         nonlocal hidden
@@ -586,12 +586,12 @@ def native_mcp_agent_discovery():
         actor_tools=[tool for tool in body.get('tools',[]) if tool.get('async')]
         if hidden:
             assert not actor_tools,'Undiscovered MCP tool was exposed to the model'
-            output='{"completion":{"type":"final","args":["No discovered tools",{}]}}' if number<3 else '{"answer":"not discovered"}'
+            output='{"completion":{"type":"final","args":["No discovered tools",{}]}}' if number<3 else 'Answer: not discovered'
             return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('hidden-'+str(number),output)})+'\n\n'}
         if number==1 or number==5:
             assert not actor_tools,'Native tool escaped executor authority'
             if number==5:assert 'REF-42' in json.dumps(body),'Responder started before the MCP result was incorporated'
-            output='{"completion":{"type":"final","args":["Find reference",{}]}}' if number==1 else '{"answer":"REF-42"}'
+            output='{"completion":{"type":"final","args":["Find reference",{}]}}' if number==1 else 'Answer: REF-42'
             return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('stage-'+str(number),output)})+'\n\n'}
         if number==2:
             assert actor_tools[0]['name']=='orders_lookup' and actor_tools[0]['parameters']==schema,actor_tools
@@ -675,7 +675,7 @@ def test_owned_child_controls():
                 output={'answer':'REF-42'} if stage.endswith('/responder') else {'completion':{'type':'final','args':['Find reference',{}]}}
             elif stage=='root/responder':output={'answer':'REF-42'}
             else:output={'javascriptCode':'delegate' if stage=='root/executor' and not runtime.delegated else 'parent-final'}
-            response={'id':'child-r'+str(number+1),'model':'gpt-6-astra','usage':{'input_tokens':2,'output_tokens':1,'total_tokens':3},'output':[{'type':'message','id':'message','content':[{'type':'output_text','text':json.dumps(output)}]}]}
+            response={'id':'child-r'+str(number+1),'model':'gpt-6-astra','usage':{'input_tokens':2,'output_tokens':1,'total_tokens':3},'output':[{'type':'message','id':'message','content':[{'type':'output_text','text':('Answer: '+output['answer']) if 'answer' in output else json.dumps(output)}]}]}
             if cancel and number==6:
                 response['output']=[{'type':'function_call','name':'utils_lookup','call_id':'child-mcp','arguments':'{}','status':'completed'}]
             return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
@@ -689,7 +689,7 @@ def test_owned_child_controls():
                 raise AxAIServiceAbortedError('Child MCP invocation aborted')
         mcp=AxMCPClient(MCP(),{'namespace':'inventory'})
         mcp.tools=[{'name':'lookup','inputSchema':{'type':'object','additionalProperties':False}}]
-        child_options={'directResponse':'off'}
+        child_options={'actorMode':'completion','directResponse':'off'}
         if cancel:child_options.update({'functionDiscovery':False,'functions':[replace(mcp.native_tools()[0],execution='background')]})
         child=agent('question -> answer',child_options)
         parent=agent('question -> answer',{'directResponse':'off','runtime':runtime}).add_child_agent('team','researcher',child)
@@ -774,7 +774,7 @@ def test_actor_mcp_cancellation_context():
             raise AxAIServiceAbortedError('MCP invocation cancelled')
     client = AxMCPClient(MCP(), {'namespace':'inventory'})
     client.tools = [{'name':'lookup','inputSchema':{'type':'object'}}]
-    program = agent('question -> answer', {'functions':client.native_tools(),'functionDiscovery':False})
+    program = agent('question -> answer', {'actorMode':'completion','functions':client.native_tools(),'functionDiscovery':False})
     try:
         result = program.invoke_callable('utils.lookup', {'query':'probe'}, {'control':control})
         assert result['status']=='error' and 'cancel' in str(result).lower(), result

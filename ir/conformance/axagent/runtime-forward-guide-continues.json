@@ -39,16 +39,16 @@
   },
   "responses": [
     {
-      "content": "{\"pythonCode\": \"final(\\\"Guide before answering\\\", {})\"}"
+      "content": "Python Code: final(\"Guide before answering\", {})"
     },
     {
-      "content": "{\"pythonCode\":\"guideAgent(\\\"Prefer concise final.\\\")\"}"
+      "content": "Python Code: guideAgent(\"Prefer concise final.\")"
     },
     {
-      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"Concise\\\"})\"}"
+      "content": "Python Code: final(\"Answer\", {\"answer\": \"Concise\"})"
     },
     {
-      "content": "{\"answer\":\"Concise\"}"
+      "content": "Answer: Concise"
     }
   ],
   "runtime_script": [
