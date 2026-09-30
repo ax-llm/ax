@@ -131,16 +131,23 @@ pub(crate) fn take_open_session() -> Option<Box<dyn AxChatSession>> {
 pub struct AxForwardOptions {
     pub options: Value,
     pub control: Option<AxRunControl>,
+    pub caching_function: Option<AxCachingFunction>,
 }
 impl From<Value> for AxForwardOptions {
     fn from(options: Value) -> Self {
         Self {
             options,
             control: None,
+            caching_function: None,
         }
     }
 }
 impl AxForwardOptions {
+    pub fn with_caching_function(mut self, caching_function: AxCachingFunction) -> Self {
+        self.caching_function = Some(caching_function);
+        self
+    }
+
     pub fn with_control(mut self, control: AxRunControl) -> Self {
         self.control = Some(control);
         self
@@ -150,7 +157,16 @@ thread_local! { static CONTROLS:RefCell<Vec<AxRunControl>>=const {RefCell::new(V
 pub(crate) fn current_control() -> Option<AxRunControl> {
     CONTROLS.with(|stack| stack.borrow().last().cloned())
 }
-pub(crate) fn with_control<R>(options: AxForwardOptions, run: impl FnOnce(Value) -> R) -> R {
+pub(crate) fn with_control<R>(mut options: AxForwardOptions, run: impl FnOnce(Value) -> R) -> R {
+    match options.caching_function.take() {
+        Some(caching) => {
+            with_caching_function_binding(Some(caching), || with_control_inner(options, run))
+        }
+        None => with_control_inner(options, run),
+    }
+}
+
+fn with_control_inner<R>(options: AxForwardOptions, run: impl FnOnce(Value) -> R) -> R {
     struct Guard(bool);
     impl Drop for Guard {
         fn drop(&mut self) {
