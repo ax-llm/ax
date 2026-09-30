@@ -3522,7 +3522,7 @@ mod tests {
             let count = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
             if count == 1 {
                 return Ok(
-                    json!({"results":[{"function_calls":[{"id":"balanced-call","function":{"name":"lookup","params":{}}}]}]}),
+                    json!({"results":[{"function_calls":[{"id":"balanced-call","type":"function","function":{"name":"lookup","params":{}}}]}]}),
                 );
             }
             assert_eq!(count, 2);

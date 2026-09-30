@@ -1884,7 +1884,7 @@ mod tests {
         fn get_features(&self,_:Option<&str>)->Value{json!({"functions":true,"streaming":false,"asyncTools":self.unused})}
         fn chat(&mut self,request:Value)->AxResult<Value>{
             assert!(!self.unused,"Pinned run changed providers");let count=self.calls.fetch_add(1,Ordering::SeqCst)+1;
-            if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","function":{"name":"lookup","params":{}}}]}]}));}
+            if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","type":"function","function":{"name":"lookup","params":{}}}]}]}));}
             assert_eq!(count,2);assert_eq!(self.tools.load(Ordering::SeqCst),1,"request: {request}");assert!(request.to_string().contains("FALLBACK"));assert!(request.to_string().contains("balanced-call"));Ok(json!({"results":[{"content":"{\"answer\":\"FALLBACK\"}"}]}))
         }
         fn open_chat_session(&mut self,_:Value,_:Value)->AxResult<Option<Box<dyn AxChatSession>>>{assert!(!self.unused,"Pinned run changed providers");Ok(None)}
