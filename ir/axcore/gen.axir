@@ -3105,10 +3105,12 @@ module @ax.gen version "0.1" {
   }
 
   // Runs a tool step's calls in order and returns the messages with their
-  // results. A tool that throws answers with an error message, as before. As
-  // in TS, the memory keeps the text the model saw, and a formatter that
-  // throws fails the forward ("Generate failed: ...") without a retry: the
-  // call is traced as an error, and nothing reaches the model or the memory.
+  // results. A tool that throws answers with an error message, as before. A
+  // memory item keeps the text the model got in `result`, as in TS, and
+  // in its compatibility alias `result_text`. As in TS, a
+  // formatter that throws fails the forward ("Generate failed: ...") without
+  // a retry: the call is traced as an error, and nothing reaches the model or
+  // the memory.
   op ax.gen.semantic @run_tool_calls_impl {
     attr core_kind = "func"
     attr effect = "throws"
@@ -3129,7 +3131,7 @@ module @ax.gen version "0.1" {
           %tool_error_message = core.call @tool_error_message_impl(%call, %tool_error)
           core.append %messages, %tool_error_message
           %tool_error_text = core.get %tool_error_message["result"] default ""
-          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_text, false)
+          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_error_text, false, %tool_error_text)
           core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_error_message, "error")
         }
         core.if %tool_ok {
@@ -3145,7 +3147,7 @@ module @ax.gen version "0.1" {
           }
           %tool_message = core.call @tool_result_message_impl(%call, %tool_text)
           core.append %messages, %tool_message
-          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_text, true)
+          core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %tool_text, true, %tool_text)
           core.call intrinsic.axgen.record_function_call(%gen, %call, %tool_result, "ok")
         }
       }

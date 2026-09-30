@@ -17,6 +17,21 @@ from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAI
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
+from .ai import _snapshot_global_function_result_formatter, set_function_result_formatter
+
+
+def _fixture_function_result_formatter(spec):
+    # {text} writes that text for every tool result; {throws} fails with that message.
+    spec = spec or {}
+    text = str(spec.get("text", ""))
+    failure = spec.get("throws")
+
+    def formatter(result):
+        if failure is not None:
+            raise RuntimeError(str(failure))
+        return text
+
+    return formatter
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
 from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
@@ -1378,10 +1393,21 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
+    if "function_result_formatter" in fixture:
+        # The program's formatter.
+        gen.set_function_result_formatter(_fixture_function_result_formatter(fixture["function_result_formatter"]))
     forward_options = fixture.get("forward_options")
+    if "call_function_result_formatter" in fixture:
+        # The forward call's formatter.
+        forward_options = dict(forward_options or {})
+        forward_options["function_result_formatter"] = _fixture_function_result_formatter(fixture["call_function_result_formatter"])
     if fixture.get("control"):
         forward_options = dict(forward_options or {})
         control_events = _attach_fixture_control(fixture, client, forward_options)
+    # The process-wide formatter, restored after the forward.
+    previous_global_formatter = _snapshot_global_function_result_formatter()
+    if "global_function_result_formatter" in fixture:
+        set_function_result_formatter(_fixture_function_result_formatter(fixture["global_function_result_formatter"]))
     try:
         output = gen.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
@@ -1396,6 +1422,8 @@ def _run_forward(fixture):
             _assert_session_log(fixture, client)
             return
         raise
+    finally:
+        set_function_result_formatter(previous_global_formatter)
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
     _assert_session_log(fixture, client)
@@ -1453,6 +1481,18 @@ def _run_forward(fixture):
         raise FixtureError(f"expected memory history count {fixture['expected_memory_history_count']}, got {len(gen.get_memory().history())}")
     if "expected_memory_history_subset" in fixture:
         _assert_list_subset(gen.get_memory().history(), fixture["expected_memory_history_subset"], "memory history")
+    # The memory's tool results, in order: result_text is the text the model
+    # got, and result holds the same text.
+    for memory_key, entry_key in (("expected_memory_function_results", "result_text"), ("expected_memory_function_stored_results", "result")):
+        if memory_key in fixture:
+            memory_values = [
+                entry.get(entry_key)
+                for item in gen.get_memory().history()
+                if isinstance(item, dict) and item.get("role") == "function"
+                for entry in (item.get("results") or [])
+                if isinstance(entry, dict)
+            ]
+            _assert_equal(memory_values, fixture[memory_key], memory_key)
     if "expected_chat_log" in fixture:
         _assert_subset(gen.get_chat_log(), fixture["expected_chat_log"], "chat log")
     if "expected_chat_log_subset" in fixture:

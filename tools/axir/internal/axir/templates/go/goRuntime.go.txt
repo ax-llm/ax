@@ -14065,19 +14065,27 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_memory_history_subset", nil); expected != nil {
 			assertListSubset(gen.Memory, expected, "memory history")
 		}
-		if expected := coreGet(fixture, "expected_memory_function_results", nil); expected != nil {
-			// The texts the memory keeps for the tool results, in order; a Go
-			// memory item's results are [call, result, ok].
-			texts := []Value{}
+		// The memory's tool results, in order; a Go memory item's results are
+		// [call, result, ok, result_text]: result_text is the text the model
+		// got, and result holds the same text.
+		for _, check := range []struct {
+			key   string
+			index int
+		}{{"expected_memory_function_results", 3}, {"expected_memory_function_stored_results", 1}} {
+			expected := coreGet(fixture, check.key, nil)
+			if expected == nil {
+				continue
+			}
+			values := []Value{}
 			for _, item := range asSlice(gen.Memory) {
 				if coreGet(item, "role", nil) != "function" {
 					continue
 				}
-				if results := asSlice(coreGet(item, "results", nil)); len(results) > 1 {
-					texts = append(texts, results[1])
+				if results := asSlice(coreGet(item, "results", nil)); len(results) > check.index {
+					values = append(values, results[check.index])
 				}
 			}
-			assertEqual(texts, expected, "memory function results")
+			assertEqual(values, expected, check.key)
 		}
 		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
 			assertListSubset(gen.ChatLog, expected, "chat log")

@@ -1649,10 +1649,14 @@ def _core_axgen_memory_add_response(gen, request, response):
     return None
 
 
-def _core_axgen_memory_add_function_result(gen, call, result, ok):
+def _core_axgen_memory_add_function_result(gen, call, result, ok, result_text=None):
+    # `result` and `result_text` both keep the text the model got.
     memory = _core_get(gen, "memory")
     if memory is not None and hasattr(memory, "add_function_results"):
-        memory.add_function_results({"call": call, "result": result, "ok": bool(ok)})
+        entry = {"call": call, "result": result, "ok": bool(ok)}
+        if result_text is not None:
+            entry["result_text"] = result_text
+        memory.add_function_results(entry)
     return None
 
 

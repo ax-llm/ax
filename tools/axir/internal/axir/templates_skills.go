@@ -752,7 +752,15 @@ func skillFunctionResultFormatterText(target string) string {
 	default:
 		return shared + "A custom formatter is not available in this language yet."
 	}
-	return shared + surface + " (`Generate failed: ...`) without a retry, as a TypeScript formatter that throws does: the call is traced as an error, and nothing reaches the model or the memory. A formatter writes every tool result instead of the default, as TypeScript's `functionResultFormatter` option does: the call's formatter comes first, then the program's, then the process-wide one, and an empty text goes as `done`. As in TypeScript, the memory keeps the text the model got for each tool result (for a failed tool, its error text), and the function-call traces keep the raw result."
+	return shared + surface + " (`Generate failed: ...`) without a retry, as a TypeScript formatter that throws does: the call is traced as an error, and nothing reaches the model or the memory. A formatter writes every tool result instead of the default, as TypeScript's `functionResultFormatter` option does: the call's formatter comes first, then the program's, then the process-wide one, and an empty text goes as `done`. " + skillFunctionResultMemoryText(target)
+}
+
+func skillFunctionResultMemoryText(target string) string {
+	entry := "`result` and its `result_text` alias both hold the text the model got, including an error result for a failed tool"
+	if target == "go" {
+		entry = "results are `[call, result, ok, result_text]`: `result` and `result_text` both hold the text the model got"
+	}
+	return "In a memory item for a tool result, " + entry + ". This matches TypeScript's `result`. The function-call traces keep the raw result, as in TypeScript."
 }
 
 func skillResultPickerSurface(target string) string {

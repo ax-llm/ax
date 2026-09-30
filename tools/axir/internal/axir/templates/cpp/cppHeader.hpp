@@ -496,7 +496,7 @@ struct Core {
   static Value axgen_apply_context_cache(Value gen, Value messages, Value options);
   static Value axgen_memory_add_request(Value gen, Value messages);
   static Value axgen_memory_add_response(Value gen, Value request, Value response);
-  static Value axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok);
+  static Value axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok, Value result_text = Value());
   static Value axgen_memory_add_correction(Value gen, Value response, Value error);
   static Value axgen_memory_cleanup_corrections(Value gen);
   static Value axgen_record_chat_log(Value gen, Value request, Value response);

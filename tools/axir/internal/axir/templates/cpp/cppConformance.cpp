@@ -1187,15 +1187,17 @@ static void run_forward(Value fixture) {
     throw AxError("fixture", "expected memory history count mismatch");
   }
   if (!Core::get(fixture, "expected_memory_history_subset").is_null()) assert_list_subset(gen.get_memory().history(), Core::get(fixture, "expected_memory_history_subset"), "memory history");
-  Value expected_memory_texts = Core::get(fixture, "expected_memory_function_results");
-  if (!expected_memory_texts.is_null()) {
-    // The texts the memory keeps for the tool results, in order.
-    Value memory_texts = Value::array();
+  // The memory's tool results, in order: result_text is the text the model
+  // got, and result holds the same text.
+  for (const auto& [memory_key, entry_key] : std::vector<std::pair<std::string, std::string>>{{"expected_memory_function_results", "result_text"}, {"expected_memory_function_stored_results", "result"}}) {
+    Value expected_memory = Core::get(fixture, memory_key);
+    if (expected_memory.is_null()) continue;
+    Value memory_values = Value::array();
     for (const auto& item : Core::iter(gen.get_memory().history())) {
       if (display(Core::get(item, "role")) != "function") continue;
-      for (const auto& entry : Core::iter(Core::get(item, "results", Value::array()))) Core::append(memory_texts, Core::get(entry, "result"));
+      for (const auto& entry : Core::iter(Core::get(item, "results", Value::array()))) Core::append(memory_values, Core::get(entry, entry_key));
     }
-    assert_equal(memory_texts, expected_memory_texts, "memory function results");
+    assert_equal(memory_values, expected_memory, memory_key);
   }
   if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(gen.get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "chat log");
   if (!Core::get(fixture, "expected_function_traces_subset").is_null()) assert_list_subset(gen.get_function_call_traces(), Core::get(fixture, "expected_function_traces_subset"), "function call traces");

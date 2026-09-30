@@ -443,6 +443,7 @@ type Case = {
   // Pin the tool results the last request sent back, each as a JSON string
   // literal, which every runner's JSON text of the request must contain.
   pin_function_results?: boolean;
+  call_function_result_formatter?: { text?: string; throws?: string };
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -493,6 +494,13 @@ async function record(name: string, spec: Case): Promise<void> {
   const forwardOptions: Record<string, unknown> = {
     ...tsOptions(spec.forward_options),
   };
+  if (spec.call_function_result_formatter) {
+    const formatter = spec.call_function_result_formatter;
+    forwardOptions.functionResultFormatter = () => {
+      if (formatter.throws) throw new Error(formatter.throws);
+      return formatter.text ?? '';
+    };
+  }
   if (spec.result_picker_index !== undefined) {
     const picked = spec.result_picker_index;
     forwardOptions.resultPicker = async () => picked;
@@ -568,6 +576,10 @@ async function record(name: string, spec: Case): Promise<void> {
     'native_session',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
+  }
+  if (spec.call_function_result_formatter) {
+    fixture.call_function_result_formatter =
+      spec.call_function_result_formatter;
   }
   if (spec.native_session) {
     fixture.expected_session_log = sessionLog();
@@ -2560,6 +2572,59 @@ const sessionCases: Record<string, Case> = {
   },
   // A streamed correction's fresh session gets the first session's tool call
   // and result too.
+  'forward-native-session-tool-result-format': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    pin_function_results: true,
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'forward-native-session-tool-result-call-formatter': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    call_function_result_formatter: { text: 'custom result' },
+    pin_function_results: true,
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'forward-native-session-tool-result-formatter-throws': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    call_function_result_formatter: { throws: 'formatter broke' },
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'streaming-native-session-tool-result-format': {
+    kind: 'streaming_forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    pin_function_results: true,
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
   'streaming-forward-native-session-tool-then-correction': {
     signature: 'question:string -> answer:string',
     input: { question: 'Capital of France?' },

@@ -5117,6 +5117,12 @@ impl AxGen {
         let mut run_options = if self.options.is_object() { self.options.clone() } else { json!({}) };
         merge_object(&mut run_options, &options);
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), run_options);
+        if let Some(formatter) = &call_formatter {
+            // Keep the run's callable outside the JSON transport options.
+            let formatter_options = CoreValue::new_map();
+            core_set(&formatter_options, CoreValue::from("functionResultFormatter"), CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter: formatter.clone() })))?;
+            session_run.formatter_options = formatter_options;
+        }
         let run_session = session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background");
         if run_session { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
         // The run's model, as the forward op reads it, whose features decide
@@ -18321,16 +18327,22 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     {
         expect_json_list_subset("memory history", &Value::Array(program.memory.clone()), expected)?;
     }
-    if let Some(expected) = fixture.get("expected_memory_function_results") {
-        // The texts the memory keeps for the tool results, in order.
-        let texts: Vec<Value> = program
-            .memory
-            .iter()
-            .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
-            .flat_map(|item| item.get("results").and_then(Value::as_array).cloned().unwrap_or_default())
-            .map(|entry| entry.get("result").cloned().unwrap_or(Value::Null))
-            .collect();
-        expect_json_equal("memory function results", &Value::Array(texts), expected)?;
+    // The memory's tool results, in order: result_text is the text the model
+    // got, and result holds the same text.
+    for (memory_key, entry_key) in [
+        ("expected_memory_function_results", "result_text"),
+        ("expected_memory_function_stored_results", "result"),
+    ] {
+        if let Some(expected) = fixture.get(memory_key) {
+            let values: Vec<Value> = program
+                .memory
+                .iter()
+                .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
+                .flat_map(|item| item.get("results").and_then(Value::as_array).cloned().unwrap_or_default())
+                .map(|entry| entry.get(entry_key).cloned().unwrap_or(Value::Null))
+                .collect();
+            expect_json_equal(memory_key, &Value::Array(values), expected)?;
+        }
     }
     if let Some(expected) = fixture
         .get("expected_chat_log_subset")
@@ -24524,11 +24536,13 @@ fn core_axgen_memory_add_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
 }
 
 #[allow(dead_code)]
+// `result` and `result_text` both keep the text the model got.
 fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
     let call = core_arg(args, 1);
     let result = core_arg(args, 2);
     let ok = core_arg(args, 3);
+    let result_text = core_arg(args, 4);
     let memory = core_get(&gen, &CoreValue::from("memory"), CoreValue::Null);
     if let CoreValue::Host(host) = &memory {
         let payload = core_axgen_map_from(&[
@@ -24536,6 +24550,9 @@ fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue
             ("result", result),
             ("ok", CoreValue::Bool(core_truthy(&ok))),
         ])?;
+        if !result_text.is_null() {
+            core_set(&payload, CoreValue::from("result_text"), result_text)?;
+        }
         host.call_method("add_function_results", &[payload])?;
     }
     Ok(CoreValue::Null)

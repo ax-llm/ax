@@ -2019,7 +2019,18 @@ for (const [
     ...base,
     expected_output: output as Json,
     expected_request_contains: sent.map((text) => JSON.stringify(text)),
-    // As in TS, the memory keeps the texts the model got.
+    // The ports' memory keeps the text the model got in result_text, as
+    // TS's memory keeps it in result.
     expected_memory_function_results: memory,
   });
+  if (name === 'function-result-format-default') {
+    writeFixture('function-result-memory-text-alias', {
+      description:
+        "A memory item's result and result_text alias both hold the text the model got, matching TypeScript's result.",
+      ...base,
+      expected_output: output as Json,
+      expected_memory_function_stored_results: memory,
+      expected_memory_function_results: memory,
+    });
+  }
 }

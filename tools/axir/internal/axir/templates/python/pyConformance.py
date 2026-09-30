@@ -1481,16 +1481,18 @@ def _run_forward(fixture):
         raise FixtureError(f"expected memory history count {fixture['expected_memory_history_count']}, got {len(gen.get_memory().history())}")
     if "expected_memory_history_subset" in fixture:
         _assert_list_subset(gen.get_memory().history(), fixture["expected_memory_history_subset"], "memory history")
-    if "expected_memory_function_results" in fixture:
-        # The texts the memory keeps for the tool results, in order.
-        memory_texts = [
-            entry.get("result")
-            for item in gen.get_memory().history()
-            if isinstance(item, dict) and item.get("role") == "function"
-            for entry in (item.get("results") or [])
-            if isinstance(entry, dict)
-        ]
-        _assert_equal(memory_texts, fixture["expected_memory_function_results"], "memory function results")
+    # The memory's tool results, in order: result_text is the text the model
+    # got, and result holds the same text.
+    for memory_key, entry_key in (("expected_memory_function_results", "result_text"), ("expected_memory_function_stored_results", "result")):
+        if memory_key in fixture:
+            memory_values = [
+                entry.get(entry_key)
+                for item in gen.get_memory().history()
+                if isinstance(item, dict) and item.get("role") == "function"
+                for entry in (item.get("results") or [])
+                if isinstance(entry, dict)
+            ]
+            _assert_equal(memory_values, fixture[memory_key], memory_key)
     if "expected_chat_log" in fixture:
         _assert_subset(gen.get_chat_log(), fixture["expected_chat_log"], "chat log")
     if "expected_chat_log_subset" in fixture:
