@@ -650,20 +650,20 @@ func skillTransportErrorsText(target string) string {
 		"go":     "The HTTP client's error stays the error's cause (`errors.Unwrap`). Go has no client timeout of its own: a timeout of an `http.Client` you give `HTTPTransport` is that client's failure, so it raises `AxAIServiceNetworkError`, as a custom fetch's own timeout does in TypeScript. Set `timeoutMs` in the client's options for a client-wide `AxAIServiceTimeoutError`.",
 		"java":   "Chat, embed and streams throw typed Ax transport errors by default, with the JDK exception as `getCause()`. Explicit `typedTransportErrors: false` retains legacy JDK exceptions for chat and embed. AxGen retries either kind as an infrastructure error. The JDK's `HttpClient` itself retries an idempotent GET whose connection closes before a response.",
 		"cpp":    "libcurl's message stays the error's `cause()`.",
-		"rust":   "`AxError` has no cause, so a network error's message carries reqwest's error and its causes.",
+		"rust":   "AxError preserves the native cause and exposes it through source(), along with the failed provider request context.",
 	}[target]
 }
 
 func skillErrorsText(target string) string {
-	text := "A failed forward raises `Generate failed: <reason>`, as TypeScript's message reads. Exhausted validation, assertion or refusal retries give `Generate failed: Unable to fix validation error: <last error>`, ending with `LLM Output:` and the last attempt's answer (each sample's, joined with `---`). A response the model cut off at its token limit raises `Generate failed: Max tokens reached before completion`, streamed or not, instead of returning the partial answer. Only the message text changed: the error keeps its class and category (a validation failure is still a validation error), and an aborted run raises its abort error as it is. "
+	text := "A failed forward raises `Generate failed: <reason>`, as TypeScript's message reads. Exhausted validation, assertion or refusal retries give `Generate failed: Unable to fix validation error: <last error>`, ending with `LLM Output:` and the last attempt's answer (each sample's, joined with `---`). A response the model cut off at its token limit raises `Generate failed: Max tokens reached before completion`, streamed or not, instead of returning the partial answer. The generation boundary wraps failures in AxGenerateError and preserves the original cause; an aborted run raises its abort error as it is. "
 	cause := map[string]string{
 		"python": "The error it wraps is its `__cause__`, as `raise ... from` sets it.",
 		"java":   "The error it wraps is its `getCause()`.",
 		"go":     "The error it wraps is what `errors.Unwrap` returns, so `errors.Is` and `errors.As` reach it; an error the runtime caught and raised again comes back rebuilt with the same category, type and message.",
 		"cpp":    "The error it wraps is its `cause()`.",
-		"rust":   "The message includes the wrapped error's text; `AxError` gains a `cause`, `source()`, a provider error's request (its URL and body, as TypeScript keeps them) and `#[non_exhaustive]` in the next major version, since a new public field would break struct literals now.",
+		"rust":   "The common AxError envelope preserves source() and provider request context. as_generate_error() exposes the typed AxGenerateError payload and its original cause.",
 	}[target]
-	return text + cause + " TypeScript raises an `AxGenerateError`, which the ports raise from the next major version."
+	return text + cause
 }
 
 func skillTextContractText(target string) string {

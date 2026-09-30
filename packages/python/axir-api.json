@@ -1167,6 +1167,19 @@
       "symbols": [
         {
           "target_name": "python",
+          "canonical_name": "AxGenerateError",
+          "public_name": "AxGenerateError",
+          "kind": "type",
+          "description": "Generation boundary failure retaining the original cause; cancellation propagates unchanged.",
+          "form": "AxGenerateError",
+          "important_options": [
+            "message",
+            "cause"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "python",
           "canonical_name": "AxError",
           "public_name": "AxValidationError / AxAIServiceError",
           "kind": "type",

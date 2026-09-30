@@ -2003,6 +2003,9 @@ Value Core::exception_message(Value error) {
 // category, type and fields, with the new message and the original error as
 // its cause; anything else becomes a runtime error. The IR never rewraps an
 // aborted error.
+Value Core::exception_generate(Value error, Value message) {
+  return object({{"__error", "generate"}, {"__type", "AxGenerateError"}, {"message", message}, {"cause", error}});
+}
 Value Core::exception_rewrap(Value error, Value message) {
   Object wrapped = error.is_object() && has_key(error, "__error") ? object_ref(error) : object_ref(runtime_error(message));
   wrapped["message"] = str(message);
@@ -2108,6 +2111,7 @@ AxError Core::as_error(Value error) {
   return AxError("runtime", str(error));
 }
 [[noreturn]] void Core::raise_error(Value error) {
+  if (str(get_key(error, "__type")) == "AxGenerateError") throw AxGenerateError(as_error(error));
   if (truthy(exception_is_aborted(error))) {
     std::string message = str(get_key(error, "message"));
     const std::string prefix = "Request aborted: ";
@@ -30920,7 +30924,7 @@ Value Core::_generate_failed_impl(Value error) {
   }
   Value text = Core::exception_message(error);
   Value message = Core::add(Value("Generate failed: "), text);
-  Value wrapped = Core::exception_rewrap(error, message);
+  Value wrapped = Core::exception_generate(error, message);
   return wrapped;
 }
 
@@ -31395,6 +31399,25 @@ Value Core::_stream_state_impl(Value index) {
   return state;
 }
 
+Value Core::_structured_output_render_options_impl(Value selection) {
+  axir_coverage_mark("_structured_output_render_options_impl");
+  Value render_options = Value::object();
+  Value rung = Core::get(selection, Value("rung"), Value());
+  Value structured = Core::is_not_none(rung);
+  Core::set(render_options, Value("structured_output"), structured);
+  Value extra_functions = Value::array();
+  Value function_rung = Core::eq(rung, Value("function"));
+  if (Core::truthy(function_rung)) {
+    Core::set(render_options, Value("structured_output_function_name"), Value("__axOutput"));
+    Value output_function = Value::object();
+    Core::set(output_function, Value("name"), Value("__axOutput"));
+    Core::set(output_function, Value("description"), Value("Emit the complete structured program output using the declared argument shape."));
+    Core::append(extra_functions, output_function);
+  }
+  Core::set(render_options, Value("extra_functions"), extra_functions);
+  return render_options;
+}
+
 Value Core::_stream_merge_value_impl(Value base, Value has_base, Value delta) {
   axir_coverage_mark("_stream_merge_value_impl");
   Value delta_is_list = Core::type_is(delta, Value("list"));
@@ -31428,25 +31451,6 @@ Value Core::_stream_merge_value_impl(Value base, Value has_base, Value delta) {
     return text;
   }
   return delta;
-}
-
-Value Core::_structured_output_render_options_impl(Value selection) {
-  axir_coverage_mark("_structured_output_render_options_impl");
-  Value render_options = Value::object();
-  Value rung = Core::get(selection, Value("rung"), Value());
-  Value structured = Core::is_not_none(rung);
-  Core::set(render_options, Value("structured_output"), structured);
-  Value extra_functions = Value::array();
-  Value function_rung = Core::eq(rung, Value("function"));
-  if (Core::truthy(function_rung)) {
-    Core::set(render_options, Value("structured_output_function_name"), Value("__axOutput"));
-    Value output_function = Value::object();
-    Core::set(output_function, Value("name"), Value("__axOutput"));
-    Core::set(output_function, Value("description"), Value("Emit the complete structured program output using the declared argument shape."));
-    Core::append(extra_functions, output_function);
-  }
-  Core::set(render_options, Value("extra_functions"), extra_functions);
-  return render_options;
 }
 
 Value Core::_completion_function_call_problems(Value response) {
@@ -31650,6 +31654,15 @@ Value Core::_stream_run_new_version_impl(Value run, Value version) {
   return Value();
 }
 
+Value Core::_memory_cleanup_option_impl(Value options) {
+  axir_coverage_mark("_memory_cleanup_option_impl");
+  Value disabled_snake = Core::get(options, Value("disable_memory_cleanup"), Value(false));
+  Value disabled_value = Core::get(options, Value("disableMemoryCleanup"), disabled_snake);
+  Value disabled = Core::truthy_value(disabled_value);
+  Value cleanup = Core::not_(disabled);
+  return cleanup;
+}
+
 Value Core::_stream_yield_impl(Value run, Value version, Value index, Value delta) {
   axir_coverage_mark("_stream_yield_impl");
   Value current_version = Core::get(run, Value("current_version"), Value(0));
@@ -31735,15 +31748,6 @@ Value Core::_stream_yield_impl(Value run, Value version, Value index, Value delt
   Core::set(envelope, Value("delta"), delta);
   Core::axgen_emit_delta(sink, envelope);
   return Value();
-}
-
-Value Core::_memory_cleanup_option_impl(Value options) {
-  axir_coverage_mark("_memory_cleanup_option_impl");
-  Value disabled_snake = Core::get(options, Value("disable_memory_cleanup"), Value(false));
-  Value disabled_value = Core::get(options, Value("disableMemoryCleanup"), disabled_snake);
-  Value disabled = Core::truthy_value(disabled_value);
-  Value cleanup = Core::not_(disabled);
-  return cleanup;
 }
 
 Value Core::_settle_failed_attempts_impl(Value messages, Value failed, Value cleanup) {

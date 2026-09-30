@@ -1319,6 +1319,17 @@ def _core_exception_message(error):
 # The same error with a new message and the original as its cause. It keeps
 # its class, so existing handlers still catch it (TS wraps it in
 # AxGenerateError, which the ports adopt at the next major).
+class AxGenerateError(RuntimeError):
+    """Generation failed; the original failure is available as __cause__."""
+    def __init__(self, message, cause=None):
+        super().__init__(message)
+        self.__cause__ = cause
+
+
+def _core_exception_generate(error, message):
+    return AxGenerateError(message, error)
+
+
 def _core_exception_rewrap(error, message):
     try:
         wrapped = copy.copy(error)
@@ -14392,7 +14403,7 @@ def _generate_failed_impl(error: error) -> error:
         pass
     text = _core_exception_message(error)
     message = _core_add("Generate failed: ", text)
-    wrapped = _core_exception_rewrap(error, message)
+    wrapped = _core_exception_generate(error, message)
     return wrapped
 
 
@@ -14870,6 +14881,26 @@ def _stream_state_impl(index: int) -> Any:
     return state
 
 
+def _structured_output_render_options_impl(selection: Any) -> Any:
+    _core_coverage_mark("_structured_output_render_options_impl")
+    render_options = {}
+    rung = _core_get(selection, "rung", None)
+    structured = _core_is_not_none(rung)
+    render_options["structured_output"] = structured
+    extra_functions = []
+    function_rung = _core_eq(rung, "function")
+    if function_rung:
+        render_options["structured_output_function_name"] = "__axOutput"
+        output_function = {}
+        output_function["name"] = "__axOutput"
+        output_function["description"] = "Emit the complete structured program output using the declared argument shape."
+        extra_functions.append(output_function)
+    else:
+        pass
+    render_options["extra_functions"] = extra_functions
+    return render_options
+
+
 def _stream_merge_value_impl(base: Any, has_base: bool, delta: Any) -> Any:
     _core_coverage_mark("_stream_merge_value_impl")
     delta_is_list = _core_type_is(delta, "list")
@@ -14905,26 +14936,6 @@ def _stream_merge_value_impl(base: Any, has_base: bool, delta: Any) -> Any:
     else:
         pass
     return delta
-
-
-def _structured_output_render_options_impl(selection: Any) -> Any:
-    _core_coverage_mark("_structured_output_render_options_impl")
-    render_options = {}
-    rung = _core_get(selection, "rung", None)
-    structured = _core_is_not_none(rung)
-    render_options["structured_output"] = structured
-    extra_functions = []
-    function_rung = _core_eq(rung, "function")
-    if function_rung:
-        render_options["structured_output_function_name"] = "__axOutput"
-        output_function = {}
-        output_function["name"] = "__axOutput"
-        output_function["description"] = "Emit the complete structured program output using the declared argument shape."
-        extra_functions.append(output_function)
-    else:
-        pass
-    render_options["extra_functions"] = extra_functions
-    return render_options
 
 
 def _completion_function_call_problems(response: Any) -> Any:
@@ -15145,6 +15156,15 @@ def _stream_run_new_version_impl(run: Any, version: int) -> None:
     return None
 
 
+def _memory_cleanup_option_impl(options: Any) -> bool:
+    _core_coverage_mark("_memory_cleanup_option_impl")
+    disabled_snake = _core_get(options, "disable_memory_cleanup", False)
+    disabled_value = _core_get(options, "disableMemoryCleanup", disabled_snake)
+    disabled = _core_truthy(disabled_value)
+    cleanup = _core_not(disabled)
+    return cleanup
+
+
 def _stream_yield_impl(run: Any, version: int, index: int, delta: Any) -> None:
     _core_coverage_mark("_stream_yield_impl")
     current_version = _core_get(run, "current_version", 0)
@@ -15231,15 +15251,6 @@ def _stream_yield_impl(run: Any, version: int, index: int, delta: Any) -> None:
     envelope["delta"] = delta
     _core_axgen_emit_delta(sink, envelope)
     return None
-
-
-def _memory_cleanup_option_impl(options: Any) -> bool:
-    _core_coverage_mark("_memory_cleanup_option_impl")
-    disabled_snake = _core_get(options, "disable_memory_cleanup", False)
-    disabled_value = _core_get(options, "disableMemoryCleanup", disabled_snake)
-    disabled = _core_truthy(disabled_value)
-    cleanup = _core_not(disabled)
-    return cleanup
 
 
 def _settle_failed_attempts_impl(messages: list[Any], failed: list[Any], cleanup: bool) -> list[Any]:

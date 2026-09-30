@@ -748,6 +748,36 @@ pub struct AxError {
     pub cause: Option<Arc<dyn Error + Send + Sync>>,
 }
 
+/// A typed generation failure retained by the common AxError envelope.
+#[derive(Debug, Clone)]
+pub struct AxGenerateError {
+    pub message: String,
+    pub cause: Arc<AxError>,
+}
+impl fmt::Display for AxGenerateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+impl Error for AxGenerateError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+impl From<AxGenerateError> for AxError {
+    fn from(error: AxGenerateError) -> Self {
+        let mut out = AxError::new("generate", error.message.clone());
+        out.error_type = Some("AxGenerateError".to_owned());
+        out.cause = Some(Arc::new(error));
+        out
+    }
+}
+impl AxError {
+    pub fn as_generate_error(&self) -> Option<&AxGenerateError> {
+        self.cause.as_ref()?.downcast_ref::<AxGenerateError>()
+    }
+}
+
 impl AxError {
     pub fn new(category: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -17500,11 +17530,26 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 
 // An AI error's type, status, message, and the strings it must never carry.
 fn expect_error_cause(error: &AxError, fixture: &Value) -> AxResult<()> {
+    if fixture
+        .get("expected_generate_error")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && error.as_generate_error().is_none()
+    {
+        return Err(AxError::new(
+            "fixture",
+            "expected a concrete AxGenerateError payload",
+        ));
+    }
     if let Some(expected) = fixture
         .get("expected_error_cause_contains")
         .and_then(Value::as_str)
     {
-        let actual = error.source().map(ToString::to_string).unwrap_or_default();
+        let actual = error
+            .as_generate_error()
+            .map(|generated| generated.cause.to_string())
+            .or_else(|| error.source().map(ToString::to_string))
+            .unwrap_or_default();
         if !actual.contains(expected) {
             return Err(AxError::new(
                 "fixture",
@@ -32810,6 +32855,15 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 // existing handlers still match it. TS wraps it in AxGenerateError with the
 // original as its cause; Rust retains that cause through Error::source().
 #[allow(dead_code)]
+fn core_exception_generate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let error = AxGenerateError {
+        message: core_arg(args, 1).text(),
+        cause: Arc::new(core_as_error(&core_arg(args, 0))),
+    };
+    Ok(CoreValue::Error(Rc::new(error.into())))
+}
+
+#[allow(dead_code)]
 fn core_exception_rewrap(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut wrapped = core_as_error(&core_arg(args, 0));
     wrapped.cause = Some(Arc::new(wrapped.clone()));
@@ -32941,7 +32995,7 @@ mod exception_rewrap_tests {
     // category, with the last validation error and the last output in its
     // message.
     #[test]
-    fn exhausted_forward_error_keeps_category() {
+    fn exhausted_forward_error_preserves_validation_cause() {
         let mut program = AxGen::new("question:string -> count:number").expect("signature parses");
         program.options = json!({"max_retries": 1});
         let mut client = FixtureClient::scripted(
@@ -32954,7 +33008,15 @@ mod exception_rewrap_tests {
         let error = program
             .forward(&mut client, json!({"question": "How many?"}))
             .expect_err("retries run out");
-        assert_eq!(error.category, "validation");
+        assert_eq!(error.category, "generate");
+        assert_eq!(
+            error
+                .as_generate_error()
+                .expect("typed generation failure")
+                .cause
+                .category,
+            "validation"
+        );
         assert!(error.message.starts_with("Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots'"));
         assert!(error.message.ends_with("LLM Output:\nCount: lots"));
     }
@@ -94137,7 +94199,7 @@ fn _generate_failed_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_text = core_exception_message(&[v_error.clone()])?;
     v_message = core_add(&[CoreValue::from("Generate failed: "), v_text.clone()])?;
-    v_wrapped = core_exception_rewrap(&[v_error.clone(), v_message.clone()])?;
+    v_wrapped = core_exception_generate(&[v_error.clone(), v_message.clone()])?;
     return Ok(v_wrapped.clone());
 }
 
@@ -95175,6 +95237,61 @@ fn _stream_state_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _structured_output_render_options_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_structured_output_render_options_impl");
+    let mut v_selection = core_arg(args, 0);
+    let mut v_extra_functions = CoreValue::Null;
+    let mut v_function_rung = CoreValue::Null;
+    let mut v_output_function = CoreValue::Null;
+    let mut v_render_options = CoreValue::Null;
+    let mut v_rung = CoreValue::Null;
+    let mut v_structured = CoreValue::Null;
+    v_render_options = CoreValue::new_map();
+    v_rung = core_get(&v_selection, &CoreValue::from("rung"), CoreValue::Null);
+    v_structured = core_is_not_none(&[v_rung.clone()])?;
+    core_set(
+        &v_render_options,
+        CoreValue::from("structured_output"),
+        v_structured.clone(),
+    )?;
+    v_extra_functions = CoreValue::new_list();
+    v_function_rung = core_eq(&[v_rung.clone(), CoreValue::from("function")])?;
+    if core_truthy(&v_function_rung) {
+        core_set(
+            &v_render_options,
+            CoreValue::from("structured_output_function_name"),
+            CoreValue::from("__axOutput"),
+        )?;
+        v_output_function = CoreValue::new_map();
+        core_set(
+            &v_output_function,
+            CoreValue::from("name"),
+            CoreValue::from("__axOutput"),
+        )?;
+        core_set(
+            &v_output_function,
+            CoreValue::from("description"),
+            CoreValue::from(
+                "Emit the complete structured program output using the declared argument shape.",
+            ),
+        )?;
+        core_append(&v_extra_functions, v_output_function.clone())?;
+    }
+    core_set(
+        &v_render_options,
+        CoreValue::from("extra_functions"),
+        v_extra_functions.clone(),
+    )?;
+    return Ok(v_render_options.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_merge_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_merge_value_impl");
     let mut v_base = core_arg(args, 0);
@@ -95228,61 +95345,6 @@ fn _stream_merge_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Ok(v_text.clone());
     }
     return Ok(v_delta.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _structured_output_render_options_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_structured_output_render_options_impl");
-    let mut v_selection = core_arg(args, 0);
-    let mut v_extra_functions = CoreValue::Null;
-    let mut v_function_rung = CoreValue::Null;
-    let mut v_output_function = CoreValue::Null;
-    let mut v_render_options = CoreValue::Null;
-    let mut v_rung = CoreValue::Null;
-    let mut v_structured = CoreValue::Null;
-    v_render_options = CoreValue::new_map();
-    v_rung = core_get(&v_selection, &CoreValue::from("rung"), CoreValue::Null);
-    v_structured = core_is_not_none(&[v_rung.clone()])?;
-    core_set(
-        &v_render_options,
-        CoreValue::from("structured_output"),
-        v_structured.clone(),
-    )?;
-    v_extra_functions = CoreValue::new_list();
-    v_function_rung = core_eq(&[v_rung.clone(), CoreValue::from("function")])?;
-    if core_truthy(&v_function_rung) {
-        core_set(
-            &v_render_options,
-            CoreValue::from("structured_output_function_name"),
-            CoreValue::from("__axOutput"),
-        )?;
-        v_output_function = CoreValue::new_map();
-        core_set(
-            &v_output_function,
-            CoreValue::from("name"),
-            CoreValue::from("__axOutput"),
-        )?;
-        core_set(
-            &v_output_function,
-            CoreValue::from("description"),
-            CoreValue::from(
-                "Emit the complete structured program output using the declared argument shape.",
-            ),
-        )?;
-        core_append(&v_extra_functions, v_output_function.clone())?;
-    }
-    core_set(
-        &v_render_options,
-        CoreValue::from("extra_functions"),
-        v_extra_functions.clone(),
-    )?;
-    return Ok(v_render_options.clone());
 }
 
 #[allow(
@@ -95697,6 +95759,35 @@ fn _stream_run_new_version_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
+fn _memory_cleanup_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_memory_cleanup_option_impl");
+    let mut v_options = core_arg(args, 0);
+    let mut v_cleanup = CoreValue::Null;
+    let mut v_disabled = CoreValue::Null;
+    let mut v_disabled_snake = CoreValue::Null;
+    let mut v_disabled_value = CoreValue::Null;
+    v_disabled_snake = core_get(
+        &v_options,
+        &CoreValue::from("disable_memory_cleanup"),
+        CoreValue::Bool(false),
+    );
+    v_disabled_value = core_get(
+        &v_options,
+        &CoreValue::from("disableMemoryCleanup"),
+        v_disabled_snake.clone(),
+    );
+    v_disabled = core_truthy_value(&[v_disabled_value.clone()])?;
+    v_cleanup = core_not(&[v_disabled.clone()])?;
+    return Ok(v_cleanup.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_yield_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_yield_impl");
     let mut v_run = core_arg(args, 0);
@@ -95859,35 +95950,6 @@ fn _stream_yield_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_envelope, CoreValue::from("delta"), v_delta.clone())?;
     core_axgen_emit_delta(&[v_sink.clone(), v_envelope.clone()])?;
     return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _memory_cleanup_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_memory_cleanup_option_impl");
-    let mut v_options = core_arg(args, 0);
-    let mut v_cleanup = CoreValue::Null;
-    let mut v_disabled = CoreValue::Null;
-    let mut v_disabled_snake = CoreValue::Null;
-    let mut v_disabled_value = CoreValue::Null;
-    v_disabled_snake = core_get(
-        &v_options,
-        &CoreValue::from("disable_memory_cleanup"),
-        CoreValue::Bool(false),
-    );
-    v_disabled_value = core_get(
-        &v_options,
-        &CoreValue::from("disableMemoryCleanup"),
-        v_disabled_snake.clone(),
-    );
-    v_disabled = core_truthy_value(&[v_disabled_value.clone()])?;
-    v_cleanup = core_not(&[v_disabled.clone()])?;
-    return Ok(v_cleanup.clone());
 }
 
 #[allow(

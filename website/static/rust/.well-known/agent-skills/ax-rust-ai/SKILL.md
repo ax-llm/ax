@@ -96,7 +96,7 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 ## Transport Errors
 
 - A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). AxGen retries both as infrastructure errors.
-- `AxError` has no cause, so a network error's message carries reqwest's error and its causes.
+- AxError preserves the native cause and exposes it through source(), along with the failed provider request context.
 
 ## Request Retries
 

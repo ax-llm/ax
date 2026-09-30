@@ -1543,6 +1543,8 @@ func outermostAxError(err error) (AxError, bool) {
 		switch e := err.(type) {
 		case AxError:
 			return e, true
+		case AxGenerateError:
+			return e.AxError, true
 		case AxAIServiceAbortedError:
 			return e.AIServiceError.AxError, true
 		case AIServiceError:
@@ -2218,8 +2220,15 @@ func _core_exception_message(err Value) Value { return display(coreGet(err, "mes
 // _core_exception_rewrap is the error with a new message and the original as
 // its cause (Unwrap). It keeps the error's class and category: an error value
 // the IR caught becomes the AxError it raises as, and a Go Ax error keeps its
-// concrete type. TS wraps it in AxGenerateError, which the ports adopt at the
-// next major.
+// concrete type for intermediate context; the generation boundary wraps it
+// in AxGenerateError.
+// AxGenerateError preserves the generation failure for errors.As/Unwrap.
+type AxGenerateError struct { AxError }
+
+func _core_exception_generate(err Value, message Value) Value {
+    return AxGenerateError{AxError{Category: "generate", Type: "AxGenerateError", Message: display(message), cause: asError(err)}}
+}
+
 func _core_exception_rewrap(err Value, message Value) Value {
 	original := asError(err)
 	text := display(message)
@@ -7553,6 +7562,9 @@ func (g *AxGen) runCancellation(ctx context.Context, options map[string]Value) (
 		return ctx, func() {}
 	}
 	run, cancel := context.WithCancelCause(ctx)
+	// AfterFunc runs asynchronously even for an already cancelled token.
+	// Preserve preflight cancellation before the first provider call.
+	if token.Err() != nil { cancel(context.Cause(token)) }
 	release := context.AfterFunc(token, func() { cancel(context.Cause(token)) })
 	return run, func() {
 		release()
@@ -18732,6 +18744,10 @@ func assertExpectedErrorCategory(caught any, fixture map[string]Value) {
 // assertExpectedErrorCause checks expected_error_cause_contains: "Generate
 // failed: ..." keeps the failure it wraps as its direct cause.
 func assertExpectedErrorCause(err error, fixture map[string]Value) {
+    if coreTruthy(coreGet(fixture, "expected_generate_error", false)) {
+        var generated AxGenerateError
+        if !errors.As(err, &generated) { panic(FixtureError{Message: "expected a concrete AxGenerateError"}) }
+    }
 	expected := coreGet(fixture, "expected_error_cause_contains", nil)
 	if expected == nil {
 		return
@@ -18745,14 +18761,10 @@ func assertExpectedErrorCause(err error, fixture map[string]Value) {
 // axErrorCause is the cause of the first Ax error in err's chain: the error
 // it was rewrapped from, or nil.
 func axErrorCause(err error) error {
-	for err != nil {
-		if e, ok := err.(AxError); ok {
-			return e.cause
-		}
-		err = errors.Unwrap(err)
-	}
-	return nil
+    if envelope, ok := outermostAxError(err); ok { return envelope.cause }
+    return nil
 }
+
 func assertEqual(actual Value, expected Value, label string) {
 	if !equal(actual, expected) {
 		panic(AxError{Category: "fixture", Message: label + " mismatch\nactual: " + stableStringify(actual) + "\nexpected: " + stableStringify(expected)})

@@ -258,6 +258,11 @@ class AxError : public std::runtime_error {
   std::shared_ptr<const AxError> cause_;
 };
 
+class AxGenerateError : public AxError {
+ public:
+  explicit AxGenerateError(const AxError& error) : AxError(error) {}
+};
+
 class AxAIServiceAbortedError : public AxError {
  public:
   explicit AxAIServiceAbortedError(std::string reason = "")
@@ -459,6 +464,7 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  static Value exception_generate(Value error, Value message);
   // The lowercase hex SHA-256 of the text's UTF-8 bytes.
   static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);
@@ -1188,16 +1194,16 @@ struct Core {
   static Value _cache_lookup_option_impl(Value options);
   static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_state_impl(Value index);
-  static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _structured_output_render_options_impl(Value selection);
+  static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _completion_function_call_problems(Value response);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
   static Value _check_completion_function_calls(Value response, Value options);
   static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);
   static Value _include_optional_render_option_impl(Value render_options, Value options);
   static Value _stream_run_new_version_impl(Value run, Value version);
-  static Value _stream_yield_impl(Value run, Value version, Value index, Value delta);
   static Value _memory_cleanup_option_impl(Value options);
+  static Value _stream_yield_impl(Value run, Value version, Value index, Value delta);
   static Value _settle_failed_attempts_impl(Value messages, Value failed, Value cleanup);
   static Value _function_result_text_impl(Value result, Value options);
   static Value _stream_marker_incomplete_impl(Value marker);

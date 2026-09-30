@@ -690,6 +690,9 @@ final class Core {
   // its class and the Ax error fields, so existing handlers still catch it (TS
   // wraps it in AxGenerateError, which the ports adopt at the next major). An
   // error this cannot rebuild becomes a RuntimeException.
+  static Object exceptionGenerate(Object error, Object message) {
+    return new AxGenerateError(String.valueOf(message), error instanceof Throwable cause ? cause : null);
+  }
   static Object exceptionRewrap(Object error, Object message) {
     String text = String.valueOf(message);
     if (!(error instanceof Throwable original)) return new RuntimeException(text);
@@ -732,7 +735,7 @@ final class Core {
   }
   static Object exceptionIsAborted(Object error) {
     Object current=error;
-    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
+    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError || throwable instanceof java.util.concurrent.CancellationException)return true;current=throwable.getCause();}
     return false;
   }
   // TS AxGen retries only 5xx status, network, timeout and stream-termination errors.

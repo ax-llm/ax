@@ -341,6 +341,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicRetrySleep:                "Core.retrySleep",
 	IntrinsicExceptionMessage:          "Core.exceptionMessage",
 	IntrinsicExceptionRewrap:           "Core.exceptionRewrap",
+	IntrinsicExceptionGenerate:         "Core.exceptionGenerate",
 	IntrinsicCryptoSha256Hex:           "Core.cryptoSha256Hex",
 	IntrinsicRuntimeError:              "Core.runtimeError",
 	IntrinsicJSONParse:                 "Core.jsonParse",

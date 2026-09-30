@@ -1543,6 +1543,8 @@ func outermostAxError(err error) (AxError, bool) {
 		switch e := err.(type) {
 		case AxError:
 			return e, true
+		case AxGenerateError:
+			return e.AxError, true
 		case AxAIServiceAbortedError:
 			return e.AIServiceError.AxError, true
 		case AIServiceError:
@@ -2218,8 +2220,15 @@ func _core_exception_message(err Value) Value { return display(coreGet(err, "mes
 // _core_exception_rewrap is the error with a new message and the original as
 // its cause (Unwrap). It keeps the error's class and category: an error value
 // the IR caught becomes the AxError it raises as, and a Go Ax error keeps its
-// concrete type. TS wraps it in AxGenerateError, which the ports adopt at the
-// next major.
+// concrete type for intermediate context; the generation boundary wraps it
+// in AxGenerateError.
+// AxGenerateError preserves the generation failure for errors.As/Unwrap.
+type AxGenerateError struct { AxError }
+
+func _core_exception_generate(err Value, message Value) Value {
+    return AxGenerateError{AxError{Category: "generate", Type: "AxGenerateError", Message: display(message), cause: asError(err)}}
+}
+
 func _core_exception_rewrap(err Value, message Value) Value {
 	original := asError(err)
 	text := display(message)
@@ -61325,7 +61334,7 @@ func _generate_failed_impl(args ...Value) (Value, error) {
 	}
 	v_text = _core_exception_message(v_error)
 	v_message = _core_add("Generate failed: ", v_text)
-	v_wrapped = _core_exception_rewrap(v_error, v_message)
+	v_wrapped = _core_exception_generate(v_error, v_message)
 	return v_wrapped, nil
 }
 
@@ -62389,6 +62398,42 @@ func _stream_state_impl(args ...Value) (Value, error) {
 	return v_state, nil
 }
 
+func _structured_output_render_options_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_structured_output_render_options_impl")
+	var v_selection Value
+	var v_extra_functions Value
+	var v_function_rung Value
+	var v_output_function Value
+	var v_render_options Value
+	var v_rung Value
+	var v_structured Value
+	if len(args) > 0 { v_selection = args[0] }
+	_ = v_selection
+	_ = v_extra_functions
+	_ = v_function_rung
+	_ = v_output_function
+	_ = v_render_options
+	_ = v_rung
+	_ = v_structured
+	v_render_options = Object()
+	v_rung = coreGet(v_selection, "rung", nil)
+	v_structured = _core_is_not_none(v_rung)
+	if err := coreSet(v_render_options, "structured_output", v_structured); err != nil { return nil, err }
+	v_extra_functions = MutableArray()
+	v_function_rung = _core_eq(v_rung, "function")
+	if coreTruthy(v_function_rung) {
+		if err := coreSet(v_render_options, "structured_output_function_name", "__axOutput"); err != nil { return nil, err }
+		v_output_function = Object()
+		if err := coreSet(v_output_function, "name", "__axOutput"); err != nil { return nil, err }
+		if err := coreSet(v_output_function, "description", "Emit the complete structured program output using the declared argument shape."); err != nil { return nil, err }
+		v_extra_functions = coreAppend(v_extra_functions, v_output_function)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_render_options, "extra_functions", v_extra_functions); err != nil { return nil, err }
+	return v_render_options, nil
+}
+
 func _stream_merge_value_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_merge_value_impl")
 	var v_base Value
@@ -62469,42 +62514,6 @@ func _stream_merge_value_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_delta, nil
-}
-
-func _structured_output_render_options_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_structured_output_render_options_impl")
-	var v_selection Value
-	var v_extra_functions Value
-	var v_function_rung Value
-	var v_output_function Value
-	var v_render_options Value
-	var v_rung Value
-	var v_structured Value
-	if len(args) > 0 { v_selection = args[0] }
-	_ = v_selection
-	_ = v_extra_functions
-	_ = v_function_rung
-	_ = v_output_function
-	_ = v_render_options
-	_ = v_rung
-	_ = v_structured
-	v_render_options = Object()
-	v_rung = coreGet(v_selection, "rung", nil)
-	v_structured = _core_is_not_none(v_rung)
-	if err := coreSet(v_render_options, "structured_output", v_structured); err != nil { return nil, err }
-	v_extra_functions = MutableArray()
-	v_function_rung = _core_eq(v_rung, "function")
-	if coreTruthy(v_function_rung) {
-		if err := coreSet(v_render_options, "structured_output_function_name", "__axOutput"); err != nil { return nil, err }
-		v_output_function = Object()
-		if err := coreSet(v_output_function, "name", "__axOutput"); err != nil { return nil, err }
-		if err := coreSet(v_output_function, "description", "Emit the complete structured program output using the declared argument shape."); err != nil { return nil, err }
-		v_extra_functions = coreAppend(v_extra_functions, v_output_function)
-	} else {
-	// empty
-	}
-	if err := coreSet(v_render_options, "extra_functions", v_extra_functions); err != nil { return nil, err }
-	return v_render_options, nil
 }
 
 func _completion_function_call_problems(args ...Value) (Value, error) {
@@ -62942,6 +62951,26 @@ func _stream_run_new_version_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _memory_cleanup_option_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_memory_cleanup_option_impl")
+	var v_options Value
+	var v_cleanup Value
+	var v_disabled Value
+	var v_disabled_snake Value
+	var v_disabled_value Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_cleanup
+	_ = v_disabled
+	_ = v_disabled_snake
+	_ = v_disabled_value
+	v_disabled_snake = coreGet(v_options, "disable_memory_cleanup", false)
+	v_disabled_value = coreGet(v_options, "disableMemoryCleanup", v_disabled_snake)
+	v_disabled = _core_truthy(v_disabled_value)
+	v_cleanup = _core_not(v_disabled)
+	return v_cleanup, nil
+}
+
 func _stream_yield_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_yield_impl")
 	var v_run Value
@@ -63126,26 +63155,6 @@ func _stream_yield_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_envelope, "delta", v_delta); err != nil { return nil, err }
 	if _, err := _core_axgen_emit_delta(v_sink, v_envelope); err != nil { return nil, err }
 	return nil, nil
-}
-
-func _memory_cleanup_option_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_memory_cleanup_option_impl")
-	var v_options Value
-	var v_cleanup Value
-	var v_disabled Value
-	var v_disabled_snake Value
-	var v_disabled_value Value
-	if len(args) > 0 { v_options = args[0] }
-	_ = v_options
-	_ = v_cleanup
-	_ = v_disabled
-	_ = v_disabled_snake
-	_ = v_disabled_value
-	v_disabled_snake = coreGet(v_options, "disable_memory_cleanup", false)
-	v_disabled_value = coreGet(v_options, "disableMemoryCleanup", v_disabled_snake)
-	v_disabled = _core_truthy(v_disabled_value)
-	v_cleanup = _core_not(v_disabled)
-	return v_cleanup, nil
 }
 
 func _settle_failed_attempts_impl(args ...Value) (Value, error) {
@@ -106213,6 +106222,9 @@ func (g *AxGen) runCancellation(ctx context.Context, options map[string]Value) (
 		return ctx, func() {}
 	}
 	run, cancel := context.WithCancelCause(ctx)
+	// AfterFunc runs asynchronously even for an already cancelled token.
+	// Preserve preflight cancellation before the first provider call.
+	if token.Err() != nil { cancel(context.Cause(token)) }
 	release := context.AfterFunc(token, func() { cancel(context.Cause(token)) })
 	return run, func() {
 		release()
@@ -117392,6 +117404,10 @@ func assertExpectedErrorCategory(caught any, fixture map[string]Value) {
 // assertExpectedErrorCause checks expected_error_cause_contains: "Generate
 // failed: ..." keeps the failure it wraps as its direct cause.
 func assertExpectedErrorCause(err error, fixture map[string]Value) {
+    if coreTruthy(coreGet(fixture, "expected_generate_error", false)) {
+        var generated AxGenerateError
+        if !errors.As(err, &generated) { panic(FixtureError{Message: "expected a concrete AxGenerateError"}) }
+    }
 	expected := coreGet(fixture, "expected_error_cause_contains", nil)
 	if expected == nil {
 		return
@@ -117405,14 +117421,10 @@ func assertExpectedErrorCause(err error, fixture map[string]Value) {
 // axErrorCause is the cause of the first Ax error in err's chain: the error
 // it was rewrapped from, or nil.
 func axErrorCause(err error) error {
-	for err != nil {
-		if e, ok := err.(AxError); ok {
-			return e.cause
-		}
-		err = errors.Unwrap(err)
-	}
-	return nil
+    if envelope, ok := outermostAxError(err); ok { return envelope.cause }
+    return nil
 }
+
 func assertEqual(actual Value, expected Value, label string) {
 	if !equal(actual, expected) {
 		panic(AxError{Category: "fixture", Message: label + " mismatch\nactual: " + stableStringify(actual) + "\nexpected: " + stableStringify(expected)})

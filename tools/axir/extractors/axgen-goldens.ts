@@ -2034,6 +2034,41 @@ for (const [
   }
 }
 
+{
+  const client = new AxMockAIService({
+    features: { functions: false, streaming: false, structuredOutputs: false },
+    chatResponse: {
+      results: [{ index: 0, content: 'Count: many', finishReason: 'stop' }],
+    },
+  });
+  let error: Error | undefined;
+  try {
+    await ax('question:string -> count:number').forward(
+      client,
+      { question: 'Count' },
+      { maxRetries: 0, stream: false }
+    );
+  } catch (cause) {
+    error = cause as Error;
+  }
+  if (error?.name !== 'AxGenerateError' || !error.cause)
+    throw new Error('TypeScript must expose AxGenerateError and its cause');
+  writeFixture('generate-error-typed-validation-cause', {
+    kind: 'forward',
+    signature: 'question:string -> count:number',
+    input: { question: 'Count' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    forward_options: { maxRetries: 0, stream: false },
+    responses: [{ content: 'Count: many' }],
+    expected_error_contains: error.message,
+    expected_generate_error: true,
+    expected_error_cause_contains: String(
+      error.cause instanceof Error ? error.cause.message : error.cause
+    ),
+    expected_request_count: 1,
+  });
+}
+
 // Pin cached/dynamic user-message boundaries against the real TS generator.
 for (const [name, cache, input, ignoreBreakpoints] of [
   [

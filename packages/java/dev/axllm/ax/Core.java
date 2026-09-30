@@ -690,6 +690,9 @@ final class Core {
   // its class and the Ax error fields, so existing handlers still catch it (TS
   // wraps it in AxGenerateError, which the ports adopt at the next major). An
   // error this cannot rebuild becomes a RuntimeException.
+  static Object exceptionGenerate(Object error, Object message) {
+    return new AxGenerateError(String.valueOf(message), error instanceof Throwable cause ? cause : null);
+  }
   static Object exceptionRewrap(Object error, Object message) {
     String text = String.valueOf(message);
     if (!(error instanceof Throwable original)) return new RuntimeException(text);
@@ -732,7 +735,7 @@ final class Core {
   }
   static Object exceptionIsAborted(Object error) {
     Object current=error;
-    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError)return true;current=throwable.getCause();}
+    while(current instanceof Throwable throwable){if(throwable instanceof AxAIServiceAbortedError || throwable instanceof java.util.concurrent.CancellationException)return true;current=throwable.getCause();}
     return false;
   }
   // TS AxGen retries only 5xx status, network, timeout and stream-termination errors.
@@ -29146,7 +29149,7 @@ final class Core {
     }
     Object text = Core.exceptionMessage(error);
     Object message = Core.add("Generate failed: ", text);
-    Object wrapped = Core.exceptionRewrap(error, message);
+    Object wrapped = Core.exceptionGenerate(error, message);
     return wrapped;
   }
 
@@ -29617,6 +29620,25 @@ final class Core {
     return state;
   }
 
+  static Object _structured_output_render_options_impl(Object selection) {
+    axirCoverageMark("_structured_output_render_options_impl");
+    Object render_options = new java.util.LinkedHashMap<String, Object>();
+    Object rung = Core.get(selection, "rung", null);
+    Object structured = Core.isNotNone(rung);
+    Core.set(render_options, "structured_output", structured);
+    Object extra_functions = new java.util.ArrayList<Object>();
+    Object function_rung = Core.eq(rung, "function");
+    if (Core.truthy(function_rung)) {
+      Core.set(render_options, "structured_output_function_name", "__axOutput");
+      Object output_function = new java.util.LinkedHashMap<String, Object>();
+      Core.set(output_function, "name", "__axOutput");
+      Core.set(output_function, "description", "Emit the complete structured program output using the declared argument shape.");
+      Core.append(extra_functions, output_function);
+    }
+    Core.set(render_options, "extra_functions", extra_functions);
+    return render_options;
+  }
+
   static Object _stream_merge_value_impl(Object base, Object has_base, Object delta) {
     axirCoverageMark("_stream_merge_value_impl");
     Object delta_is_list = Core.typeIs(delta, "list");
@@ -29650,25 +29672,6 @@ final class Core {
       return text;
     }
     return delta;
-  }
-
-  static Object _structured_output_render_options_impl(Object selection) {
-    axirCoverageMark("_structured_output_render_options_impl");
-    Object render_options = new java.util.LinkedHashMap<String, Object>();
-    Object rung = Core.get(selection, "rung", null);
-    Object structured = Core.isNotNone(rung);
-    Core.set(render_options, "structured_output", structured);
-    Object extra_functions = new java.util.ArrayList<Object>();
-    Object function_rung = Core.eq(rung, "function");
-    if (Core.truthy(function_rung)) {
-      Core.set(render_options, "structured_output_function_name", "__axOutput");
-      Object output_function = new java.util.LinkedHashMap<String, Object>();
-      Core.set(output_function, "name", "__axOutput");
-      Core.set(output_function, "description", "Emit the complete structured program output using the declared argument shape.");
-      Core.append(extra_functions, output_function);
-    }
-    Core.set(render_options, "extra_functions", extra_functions);
-    return render_options;
   }
 
   static Object _completion_function_call_problems(Object response) {
@@ -29872,6 +29875,15 @@ final class Core {
     return null;
   }
 
+  static Object _memory_cleanup_option_impl(Object options) {
+    axirCoverageMark("_memory_cleanup_option_impl");
+    Object disabled_snake = Core.get(options, "disable_memory_cleanup", Boolean.FALSE);
+    Object disabled_value = Core.get(options, "disableMemoryCleanup", disabled_snake);
+    Object disabled = Core.truthyValue(disabled_value);
+    Object cleanup = Core.not(disabled);
+    return cleanup;
+  }
+
   static Object _stream_yield_impl(Object run, Object version, Object index, Object delta) {
     axirCoverageMark("_stream_yield_impl");
     Object current_version = Core.get(run, "current_version", 0);
@@ -29957,15 +29969,6 @@ final class Core {
     Core.set(envelope, "delta", delta);
     Core.axgenEmitDelta(sink, envelope);
     return null;
-  }
-
-  static Object _memory_cleanup_option_impl(Object options) {
-    axirCoverageMark("_memory_cleanup_option_impl");
-    Object disabled_snake = Core.get(options, "disable_memory_cleanup", Boolean.FALSE);
-    Object disabled_value = Core.get(options, "disableMemoryCleanup", disabled_snake);
-    Object disabled = Core.truthyValue(disabled_value);
-    Object cleanup = Core.not(disabled);
-    return cleanup;
   }
 
   static Object _settle_failed_attempts_impl(Object messages, Object failed, Object cleanup) {

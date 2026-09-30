@@ -1311,6 +1311,17 @@ def _core_exception_message(error):
 # The same error with a new message and the original as its cause. It keeps
 # its class, so existing handlers still catch it (TS wraps it in
 # AxGenerateError, which the ports adopt at the next major).
+class AxGenerateError(RuntimeError):
+    """Generation failed; the original failure is available as __cause__."""
+    def __init__(self, message, cause=None):
+        super().__init__(message)
+        self.__cause__ = cause
+
+
+def _core_exception_generate(error, message):
+    return AxGenerateError(message, error)
+
+
 def _core_exception_rewrap(error, message):
     try:
         wrapped = copy.copy(error)
