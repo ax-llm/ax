@@ -20,7 +20,7 @@
       }
     ],
     "callable_results": {
-      "tools.lookup": {
+      "utils.lookup": {
         "value": {
           "reference": "LOCAL-17"
         }
@@ -83,7 +83,7 @@
       "expected_code": "lookup",
       "result": {
         "callable": {
-          "qualified_name": "tools.lookup",
+          "qualified_name": "utils.lookup",
           "args": {
             "query": "Find local reference"
           },
@@ -123,7 +123,7 @@
   "expected_executed": ["plan", "lookup", "delegate", "finish"],
   "expected_function_call_traces_subset": [
     {
-      "qualified_name": "tools.lookup",
+      "qualified_name": "utils.lookup",
       "call_id": "ordinary-call",
       "arguments": {
         "query": "Find local reference"
@@ -154,7 +154,7 @@
   "expected_action_log_subset": [
     {
       "type": "function_call",
-      "qualified_name": "tools.lookup",
+      "qualified_name": "utils.lookup",
       "call_id": "ordinary-call",
       "status": "ok"
     },
@@ -168,7 +168,7 @@
   "expected_request_contains": [
     "LOCAL-17",
     "REF-42",
-    "tools.lookup",
+    "utils.lookup",
     "team.researcher"
   ]
 }

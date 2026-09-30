@@ -3008,13 +3008,13 @@ writeFixture('flat-functions-always-inline', {
   },
   expected_callable_inventory_subset: [
     {
-      namespace: 'tools',
+      namespace: 'utils',
       always_include: true,
       callables: [
         {
           name: 'search',
-          namespace: 'tools',
-          qualified_name: 'tools.search',
+          namespace: 'utils',
+          qualified_name: 'utils.search',
           kind: 'tool',
           description: 'Search docs',
           parameters: null,
@@ -3022,8 +3022,8 @@ writeFixture('flat-functions-always-inline', {
         },
         {
           name: 'lookup',
-          namespace: 'tools',
-          qualified_name: 'tools.lookup',
+          namespace: 'utils',
+          qualified_name: 'utils.lookup',
           kind: 'tool',
           description: 'Look up an id',
           parameters: null,
@@ -3034,9 +3034,9 @@ writeFixture('flat-functions-always-inline', {
   ],
   expected_discovery_catalog_subset: [
     {
-      namespace: 'tools',
+      namespace: 'utils',
       placement: 'actor_prompt',
-      callables: ['tools.search', 'tools.lookup'],
+      callables: ['utils.search', 'utils.lookup'],
     },
   ],
 });

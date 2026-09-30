@@ -314,9 +314,11 @@ def _core_prompt_is_provided_value(value) -> bool:
     return True
 
 
-def _core_prompt_input_fields_for_values(signature, values=None):
+def _core_prompt_input_fields_for_values(signature, values=None, include_optional=False):
     fields = sorted(_core_prompt_get_input_fields(signature), key=lambda field: 0 if getattr(field, "is_cached", False) else 1)
-    if not isinstance(values, dict):
+    # TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+    # every input field, provided or not.
+    if include_optional or not isinstance(values, dict):
         return fields
     return [field for field in fields if not field.is_optional or _core_prompt_is_provided_value(values.get(field.name))]
 
@@ -440,8 +442,8 @@ def _core_prompt_render_functions_section(funcs) -> str:
     return "\n".join(f"- {BT}{item['name']}{BT}: {_core_prompt_format_description(item.get('description') or '')}" for item in funcs)
 
 
-def _core_prompt_identity_section(signature, values=None) -> str:
-    in_args = _core_prompt_render_desc_fields(_core_prompt_input_fields_for_values(signature, values))
+def _core_prompt_identity_section(signature, values=None, include_optional=False) -> str:
+    in_args = _core_prompt_render_desc_fields(_core_prompt_input_fields_for_values(signature, values, include_optional))
     out_args = _core_prompt_render_desc_fields(_core_prompt_get_output_fields(signature))
     return f"You will be provided with the following fields: {in_args}. Your task is to generate new fields: {out_args}."
 
@@ -459,8 +461,8 @@ def _core_prompt_task_definition_section(signature, options=None) -> str:
     )
 
 
-def _core_prompt_input_fields_section(signature, values=None) -> str:
-    fields = _core_prompt_render_input_fields(_core_prompt_input_fields_for_values(signature, values), _core_prompt_field_name_to_title(signature))
+def _core_prompt_input_fields_section(signature, values=None, include_optional=False) -> str:
+    fields = _core_prompt_render_input_fields(_core_prompt_input_fields_for_values(signature, values, include_optional), _core_prompt_field_name_to_title(signature))
     return "**Input Fields**: The following fields will be provided to you:\n\n" + fields
 
 
@@ -507,6 +509,7 @@ def _core_prompt_structured(signature, values, functions, options) -> str:
     has_complex_fields = _core_prompt_has_complex_fields(signature) if structured is None else bool(structured)
     task_definition = _core_prompt_task_definition_section(signature, options)
     funcs = _core_prompt_function_descriptors(functions)
+    include_optional = bool(options.get("include_optional_input_fields_in_system_prompt", options.get("includeOptionalInputFieldsInSystemPrompt", False)))
     template_vars = {
         "hasFunctions": len(funcs) > 0,
         "hasTaskDefinition": bool(task_definition),
@@ -514,10 +517,10 @@ def _core_prompt_structured(signature, values, functions, options) -> str:
         "hasOutputFields": bool(_core_prompt_get_output_fields(signature)),
         "hasComplexFields": has_complex_fields,
         "hasStructuredOutputFunction": bool(has_complex_fields and options.get("structured_output_function_name")),
-        "identityText": _core_prompt_identity_section(signature, values),
+        "identityText": _core_prompt_identity_section(signature, values, include_optional),
         "taskDefinitionText": task_definition,
         "functionsList": _core_prompt_render_functions_section(funcs) if funcs else "",
-        "inputFieldsSection": _core_prompt_input_fields_section(signature, values),
+        "inputFieldsSection": _core_prompt_input_fields_section(signature, values, include_optional),
         "outputFieldsSection": _core_prompt_output_fields_section(signature, has_complex_fields),
         "structuredOutputFunctionName": options.get("structured_output_function_name") or "",
     }
@@ -830,6 +833,7 @@ class AxPromptTemplate:
         thought_field_name: str = "thought",
         structured_output_function_name: str | None = None,
         custom_template: str | None = None,
+        include_optional_input_fields_in_system_prompt: bool = False,
         **kwargs,
     ):
         self.signature = signature
@@ -837,6 +841,7 @@ class AxPromptTemplate:
         self.thought_field_name = kwargs.get("thoughtFieldName", thought_field_name)
         self.structured_output_function_name = kwargs.get("structuredOutputFunctionName", structured_output_function_name)
         self.custom_template = kwargs.get("customTemplate", custom_template)
+        self.include_optional_input_fields_in_system_prompt = bool(kwargs.get("includeOptionalInputFieldsInSystemPrompt", include_optional_input_fields_in_system_prompt))
         self.instruction = None
 
     def set_instruction(self, instruction: str):
@@ -858,6 +863,8 @@ class AxPromptTemplate:
             render_options.setdefault("structured_output_function_name", self.structured_output_function_name)
         if self.custom_template is not None:
             render_options["custom_template"] = self.custom_template
+        if self.include_optional_input_fields_in_system_prompt:
+            render_options.setdefault("include_optional_input_fields_in_system_prompt", True)
         # extra_functions are listed after the template's own, as TS lists
         # the __axOutput function of the function rung.
         functions = list(self.functions) + list(render_options.pop("extra_functions", None) or [])

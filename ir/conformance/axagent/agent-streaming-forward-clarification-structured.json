@@ -18,7 +18,6 @@
   "kind": "agent_streaming_forward",
   "name": "agent-streaming-forward-clarification-structured",
   "options": {
-    "clarificationShape": "structured",
     "directResponse": "off",
     "runtime": {
       "language": "JavaScript"

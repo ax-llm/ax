@@ -1193,7 +1193,6 @@ const cases: Record<string, Case> = {
   // carry it with clarificationShape: 'structured'.
   'agent-streaming-forward-clarification-structured': {
     options: { directResponse: 'off' },
-    port_options: { clarificationShape: 'structured' },
     responses: [actor(CLARIFY)],
     runtime_script: [
       step(CLARIFY, 'askClarification', 'Which order do you mean?'),
@@ -1203,7 +1202,6 @@ const cases: Record<string, Case> = {
   'agent-forward-clarification-structured': {
     kind: 'agent_forward',
     options: { directResponse: 'off' },
-    port_options: { clarificationShape: 'structured' },
     responses: [actor(CLARIFY)],
     runtime_script: [
       step(CLARIFY, 'askClarification', 'Which order do you mean?'),
@@ -1499,7 +1497,6 @@ const inputCases: Record<string, Case> = {
     signature: CONTEXTUAL,
     input: {},
     options: { directResponse: 'off', contextFields: ['doc'] },
-    port_options: { inputValidation: 'fail' },
     // TS fails the run before any request.
     responses: [],
     runtime_script: [],
@@ -1509,7 +1506,6 @@ const inputCases: Record<string, Case> = {
     signature: CONTEXTUAL,
     input: { question: 'How long do refunds take?' },
     options: { directResponse: 'off', contextFields: ['doc'] },
-    port_options: { inputValidation: 'fail' },
     // TS fails the run before any request.
     responses: [],
     runtime_script: [],
@@ -1519,7 +1515,6 @@ const inputCases: Record<string, Case> = {
     signature: CONTEXTUAL,
     input: { question: 'How long do refunds take?', doc: '' },
     options: { directResponse: 'off', contextFields: ['doc'] },
-    port_options: { inputValidation: 'fail' },
     responses: [...baseActors(), plainAnswer()],
     runtime_script: baseRuntime(),
   },
@@ -1535,12 +1530,8 @@ for (const [name, spec] of Object.entries(inputCases)) {
   await record(name, spec);
 }
 
-// Port-only: without inputValidation a port run without its context field
-// goes on and succeeds, as this release does (the run warns once with TS's
-// message, naming the option); with 'lenient' it runs on silently. TS always
-// fails these runs (above).
+// Explicit lenient mode preserves the legacy missing-context behavior.
 for (const [name, portOptions] of [
-  ['agent-forward-input-context-field-missing-runs-by-default', {}],
   [
     'agent-forward-input-context-field-missing-lenient',
     { inputValidation: 'lenient' },
@@ -1549,7 +1540,7 @@ for (const [name, portOptions] of [
   writeFixture(name, {
     kind: 'agent_forward',
     description:
-      "Port-only: an agent run without its required context field goes on without inputValidation: 'fail', as this release does. TS fails it before any request.",
+      "Port-only: explicit inputValidation: 'lenient' allows a missing required context field. The default and TypeScript fail before any request.",
     signature: CONTEXTUAL,
     input: { question: 'How long do refunds take?' },
     options: {

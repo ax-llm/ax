@@ -398,13 +398,13 @@ func (t *agentSessionTransport) Stream(ctx context.Context, request Value) (AxHT
     }
 	if n == 3 {
 		tools := asSlice(coreGet(body, "tools", Array()))
-		if len(tools) != 1 || coreGet(tools[0], "name", "") != "tools_lookup" || coreGet(tools[0], "async", false) != true {
+		if len(tools) != 1 || coreGet(tools[0], "name", "") != "utils_lookup" || coreGet(tools[0], "async", false) != true {
 			return AxHTTPStreamResponse{}, fmt.Errorf("missing native actor tool: %v", tools)
 		}
 		reader, writer := io.Pipe()
 		go func() {
 			defer writer.Close()
-			sessionSSE(writer, Object("type", "response.output_item.done", "item", Object("type", "function_call", "id", "item", "call_id", "agent-call", "name", "tools_lookup", "arguments", "{\"query\":\"REF-42\"}")))
+			sessionSSE(writer, Object("type", "response.output_item.done", "item", Object("type", "function_call", "id", "item", "call_id", "agent-call", "name", "utils_lookup", "arguments", "{\"query\":\"REF-42\"}")))
 			select {
 			case <-t.started:
 				close(t.release)
@@ -457,14 +457,14 @@ func TestAstraAgentNativeToolsAndActionLog(t *testing.T) {
 			activity = append(activity, entry)
 		}
 	}
-	if len(activity) != 1 || coreGet(activity[0], "qualified_name", "") != "tools.lookup" {
+	if len(activity) != 1 || coreGet(activity[0], "qualified_name", "") != "utils.lookup" {
 		t.Fatalf("lost native activity: %v", activity)
 	}
 	traces := asSlice(coreGet(program.State, "function_call_traces", Array()))
 	if len(traces) != 1 || coreGet(traces[0], "call_id", "") != "agent-call" {
 		t.Fatalf("lost call accounting: %v", traces)
 	}
-	duplicate := program.InvokeCallable("tools.lookup", Object("query", "REF-42"), Object())
+	duplicate := program.InvokeCallable("utils.lookup", Object("query", "REF-42"), Object())
 	if coreGet(duplicate, "status", "") != "error" || calls.Load() != 1 {
 		t.Fatal("native tool ran again through actor machinery")
 	}
@@ -772,7 +772,7 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    if number==10{raw,_:=json.Marshal(body);if !strings.Contains(string(raw),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("parent continued without child result")}}
    var output Value
    if strings.HasPrefix(stage,"root/team.researcher"){if strings.HasSuffix(stage,"/responder"){output=Object("answer","REF-42")}else{output=Object("completion",Object("type","final","args",Array("Find reference",Object())))}}else if stage=="root/responder"{output=Object("answer","REF-42")}else{code:="parent-final";if stage=="root/executor"&&!runtime.delegated{code="delegate"};output=Object("javascriptCode",code)}
-   raw,_:=json.Marshal(output);var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw));if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","tools_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
+   raw,_:=json.Marshal(output);var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw));if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
   }
   mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
@@ -814,7 +814,7 @@ func TestActorMCPInvocationCancellation(t *testing.T){
  ctx,cancel:=context.WithCancel(context.Background());defer cancel();transport:=&actorMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),cancel:cancel};client:=NewAxMCPClient(transport,Object("namespace","inventory"));client.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object"))}
  program:=NewAgent("question -> answer",Object("functions",Array(client.NativeTools()[0]),"functionDiscovery",false))
  defer func(){failure:=recover();if failure==nil||transport.calls!=1{t.Fatal("expected one aborted invocation",failure,transport.calls)};if _,ok:=failure.(AxAIServiceAbortedError);!ok{t.Fatalf("unexpected invocation failure: %T %v",failure,failure)}}()
- program.InvokeCallable("tools.lookup",Object("query","probe"),Object("context",ctx))
+ program.InvokeCallable("utils.lookup",Object("query","probe"),Object("context",ctx))
 }
 
 // sessionRoutingClient opens a native chat session when the features of the

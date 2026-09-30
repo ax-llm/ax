@@ -1746,9 +1746,9 @@ mod tests {
                 return Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(completed(&format!("{stage}{suffix}"),if n<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"{\"answer\":\"REF-42\"}"}))).unwrap()})));
             }
             if n==3 {
-                assert_eq!(body["tools"][0]["name"],"tools_lookup");assert_eq!(body["tools"][0]["async"],true);
+                assert_eq!(body["tools"][0]["name"],"utils_lookup");assert_eq!(body["tools"][0]["async"],true);
                 let started=self.started.take().unwrap();let release=self.release.clone();let (sender,source)=mpsc::channel();
-                std::thread::spawn(move ||{sender.send(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","id":"item","call_id":"agent-call","name":"tools_lookup","arguments":"{\"query\":\"REF-42\"}"}}))).unwrap();started.recv_timeout(Duration::from_secs(2)).expect("agent tool should overlap model work");release.send(()).unwrap();sender.send(sse(completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"))).unwrap();});
+                std::thread::spawn(move ||{sender.send(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","id":"item","call_id":"agent-call","name":"utils_lookup","arguments":"{\"query\":\"REF-42\"}"}}))).unwrap();started.recv_timeout(Duration::from_secs(2)).expect("agent tool should overlap model work");release.send(()).unwrap();sender.send(sse(completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"))).unwrap();});
                 return Ok(AxTransportStream::Reader{status:200,body:Box::new(ChannelReader{source,current:std::io::Cursor::new(Vec::new())})});
             }
             assert_eq!(n,4);assert_eq!(body["previous_response_id"],"executor1");assert_eq!(body["input"].as_array().unwrap().last().unwrap(),&json!({"type":"function_call_output","call_id":"agent-call","output":"REF-42"}));let input=body["input"].to_string();assert!(input.contains("ROOT-GUIDANCE")&&!input.contains("RESPONDER-ONLY")&&input.contains("configuration_update")&&input.contains("medium"));
@@ -1797,7 +1797,7 @@ mod tests {
             }else{assert!(body["previous_response_id"].is_null(),"child inherited conversation at request {number}: {body}");}
             if number==10{assert!(body.to_string().contains("REF-42"),"parent continued without child result");}
             let output=if stage.starts_with("root/team.researcher"){if stage.ends_with("/responder"){json!({"answer":"REF-42"})}else{json!({"completion":{"type":"final","args":["Find reference",{}]}})}}else if stage=="root/responder"{json!({"answer":"REF-42"})}else{json!({"javascriptCode":if stage=="root/executor"&&!self.delegated.load(Ordering::SeqCst){"delegate"}else{"parent-final"}})};
-            let mut event=completed(&format!("child-r{}",number+1),&output.to_string());event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});if self.cancel&&number==6{event["response"]["output"]=json!([{"type":"function_call","name":"tools_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);}
+            let mut event=completed(&format!("child-r{}",number+1),&output.to_string());event["response"]["usage"]=json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});if self.cancel&&number==6{event["response"]["output"]=json!([{"type":"function_call","name":"utils_lookup","call_id":"child-mcp","arguments":"{}","status":"completed"}]);}
             Ok(AxTransportStream::Buffered(json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()})))
         }
     }
@@ -1837,8 +1837,8 @@ mod tests {
         let mut client=AxBalancer::from_clients(vec![Box::new(client)],AxBalancerOptions::default())?;
         let mut program=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_tool_module("tools",vec![lookup])?;
         assert_eq!(program.forward_with_options(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control))?,json!({"answer":"REF-42"}));assert_eq!(calls.load(Ordering::SeqCst),1);assert_eq!(requests.load(Ordering::SeqCst),6);
-        let activity:Vec<Value>=program.get_action_log().into_iter().filter(|v|v["type"]=="function_call").collect();assert_eq!(activity.len(),1);assert_eq!(activity[0]["qualified_name"],"tools.lookup");assert_eq!(activity[0]["call_id"],"agent-call");
-        assert_eq!(program.invoke_callable("tools.lookup",json!({"query":"REF-42"}),json!({}))?["status"],"error");assert_eq!(calls.load(Ordering::SeqCst),1);Ok(())
+        let activity:Vec<Value>=program.get_action_log().into_iter().filter(|v|v["type"]=="function_call").collect();assert_eq!(activity.len(),1);assert_eq!(activity[0]["qualified_name"],"utils.lookup");assert_eq!(activity[0]["call_id"],"agent-call");
+        assert_eq!(program.invoke_callable("utils.lookup",json!({"query":"REF-42"}),json!({}))?["status"],"error");assert_eq!(calls.load(Ordering::SeqCst),1);Ok(())
     }
 
     #[test]

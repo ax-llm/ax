@@ -8535,15 +8535,11 @@ module @ax.agent version "0.1" {
       %type = core.get %payload["type"]
       %is_clarification = core.call intrinsic.eq(%type, "askClarification")
       core.if %is_clarification {
-        // clarificationShape says what the clarification carries: 'raw',
-        // this release's default, the askClarification payload as given;
-        // 'structured', TS's normalizeClarificationForError form ({question,
-        // ...}). Left unset, the payload stays as given and a one-time
-        // warning names the option.
+        // Structured TypeScript clarifications are the default; raw is explicit.
         %empty_map = core.map
         %empty_list = core.list
         %agent_options = core.get %state["options"] default %empty_map
-        %shape_snake = core.get %agent_options["clarification_shape"]
+        %shape_snake = core.get %agent_options["clarification_shape"] default "structured"
         %shape = core.get %agent_options["clarificationShape"] default %shape_snake
         %shape_set = core.call intrinsic.is_not_none(%shape)
         core.if %shape_set {
@@ -8576,8 +8572,6 @@ module @ax.agent version "0.1" {
             core.set %shaped["args"] = %structured_args
             %payload = core.let %shaped
           }
-        } else {
-          core.call intrinsic.axgen.deprecation("agent-clarification-shape", "An agent clarification carries the askClarification payload as given; TypeScript Ax normalizes it to {question, ...}. Pass clarificationShape: 'structured' to get TypeScript's form now, or clarificationShape: 'raw' to keep the payload. The structured form becomes the default in the next major version.")
         }
         %error = core.call intrinsic.agent.clarification_error(%payload, %state)
         core.raise %error
@@ -11683,7 +11677,7 @@ module @ax.agent version "0.1" {
     type signature = "(json, json) -> string"
     body @entry(%item: json, %options: json) {
       // The namespace an agent files a flat function under: its own (TS
-      // fn().namespace()), "tools" without one (TS's is utils), and "tools"
+      // fn().namespace()), "utils" without one, and "tools"
       // for every flat function with flatFunctionNamespace 'tools'.
       %mode_snake = core.get %options["flat_function_namespace"] default null
       %mode = core.get %options["flatFunctionNamespace"] default %mode_snake
@@ -11696,7 +11690,7 @@ module @ax.agent version "0.1" {
       core.if %has_own {
         core.return %own
       }
-      core.return "tools"
+      core.return "utils"
     }
   }
 
@@ -13052,13 +13046,8 @@ module @ax.agent version "0.1" {
       // renders the distiller's inputs: "Value for input field '<name>' is
       // required.").
       //
-      // The input check always fails the run: the ports' responder already
-      // failed it with the same message, only after the distiller and
-      // executor requests. inputValidation says what the context-field check
-      // does, since a port run without its context field succeeds today:
-      // 'fail' fails the run with TS's message; 'lenient', this release's
-      // default, runs on; left unset, the run goes on and warns once with
-      // TS's message. The call's option wins over the agent's.
+      // Required context fields fail by default. Explicit lenient retains legacy behavior.
+      // The call's option wins over the agent's.
       %empty_map = core.map
       %empty_list = core.list
       %agent_options = core.get %state["options"] default %empty_map
@@ -13071,7 +13060,7 @@ module @ax.agent version "0.1" {
         %mode = core.let %agent_mode
       }
       %mode_set = core.call intrinsic.is_not_none(%mode)
-      %is_fail = core.let false
+      %is_fail = core.let true
       core.if %mode_set {
         %is_fail = core.call intrinsic.eq(%mode, "fail")
         %is_lenient = core.call intrinsic.eq(%mode, "lenient")
@@ -13124,11 +13113,7 @@ module @ax.agent version "0.1" {
           %context_error = core.call intrinsic.error.validation(%context_problem)
           core.raise %context_error
         }
-        %warn = core.call intrinsic.not(%mode_set)
-        core.if %warn {
-          %warning = core.call intrinsic.string.format("{}. TypeScript Ax fails the agent run here, before any request; this run goes on. Pass inputValidation: 'fail' to fail it now, or inputValidation: 'lenient' to keep running without this warning. Failing becomes the default in the next major version.", %context_problem)
-          core.call intrinsic.axgen.deprecation("agent-input-validation", %warning)
-        }
+
       }
       core.for %field in %input_fields {
         %field_name = core.get %field["name"] default ""

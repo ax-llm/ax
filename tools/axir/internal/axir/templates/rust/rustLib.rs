@@ -6999,18 +6999,15 @@ impl AxAgent {
         ])?))
     }
 
-    /// Run one task and return its prediction. A run that asks for
-    /// clarification is an askClarification prediction. A run that throws
-    /// currently returns that error (Err), unlike the other ports, whose
-    /// prediction for it has completionType 'error'; Rust returns that
-    /// prediction at the next major version.
+    /// Run one task and return its prediction. Clarifications and thrown
+    /// runs become askClarification and error predictions, matching TypeScript.
     pub fn evaluate_optimization_task<C: AxAIClient>(
         &mut self,
         client: &mut C,
         task: Value,
         options: Value,
     ) -> AxResult<Value> {
-        self.evaluate_optimization_task_with(client, task, options, false)
+        self.evaluate_optimization_task_with(client, task, options, true)
     }
 
     // thrown_as_prediction: a run that throws is a completionType 'error'
@@ -9452,7 +9449,6 @@ fn run_agent_playbook_batch<C: AxAIClient>(
     for (task_index, raw) in tasks.iter().enumerate() {
         let task = if raw.is_object() { raw.clone() } else { json!({"input":raw}) };
         let mut prediction = Value::Null;
-        let mut error_prediction = Value::Null;
         let mut last_error: Option<String> = None;
         let mut score_sum = 0.0;
         let mut completed_runs = 0usize;
@@ -9470,7 +9466,6 @@ fn run_agent_playbook_batch<C: AxAIClient>(
                         Value::Null => String::new(),
                         other => other.to_string(),
                     });
-                    error_prediction = value;
                     0.0
                 }
                 Ok(value) => {
@@ -9499,9 +9494,6 @@ fn run_agent_playbook_batch<C: AxAIClient>(
         if !prediction.is_null() { record["prediction"] = prediction; }
         else if let Some(error) = last_error {
             record["error"] = json!(error);
-            // Kept this release for compatibility; TS's record has no
-            // prediction (dropped at the next major).
-            if !error_prediction.is_null() { record["prediction"] = error_prediction; }
         }
         records.push(record);
         if completed_runs < runs_per_task { break; }
@@ -18615,7 +18607,6 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         program = program.with_cancellation(token);
     }
     let call_cancellation = fixture_cancellation(fixture.get("call_cancellation"));
-    let _call_cancellation_scope = call_cancellation.as_ref().map(AxCancellationScope::enter).transpose()?;
     // The process-wide formatter; the guard restores the default after the
     // forward.
     struct GlobalFormatterReset(bool);
@@ -18632,13 +18623,16 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         global_formatter_reset.0 = true;
     }
     // The forward call's formatter.
-    let result = match fixture.get("call_function_result_formatter") {
+    let result = (|| {
+        let _scope = call_cancellation.as_ref().map(AxCancellationScope::enter).transpose()?;
+        match fixture.get("call_function_result_formatter") {
         Some(spec) => {
             let formatter = fixture_function_result_formatter(spec);
             program.forward_with_function_result_formatter(&mut client, input, options, move |result| formatter(result))
         }
         None => program.forward_with_options(&mut client, input, options),
-    };
+        }
+    })();
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {

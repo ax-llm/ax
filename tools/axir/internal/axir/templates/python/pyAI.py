@@ -1965,8 +1965,8 @@ class ProviderOperationClient(AxBaseAI):
                 if binary_response:
                     return _binary_transport_result(result, error_request)
                 value = _transport_result(result, error_request)
-                if verbose and stream:
-                    _verbose_log(ai_verbose_stream_log(_transport_status(result)))
+                if verbose:
+                    _verbose_log(ai_verbose_stream_log(_transport_status(result)) if stream else ai_verbose_response_log(_transport_status(result), value))
                 return value
             except AxAIServiceAbortedError:
                 raise

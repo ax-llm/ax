@@ -27,7 +27,6 @@
   "options": {
     "contextFields": ["doc"],
     "directResponse": "off",
-    "inputValidation": "fail",
     "runtime": {
       "language": "JavaScript"
     }

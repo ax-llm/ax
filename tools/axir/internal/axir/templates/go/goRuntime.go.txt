@@ -10761,7 +10761,6 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				task = Object("input", raw)
 			}
 			var prediction Value
-			var errorPrediction Value
 			lastError := ""
 			scoreSum, completedRuns := 0.0, 0
 			for run := 0; run < runsPerTask; run++ {
@@ -10780,7 +10779,6 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 					// metric call, and its message as the error.
 					score = 0
 					lastError = agentEvolvePredictionError(candidate)
-					errorPrediction = candidate
 				} else {
 					prediction = candidate
 					switch metric := coreGet(options, "metric", nil).(type) {
@@ -10816,11 +10814,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				coreSet(record, "prediction", prediction)
 			} else if lastError != "" {
 				coreSet(record, "error", lastError)
-				// Kept this release for compatibility; TS's record has no
-				// prediction (dropped at the next major).
-				if errorPrediction != nil {
-					coreSet(record, "prediction", errorPrediction)
-				}
+
 			}
 			records = append(records, record)
 			if completedRuns < runsPerTask {

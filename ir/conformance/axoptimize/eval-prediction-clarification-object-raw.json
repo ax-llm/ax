@@ -1,5 +1,5 @@
 {
-  "description": "Port-only: without clarificationShape: 'structured', the evaluated clarification is the askClarification payload as given, as this release carries it.",
+  "description": "Port-only: with explicit clarificationShape: 'raw', the evaluated clarification is the askClarification payload as given, as this release carries it.",
   "expected_prediction_fields": {
     "clarification": {
       "choices": ["API", "Guides"],
@@ -21,6 +21,7 @@
         }
       }
     },
+    "clarificationShape": "raw",
     "contextFields": [],
     "functions": [
       {

@@ -1530,7 +1530,6 @@ class AxAgentPlaybook:
                 scores = []
                 prediction = None
                 error = None
-                error_prediction = None
                 for _ in range(runs_per_task):
                     if remaining[0] <= 0:
                         exhausted = True
@@ -1543,7 +1542,6 @@ class AxAgentPlaybook:
                             # no metric call, and its message as the error.
                             score = 0.0
                             error = _agent_evolve_prediction_error(candidate)
-                            error_prediction = candidate
                         else:
                             prediction = candidate
                             if callable(metric):
@@ -1562,10 +1560,6 @@ class AxAgentPlaybook:
                     record["prediction"] = prediction
                 elif error:
                     record["error"] = error
-                    # Kept this release for compatibility; TS's record has
-                    # no prediction (dropped at the next major).
-                    if error_prediction is not None:
-                        record["prediction"] = error_prediction
                 records.append(record)
                 if len(scores) < runs_per_task:
                     exhausted = True

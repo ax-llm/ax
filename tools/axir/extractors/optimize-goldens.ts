@@ -3598,7 +3598,6 @@ await (async () => {
       runtime_script: [evalSteps.final, evalSteps.search, evalSteps.clarify],
       completionType: 'askClarification',
       // The ports carry TS's structured clarification with this option.
-      portOptions: { clarificationShape: 'structured' },
     },
     {
       name: 'eval-prediction-clarification-object',
@@ -3614,7 +3613,6 @@ await (async () => {
         evalSteps.clarifyObject,
       ],
       completionType: 'askClarification',
-      portOptions: { clarificationShape: 'structured' },
     },
     // An agent with a playbook (run-end learning on by default) evaluates a
     // run with a tool error: TS's evaluation path never updates the
@@ -3744,9 +3742,10 @@ for (const [name, step] of [
     operation: 'eval',
     program: 'agent',
     description:
-      "Port-only: without clarificationShape: 'structured', the evaluated clarification is the askClarification payload as given, as this release carries it.",
+      "Port-only: with explicit clarificationShape: 'raw', the evaluated clarification is the askClarification payload as given, as this release carries it.",
     signature: 'question:string -> answer:string',
     options: {
+      clarificationShape: 'raw',
       contextFields: [],
       functions: evalPortTools(['search']),
       callable_results: evalCallableResults(['search']),

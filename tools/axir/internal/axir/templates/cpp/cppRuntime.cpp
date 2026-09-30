@@ -5575,6 +5575,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         // started (with the first chunk).
         bool verbose = verbose_enabled(merged_options);
         bool stream_logged = false;
+        if (verbose) log_verbose_request(call);
         auto consume = [&](Value chunk) {
           Value raw = chunk;
           Value status = transport_status(chunk);
@@ -8089,7 +8090,6 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       const auto& raw_task = tasks[task_index];
       Value task = raw_task.is_object() ? raw_task : object({{"input", raw_task}});
       Value prediction;
-      Value error_prediction;
       std::string last_error;
       double score_sum = 0;
       int completed_runs = 0;
@@ -8104,7 +8104,6 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
             // call, and its message as the error.
             Value error_value = Core::get(candidate, "error");
             last_error = error_value.is_object() ? display(Core::get(error_value, "message", Value(""))) : display(error_value);
-            error_prediction = candidate;
             score_sum += 0;
             ++completed_runs;
             continue;
@@ -8130,9 +8129,6 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       if (!prediction.is_null()) Core::set(record, "prediction", prediction);
       else if (!last_error.empty()) {
         Core::set(record, "error", Value(last_error));
-        // Kept this release for compatibility; TS's record has no prediction
-        // (dropped at the next major).
-        if (!error_prediction.is_null()) Core::set(record, "prediction", error_prediction);
       }
       records.push_back(record);
       if (completed_runs < runs_per_task) break;
