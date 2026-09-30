@@ -13948,6 +13948,7 @@ func runConformanceForward(fixture map[string]Value) {
 	if coreGet(fixture, "expected_error_contains", nil) != nil {
 		// expectMaybeFixtureError returned, so the forward failed as expected.
 		assertExpectedErrorCause(forwardErr, fixture)
+		conformanceAssertRequestRoles(fixture, client)
 	}
 	conformanceAssertSessionLog(fixture, client)
 	conformanceAssertSpeakRequests(fixture, client)

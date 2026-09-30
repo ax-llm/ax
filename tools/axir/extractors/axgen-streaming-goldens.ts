@@ -289,6 +289,7 @@ const optionNames: Record<string, string> = {
   strict_mode: 'strictMode',
   include_optional_input_fields_in_system_prompt:
     'includeOptionalInputFieldsInSystemPrompt',
+  disable_memory_cleanup: 'disableMemoryCleanup',
 };
 
 function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
@@ -439,6 +440,8 @@ type Case = {
   // SessionScript); each opened session is one request. The fixture pins
   // the session log and each request's message roles.
   native_session?: SessionScript;
+  // Pin each request's message roles, also when the forward fails.
+  pin_request_roles?: boolean;
   // Port-only forward options, added to the fixture's forward_options but
   // not passed to TS: a port's opt-in to what TS always does.
   port_forward_options?: JsonMap;
@@ -627,6 +630,11 @@ async function record(name: string, spec: Case): Promise<void> {
       fixture.expected_request = { response_format: { type: format } };
     }
     fixture.expected_chat_prompt = clone(prompts()[0] ?? []);
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
+  }
+  if (spec.pin_request_roles) {
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
@@ -944,6 +952,260 @@ const cases: Record<string, Case> = {
     request_tail: 2,
     responses: [
       streamed(text('Answer: Lyon'), done()),
+      streamed(text('Answer: Paris'), done()),
+    ],
+  },
+
+  // ----- retry memory -----
+  // TS's non-streaming forward keeps a failed answer and its correction in
+  // memory until a later answer parses or calls tools, and then drops them
+  // (response/nonStreaming.ts): a retry after an assertion fails sends only
+  // the latest failed answer, while parse and validation failures pile up.
+  // disableMemoryCleanup keeps every failed attempt, and so do a stream and
+  // a failed __axOutput call; after a failed __axOutput call, the call and
+  // its result stay once the rest is dropped.
+  'forward-retry-memory-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-assertion-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Lille' }] },
+      { results: [{ index: 0, content: 'Answer: Metz' }] },
+    ],
+  },
+  'forward-retry-memory-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-assertion-then-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon\nCity: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+      { results: [{ index: 0, content: 'Answer: Nice\nCity: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-tool-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    tools: [lookupTool],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-feedback-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    feedback_processors: [
+      { field: 'answer', returns: 'Name the country too.', times: 1 },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+      {
+        results: [{ index: 0, content: 'Answer: Paris, France\nCity: Paris' }],
+      },
+    ],
+  },
+  'forward-retry-memory-steer-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    control: true,
+    control_steer: { during_request: 2, text: 'Answer in French.' },
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-json-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    assertions: [
+      { field: 'user', equals: { name: 'Ada' }, message: 'The user is Ada.' },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Bob"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Eve"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'forward-retry-memory-json-validation': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string, age:number}',
+    features: nativeFeatures,
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada","age":36}}' }] },
+    ],
+  },
+  'forward-retry-memory-function-rung-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: { functions: true, structured_outputs: false },
+    options: { structured_output_mode: 'function' },
+    assertions: [
+      { field: 'user', equals: { name: 'Ada' }, message: 'The user is Ada.' },
+    ],
+    pin_request_roles: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"user":{"name":"Bob"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_2', '__axOutput', '{"user":{"name":"Eve"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_3', '__axOutput', '{"user":{"name":"Ada"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'forward-retry-memory-function-rung-then-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: { functions: true, structured_outputs: false },
+    options: { structured_output_mode: 'function' },
+    assertions: [
+      { field: 'user', equals: { name: 'Ada' }, message: 'The user is Ada.' },
+    ],
+    pin_request_roles: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [call('output_1', '__axOutput', '{"user":{}}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: '{"user":{"name":"Bob"}}' }] },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_2', '__axOutput', '{"user":{"name":"Ada"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'forward-retry-memory-disable-cleanup': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { disable_memory_cleanup: true },
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'streaming-forward-retry-memory-assertion': {
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      streamed(text('Answer: Lyon'), done()),
+      streamed(text('Answer: Nice'), done()),
       streamed(text('Answer: Paris'), done()),
     ],
   },
