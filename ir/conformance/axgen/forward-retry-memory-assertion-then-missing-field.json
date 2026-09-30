@@ -1,0 +1,60 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris",
+    "city": "Paris"
+  },
+  "expected_request_count": 4,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "assistant", "user", "assistant", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-retry-memory-assertion-then-missing-field",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: Lyon\nCity: Lyon",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Paris",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Nice\nCity: Nice",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: Paris\nCity: Paris",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string, city:string"
+}

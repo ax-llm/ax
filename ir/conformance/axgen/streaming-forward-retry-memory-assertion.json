@@ -1,0 +1,109 @@
+{
+  "assertions": [
+    {
+      "contains": "Paris",
+      "field": "answer",
+      "message": "The answer must be Paris."
+    }
+  ],
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "Lyon"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "Nice"
+      },
+      "index": 0,
+      "version": 1
+    },
+    {
+      "delta": {
+        "answer": "Paris"
+      },
+      "index": 0,
+      "version": 2
+    }
+  ],
+  "expected_output": {
+    "answer": "Paris"
+  },
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "assistant", "user", "assistant", "user"]
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-retry-memory-assertion",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Lyon",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Nice",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: Paris",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

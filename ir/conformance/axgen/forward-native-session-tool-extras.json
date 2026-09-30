@@ -1,0 +1,124 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "green"
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "call_ids": ["c1"],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    }
+  ],
+  "expected_tool_extras": [
+    {
+      "extras": {
+        "eventContext": {
+          "attempt": 1,
+          "identity": {
+            "subject": "user-1"
+          },
+          "routeId": "orders",
+          "runId": "run-1"
+        },
+        "executionPath": "root/lookup",
+        "sessionId": "session-1"
+      },
+      "name": "lookup"
+    }
+  ],
+  "forward_options": {
+    "eventContext": {
+      "attempt": 1,
+      "identity": {
+        "subject": "user-1"
+      },
+      "routeId": "orders",
+      "runId": "run-1"
+    },
+    "sessionId": "session-1"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-native-session-tool-extras",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: green",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "record_extras": true,
+      "result": "status is green"
+    }
+  ]
+}

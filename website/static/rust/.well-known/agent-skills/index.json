@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:48987080b4694255d9ead3fdfa7f162d18b6302054ef75c2d501fd0b257b4d46"
+      "digest": "sha256:c99bab3395b69c5ba2162a9405634e42e355b9621f4e6fc409b18ecc378c1187"
     },
     {
       "name": "ax-rust-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:195bac726bee8cf72bdf869d538382cdfd3021937c3578ed27f741d55c2886ad"
+      "digest": "sha256:90de6629b248b58a2d9154f42716febb52be7bd1a253a9efc8e9f6b860db2edb"
     },
     {
       "name": "ax-rust-agent-rlm",
@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-rust-agent-memory-skills/SKILL.md",
-      "digest": "sha256:ee8dac17e047d9573ba17cc48220b0e5e079f96481a4d30328ad10c073046730"
+      "digest": "sha256:c7b63b680503afd84b327f701983d6f191f3053074a13cbd637250e375d71f28"
     },
     {
       "name": "ax-rust-agent-observability",

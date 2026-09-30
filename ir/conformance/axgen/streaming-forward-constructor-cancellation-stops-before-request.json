@@ -1,0 +1,37 @@
+{
+  "constructor_cancellation": {
+    "cancelled": true,
+    "reason": "fixture-stop"
+  },
+  "expected_deltas": [],
+  "expected_error_contains": "Request aborted: fixture-stop",
+  "expected_request_count": 0,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-constructor-cancellation-stops-before-request",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

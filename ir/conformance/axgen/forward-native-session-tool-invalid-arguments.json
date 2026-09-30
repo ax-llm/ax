@@ -1,0 +1,96 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "completed"
+    }
+  ],
+  "expected_output": {
+    "answer": "green"
+  },
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "call_ids": ["c1"],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "expected_session_tool_results": [
+    {
+      "call_id": "c1",
+      "is_error": true,
+      "result": "Errors In Function Arguments: Fix the following invalid arguments to 'lookup'\n- `key` - Expected string, received number (The key to look up)."
+    }
+  ],
+  "expected_tool_calls": [],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-native-session-tool-invalid-arguments",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":7}"
+                  },
+                  "id": "c1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "content": "Answer: green",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "description": "The key to look up",
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

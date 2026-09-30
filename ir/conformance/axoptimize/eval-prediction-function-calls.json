@@ -29,6 +29,7 @@
       "answer": "Docs"
     }
   },
+  "expected_request_count": 5,
   "kind": "optimize",
   "name": "eval-prediction-function-calls",
   "operation": "eval",

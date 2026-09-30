@@ -19,6 +19,12 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   private final Map<String, Object> bindings = new LinkedHashMap<>();
   private final Map<String, Object> reserved = new LinkedHashMap<>();
   private final Map<String, AxQuickJsHostCallable> hostCallables = new LinkedHashMap<>();
+  // TS's AxJSRuntime snapshot entries of the user globals, from the engine's
+  // last run over the current bindings.
+  private Object entries = List.of();
+  // The agent phase: a merge patch starts the executor's, after which the
+  // distiller's final no longer keeps evidence.
+  private String phase = "distiller";
   private final Map<String, Object> runtimePolicy;
   private final int timeoutMs;
   private boolean closed = false;
@@ -46,18 +52,22 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     try {
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("code", code == null ? "" : code);
+      payload.put("phase", phase);
       payload.put("bindings", new LinkedHashMap<>(bindings));
       payload.put("reserved", reserved.keySet().stream().toList());
       String raw = runQuickJs(Json.stringify(payload), intOption(options == null ? null : options.get("timeoutMs"), timeoutMs));
       Map<String, Object> response = Json.asObject(Json.parse(raw));
+      Object analysis = response.get("analysis");
       if (Boolean.FALSE.equals(response.get("ok"))) {
-        return Map.of(
-          "kind", "error",
-          "is_error", true,
-          "error_category", String.valueOf(response.getOrDefault("category", "runtime")),
-          "error", String.valueOf(response.getOrDefault("error", "QuickJS runtime error"))
-        );
+        Map<String, Object> failure = new LinkedHashMap<>();
+        failure.put("kind", "error");
+        failure.put("is_error", true);
+        failure.put("error_category", String.valueOf(response.getOrDefault("category", "runtime")));
+        failure.put("error", String.valueOf(response.getOrDefault("error", "QuickJS runtime error")));
+        if (analysis != null) failure.put("analysis", analysis);
+        return failure;
       }
+      if (response.get("entries") != null) entries = response.get("entries");
       Map<String, Object> preservedReserved = new LinkedHashMap<>();
       for (String name : reserved.keySet()) {
         if (bindings.containsKey(name)) preservedReserved.put(name, bindings.get(name));
@@ -68,7 +78,22 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
         if (preservedReserved.containsKey(name)) bindings.put(name, preservedReserved.get(name));
         else bindings.remove(name);
       }
-      return response.get("result");
+      Object result = response.get("result");
+      if (analysis != null || (response.get("logs") instanceof List<?> logs && !logs.isEmpty())) {
+        Map<String, Object> withMetadata = new LinkedHashMap<>();
+        if (result instanceof Map<?, ?>) {
+          withMetadata.putAll(Json.asObject(result));
+        } else {
+          withMetadata.put("kind", "result");
+          withMetadata.put("result", result);
+        }
+        if (analysis != null) withMetadata.put("analysis", analysis);
+        if (response.get("logs") instanceof List<?> logs && !logs.isEmpty()) {
+          withMetadata.put("logs", List.copyOf(logs));
+        }
+        return withMetadata;
+      }
+      return result;
     } catch (Exception ex) {
       return Map.of("kind", "error", "is_error", true, "error_category", errorCategory(ex), "error", ex.getMessage());
     }
@@ -79,23 +104,47 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
   }
 
   public Object snapshotGlobals(Map<String, Object> options) {
-    return Map.of("version", 1, "bindings", snapshotBindings(), "globals", snapshotBindings());
+    return Map.of("version", 1, "entries", entries, "bindings", snapshotBindings(), "globals", snapshotBindings());
   }
 
   public Object patchGlobals(Object snapshot, Map<String, Object> options) {
+    // A merge patch (the agent's own globals for the executor, as TS's
+    // patchGlobals) keeps the session's variables and updates its reserved
+    // values; any other patch replaces the user globals.
+    boolean merge = Boolean.TRUE.equals(Json.asObject(snapshot).get("merge"));
+    if (merge) phase = "executor";
     Map<String, Object> next = Json.asObject(snapshot);
     if (next.containsKey("bindings")) next = Json.asObject(next.get("bindings"));
-    Map<String, Object> preserved = new LinkedHashMap<>();
-    for (String name : reserved.keySet()) {
-      if (this.bindings.containsKey(name)) preserved.put(name, this.bindings.get(name));
+    if (!merge) {
+      Map<String, Object> preserved = new LinkedHashMap<>();
+      for (String name : reserved.keySet()) {
+        if (this.bindings.containsKey(name)) preserved.put(name, this.bindings.get(name));
+      }
+      this.bindings.clear();
+      this.bindings.putAll(preserved);
     }
-    this.bindings.clear();
-    this.bindings.putAll(preserved);
     for (Map.Entry<String, Object> entry : next.entrySet()) {
-      if (reserved.containsKey(entry.getKey())) continue;
+      if (entry.getKey().startsWith("__ax_") || isHostCallable(entry.getValue())) continue;
+      if (reserved.containsKey(entry.getKey()) && !merge) continue;
       this.bindings.put(entry.getKey(), entry.getValue());
     }
+    refreshEntries();
     return snapshotGlobals(options);
+  }
+
+  // Re-reads the snapshot entries from the engine over the current bindings.
+  private void refreshEntries() {
+    try {
+      Map<String, Object> payload = new LinkedHashMap<>();
+      payload.put("code", "");
+      payload.put("inspect", true);
+      payload.put("bindings", new LinkedHashMap<>(bindings));
+      payload.put("reserved", reserved.keySet().stream().toList());
+      Map<String, Object> response = Json.asObject(Json.parse(runQuickJs(Json.stringify(payload), timeoutMs)));
+      if (response.get("entries") != null) entries = response.get("entries");
+    } catch (Exception ignored) {
+      // The entries stay as they were; the bindings are already patched.
+    }
   }
 
   public Object close() {
@@ -175,7 +224,7 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
         Engine engine = Engine.builder().addInvokables(INVOKABLES).addBuiltins(hostBuiltins).build();
         String output;
         try (Runner runner = Runner.builder().withEngine(engine).withTimeoutMs(timeoutMs).build()) {
-          output = String.valueOf(runner.invokeGuestFunction("axir", "__ax_run", List.of(payloadJson), QUICKJS_SOURCE));
+          output = String.valueOf(runner.invokeGuestFunction("axir", "__ax_run", List.of(payloadJson), RUNTIME_SUPPORT + "\n" + QUICKJS_SOURCE));
         }
         finished.complete(output);
       } catch (Throwable failure) {
@@ -208,6 +257,10 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
     }
   }
 
+  // TypeScript's action-log code analysis and AxJSRuntime snapshot entries,
+  // shared by the ports' JavaScript runtimes (scripts/axir-runtime-support.mjs).
+  private static final String RUNTIME_SUPPORT = {{AX_RUNTIME_SUPPORT_QUOTED}};
+
   private static final String QUICKJS_SOURCE = """
 {{AX_HOST_NAMESPACES_RAW}}
 // Persistence: top-level const/let/var declared this turn are block-scoped to the async
@@ -217,6 +270,11 @@ public final class AxQuickJsCodeSession implements AxCodeSession {
 function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\\n;{}])\\s*(?:export\\s+)?(?:async\\s+)?(?:function|class|const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 async function __ax_run(payloadJson) {
   const payload = JSON.parse(payloadJson || "{}");
+  // The globals present before the bindings: the snapshot entries leave them
+  // out, as TS's AxJSRuntime does.
+  const baseline = Object.getOwnPropertyNames(globalThis);
+  let analysis = null;
+  try { analysis = JSON.parse(globalThis.__ax_analyze_code(payload.code || "")); } catch (_) {}
   const reserved = new Set([
     "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
     "undefined", "Boolean", "String", "Symbol", "Date", "Promise", "RegExp", "Error",
@@ -259,6 +317,17 @@ async function __ax_run(payloadJson) {
     }
   }
   for (const name of __ax_bind_host_namespaces()) reserved.add(name);
+  // console: the actor inspects intermediate values with console.log. Each
+  // run's lines come back as the result's logs, which the action log shows, as
+  // the TS runtime returns console output as the execution result.
+  const logs = [];
+  function log() {
+    logs.push(Array.prototype.slice.call(arguments).map(function(value) {
+      if (typeof value === "string") return value;
+      try { return JSON.stringify(value); } catch (_) { return String(value); }
+    }).join(" "));
+  }
+  globalThis.console = {log: log, error: log, warn: log, info: log, debug: log};
   function complete(value) { globalThis.__ax_completion = value; return value; }
   globalThis.final = function() { return complete({type: "final", args: Array.from(arguments)}); };
   globalThis.respond = function() { return complete({type: "respond", args: Array.from(arguments)}); };
@@ -279,6 +348,20 @@ async function __ax_run(payloadJson) {
   globalThis.guideAgent = function(guidance) {
     return complete({type: "guide_agent", guidance: String(guidance || "")});
   };
+  // TS's distiller final: final(task, evidence) keeps the evidence as the
+  // distilledContext global the executor inherits.
+  globalThis.__ax_phase = payload.phase || "distiller";
+  globalThis.__ax_install_final_evidence();
+  function snapshotEntries() {
+    try {
+      return JSON.parse(globalThis.__ax_inspect_entries(baseline.concat(Array.from(reserved), Array.isArray(payload.reserved) ? payload.reserved : [])));
+    } catch (_) {
+      return [];
+    }
+  }
+  if (payload.inspect === true) {
+    return JSON.stringify({ok: true, result: null, bindings: {}, entries: snapshotEntries()});
+  }
   let result;
   try {
     // RLM actor code uses top-level await (`await final(...)`), illegal in a plain Function
@@ -291,7 +374,7 @@ async function __ax_run(payloadJson) {
     await (async function(){}).constructor("with (globalThis) { " + (payload.code || "") + "\\n" + axPersistSuffix(payload.code || "") + "\\n}")();
     result = globalThis.__ax_completion;
   } catch (error) {
-    return JSON.stringify({ok: false, category: String((error && (error.error_category || error.category)) || "runtime"), error: String((error && error.message) || error)});
+    return JSON.stringify({ok: false, category: String((error && (error.error_category || error.category)) || "runtime"), error: String((error && error.message) || error), analysis});
   }
   const out = {};
   for (const key of Object.getOwnPropertyNames(globalThis)) {
@@ -300,7 +383,7 @@ async function __ax_run(payloadJson) {
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
   }
-  return JSON.stringify({ok: true, result, bindings: out});
+  return JSON.stringify({ok: true, result, bindings: out, entries: snapshotEntries(), analysis, logs});
 }
 """;
 }

@@ -413,14 +413,28 @@ class AxFlow(AxProgram):
         if lookup.get("hit"):
             return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
-        with _runtime_hook_scope(
-            call_hooks,
-            self.runtime_hooks,
-            span_name="ax_gen_flow_forward",
-            attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
-            metric_prefix="ax_gen_flow",
-        ):
-            return self._forward_unscoped(client, values, {**run_options, "_ax_flow_cache_lookup": lookup})
+        # As TypeScript's AxFlow.forward does, a run control hears the flow's
+        # own lifecycle at its path; each node reports at <path>/<node>.
+        control = run_options.get("control")
+        run_path = run_options.get("execution_path", run_options.get("executionPath", "root"))
+        if control is not None:
+            control._emit({"type": "started", "path": run_path})
+        try:
+            with _runtime_hook_scope(
+                call_hooks,
+                self.runtime_hooks,
+                span_name="ax_gen_flow_forward",
+                attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
+                metric_prefix="ax_gen_flow",
+            ):
+                output = self._forward_unscoped(client, values, {**run_options, "_ax_flow_cache_lookup": lookup})
+        except Exception as error:
+            if control is not None:
+                control._emit({"type": "failed", "path": run_path, "error": str(error)})
+            raise
+        if control is not None:
+            control._emit({"type": "completed", "path": run_path})
+        return output
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_options = dict(options or {})
@@ -1182,15 +1196,15 @@ def _flow_prepare_program_node(flow: Any, step: Any, client: Any, state: Any, op
     base_options = _core_get(flow, "options", empty_map)
     runtime_base = _core_map_merge(base_options, options)
     runtime_options = _core_map_merge(runtime_base, step_options)
+    parent_path_snake = _core_get(runtime_base, "execution_path", "root")
+    parent_path = _core_get(runtime_base, "executionPath", parent_path_snake)
+    node_path = _core_string_format("{}/{}", parent_path, name)
+    runtime_options["execution_path"] = node_path
+    runtime_options["executionPath"] = node_path
     controller = _core_get(runtime_base, "control", None)
     controlled = _core_is_not_none(controller)
     if controlled:
-        parent_path_snake = _core_get(runtime_base, "execution_path", "root")
-        parent_path = _core_get(runtime_base, "executionPath", parent_path_snake)
-        node_path = _core_string_format("{}/{}", parent_path, name)
         runtime_options["control"] = controller
-        runtime_options["execution_path"] = node_path
-        runtime_options["executionPath"] = node_path
     else:
         pass
     trace_label_in = _core_get(options, "traceLabel", "")

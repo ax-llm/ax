@@ -36,6 +36,8 @@ import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
 } from '../../../src/ax/ai/x-grok/api.js';
+import { AxFunctionError } from '../../../src/ax/dsp/functions.js';
+import { AxGen } from '../../../src/ax/dsp/generate.js';
 import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
@@ -11804,6 +11806,44 @@ const argumentValidationCases: { schema: any; arguments: Json }[] = [
     },
     arguments: 3,
   },
+  // Field paths and type names in the errors.
+  {
+    schema: {
+      type: 'object',
+      properties: {
+        a: {
+          type: 'object',
+          required: ['b'],
+          properties: { b: { type: 'string' } },
+        },
+      },
+    },
+    arguments: { a: {} },
+  },
+  {
+    schema: {
+      type: 'object',
+      properties: {
+        a: { type: 'object', properties: { b: { type: 'string' } } },
+      },
+    },
+    arguments: { a: { b: 1 } },
+  },
+  { schema: { type: 'string' }, arguments: [1] },
+  { schema: { type: 'boolean' }, arguments: null },
+  { schema: { type: ['integer', 'string'] }, arguments: {} },
+  {
+    schema: { type: 'object', properties: { a: { enum: ['x'] } } },
+    arguments: { a: 'y' },
+  },
+  {
+    schema: {
+      type: 'object',
+      required: ['a', 'b'],
+      properties: { a: { type: 'string' }, b: { type: 'number' } },
+    },
+    arguments: { b: 'two' },
+  },
 ];
 writeFixture('session-raw-argument-validation', {
   kind: 'ai_session_state',
@@ -11815,12 +11855,14 @@ writeFixture('session-raw-argument-validation', {
   expected_steps: 0,
   validation_cases: argumentValidationCases.map((item) => {
     let valid = true;
+    let errors: { field: string; message: string }[] = [];
     try {
       axValidateToolArguments(item.schema, item.arguments);
-    } catch {
+    } catch (error) {
       valid = false;
+      if (error instanceof AxFunctionError) errors = error.getFields();
     }
-    return { ...item, valid };
+    return { ...item, valid, errors };
   }),
 });
 const ecmaSchemaPatterns: readonly string[] = [
@@ -14994,6 +15036,294 @@ writeFixture('gemini-live-ws-url-encodes-key', {
   expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
 });
 
+// customLabels: TS puts one set of custom labels on every AI and AxGen
+// metric, merged key by key from the service's options, then the call's; an
+// AxGen passes its constructor's labels with the call's over them. Some
+// metrics cut each value to 100 characters (sanitizeLabels: the request
+// duration and errors, and the AxGen metrics), the AI request counter keeps
+// it whole. The fixture pins the custom part (the labels a run without
+// custom labels doesn't have) of the request counters and durations.
+{
+  type LabelRecord = { name: string; labels: Record<string, string> };
+  const runLabels = async (withLabels: boolean) => {
+    const records: LabelRecord[] = [];
+    const instrument = (name: string) => ({
+      add: (_value: number, labels: Record<string, string>) =>
+        records.push({ name, labels: { ...labels } }),
+      record: (_value: number, labels: Record<string, string>) =>
+        records.push({ name, labels: { ...labels } }),
+    });
+    const meter = {
+      createCounter: instrument,
+      createHistogram: instrument,
+      createGauge: instrument,
+      createUpDownCounter: instrument,
+      createObservableGauge: instrument,
+    } as never;
+    const replies = [...labelReplies];
+    const service = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: 'gpt-5.4-mini' as never },
+      options: {
+        meter,
+        ...(withLabels ? { customLabels: labelService } : {}),
+        fetch: (async () =>
+          Response.json(replies.shift() ?? {}, { status: 200 })) as never,
+      },
+    });
+    await service.chat(labelChatRequest as never, {
+      ...(withLabels ? { customLabels: labelChatCall } : {}),
+    });
+    const chat = [...records];
+    records.length = 0;
+    const gen = new AxGen(labelSignature, {
+      ...(withLabels ? { customLabels: labelConstructor } : {}),
+    });
+    await gen.forward(service, labelInput, {
+      stream: false,
+      ...(withLabels ? { customLabels: labelForwardCall } : {}),
+    });
+    return { chat, forward: [...records] };
+  };
+  const labelService = { team: 'service', region: 'eu', note: 'n'.repeat(120) };
+  const labelChatCall = { tier: 'call', team: 'call-team' };
+  const labelConstructor = { team: 'constructor', tier: 'constructor' };
+  const labelForwardCall = { tier: 'call' };
+  const labelSignature = 'question:string -> answer:string';
+  const labelInput = { question: 'Status?' };
+  const labelChatRequest = {
+    chatPrompt: [{ role: 'user', content: 'hi' }],
+    modelConfig: { stream: false },
+  };
+  const completion = (content: string) => ({
+    id: 'chatcmpl-labels',
+    object: 'chat.completion',
+    model: 'gpt-5.4-mini',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        message: { role: 'assistant', content },
+      },
+    ],
+    usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+  });
+  const labelReplies = [completion('Hello'), completion('Answer: ok')];
+  const labeled = await runLabels(true);
+  const plain = await runLabels(false);
+  const customPart = (
+    records: LabelRecord[],
+    baseline: LabelRecord[],
+    name: string
+  ) => {
+    const record = records.find((item) => item.name === name);
+    const base = baseline.find((item) => item.name === name);
+    if (!record || !base) throw new Error(`customLabels: no ${name} record`);
+    return Object.fromEntries(
+      Object.entries(record.labels).filter(([key]) => !(key in base.labels))
+    );
+  };
+  writeFixture('ai-custom-labels-merge', {
+    kind: 'ai_custom_labels',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    service_options: { customLabels: labelService },
+    transport_responses: labelReplies.map((json) => ({ status: 200, json })),
+    chat: {
+      request: {
+        chat_prompt: labelChatRequest.chatPrompt,
+        model_config: { stream: false },
+      },
+      custom_labels: labelChatCall,
+    },
+    forward: {
+      signature: labelSignature,
+      input: labelInput,
+      constructor_custom_labels: labelConstructor,
+      call_custom_labels: labelForwardCall,
+    },
+    expected_chat_custom_labels: {
+      ax_llm_requests_total: customPart(
+        labeled.chat,
+        plain.chat,
+        'ax_llm_requests_total'
+      ),
+      ax_llm_request_duration_ms: customPart(
+        labeled.chat,
+        plain.chat,
+        'ax_llm_request_duration_ms'
+      ),
+    },
+    expected_forward_custom_labels: {
+      ax_llm_requests_total: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_llm_requests_total'
+      ),
+      ax_llm_request_duration_ms: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_llm_request_duration_ms'
+      ),
+      ax_gen_generation_requests_total: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_gen_generation_requests_total'
+      ),
+      ax_gen_generation_duration_ms: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_gen_generation_duration_ms'
+      ),
+    },
+  });
+}
+
+// verbose: TS's apiCall logs each request (URL, method, headers with secrets
+// masked, the JSON body) and each response (status and JSON body, or that a
+// stream started) with console.log when the call's verbose, else the
+// service's, is set. The ports send their own headers, so the fixture keeps
+// TS's text with the headers' JSON as {{HEADERS}}; the runners check theirs
+// mask the key.
+{
+  // Keys in sorted order, as the fixture stores the response the ports'
+  // scripted transports answer with (TS logs the order it received).
+  const verboseCompletion = {
+    choices: [
+      {
+        finish_reason: 'stop',
+        index: 0,
+        message: { content: 'Hello', role: 'assistant' },
+      },
+    ],
+    id: 'chatcmpl-verbose',
+    model: 'gpt-5.4-mini',
+    object: 'chat.completion',
+    usage: { completion_tokens: 1, prompt_tokens: 3, total_tokens: 4 },
+  };
+  const verboseStream =
+    'data: {"id":"chatcmpl-verbose","object":"chat.completion.chunk","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+  type VerboseCall = {
+    request: Record<string, unknown>;
+    options?: Record<string, unknown>;
+  };
+  const runVerbose = async (
+    serviceVerbose: boolean | undefined,
+    calls: VerboseCall[],
+    replies: (() => Response)[]
+  ) => {
+    const logs: string[][] = [];
+    const original = console.log;
+    const service = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: 'gpt-5.4-mini' as never },
+      options: {
+        ...(serviceVerbose === undefined ? {} : { verbose: serviceVerbose }),
+        fetch: (async () => replies.shift()!()) as never,
+      },
+    });
+    try {
+      for (const call of calls) {
+        const entries: string[] = [];
+        console.log = (...args: unknown[]) => {
+          entries.push(args.map((arg) => String(arg)).join(' '));
+        };
+        const result = await service.chat(
+          call.request as never,
+          call.options as never
+        );
+        if (result instanceof ReadableStream) {
+          const reader = result.getReader();
+          while (!(await reader.read()).done) {}
+        }
+        logs.push(entries);
+      }
+    } finally {
+      console.log = original;
+    }
+    // The headers' JSON, which the ports write their own way.
+    return logs.map((entries) =>
+      entries.map((entry) =>
+        entry.replace(
+          / Headers: \{[\s\S]*?\n\} \nBody:/,
+          ' Headers: {{HEADERS}} \nBody:'
+        )
+      )
+    );
+  };
+  const jsonReply = () =>
+    new Response(JSON.stringify(verboseCompletion), {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+    });
+  const streamReply = () =>
+    new Response(verboseStream, {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  const prompt = [{ role: 'user', content: 'hi' }];
+  const verboseTransport = (kinds: ('json' | 'stream')[]) =>
+    kinds.map((kind) =>
+      kind === 'json'
+        ? { status: 200, json: verboseCompletion }
+        : { status: 200, body: verboseStream }
+    );
+  const serviceCalls: VerboseCall[] = [
+    { request: { chatPrompt: prompt, modelConfig: { stream: false } } },
+    { request: { chatPrompt: prompt, modelConfig: { stream: true } } },
+  ];
+  writeFixture('ai-verbose-request-logging', {
+    kind: 'ai_verbose',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    api_key: 'test-key',
+    service_options: { verbose: true },
+    transport_responses: verboseTransport(['json', 'stream']),
+    calls: [
+      { request: { chat_prompt: prompt, model_config: { stream: false } } },
+      { request: { chat_prompt: prompt, model_config: { stream: true } } },
+    ],
+    expected_verbose_logs: await runVerbose(true, serviceCalls, [
+      jsonReply,
+      streamReply,
+    ]),
+  });
+  const callOptionCalls: VerboseCall[] = [
+    {
+      request: { chatPrompt: prompt, modelConfig: { stream: false } },
+      options: { verbose: true },
+    },
+    {
+      request: { chatPrompt: prompt, modelConfig: { stream: false } },
+      options: {},
+    },
+  ];
+  writeFixture('ai-verbose-call-option', {
+    kind: 'ai_verbose',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    api_key: 'test-key',
+    transport_responses: verboseTransport(['json', 'json']),
+    calls: [
+      {
+        request: { chat_prompt: prompt, model_config: { stream: false } },
+        options: { verbose: true },
+      },
+      {
+        request: { chat_prompt: prompt, model_config: { stream: false } },
+        options: {},
+      },
+    ],
+    expected_verbose_logs: await runVerbose(undefined, callOptionCalls, [
+      jsonReply,
+      jsonReply,
+    ]),
+  });
+}
 // AxGen's portable message uses function_id. Normalize that host spelling to
 // the same Responses call_id TypeScript sends for functionId.
 {

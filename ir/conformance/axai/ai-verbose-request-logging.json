@@ -1,0 +1,77 @@
+{
+  "api_key": "test-key",
+  "calls": [
+    {
+      "request": {
+        "chat_prompt": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model_config": {
+          "stream": false
+        }
+      }
+    },
+    {
+      "request": {
+        "chat_prompt": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model_config": {
+          "stream": true
+        }
+      }
+    }
+  ],
+  "expected_verbose_logs": [
+    [
+      "\n--- [AxAI API Request] ---\n URL: https://api.openai.com/v1/chat/completions\n Method: POST\n Headers: {{HEADERS}} \nBody: {\n  \"model\": \"gpt-5.4-mini\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"hi\"\n    }\n  ]\n} \n------------------------\n",
+      "\n--- [AxAI API Response] ---\n Status: 200 OK\n Body: {\n  \"choices\": [\n    {\n      \"finish_reason\": \"stop\",\n      \"index\": 0,\n      \"message\": {\n        \"content\": \"Hello\",\n        \"role\": \"assistant\"\n      }\n    }\n  ],\n  \"id\": \"chatcmpl-verbose\",\n  \"model\": \"gpt-5.4-mini\",\n  \"object\": \"chat.completion\",\n  \"usage\": {\n    \"completion_tokens\": 1,\n    \"prompt_tokens\": 3,\n    \"total_tokens\": 4\n  }\n} \n-------------------------\n"
+    ],
+    [
+      "\n--- [AxAI API Request] ---\n URL: https://api.openai.com/v1/chat/completions\n Method: POST\n Headers: {{HEADERS}} \nBody: {\n  \"model\": \"gpt-5.4-mini\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"hi\"\n    }\n  ],\n  \"stream\": true,\n  \"stream_options\": {\n    \"include_usage\": true\n  }\n} \n------------------------\n",
+      "\n--- [AxAI API Streaming Response Started] ---\n Status: 200 OK\n \n-------------------------------------------\n"
+    ]
+  ],
+  "kind": "ai_verbose",
+  "model": "gpt-5.4-mini",
+  "name": "ai-verbose-request-logging",
+  "provider": "openai",
+  "service_options": {
+    "verbose": true
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Hello",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-verbose",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 3,
+          "total_tokens": 4
+        }
+      },
+      "status": 200
+    },
+    {
+      "body": "data: {\"id\":\"chatcmpl-verbose\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}
