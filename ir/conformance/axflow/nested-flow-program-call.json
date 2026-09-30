@@ -1,9 +1,35 @@
 {
+  "expected_chat_log_subset": [
+    {
+      "name": "nested.inner"
+    }
+  ],
+  "expected_output": {
+    "answer": "Nested Paris"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "nested?"
+  },
   "kind": "flow",
   "name": "nested-flow-program-call",
+  "responses": [
+    {
+      "content": "Answer: Nested Paris"
+    }
+  ],
+  "returns": {
+    "answer": "answer"
+  },
   "source": {
-    "tsDerived": true,
     "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "nested-flow-program-call",
+    "observed": {
+      "chatLogNames": ["nested.inner"],
+      "output": {
+        "answer": "Nested Paris"
+      }
+    },
     "reference": [
       "src/ax/flow/flow.ts",
       "src/ax/flow/steps.ts",
@@ -13,59 +39,33 @@
       "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
-    "name": "nested-flow-program-call",
-    "observed": {
-      "output": {
-        "answer": "Nested Paris"
-      },
-      "chatLogNames": ["nested.inner"]
-    }
-  },
-  "input": {
-    "question": "nested?"
+    "tsDerived": true
   },
   "steps": [
     {
       "kind": "execute",
       "name": "nested",
-      "program": "flow",
       "options": {
+        "isBarrier": false,
         "reads": ["question"],
-        "writes": ["nestedResult"],
-        "isBarrier": false
+        "writes": ["nestedResult"]
+      },
+      "program": "flow",
+      "returns": {
+        "answer": "answer"
       },
       "steps": [
         {
           "kind": "execute",
           "name": "inner",
-          "signature": "question:string -> answer:string",
           "options": {
+            "isBarrier": false,
             "reads": ["question"],
-            "writes": ["innerResult"],
-            "isBarrier": false
-          }
+            "writes": ["innerResult"]
+          },
+          "signature": "question:string -> answer:string"
         }
-      ],
-      "returns": {
-        "answer": "answer"
-      }
-    }
-  ],
-  "returns": {
-    "answer": "answer"
-  },
-  "responses": [
-    {
-      "content": "{\"answer\":\"Nested Paris\"}"
-    }
-  ],
-  "expected_output": {
-    "answer": "Nested Paris"
-  },
-  "expected_request_count": 1,
-  "expected_chat_log_subset": [
-    {
-      "name": "nested.inner"
+      ]
     }
   ]
 }

@@ -17,7 +17,7 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"on time\"}"
+      "content": "Answer: on time"
     }
   ],
   "signature": "question:string -> answer:string"

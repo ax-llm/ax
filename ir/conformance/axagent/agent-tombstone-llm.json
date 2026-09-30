@@ -47,7 +47,7 @@
       "content": "[TOMBSTONE]: Resolved the callThing TypeError by defining it before use; avoid calling undefined helpers."
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Paris"
     }
   ],
   "signature": "question:string -> answer:string"

@@ -1731,7 +1731,7 @@ mod tests {
                         let headers=String::from_utf8(request).unwrap();assert!(headers.to_ascii_lowercase().contains("authorization: bearer worker-test"));
                         let length=headers.lines().find_map(|line|line.to_ascii_lowercase().strip_prefix("content-length:").map(|v|v.trim().parse::<usize>().unwrap())).unwrap();let mut body=vec![0;length];socket.read_exact(&mut body).unwrap();sender.send(serde_json::from_slice::<Value>(&body).unwrap()).unwrap();
                         let released=gate.0.lock().unwrap();let (released,timeout)=gate.1.wait_timeout_while(released,Duration::from_secs(3),|released|!*released).unwrap();if timeout.timed_out()&&!*released{return Err("Independent requests did not overlap".into());}drop(released);
-                        let body=json!({"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}).to_string();
+                        let body=json!({"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"Answer: DONE"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}).to_string();
                         write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).map_err(|e|e.to_string())?;Ok(())
                     }));
                     }
@@ -1846,7 +1846,7 @@ mod tests {
                 }
                 assert!(gate.release.load(Ordering::SeqCst));
                 gate.late.store(true, Ordering::SeqCst);
-                json!({"lateAnswer":"LATE"}).to_string()
+                "Late Answer: LATE".to_string()
             }
             // The failing node leaves its required field empty, which fails validation.
             else if body.contains("failAnswer") {
@@ -1858,7 +1858,7 @@ mod tests {
                 assert!(gate.fast.load(Ordering::SeqCst));
                 "Fail Answer:".to_string()
             } else {
-                json!({"fastAnswer":"DONE"}).to_string()
+                "Fast Answer: DONE".to_string()
             };
             Ok(
                 json!({"status":200,"json":{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":content},"finish_reason":"stop"}]}}),
@@ -1989,7 +1989,7 @@ mod tests {
                         .expect("tool should start while model stream is open");
                     release.send(()).unwrap();
                     sender
-                        .send(sse(completed("r1", "{\"answer\":\"provisional\"}")))
+                        .send(sse(completed("r1", "Answer: provisional")))
                         .unwrap();
                 });
                 return Ok(AxTransportStream::Reader {
@@ -2007,7 +2007,7 @@ mod tests {
                 json!([{"type":"function_call_output","call_id":"c1","output":"REF-42"}])
             );
             Ok(AxTransportStream::Buffered(
-                json!({"status":200,"body":String::from_utf8(sse(completed("r2","{\"answer\":\"REF-42\"}"))).unwrap()}),
+                json!({"status":200,"body":String::from_utf8(sse(completed("r2","Answer: REF-42"))).unwrap()}),
             ))
         }
     }
@@ -2072,7 +2072,7 @@ mod tests {
                     .unwrap()
                     .to_lowercase()
                     .contains("query"));
-                completed("corrected", "{\"answer\":\"CORRECTED\"}")
+                completed("corrected", "Answer: CORRECTED")
             };
             Ok(AxTransportStream::Buffered(
                 json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
@@ -2139,7 +2139,7 @@ mod tests {
                     json!({"type":"function_call_output","call_id":"same-call","output":"REF-42"})
                 );
                 assert_eq!(body["input"].as_array().unwrap().len(), 2);
-                completed("node-final", "{\"answer\":\"REF-42\"}")
+                completed("node-final", "Answer: REF-42")
             };
             Ok(AxTransportStream::Buffered(
                 json!({"status":200,"body":String::from_utf8(sse(event)).unwrap()}),
@@ -2249,7 +2249,7 @@ mod tests {
                 queue.push_back(ack);
                 queue.push_back(json!({"type":"response.incomplete","response":{"id":"parent","model":"gpt-6-astra","output":[],"incomplete_details":{"reason":"steered"},"usage":{"input_tokens":3,"output_tokens":2}}}));
                 queue.push_back(json!({"type":"response.created","response":{"id":"successor"}}));
-                queue.push_back(completed("successor", "{\"answer\":\"CORRECTED\"}"));
+                queue.push_back(completed("successor", "Answer: CORRECTED"));
             }
             self.ready.notify_all();
             Ok(())
@@ -2305,7 +2305,7 @@ mod tests {
                 json!({"type":"response.steer.accepted","steer":{"id":"s1","previous_response_id":"parent"}}),
                 json!({"type":"response.incomplete","response":{"id":"parent","model":"gpt-6-astra","output":[],"incomplete_details":{"reason":"steered"}}}),
                 json!({"type":"response.created","response":{"id":"successor"}}),
-                completed("successor", "{\"answer\":\"CORRECTED\"}"),
+                completed("successor", "Answer: CORRECTED"),
             ] {
                 socket
                     .send(tungstenite::Message::Text(event.to_string().into()))
@@ -2809,7 +2809,7 @@ mod tests {
                     if number < 3 {
                         "{\"completion\":{\"type\":\"final\",\"args\":[\"No discovered tools\",{}]}}"
                     } else {
-                        "{\"answer\":\"not discovered\"}"
+                        "Answer: not discovered"
                     },
                 );
             }
@@ -2826,7 +2826,7 @@ mod tests {
                     if number == 1 {
                         "{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"
                     } else {
-                        "{\"answer\":\"REF-42\"}"
+                        "Answer: REF-42"
                     },
                 );
             }
@@ -2997,7 +2997,7 @@ mod tests {
                 body.to_string().contains("REF-42"),
                 "responder ran before final incorporation"
             );
-            Ok(completed("responder", "{\"answer\":\"REF-42\"}")["response"].clone())
+            Ok(completed("responder", "Answer: REF-42")["response"].clone())
         }
         fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
             let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
@@ -3021,7 +3021,7 @@ mod tests {
                     );
                 }
                 return Ok(AxTransportStream::Buffered(
-                    json!({"status":200,"body":String::from_utf8(sse(completed(&format!("{stage}{suffix}"),if n<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"{\"answer\":\"REF-42\"}"}))).unwrap()}),
+                    json!({"status":200,"body":String::from_utf8(sse(completed(&format!("{stage}{suffix}"),if n<3{"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"}else{"Answer: REF-42"}))).unwrap()}),
                 ));
             }
             if n == 3 {
@@ -3225,7 +3225,14 @@ mod tests {
             } else {
                 json!({"javascriptCode":if stage=="root/executor"&&!self.delegated.load(Ordering::SeqCst){"delegate"}else{"parent-final"}})
             };
-            let mut event = completed(&format!("child-r{}", number + 1), &output.to_string());
+            let mut event = completed(
+                &format!("child-r{}", number + 1),
+                &output
+                    .get("answer")
+                    .and_then(Value::as_str)
+                    .map(|answer| format!("Answer: {answer}"))
+                    .unwrap_or_else(|| output.to_string()),
+            );
             event["response"]["usage"] =
                 json!({"input_tokens":2,"output_tokens":1,"total_tokens":3});
             if self.cancel && number == 6 {
@@ -3527,7 +3534,7 @@ mod tests {
             assert_eq!(self.tools.load(Ordering::SeqCst), 1, "request: {request}");
             assert!(request.to_string().contains("FALLBACK"));
             assert!(request.to_string().contains("balanced-call"));
-            Ok(json!({"results":[{"content":"{\"answer\":\"FALLBACK\"}"}]}))
+            Ok(json!({"results":[{"content":"Answer: FALLBACK"}]}))
         }
         fn open_chat_session(
             &mut self,

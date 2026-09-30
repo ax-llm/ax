@@ -47,10 +47,10 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"respond(\\\"Report the matched total\\\", {\\\"total\\\": 42})\"}"
+      "content": "Javascript Code: respond(\"Report the matched total\", {\"total\": 42})"
     },
     {
-      "content": "{\"answer\":\"42 matched\"}"
+      "content": "Answer: 42 matched"
     }
   ],
   "runtime_script": [

@@ -39,7 +39,7 @@
       ]
     },
     {
-      "content": "{\"answer\":\"Found Ax docs\"}"
+      "content": "Answer: Found Ax docs"
     }
   ],
   "expected_output": {

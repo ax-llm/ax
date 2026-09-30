@@ -1,0 +1,26 @@
+{
+  "expected_output": {
+    "displayName": "Ada"
+  },
+  "expected_request_count": 1,
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "maxRetries": 0,
+    "stream": false
+  },
+  "input": {
+    "question": "Answer"
+  },
+  "kind": "forward",
+  "name": "text-contract-optional-null-omitted",
+  "responses": [
+    {
+      "content": "Display Name: Ada\nMiddle Name: null"
+    }
+  ],
+  "signature": "question:string -> displayName:string, middleName?:string"
+}

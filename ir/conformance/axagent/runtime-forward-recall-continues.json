@@ -48,16 +48,16 @@
   },
   "responses": [
     {
-      "content": "{\"pythonCode\": \"final(\\\"Recall preferences\\\", {})\"}"
+      "content": "Python Code: final(\"Recall preferences\", {})"
     },
     {
-      "content": "{\"pythonCode\":\"recall(\\\"prefs\\\")\"}"
+      "content": "Python Code: recall(\"prefs\")"
     },
     {
-      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"User likes concise docs.\\\"})\"}"
+      "content": "Python Code: final(\"Answer\", {\"answer\": \"User likes concise docs.\"})"
     },
     {
-      "content": "{\"answer\":\"User likes concise docs.\"}"
+      "content": "Answer: User likes concise docs."
     }
   ],
   "runtime_script": [

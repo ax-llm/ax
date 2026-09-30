@@ -32,13 +32,13 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Summarize the document\\\", {})\"}"
+      "content": "Javascript Code: final(\"Summarize the document\", {})"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Answer with the summary\\\", {\\\"summary\\\": \\\"ok\\\"})\"}"
+      "content": "Javascript Code: final(\"Answer with the summary\", {\"summary\": \"ok\"})"
     },
     {
-      "content": "{\"answer\":\"ok\"}"
+      "content": "Answer: ok"
     }
   ],
   "runtime_script": [

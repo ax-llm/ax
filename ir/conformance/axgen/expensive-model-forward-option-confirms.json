@@ -29,7 +29,7 @@
   "name": "expensive-model-forward-option-confirms",
   "responses": [
     {
-      "content": "{\"answer\":\"Ax composes typed LLM programs.\"}"
+      "content": "Answer: Ax composes typed LLM programs."
     }
   ],
   "signature": "question:string -> answer:string"

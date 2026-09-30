@@ -25,7 +25,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"verified\":true}]}}"
     },
     {
-      "content": "{\"answer\":\"Verified.\"}"
+      "content": "Answer: Verified."
     }
   ],
   "signature": "question:string -> answer:string"

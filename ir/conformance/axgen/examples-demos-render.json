@@ -37,7 +37,7 @@
   "name": "examples-demos-render",
   "responses": [
     {
-      "content": "{\"answer\":\"Current answer\"}"
+      "content": "Answer: Current answer"
     }
   ],
   "signature": "question:string -> answer:string"

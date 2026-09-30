@@ -1,44 +1,23 @@
 {
-  "kind": "flow",
-  "name": "owned-workers-custom-client-serial-fallback",
-  "input": {
-    "question": "override?"
-  },
-  "steps": [
+  "expected_chat_log_subset": [
     {
-      "kind": "execute",
       "name": "left",
-      "signature": "question:string -> left:string",
-      "options": {
-        "reads": ["question"],
-        "writes": ["leftResult"],
-        "isBarrier": false
+      "response": {
+        "content": "Left: l"
       }
     },
     {
-      "kind": "execute",
       "name": "right",
-      "signature": "question:string -> right:string",
-      "options": {
-        "reads": ["question"],
-        "writes": ["rightResult"],
-        "isBarrier": false
+      "response": {
+        "content": "Right: r"
       }
     }
   ],
-  "returns": {
-    "left": "leftResult.left",
-    "right": "rightResult.right"
+  "expected_output": {
+    "left": "l",
+    "right": "r"
   },
-  "forward_options": {},
-  "responses": [
-    {
-      "content": "{\"left\":\"l\"}"
-    },
-    {
-      "content": "{\"right\":\"r\"}"
-    }
-  ],
+  "expected_request_count": 2,
   "expected_trace_subset": [
     {
       "kind": "flow_parallel_fallback",
@@ -59,23 +38,35 @@
       }
     }
   ],
-  "expected_chat_log_subset": [
+  "forward_options": {},
+  "input": {
+    "question": "override?"
+  },
+  "kind": "flow",
+  "name": "owned-workers-custom-client-serial-fallback",
+  "responses": [
     {
-      "name": "left",
-      "response": {
-        "content": "{\"left\":\"l\"}"
-      }
+      "content": "Left: l"
     },
     {
-      "name": "right",
-      "response": {
-        "content": "{\"right\":\"r\"}"
-      }
+      "content": "Right: r"
     }
   ],
+  "returns": {
+    "left": "leftResult.left",
+    "right": "rightResult.right"
+  },
   "source": {
-    "tsDerived": true,
     "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "owned-workers-custom-client-serial-fallback",
+    "observed": {
+      "generatedCompatibilityPolicy": "Clients without owned workers preserve the TS plan and result, execute the group serially, and report flow_parallel_fallback.",
+      "nodeCalls": 2,
+      "output": {
+        "left": "l",
+        "right": "r"
+      }
+    },
     "reference": [
       "src/ax/flow/flow.ts",
       "src/ax/flow/steps.ts",
@@ -85,19 +76,28 @@
       "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
-    "name": "owned-workers-custom-client-serial-fallback",
-    "observed": {
-      "output": {
-        "left": "l",
-        "right": "r"
+    "tsDerived": true
+  },
+  "steps": [
+    {
+      "kind": "execute",
+      "name": "left",
+      "options": {
+        "isBarrier": false,
+        "reads": ["question"],
+        "writes": ["leftResult"]
       },
-      "nodeCalls": 2,
-      "generatedCompatibilityPolicy": "Clients without owned workers preserve the TS plan and result, execute the group serially, and report flow_parallel_fallback."
+      "signature": "question:string -> left:string"
+    },
+    {
+      "kind": "execute",
+      "name": "right",
+      "options": {
+        "isBarrier": false,
+        "reads": ["question"],
+        "writes": ["rightResult"]
+      },
+      "signature": "question:string -> right:string"
     }
-  },
-  "expected_output": {
-    "left": "l",
-    "right": "r"
-  },
-  "expected_request_count": 2
+  ]
 }

@@ -86,13 +86,13 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Forward refund status check\\\", {})\"}"
+      "content": "Javascript Code: final(\"Forward refund status check\", {})"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Answer with ranking evidence\\\", {\\\"answer\\\":\\\"ranked\\\"})\"}"
+      "content": "Javascript Code: final(\"Answer with ranking evidence\", {\"answer\":\"ranked\"})"
     },
     {
-      "content": "{\"answer\":\"ranked\"}"
+      "content": "Answer: ranked"
     }
   ],
   "runtime_script": [

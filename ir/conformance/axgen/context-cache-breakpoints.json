@@ -28,7 +28,7 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"cached\"}"
+      "content": "Answer: cached"
     }
   ],
   "signature": "document:string, question:string -> answer:string"

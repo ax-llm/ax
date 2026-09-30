@@ -50,13 +50,13 @@
   "replay_trace": true,
   "responses": [
     {
-      "content": "{\"pythonCode\": \"final(\\\"Execute runtime code\\\", {})\"}"
+      "content": "Python Code: final(\"Execute runtime code\", {})"
     },
     {
-      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"trace ok\\\"})\"}"
+      "content": "Python Code: final(\"Answer\", {\"answer\": \"trace ok\"})"
     },
     {
-      "content": "{\"answer\":\"trace ok\"}"
+      "content": "Answer: trace ok"
     }
   ],
   "runtime_script": [

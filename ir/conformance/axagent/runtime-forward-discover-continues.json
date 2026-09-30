@@ -44,16 +44,16 @@
   },
   "responses": [
     {
-      "content": "{\"pythonCode\": \"final(\\\"Discover tools first\\\", {})\"}"
+      "content": "Python Code: final(\"Discover tools first\", {})"
     },
     {
-      "content": "{\"pythonCode\":\"discover({\\\"tools\\\":[\\\"search\\\"]})\"}"
+      "content": "Python Code: discover({\"tools\":[\"search\"]})"
     },
     {
-      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"Docs found\\\"})\"}"
+      "content": "Python Code: final(\"Answer\", {\"answer\": \"Docs found\"})"
     },
     {
-      "content": "{\"answer\":\"Docs found\"}"
+      "content": "Answer: Docs found"
     }
   ],
   "runtime_script": [

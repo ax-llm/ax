@@ -10,10 +10,10 @@
   },
   "responses": [
     {
-      "content": "{\"sentiment\":\"neutral\"}"
+      "content": "Sentiment: neutral"
     },
     {
-      "content": "{\"sentiment\":\"positive\"}"
+      "content": "Sentiment: positive"
     }
   ],
   "expected_output": {

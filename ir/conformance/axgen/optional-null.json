@@ -22,11 +22,10 @@
   },
   "responses": [
     {
-      "content": "{\"displayName\":\"Ada\",\"middleName\":null}"
+      "content": "Display Name: Ada\nMiddle Name: null"
     }
   ],
   "expected_output": {
-    "displayName": "Ada",
-    "middleName": null
+    "displayName": "Ada"
   }
 }

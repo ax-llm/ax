@@ -32,13 +32,13 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Fetch vendor v1 and report its live status\\\", {\\\"vendorId\\\": \\\"v1\\\"})\"}"
+      "content": "Javascript Code: final(\"Fetch vendor v1 and report its live status\", {\"vendorId\": \"v1\"})"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Report the vendor status\\\", {\\\"status\\\": \\\"active\\\"})\"}"
+      "content": "Javascript Code: final(\"Report the vendor status\", {\"status\": \"active\"})"
     },
     {
-      "content": "{\"answer\":\"active\"}"
+      "content": "Answer: active"
     }
   ],
   "runtime_script": [

@@ -239,7 +239,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"catalog done\\\", {\\\"answer\\\":\\\"catalog\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"catalog\"}"
+      "content": "Answer: catalog"
     }
   ],
   "runtime_script": [

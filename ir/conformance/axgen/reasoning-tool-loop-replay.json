@@ -54,7 +54,7 @@
     {
       "results": [
         {
-          "content": "{\"answer\":\"42\"}",
+          "content": "Answer: 42",
           "finish_reason": "stop",
           "index": 0
         }

@@ -71,10 +71,10 @@
   ],
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"respond(\\\"direct\\\", {\\\"source\\\":\\\"forward-skill\\\"})\"}"
+      "content": "Javascript Code: respond(\"direct\", {\"source\":\"forward-skill\"})"
     },
     {
-      "content": "{\"answer\":\"direct\"}"
+      "content": "Answer: direct"
     }
   ],
   "runtime_script": [

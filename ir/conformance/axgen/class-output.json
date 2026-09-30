@@ -7,7 +7,7 @@
   },
   "responses": [
     {
-      "content": "{\"sentiment\":\"positive\"}"
+      "content": "Sentiment: positive"
     }
   ],
   "expected_output": {

@@ -48,13 +48,13 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Use matched docs\\\", {\\\"matched\\\":[{\\\"id\\\":\\\"a\\\",\\\"title\\\":\\\"rawAlphaEvidenceValue\\\",\\\"score\\\":1}],\\\"meta\\\":{\\\"source\\\":\\\"fixture\\\"}})\"}"
+      "content": "Javascript Code: final(\"Use matched docs\", {\"matched\":[{\"id\":\"a\",\"title\":\"rawAlphaEvidenceValue\",\"score\":1}],\"meta\":{\"source\":\"fixture\"}})"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Answer with matched docs\\\", {\\\"answer\\\":\\\"done\\\"})\"}"
+      "content": "Javascript Code: final(\"Answer with matched docs\", {\"answer\":\"done\"})"
     },
     {
-      "content": "{\"answer\":\"done\"}"
+      "content": "Answer: done"
     }
   ],
   "runtime_script": [

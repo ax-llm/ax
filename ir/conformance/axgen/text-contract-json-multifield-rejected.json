@@ -1,0 +1,24 @@
+{
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Required field not found: 'Answer' (string), 'Score' (number). Add a line starting with the exact label followed by a colon (e.g., \"Answer:\") and then provide a valid string value. Keep the output concise and avoid unrelated text.\n\nLLM Output:\n{\"answer\":\"Paris\",\"score\":1}",
+  "expected_request_count": 1,
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "maxRetries": 0,
+    "stream": false
+  },
+  "input": {
+    "question": "Answer"
+  },
+  "kind": "forward",
+  "name": "text-contract-json-multifield-rejected",
+  "responses": [
+    {
+      "content": "{\"answer\":\"Paris\",\"score\":1}"
+    }
+  ],
+  "signature": "question:string -> answer:string, score:number"
+}

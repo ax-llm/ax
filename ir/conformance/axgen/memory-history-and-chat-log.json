@@ -2,7 +2,7 @@
   "expected_chat_log_subset": [
     {
       "response": {
-        "content": "{\"answer\":\"remembered\"}"
+        "content": "Answer: remembered"
       },
       "usage": {
         "total_tokens": 12
@@ -28,7 +28,7 @@
   "name": "memory-history-and-chat-log",
   "responses": [
     {
-      "content": "{\"answer\":\"remembered\"}",
+      "content": "Answer: remembered",
       "usage": {
         "total_tokens": 12
       }

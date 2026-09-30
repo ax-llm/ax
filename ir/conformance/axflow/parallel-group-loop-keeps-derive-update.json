@@ -15,10 +15,10 @@
   "name": "parallel-group-loop-keeps-derive-update",
   "responses": [
     {
-      "content": "{\"title\":\"t1\"}"
+      "content": "Title: t1"
     },
     {
-      "content": "{\"title\":\"t2\"}"
+      "content": "Title: t2"
     }
   ],
   "returns": {
