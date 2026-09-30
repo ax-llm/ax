@@ -18,7 +18,24 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe` [axgen] Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TS forward removes the memory tagged correction and error when a new answer arrives (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so every validation retry sends one failed attempt and its correction. The ports keep them all. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. TS streamingForward keeps them all, as the ports do. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed leave expected_request_roles out until this lands.
+  - Suggested AxIR work: Port TS's non-streaming memory cleanup of correction and error tagged messages; Add an AxGen forward golden with two or more validation retries that pins the request roles; Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed
+- `axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age` [axagent] Match TS's auto-promoted context value previews in the ports' agent prompts
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/runtime.ts`
+  - Impact: autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.
+  - Suggested AxIR work: Port TS's promotion decision (string length for strings and the preview and omit modes); Render TS's truncated preview in the actor and responder prompts; Replace the port-only promotion fixture with TS-derived goldens
+- `axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un` [prompt] Split the actor prompt into cached and uncached user messages under contextCache in the ports
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
+  - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
 
 ## Done
 

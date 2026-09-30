@@ -2316,6 +2316,19 @@ Value Core::agent_runtime_restore_state(Value session, Value snapshot, Value opt
 }
 // A runtime's language: a runtime config's "language", else the code runtime's
 // own, else JavaScript, TS's default runtime.
+// A runtime's own usage instructions, as TS's getUsageInstructions(): the
+// registered code runtime's own, else a runtime config's
+// "usageInstructions", else none.
+Value Core::agent_runtime_usage_instructions(Value runtime) {
+  if (!runtime.is_object()) return Value(std::string());
+  std::string runtime_id = str(Core::get(runtime, "__code_runtime_id", Value("")));
+  if (!runtime_id.empty()) {
+    auto it = code_runtime_registry().find(runtime_id);
+    if (it != code_runtime_registry().end() && it->second != nullptr) return Value(it->second->usage_instructions());
+  }
+  Value raw = Core::get(runtime, "usageInstructions", Core::get(runtime, "usage_instructions", Value()));
+  return Value(raw.is_null() ? std::string() : display(raw));
+}
 Value Core::agent_runtime_language(Value runtime) {
   std::string language;
   if (runtime.is_object()) {
@@ -2755,6 +2768,13 @@ static Array prompt_inputs_for_values(Value sig, Value values) {
   for (const auto& field : fields) if (!Core::truthy(get_key(field, "isOptional")) || prompt_provided(get_key(values, str(get_key(field, "name"))))) out.push_back(field);
   return out;
 }
+// The input fields the system prompt shows with TS's
+// includeOptionalInputFieldsInSystemPrompt: every one, cached first.
+static Array prompt_all_inputs(Value sig) {
+  Array fields = array_ref(get_key(sig, "inputs"));
+  std::stable_sort(fields.begin(), fields.end(), [](const Value& a, const Value& b) { return Core::truthy(get_key(a, "isCached")) && !Core::truthy(get_key(b, "isCached")); });
+  return fields;
+}
 static Array prompt_outputs(Value sig) {
   Array out;
   for (const auto& field : array_ref(get_key(sig, "outputs"))) {
@@ -2921,7 +2941,10 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   vars["hasOutputFields"] = !outputs.empty();
   vars["hasComplexFields"] = complex;
   vars["hasStructuredOutputFunction"] = complex && !get_key(options, "structured_output_function_name").is_null();
-  Array inputs = prompt_inputs_for_values(signature, values);
+  // TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+  // every input field, provided or not. Off by default.
+  bool include_optional = truthy(get_key(options, "include_optional_input_fields_in_system_prompt", get_key(options, "includeOptionalInputFieldsInSystemPrompt")));
+  Array inputs = include_optional ? prompt_all_inputs(signature) : prompt_inputs_for_values(signature, values);
   vars["identityText"] = "You will be provided with the following fields: " + prompt_desc_fields(inputs) + ". Your task is to generate new fields: " + prompt_desc_fields(outputs) + ".";
   vars["taskDefinitionText"] = task;
   vars["functionsList"] = prompt_render_functions(functions);
@@ -8429,8 +8452,8 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   playbook_config_ = Core::get(options, "playbook", Value());
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   reset_stage_sets();
@@ -8462,8 +8485,8 @@ void AxAgent::use_stage_mode(const Value& options) {
     incoming.responder->set_instruction(Core::get(record, "responder_description", Value("")));
   } else {
     Value actor_validation_retries = Core::get(options_, "validation_retries", Core::get(options_, "validationRetries", 1));
-    incoming.distiller = std::make_unique<AxGen>(s(str(Core::get(record, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(record, "distiller_description", "")}}));
-    incoming.executor = std::make_unique<AxGen>(s(str(Core::get(record, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(record, "executor_description", "")}}));
+    incoming.distiller = std::make_unique<AxGen>(s(str(Core::get(record, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(record, "distiller_description", "")}}));
+    incoming.executor = std::make_unique<AxGen>(s(str(Core::get(record, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(record, "executor_description", "")}}));
     incoming.responder = make_responder(options_);
   }
   incoming.distiller->apply_optimized_components(optimized_components_);
@@ -8500,8 +8523,8 @@ AxAgent& AxAgent::set_signature(Value signature) {
   Value options = options_;
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   reset_stage_sets();
@@ -8699,8 +8722,8 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   reset_stage_sets();

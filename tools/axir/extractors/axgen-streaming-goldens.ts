@@ -287,6 +287,8 @@ const optionNames: Record<string, string> = {
   thought_field_name: 'thoughtFieldName',
   function_call: 'functionCall',
   strict_mode: 'strictMode',
+  include_optional_input_fields_in_system_prompt:
+    'includeOptionalInputFieldsInSystemPrompt',
 };
 
 function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
@@ -1027,6 +1029,37 @@ const cases: Record<string, Case> = {
   'forward-request-layout-text-contract': {
     kind: 'forward',
     signature: 'question:string -> answer:string',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  // includeOptionalInputFieldsInSystemPrompt: the system prompt lists the
+  // unset optional input too; the user message still leaves it out.
+  'forward-request-layout-optional-input-listed': {
+    kind: 'forward',
+    signature:
+      'question:string, context?:string "Background notes" -> answer:string',
+    options: { include_optional_input_fields_in_system_prompt: true },
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  'forward-request-layout-optional-input-forward-option': {
+    kind: 'forward',
+    signature:
+      'question:string, context?:string "Background notes" -> answer:string',
+    forward_options: { include_optional_input_fields_in_system_prompt: true },
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  // The forward's option wins over the constructor's.
+  'forward-request-layout-optional-input-forward-off': {
+    kind: 'forward',
+    signature:
+      'question:string, context?:string "Background notes" -> answer:string',
+    options: { include_optional_input_fields_in_system_prompt: true },
+    forward_options: { include_optional_input_fields_in_system_prompt: false },
     features: nativeFeatures,
     pin_request_layout: true,
     responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],

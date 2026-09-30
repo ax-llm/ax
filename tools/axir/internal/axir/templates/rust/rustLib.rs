@@ -5897,11 +5897,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         state,
         distiller: agent_stage_gen(
             distiller_signature,
-            json!({"validation_retries": actor_validation_retries.clone(), "id": "ctx.root.actor", "instruction": distiller_instruction}),
+            json!({"validation_retries": actor_validation_retries.clone(), "id": "ctx.root.actor", "instruction": distiller_instruction, "includeOptionalInputFieldsInSystemPrompt": true}),
         ),
         executor: agent_stage_gen(
             executor_signature,
-            json!({"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": executor_instruction}),
+            json!({"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": executor_instruction, "includeOptionalInputFieldsInSystemPrompt": true}),
         ),
         responder,
         llm_query_signature,
@@ -6079,11 +6079,11 @@ impl AxAgent {
                 ));
                 let distiller = agent_stage_gen(
                     s(&text("distiller_signature"))?,
-                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description")}),
+                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description"), "includeOptionalInputFieldsInSystemPrompt": true}),
                 );
                 let executor = agent_stage_gen(
                     s(&text("executor_signature"))?,
-                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description")}),
+                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description"), "includeOptionalInputFieldsInSystemPrompt": true}),
                 );
                 let responder_signature = signature_from_record(&core_get(&self.state, &CoreValue::from("responder_signature"), CoreValue::Null))?;
                 let responder = agent_responder_gen(&self.state, &self.configured_options, responder_signature, json!(text("responder_description")))?;
@@ -11221,6 +11221,7 @@ fn run_prompt_fixture(fixture: &Value) -> AxResult<()> {
     for (key, names) in [
         ("custom_template", vec!["custom_template", "customTemplate"]),
         ("structured_output_function_name", vec!["structured_output_function_name", "structuredOutputFunctionName"]),
+        ("include_optional_input_fields_in_system_prompt", vec!["include_optional_input_fields_in_system_prompt", "includeOptionalInputFieldsInSystemPrompt"]),
         ("instruction", vec!["instruction"]),
     ] {
         for name in names {
@@ -13910,6 +13911,26 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         )?;
     }
     if let Some(expected)=fixture.get("expected_mcp_calls").and_then(Value::as_object){for (key,calls) in expected{let transport=&mcp_transports.iter().find(|(name,_)|name==key).ok_or_else(||AxError::runtime("Missing MCP test transport"))?.1;let requests=transport.lock().unwrap().sent_requests();let actual=requests.iter().filter(|r|r["method"]=="tools/call").map(|r|json!({"name":r["params"]["name"],"arguments":r["params"]["arguments"]})).collect::<Vec<_>>();expect_json_equal(&format!("delegated MCP calls {key}"),&json!(actual),calls)?;}}
+    // Each stage's first request in full: every message's role and content.
+    for spec in fixture.get("expected_stage_first_requests").and_then(Value::as_array).into_iter().flatten() {
+        let index = spec.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let stage = spec.get("stage").and_then(Value::as_str).unwrap_or("");
+        let request = client.requests.get(index).ok_or_else(|| {
+            AxError::new("fixture", format!("no request {index} for the {stage} stage"))
+        })?;
+        let actual: Vec<Value> = request
+            .get("chat_prompt")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|message| json!({"role": message.get("role").cloned().unwrap_or(Value::Null), "content": message.get("content").cloned().unwrap_or(Value::Null)}))
+            .collect();
+        expect_json_equal(
+            &format!("{stage} first request"),
+            &Value::Array(actual),
+            spec.get("messages").unwrap_or(&Value::Null),
+        )?;
+    }
     for check in fixture.get("expected_request_checks").and_then(Value::as_array).into_iter().flatten(){let request=&client.requests[check["index"].as_u64().unwrap() as usize];let text=stable_stringify(request);for value in check.get("contains").and_then(Value::as_array).into_iter().flatten(){if !text.contains(value.as_str().unwrap()){return Err(AxError::runtime(format!("Child request missing {value}")));}}for value in check.get("not_contains").and_then(Value::as_array).into_iter().flatten(){if text.contains(value.as_str().unwrap()){return Err(AxError::runtime(format!("Child request exposed {value}")));}}if check["functions_absent"]==true&&request.get("functions").and_then(Value::as_array).is_some_and(|functions|!functions.is_empty()){return Err(AxError::runtime("Agent runtime tools leaked into native functions"));}}
     if let Some(items) = fixture.get("expected_request_contains").and_then(Value::as_array) {
         let request_text = stable_stringify(&Value::Array(client.requests.clone()));
@@ -21798,9 +21819,20 @@ fn core_prompt_has_complex_fields(signature: &CoreValue) -> Result<bool, AxError
     Ok(false)
 }
 
+// The input fields the system prompt shows: every one, cached first, with
+// TS's includeOptionalInputFieldsInSystemPrompt; otherwise the ones the user
+// message renders.
 #[allow(dead_code)]
-fn core_prompt_identity_section(signature: &CoreValue, values: &CoreValue) -> Result<String, AxError> {
-    let in_args = core_prompt_render_desc_fields(&core_prompt_input_fields_for_values(signature, values)?);
+fn core_prompt_system_input_fields(signature: &CoreValue, values: &CoreValue, include_optional: bool) -> Result<Vec<CoreValue>, AxError> {
+    if include_optional {
+        return core_prompt_input_fields_for_values(signature, &CoreValue::Null);
+    }
+    core_prompt_input_fields_for_values(signature, values)
+}
+
+#[allow(dead_code)]
+fn core_prompt_identity_section(signature: &CoreValue, values: &CoreValue, include_optional: bool) -> Result<String, AxError> {
+    let in_args = core_prompt_render_desc_fields(&core_prompt_system_input_fields(signature, values, include_optional)?);
     let out_args = core_prompt_render_desc_fields(&core_prompt_get_output_fields(signature)?);
     Ok(format!(
         "You will be provided with the following fields: {in_args}. Your task is to generate new fields: {out_args}."
@@ -21833,9 +21865,9 @@ fn core_prompt_input_fields_for_values(signature: &CoreValue, values: &CoreValue
 }
 
 #[allow(dead_code)]
-fn core_prompt_input_fields_section(signature: &CoreValue, values: &CoreValue) -> Result<String, AxError> {
+fn core_prompt_input_fields_section(signature: &CoreValue, values: &CoreValue, include_optional: bool) -> Result<String, AxError> {
     let fields = core_prompt_render_input_fields(
-        &core_prompt_input_fields_for_values(signature, values)?,
+        &core_prompt_system_input_fields(signature, values, include_optional)?,
         &core_prompt_field_name_to_title(signature)?,
     )?;
     Ok(format!(
@@ -22146,6 +22178,18 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("structured_output_function_name"),
         CoreValue::Null,
     );
+    // TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+    // every input field, provided or not. Off by default.
+    let include_optional_default = core_get(
+        &options,
+        &CoreValue::from("includeOptionalInputFieldsInSystemPrompt"),
+        CoreValue::Bool(false),
+    );
+    let include_optional = core_truthy(&core_get(
+        &options,
+        &CoreValue::from("include_optional_input_fields_in_system_prompt"),
+        include_optional_default,
+    ));
     let template_vars = CoreValue::new_map();
     core_set(&template_vars, CoreValue::from("hasFunctions"), CoreValue::Bool(!funcs.is_empty()))?;
     core_set(
@@ -22176,7 +22220,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("identityText"),
-        CoreValue::from_string(core_prompt_identity_section(&signature, &values)?),
+        CoreValue::from_string(core_prompt_identity_section(&signature, &values, include_optional)?),
     )?;
     core_set(
         &template_vars,
@@ -22195,7 +22239,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("inputFieldsSection"),
-        CoreValue::from_string(core_prompt_input_fields_section(&signature, &values)?),
+        CoreValue::from_string(core_prompt_input_fields_section(&signature, &values, include_optional)?),
     )?;
     core_set(
         &template_vars,
@@ -25731,6 +25775,21 @@ fn core_agent_runtime_language(args: &[CoreValue]) -> Result<CoreValue, AxError>
     };
     let trimmed = language.trim();
     Ok(CoreValue::from_string(if trimmed.is_empty() { "JavaScript".to_string() } else { trimmed.to_string() }))
+}
+
+// A runtime's own usage instructions, as TS's getUsageInstructions(): the
+// code runtime's own, else a runtime config's "usageInstructions", else none.
+fn core_agent_runtime_usage_instructions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let text = match core_host_try(&runtime, "usage_instructions", &[]) {
+        Some(result) => result?.text(),
+        None => {
+            let camel = core_get(&runtime, &CoreValue::from("usageInstructions"), CoreValue::Null);
+            let raw = if camel.is_null() { core_get(&runtime, &CoreValue::from("usage_instructions"), CoreValue::Null) } else { camel };
+            if raw.is_null() { String::new() } else { raw.text() }
+        }
+    };
+    Ok(CoreValue::from_string(text))
 }
 
 fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {

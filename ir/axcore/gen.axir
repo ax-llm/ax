@@ -653,6 +653,7 @@ module @ax.gen version "0.1" {
       // rung puts the exact JSON shape and the rung's formatting rule in the
       // system prompt, and no instruction turn follows the user message.
       %render_options = core.call @structured_output_render_options_impl(%selection)
+      core.call @include_optional_render_option_impl(%render_options, %options)
       %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
@@ -1925,6 +1926,7 @@ module @ax.gen version "0.1" {
       // rung puts the exact JSON shape and the rung's formatting rule in the
       // system prompt, and no instruction turn follows the user message.
       %render_options = core.call @structured_output_render_options_impl(%selection)
+      core.call @include_optional_render_option_impl(%render_options, %options)
       %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
@@ -3075,6 +3077,25 @@ module @ax.gen version "0.1" {
       }
       core.if %unnamed {
         core.call intrinsic.axgen.deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+      }
+      core.return
+    }
+  }
+  op ax.gen.semantic @include_optional_render_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%render_options: json, %options: json) {
+      // TS: a forward's includeOptionalInputFieldsInSystemPrompt wins over
+      // the constructor's, which the prompt template holds.
+      %snake = core.get %options["include_optional_input_fields_in_system_prompt"] default null
+      %value = core.get %options["includeOptionalInputFieldsInSystemPrompt"] default %snake
+      %given = core.call intrinsic.is_not_none(%value)
+      core.if %given {
+        %flag = core.call intrinsic.truthy(%value)
+        core.set %render_options["include_optional_input_fields_in_system_prompt"] = %flag
       }
       core.return
     }

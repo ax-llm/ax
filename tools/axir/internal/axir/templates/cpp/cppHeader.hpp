@@ -489,6 +489,7 @@ struct Core {
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
   static Value agent_runtime_language(Value runtime);
+  static Value agent_runtime_usage_instructions(Value runtime);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);

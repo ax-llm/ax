@@ -770,6 +770,51 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. TS goldens: an earlier step's update to a key the input already held survives a later step in the group; each iteration of a while loop whose body is a parallel group keeps its updates, for program nodes and a derive step. Port-only fixtures: a spread field update survives, a field two steps spread ends with the later step's value, and it does so even when the later step writes the group's starting value back."
+    },
+    {
+      "capability": "agent.stages.first_request_prompts",
+      "summary": "Each agent stage's first request (distiller, executor, responder) is TypeScript's, message for message: the actor signatures of buildSplitPrograms with TypeScript's field names and descriptions, every input field listed in the actor system prompts (includeOptionalInputFieldsInSystemPrompt, also a public AxGen option on the constructor and the forward, the forward's winning), the runtime's own usage instructions, the stage's own action log, the live runtime state without the runtime's globals, the executor's shared-session notice, the context fields and their metadata, the callable blocks of child agents and tools, per-stage skills, and the responder's Context Data.",
+      "ir_ops": [
+        "@agent_actor_stage_signatures",
+        "@agent_rlm_actor_signatures",
+        "@agent_rlm_distiller_values",
+        "@agent_rlm_executor_values",
+        "@agent_rlm_loop_values",
+        "@agent_render_guidance_log",
+        "@agent_mark_stage_action_log_start",
+        "@agent_build_action_log_parts",
+        "@agent_render_runtime_state_summary",
+        "@agent_render_actor_functions_list",
+        "@agent_render_actor_modules_list",
+        "@agent_render_callable_block",
+        "@agent_render_context_metadata",
+        "@agent_context_input_fields",
+        "@agent_prompt_field_type",
+        "@rlm_context_var_list",
+        "@rlm_context_var_summary",
+        "@build_rlm_flags",
+        "@render_rlm_responder_description",
+        "@include_optional_render_option_impl"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-base.json",
+        "axagent/agent-first-requests-tools.json",
+        "axagent/agent-first-requests-discovery.json",
+        "axagent/agent-first-requests-context-field.json",
+        "axagent/agent-first-requests-skills.json",
+        "axagent/agent-first-requests-skills-catalog.json",
+        "axagent/agent-first-requests-memories.json",
+        "axagent/agent-first-requests-runtime-less.json",
+        "axgen/forward-request-layout-optional-input-listed.json",
+        "axgen/forward-request-layout-optional-input-forward-option.json",
+        "axgen/forward-request-layout-optional-input-forward-off.json",
+        "prompt/optional-input-listed-when-option-on.json",
+        "prompt/optional-input-omitted-by-default.json"
+      ],
+      "gate": "G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens (tools/axir/extractors/agent-streaming-goldens.ts): expected_stage_first_requests compares every message's role and content of each stage's first request, and every agent golden but two pins each request's roles. The port-only agent-first-requests-runtime-less pins the ports' runtime-less stages the same way. Under contextCache TypeScript splits the cached actor inputs into a user message of their own; the ports don't yet (open backlog entry)."
     }
   ]
 }
