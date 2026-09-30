@@ -576,6 +576,7 @@ pub(crate) struct SessionRun {
     gen: CoreValue,
     tools: Vec<Tool>,
     options: Value,
+    pub(crate) formatter_options: CoreValue,
     control: Option<AxRunControl>,
     path: String,
     after: usize,
@@ -615,7 +616,9 @@ impl SessionRun {
             .and_then(Value::as_str)
             .unwrap_or("root")
             .to_string();
+        let formatter_options = core_get(&gen, &CoreValue::from("options"), CoreValue::new_map());
         Self {
+            formatter_options,
             id: NEXT_SESSION_RUN.fetch_add(1, Ordering::SeqCst),
             routes: Vec::new(),
             route_selected: false,
@@ -709,7 +712,7 @@ impl SessionRun {
                     core_value_from_json(&call),
                     CoreValue::Error(Rc::new(error)),
                 ])?;
-                chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&call),core_value_from_json(&core_value_to_json(&message)["result"]),CoreValue::Bool(false)])?;
+                chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&call),core_value_from_json(&core_value_to_json(&message)["result"]),CoreValue::Bool(false),self.formatter_options.clone()])?;
                 return Ok(());
             }
         };
@@ -875,15 +878,19 @@ impl SessionRun {
             return Ok(false);
         };
         self.session = Some(session);
+        // As TS's maxResponses: the run's maxSteps (25 by default) less the
+        // request's step.
+        let max_steps = self
+            .options
+            .get("maxSteps")
+            .or_else(|| self.options.get("max_steps"))
+            .and_then(Value::as_f64)
+            .unwrap_or(25.0);
+        let step = request.get("_ax_step_index").and_then(Value::as_f64).unwrap_or(0.0);
         self.state = chat_session_create_state(&[
             core_value_from_json(&request["model"]),
             CoreValue::from(self.path.as_str()),
-            core_value_from_json(
-                self.options
-                    .get("maxSteps")
-                    .or_else(|| self.options.get("max_steps"))
-                    .unwrap_or(&json!(10)),
-            ),
+            CoreValue::Num(max_steps - step),
         ])?;
         Ok(true)
     }
@@ -1035,7 +1042,7 @@ impl SessionRun {
                 ])?)["result"]
                     .clone(),
             };
-            if !core_truthy(&chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&delivery.call),core_value_from_json(&result),CoreValue::Bool(ok)])?){continue;}
+            if !core_truthy(&chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&delivery.call),core_value_from_json(&result),CoreValue::Bool(ok),self.formatter_options.clone()])?){continue;}
             self.emit("tool.completed", json!({"call_id":id}));
             if core_value_to_json(&self.state)["pending"][id]["execution"] != "background" {
                 self.blocking = false;
@@ -1130,10 +1137,8 @@ impl SessionRun {
     }
     fn submit(&mut self, results: Vec<Value>) -> AxResult<()> {
         let state = core_value_to_json(&self.state);
-        if state["steps"].as_f64().unwrap_or(0.0) >= state["max_steps"].as_f64().unwrap_or(10.0) {
-            return Err(AxError::runtime(
-                "Maximum model steps exhausted before final completion",
-            ));
+        if state["steps"].as_f64().unwrap_or(0.0) >= state["max_steps"].as_f64().unwrap_or(25.0) {
+            return Err(core_as_error(&chat_session_step_limit_error(&[self.state.clone()])?));
         }
         self.session.as_mut().ok_or_else(|| AxError::runtime("Session closed"))?.submit(results.clone())?;
         let ids: Vec<Value> = results

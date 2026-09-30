@@ -487,7 +487,7 @@ func (p *genSessionClient) start(call Value) {
 	mustCore(chat_session_register_call(p.state, call, execution))
 	if validationErr != nil {
 		message := mustCore(_tool_error_message_impl(call, validationErr))
-		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false))
+		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false, p.options))
 		return
 	}
 	p.blocking = execution == "blocking"
@@ -727,7 +727,10 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 		panic(err)
 	}
 	p.session = session
-	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 10))))
+	// As TS's maxResponses: the run's maxSteps (25 by default) less the
+	// request's step.
+	limit := int(num(coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 25))) - num(coreGet(request, "_ax_step_index", 0)))
+	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, limit))
 	sessionCtx, deliveries, results := p.ctx, p.deliveries, p.results
 	go func() {
 		for {
@@ -777,7 +780,7 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 			if result.err != nil {
 				value = coreGet(mustCore(_tool_error_message_impl(result.call, result.err)), "result", result.err.Error())
 			}
-			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil))) {
+			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil, p.options))) {
 				continue
 			}
 			p.emit("tool.completed", "call_id", id)
@@ -843,8 +846,8 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 	}
 }
 func (p *genSessionClient) submit(results []Value) {
-	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 10)) {
-		panic(fmt.Errorf("maximum model steps exhausted before final completion"))
+	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 25)) {
+		panic(asError(mustCore(chat_session_step_limit_error(p.state))))
 	}
 	if err := p.session.Submit(results); err != nil {
 		panic(err)

@@ -203,6 +203,31 @@ fn bound_caching_function() -> Option<AxCachingFunction> {
     CACHING_FUNCTION_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
 }
 
+// The call's function result formatter, bound as the call's caching function
+// is: the AxGen forward the *_with_function_result_formatter methods start
+// takes it and binds None for the rest of its run.
+thread_local! {
+    static FUNCTION_RESULT_FORMATTER_BINDINGS: RefCell<Vec<Option<AxFunctionResultFormatter>>> = const { RefCell::new(Vec::new()) };
+}
+
+fn with_function_result_formatter_binding<R>(formatter: Option<AxFunctionResultFormatter>, run: impl FnOnce() -> R) -> R {
+    struct Binding;
+    impl Drop for Binding {
+        fn drop(&mut self) {
+            FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| {
+                bindings.borrow_mut().pop();
+            });
+        }
+    }
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow_mut().push(formatter));
+    let _binding = Binding;
+    run()
+}
+
+fn bound_function_result_formatter() -> Option<AxFunctionResultFormatter> {
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
+}
+
 #[derive(Clone, Default)]
 struct RuntimeHookFrame {
     hooks: AxRuntimeHooks,
@@ -2389,7 +2414,7 @@ impl OpenAICompatibleClient {
         let call = self.provider_transport_request("chat", &payload, &model, false)?;
         let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
             Some(value) => value,
-            None => self.dispatch_transport_request(call)?,
+            None => self.retried_transport_request(call, Some(("chat", &payload, &model)))?,
         };
         let profile = self.profile.clone();
         let response_context = if profile == "typesafe" {
@@ -2457,19 +2482,21 @@ impl OpenAICompatibleClient {
         let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
         let max_delay = cfg.get("max_delay_ms").and_then(Value::as_f64).unwrap_or(60000.0);
         let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
-        let mut attempt: i64 = 0;
+        let mut start_attempt: i64 = 0;
+        let mut open_attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            // As in TS apiCall, a timeout is not retried here.
+            // The stream's request goes through apiCall's request-layer retry;
+            // its first event is read once, as TS reads it after apiCall
+            // returns, and a failure to read it surfaces.
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error) if is_retryable_ai_error(&error) && !is_timeout_error(&error) && attempt < max_retries => {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
-                Err(error) => {
+                Err((error, retry_after)) => {
+                    let cancelled = current_cancellation_token().map(|token| token.is_cancelled()).unwrap_or(false);
+                    if !cancelled && request_retry_wait(&cfg, open_attempt, &error, retry_after.as_deref())? {
+                        open_attempt += 1;
+                        continue;
+                    }
                     record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
                     finish_runtime_span(&span, Some(&error));
                     return Err(error);
@@ -2487,12 +2514,6 @@ impl OpenAICompatibleClient {
                         finish_runtime_span(&finish_span, error);
                     }))));
                 }
-                Some(Err(error)) if is_retryable_ai_error(&error) && !is_timeout_error(&error) && attempt < max_retries => {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
                 Some(Err(error)) => {
                     record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
                     finish_runtime_span(&span, Some(&error));
@@ -2504,10 +2525,11 @@ impl OpenAICompatibleClient {
                 CoreValue::from(self.profile.as_str()),
                 core_value_from_json(&first),
             ])?;
-            if !status.is_null() && core_truthy(&is_retryable_status(&[status.clone()])?) && attempt < max_retries {
-                attempt += 1;
-                let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
+            // TS retryTransientStreamStart: a first event with a listed status
+            // goes out again, with its own budget and without jitter.
+            if !status.is_null() && core_truthy(&retry_status_listed(&[core_value_from_json(&cfg), status.clone()])?) && start_attempt < max_retries {
+                start_attempt += 1;
+                request_retry_sleep((initial_delay * backoff.powi((start_attempt - 1) as i32)).min(max_delay))?;
                 continue;
             }
             let mut normalized = NormalizedProviderStream {
@@ -2677,6 +2699,12 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        self.dispatch_transport(call, false)
+    }
+
+    // One request. raw keeps a status response as its {status, json, headers}
+    // envelope (headers holding its Retry-After) instead of an error.
+    fn dispatch_transport(&mut self, call: Value, raw: bool) -> AxResult<Value> {
         let cancellation=current_cancellation_token();
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
@@ -2684,10 +2712,10 @@ impl OpenAICompatibleClient {
         }
         if let Some(transport) = &self.session_transport { return transport.lock().map_err(|_|AxError::runtime("Transport lock poisoned"))?.send(call); }
         let timeout = self.options.get("timeout").and_then(Value::as_f64).unwrap_or(60.0);
-        if let Some(token) = &cancellation { return cancellable_http_json(&call, timeout, token); }
+        if let Some(token) = &cancellation { return cancellable_http_json(&call, timeout, token, raw); }
         // A call's timeoutMs bounds only the wait for the response headers (TS
         // apiCall's timer), which the async client can time on its own.
-        if call_header_timeout_ms(&call).is_some() { return cancellable_http_json(&call, timeout, &AxCancellationToken::default()); }
+        if call_header_timeout_ms(&call).is_some() { return cancellable_http_json(&call, timeout, &AxCancellationToken::default(), raw); }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
         let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
             .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
@@ -2717,6 +2745,7 @@ impl OpenAICompatibleClient {
         .map_err(|error| transport_failure(error, timeout))?;
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let status = response.status().as_u16();
+        let retry_after = response.headers().get("retry-after").and_then(|value| value.to_str().ok()).map(str::to_string);
         let bytes = response.bytes().map_err(|error| transport_failure(error, timeout))?;
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         let body = if bytes.is_empty() {
@@ -2724,7 +2753,44 @@ impl OpenAICompatibleClient {
         } else {
             serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
         };
-        normalize_passthrough_response(json!({"status": status, "json": body}))
+        let envelope = status_envelope(status, body, retry_after);
+        if raw { Ok(envelope) } else { normalize_passthrough_response(envelope) }
+    }
+
+    // One request: the provider's body, or the error and a status response's
+    // Retry-After.
+    fn transport_attempt(&mut self, call: Value) -> Result<Value, (AxError, Option<String>)> {
+        let raw = self.dispatch_transport(call, true).map_err(|error| (error, None))?;
+        let retry_after = retry_after_header(&raw);
+        normalize_passthrough_response(raw).map_err(|error| (error, retry_after))
+    }
+
+    // TS apiCall's request-layer retry around one request: a listed status or
+    // a network failure goes out again after its jittered backoff (or its
+    // Retry-After), under the call's retry options, else the client's. Each
+    // retry builds the request again (rebuild: operation, payload, model), as
+    // apiCall resolves its headers again; without rebuild it resends the call.
+    fn retried_transport_request(&mut self, first: Value, rebuild: Option<(&str, &Value, &str)>) -> AxResult<Value> {
+        let config = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
+        let mut call = first;
+        let mut attempt: i64 = 0;
+        loop {
+            match self.transport_attempt(call.clone()) {
+                Ok(body) => return Ok(body),
+                Err((error, retry_after)) => {
+                    if current_cancellation_token().map(|token| token.is_cancelled()).unwrap_or(false) {
+                        return Err(error);
+                    }
+                    if !request_retry_wait(&config, attempt, &error, retry_after.as_deref())? {
+                        return Err(error);
+                    }
+                    attempt += 1;
+                    if let Some((operation, payload, model)) = rebuild {
+                        call = self.provider_transport_request(operation, payload, model, false)?;
+                    }
+                }
+            }
+        }
     }
 
     fn transport_stream_iter(stream: AxTransportStream) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
@@ -2744,43 +2810,51 @@ impl OpenAICompatibleClient {
         }
     }
 
-    fn dispatch_transport_stream(&mut self, call: Value) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+    // Opens the stream, and on a status response also returns its Retry-After.
+    fn dispatch_transport_stream(&mut self, call: Value) -> Result<Box<dyn Iterator<Item = AxResult<Value>>>, (AxError, Option<String>)> {
         let cancellation=current_cancellation_token();
-        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
+        if let Some(token)=&cancellation{token.throw_if_cancelled().map_err(|error| (error, None))?;}
         if let Some(transport) = self.transport.as_mut() {
-            let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token)?,None=>transport.stream(call)?};
-            let inner=Self::transport_stream_iter(stream)?;
+            let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token),None=>transport.stream(call)}.map_err(|error| (error, None))?;
+            let retry_after = match &stream { AxTransportStream::Buffered(response) => retry_after_header(response), _ => None };
+            let inner=Self::transport_stream_iter(stream).map_err(|error| (error, retry_after))?;
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
-        if let Some(transport) = &self.session_transport { return Self::transport_stream_iter(transport.lock().map_err(|_|AxError::runtime("Transport lock poisoned"))?.stream(call)?); }
+        if let Some(transport) = &self.session_transport {
+            let stream = transport.lock().map_err(|_| (AxError::runtime("Transport lock poisoned"), None))?.stream(call).map_err(|error| (error, None))?;
+            let retry_after = match &stream { AxTransportStream::Buffered(response) => retry_after_header(response), _ => None };
+            return Self::transport_stream_iter(stream).map_err(|error| (error, retry_after));
+        }
         // The per-call or client timeout in seconds, as for non-streaming
         // requests, else 60 s.
         let timeout = self.options.get("timeout").and_then(Value::as_f64).unwrap_or(60.0);
-        let (status, body): (u16, Box<dyn Read>) = match call_header_timeout_ms(&call) {
-            Some(header_ms) => open_timed_stream(&call, header_ms, timeout)?,
+        let (status, body, retry_after): (u16, Box<dyn Read>, Option<String>) = match call_header_timeout_ms(&call) {
+            Some(header_ms) => open_timed_stream(&call, header_ms, timeout).map_err(|error| (error, None))?,
             None => {
                 let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
                 let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
-                    .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
+                    .map_err(|error| (AxError::new("validation", format!("invalid HTTP method: {error}")), None))?;
                 let mut builder = HttpClient::builder()
                     .timeout(Duration::from_secs_f64(timeout.max(0.001)))
-                    .build()?
+                    .build()
+                    .map_err(|error| (AxError::from(error), None))?
                     .request(method, url);
                 if let Some(headers) = call.get("headers").and_then(Value::as_object) {
                     for (key, value) in headers { builder = builder.header(key.as_str(), value.as_str().unwrap_or_default()); }
                 }
                 let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-                let response = builder.js_json(&body).send().map_err(|error| transport_failure(error, timeout))?;
-                (response.status().as_u16(), Box::new(response))
+                let response = builder.js_json(&body).send().map_err(|error| (transport_failure(error, timeout), None))?;
+                let retry_after = response.headers().get("retry-after").and_then(|value| value.to_str().ok()).map(str::to_string);
+                (response.status().as_u16(), Box::new(response), retry_after)
             }
         };
-        if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
-        let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
+        if let Some(token)=&cancellation{token.throw_if_cancelled().map_err(|error| (error, None))?;}
+        let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body }).map_err(|error| (error, retry_after))?;
         Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner})
     }
 
     fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
-        normalize_passthrough_response(self.dispatch_transport_request(call)?)
+        self.retried_transport_request(call, None)
     }
 
     fn context_cache_get(&mut self, namespace: &str, key: &str) -> Value {
@@ -3143,8 +3217,7 @@ impl OpenAICompatibleClient {
             .or_else(|| string_at(&payload, "model"))
             .unwrap_or_else(|| self.embed_model.clone());
         let call = self.provider_transport_request("embed", &payload, &model, false)?;
-        let raw = self.dispatch_transport_request(call)?;
-        let body = normalize_passthrough_response(raw)?;
+        let body = self.retried_transport_request(call, Some(("embed", &payload, &model)))?;
         if profile == "openai-compatible" {
             let _ = normalize_embed_response(&[core_value_from_json(&body)])?;
         }
@@ -4038,26 +4111,11 @@ impl AxAITypesafeClient {
         Ok(serde_json::from_value(core_value_to_json(&decoded))?)
     }
     fn request(&mut self, operation: &str, payload: &Value) -> AxResult<Value> {
-        let retry = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.client.options)])?);
-        let retries = retry["max_retries"].as_u64().unwrap_or(0);
-        let cancellation = current_cancellation_token();
-        for attempt in 0.. {
-            if let Some(token) = &cancellation { token.throw_if_cancelled()?; }
-            let model = payload.get("model").and_then(Value::as_str).unwrap_or(&self.client.model);
-            let call = self.client.provider_transport_request(operation, payload, model, false)?;
-            let outcome = self.client.dispatch_transport_request(call).and_then(normalize_passthrough_response);
-            match outcome {
-                Ok(raw) => return Ok(raw),
-                Err(error) => {
-                    // As in TS apiCall, a timeout is not retried here.
-                    if !error.retryable || is_timeout_error(&error) || attempt >= retries { return Err(error); }
-                    let delay = (retry["initial_delay_ms"].as_f64().unwrap_or(1000.0) * retry["backoff_factor"].as_f64().unwrap_or(2.0).powf(attempt as f64)).min(retry["max_delay_ms"].as_f64().unwrap_or(32000.0));
-                    let duration = Duration::from_secs_f64(delay.max(0.0) / 1000.0);
-                    if let Some(token) = &cancellation { token.wait_timeout(duration); token.throw_if_cancelled()?; } else { std::thread::sleep(duration); }
-                }
-            }
-        }
-        unreachable!()
+        if let Some(token) = current_cancellation_token() { token.throw_if_cancelled()?; }
+        let model = payload.get("model").and_then(Value::as_str).unwrap_or(&self.client.model).to_string();
+        let call = self.client.provider_transport_request(operation, payload, &model, false)?;
+        // TS apiCall's request-layer retry, as the client's chat requests use.
+        self.client.retried_transport_request(call, Some((operation, payload, &model)))
     }
 }
 
@@ -4396,6 +4454,30 @@ pub struct AxResultPickerSample {
 
 pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync>;
 
+/// Writes a tool result for the model, as TypeScript's
+/// `functionResultFormatter` option does. Without one, a string goes as it
+/// is, null as `"done"`, and any other value as pretty JSON. An error fails
+/// the forward (`Generate failed: ...`), as a TS formatter that throws does.
+pub type AxFunctionResultFormatter = Arc<dyn Fn(&Value) -> AxResult<String> + Send + Sync>;
+
+static FUNCTION_RESULT_FORMATTER: Mutex<Option<AxFunctionResultFormatter>> = Mutex::new(None);
+
+/// Sets the process-wide [`AxFunctionResultFormatter`], as TypeScript's
+/// `axGlobals.functionResultFormatter`: an [`AxGen`] forward uses it when
+/// neither the call nor the program sets one. `None` restores the default.
+pub fn set_function_result_formatter(formatter: Option<AxFunctionResultFormatter>) {
+    *FUNCTION_RESULT_FORMATTER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = formatter;
+}
+
+// The process-wide formatter, or null.
+fn core_axgen_function_result_formatter(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let formatter = FUNCTION_RESULT_FORMATTER.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    Ok(match formatter {
+        Some(formatter) => CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter })),
+        None => CoreValue::Null,
+    })
+}
+
 /// One update of [`AxGen::streaming_forward`], as TypeScript's
 /// `streamingForward` yields it. `delta` is an object of output fields: merge
 /// it into the sample at `index` (strings and arrays append, other values
@@ -4491,6 +4573,7 @@ pub struct AxGen {
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
+    pub function_result_formatter: Option<AxFunctionResultFormatter>,
     runtime_hooks: AxRuntimeHooks,
     streaming_assertions: Vec<AxGenStreamingAssertion>,
     feedback_processors: Vec<AxGenFieldProcessor>,
@@ -4526,6 +4609,7 @@ impl AxGen {
         let traces=self.traces.clone();
         let chat_log=self.chat_log.clone();
         let result_picker=self.result_picker.clone();
+        let function_result_formatter=self.function_result_formatter.clone();
         let runtime_hooks=self.runtime_hooks.clone();
         let streaming_assertions=self.streaming_assertions.clone();
         let feedback_processors=self.feedback_processors.clone();
@@ -4537,7 +4621,7 @@ impl AxGen {
         // share their program: a worker's run uses it unless a caller's
         // control reaches the worker (see session::with_program_control).
         let control=self.control.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control}))
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,function_result_formatter,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control}))
     }
 
     // Adds a host-callable assertion, checked after the declarative ones.
@@ -4566,6 +4650,7 @@ impl AxGen {
             traces: Vec::new(),
             chat_log: Vec::new(),
             result_picker: None,
+            function_result_formatter: None,
             runtime_hooks: AxRuntimeHooks::default(),
             streaming_assertions: Vec::new(),
             feedback_processors: Vec::new(),
@@ -4768,6 +4853,17 @@ impl AxGen {
         self
     }
 
+    /// Writes each tool result for the model, as TypeScript's
+    /// `functionResultFormatter` option does (see
+    /// [`AxFunctionResultFormatter`]).
+    pub fn with_function_result_formatter<F>(mut self, formatter: F) -> Self
+    where
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
+    {
+        self.function_result_formatter = Some(Arc::new(formatter));
+        self
+    }
+
     /// Caches this program's forwards, as TypeScript's `cachingFunction`
     /// option does (see [`AxCachingFunction`]). A forward reads the cache
     /// first, before it opens its span or records metrics. A stored output
@@ -4907,6 +5003,47 @@ impl AxGen {
         })
     }
 
+    /// [`forward_with_options`](Self::forward_with_options) with a tool result
+    /// formatter for this call, as TypeScript's `functionResultFormatter`
+    /// forward option (see [`AxFunctionResultFormatter`]). It comes before the
+    /// program's own
+    /// ([`with_function_result_formatter`](Self::with_function_result_formatter)).
+    /// The forwards this one starts, such as a tool that calls another
+    /// program, don't use it.
+    pub fn forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.forward_with_options(client, input, options)
+        })
+    }
+
+    /// [`streaming_forward`](Self::streaming_forward) with a tool result
+    /// formatter for this call, as in
+    /// [`forward_with_function_result_formatter`](Self::forward_with_function_result_formatter).
+    pub fn streaming_forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.streaming_forward(client, input, options, on_delta)
+        })
+    }
+
     /// [`streaming_forward`](Self::streaming_forward) with the raw
     /// `{version, index, delta}` envelopes; `sink` stops the run the same way.
     #[doc(hidden)]
@@ -4935,9 +5072,11 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
-        // The call's caching function, which the forwards this run starts
-        // don't inherit.
+        // The call's caching function and function result formatter, which
+        // the forwards this run starts don't inherit.
         let caching_function = bound_caching_function();
+        let call_formatter = bound_function_result_formatter();
+        with_function_result_formatter_binding(None, || {
         with_caching_function_binding(None, || {
         // The program's own control (with_control) runs a forward that has
         // none from its call or from a controlled run around it.
@@ -5011,6 +5150,12 @@ impl AxGen {
         let mut run_options = if self.options.is_object() { self.options.clone() } else { json!({}) };
         merge_object(&mut run_options, &options);
         let mut session_run=session::SessionRun::new(state.clone(), self.tools.clone(), run_options);
+        if let Some(formatter) = &call_formatter {
+            // Keep the run's callable outside the JSON transport options.
+            let formatter_options = CoreValue::new_map();
+            core_set(&formatter_options, CoreValue::from("functionResultFormatter"), CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter: formatter.clone() })))?;
+            session_run.formatter_options = formatter_options;
+        }
         let run_session = session::current_control().is_some() || self.tools.iter().any(|tool|tool.execution=="background");
         if run_session { if !options.is_object(){options=json!({});} options["infraRetries"]=json!(0); }
         // The run's model, as the forward op reads it, whose features decide
@@ -5071,6 +5216,14 @@ impl AxGen {
             if !lookup.is_null() {
                 core_set(&options, CoreValue::from("_ax_cache_lookup"), lookup.clone())?;
             }
+            // The call's formatter comes before the program's.
+            if let Some(formatter) = &call_formatter {
+                core_set(
+                    &options,
+                    CoreValue::from("functionResultFormatter"),
+                    CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter: formatter.clone() })),
+                )?;
+            }
             match &sink {
                 Some(sink) => _streaming_forward_impl(&[state.clone(), CoreValue::Null, values.clone(), options, CoreValue::Host(sink.clone())]),
                 None => _forward_impl(&[state.clone(), CoreValue::Null, values.clone(), options]),
@@ -5081,6 +5234,7 @@ impl AxGen {
         session_run.finish(result.as_ref().err(), consumer_stopped);
         core_gen_writeback(self, &state);
         Ok(core_value_to_json(&result?))
+        })
         })
         })
         })
@@ -10950,6 +11104,34 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
             }
         }
     }
+    // The request-layer retry records its delays instead of waiting, and a
+    // fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    // pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    // checks that a cancellation ends the wait, so it waits for real.
+    let expected_delays = fixture.get("expected_retry_delays_ms").cloned();
+    let real_wait = fixture.get("kind").and_then(Value::as_str) == Some("ai_cancellation");
+    REQUEST_RETRY_HOOKS.with(|hooks| {
+        *hooks.borrow_mut() = RequestRetryHooks {
+            delays: if real_wait { None } else { Some(Vec::new()) },
+            random: fixture.get("retry_random").and_then(Value::as_f64),
+            now_ms: fixture.get("retry_now_ms").and_then(Value::as_f64),
+        };
+    });
+    let result = run_conformance_fixture_with_deprecations(fixture);
+    let delays = REQUEST_RETRY_HOOKS.with(|hooks| std::mem::take(&mut *hooks.borrow_mut()).delays.unwrap_or_default());
+    result?;
+    if let Some(expected) = expected_delays {
+        let want = expected.as_array().cloned().unwrap_or_default();
+        let matches = want.len() == delays.len()
+            && want.iter().zip(&delays).all(|(want, got)| (want.as_f64().unwrap_or(f64::NAN) - got).abs() <= 1e-6);
+        if !matches {
+            return Err(AxError::new("fixture", format!("retry delays: expected {expected}, got {delays:?}")));
+        }
+    }
+    Ok(())
+}
+
+fn run_conformance_fixture_with_deprecations(fixture: Value) -> AxResult<()> {
     // expected_deprecations pins the one-time deprecation warnings the run
     // gives (the ones already shown are forgotten first).
     if let Some(expected) = fixture.get("expected_deprecations").cloned() {
@@ -17426,9 +17608,20 @@ impl RecordingTransport {
 impl AxTransport for RecordingTransport {
     fn send(&mut self, request: Value) -> AxResult<Value> {
         self.requests.lock().unwrap().push(request);
-        self.responses
+        let response = self
+            .responses
             .pop_front()
-            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))
+            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))?;
+        // {"network_error": message} stands for a request that failed to
+        // connect, send or read, which the transport reports as TS does.
+        if let Some(message) = response.get("network_error") {
+            let text = message.as_str().map(str::to_string).unwrap_or_else(|| message.to_string());
+            let mut error = AxError::new("network", format!("Network Error: {text}"));
+            error.error_type = Some("AxAIServiceNetworkError".to_string());
+            error.retryable = true;
+            return Err(error);
+        }
+        Ok(response)
     }
 }
 
@@ -17998,6 +18191,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     {
         program = program.with_sample_count(sample_count as usize);
     }
+    if let Some(spec) = fixture.get("function_result_formatter") {
+        // The program's formatter.
+        let formatter = fixture_function_result_formatter(spec);
+        program = program.with_function_result_formatter(move |result| formatter(result));
+    }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         let expected_samples = fixture.get("expected_picker_samples").cloned();
         program = program.with_result_picker(move |samples| {
@@ -18034,7 +18232,29 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     } else {
         None
     };
-    let result = program.forward_with_options(&mut client, input, options);
+    // The process-wide formatter; the guard restores the default after the
+    // forward.
+    struct GlobalFormatterReset(bool);
+    impl Drop for GlobalFormatterReset {
+        fn drop(&mut self) {
+            if self.0 {
+                set_function_result_formatter(None);
+            }
+        }
+    }
+    let mut global_formatter_reset = GlobalFormatterReset(false);
+    if let Some(spec) = fixture.get("global_function_result_formatter") {
+        set_function_result_formatter(Some(fixture_function_result_formatter(spec)));
+        global_formatter_reset.0 = true;
+    }
+    // The forward call's formatter.
+    let result = match fixture.get("call_function_result_formatter") {
+        Some(spec) => {
+            let formatter = fixture_function_result_formatter(spec);
+            program.forward_with_function_result_formatter(&mut client, input, options, move |result| formatter(result))
+        }
+        None => program.forward_with_options(&mut client, input, options),
+    };
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
@@ -18178,6 +18398,23 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         .and_then(Value::as_array)
     {
         expect_json_list_subset("memory history", &Value::Array(program.memory.clone()), expected)?;
+    }
+    // The memory's tool results, in order: result_text is the text the model
+    // got, and result holds the same text.
+    for (memory_key, entry_key) in [
+        ("expected_memory_function_results", "result_text"),
+        ("expected_memory_function_stored_results", "result"),
+    ] {
+        if let Some(expected) = fixture.get(memory_key) {
+            let values: Vec<Value> = program
+                .memory
+                .iter()
+                .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
+                .flat_map(|item| item.get("results").and_then(Value::as_array).cloned().unwrap_or_default())
+                .map(|entry| entry.get(entry_key).cloned().unwrap_or(Value::Null))
+                .collect();
+            expect_json_equal(memory_key, &Value::Array(values), expected)?;
+        }
     }
     if let Some(expected) = fixture
         .get("expected_chat_log_subset")
@@ -22487,6 +22724,34 @@ pub(crate) trait CoreHost {
     fn native_tool(&self)->Option<Tool>{None}
 }
 
+struct FunctionResultFormatterHost {
+    formatter: AxFunctionResultFormatter,
+}
+
+// A fixture's formatter: {text} writes that text for every tool result, and
+// {throws} fails with that message.
+fn fixture_function_result_formatter(spec: &Value) -> AxFunctionResultFormatter {
+    let text = spec.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+    let failure = spec.get("throws").and_then(Value::as_str).map(str::to_string);
+    Arc::new(move |_: &Value| match &failure {
+        Some(message) => Err(AxError::runtime(message.clone())),
+        None => Ok(text.clone()),
+    })
+}
+
+impl CoreHost for FunctionResultFormatterHost {
+    fn host_type(&self) -> &'static str {
+        "AxFunctionResultFormatter"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "format_result" {
+            return Err(AxError::runtime(format!("AxFunctionResultFormatter has no method '{name}'")));
+        }
+        Ok(CoreValue::from_string((self.formatter)(&core_value_to_json(&core_arg(args, 0)))?))
+    }
+}
+
 struct ResultPickerHost {
     picker: AxResultPicker,
 }
@@ -24343,11 +24608,13 @@ fn core_axgen_memory_add_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
 }
 
 #[allow(dead_code)]
+// `result` and `result_text` both keep the text the model got.
 fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
     let call = core_arg(args, 1);
     let result = core_arg(args, 2);
     let ok = core_arg(args, 3);
+    let result_text = core_arg(args, 4);
     let memory = core_get(&gen, &CoreValue::from("memory"), CoreValue::Null);
     if let CoreValue::Host(host) = &memory {
         let payload = core_axgen_map_from(&[
@@ -24355,6 +24622,9 @@ fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue
             ("result", result),
             ("ok", CoreValue::Bool(core_truthy(&ok))),
         ])?;
+        if !result_text.is_null() {
+            core_set(&payload, CoreValue::from("result_text"), result_text)?;
+        }
         host.call_method("add_function_results", &[payload])?;
     }
     Ok(CoreValue::Null)
@@ -24528,6 +24798,13 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
             &options,
             CoreValue::from("resultPicker"),
             CoreValue::Host(Rc::new(ResultPickerHost { picker: result_picker.clone() })),
+        )?;
+    }
+    if let Some(formatter) = &gen.function_result_formatter {
+        core_set(
+            &options,
+            CoreValue::from("functionResultFormatter"),
+            CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter: formatter.clone() })),
         )?;
     }
     if let Some(caching_function) = &gen.caching_function {
@@ -26884,7 +27161,7 @@ impl Read for TimedStreamBody {
 // A stream under a call's timeoutMs: the async client waits at most that long
 // for the response headers (TS apiCall's timer); the body then reads under the
 // client's timeout.
-fn open_timed_stream(call: &Value, header_ms: f64, read_timeout: f64) -> AxResult<(u16, Box<dyn Read>)> {
+fn open_timed_stream(call: &Value, header_ms: f64, read_timeout: f64) -> AxResult<(u16, Box<dyn Read>, Option<String>)> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let client = reqwest::Client::builder().build()?;
     let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
@@ -26901,13 +27178,14 @@ fn open_timed_stream(call: &Value, header_ms: f64, read_timeout: f64) -> AxResul
         Err(_) => return Err(call_timeout_error(call)),
     };
     let status = response.status().as_u16();
-    Ok((status, Box::new(TimedStreamBody { runtime, response, pending: Vec::new(), offset: 0, idle: Duration::from_secs_f64(read_timeout.max(0.001)) })))
+    let retry_after = response.headers().get("retry-after").and_then(|value| value.to_str().ok()).map(str::to_string);
+    Ok((status, Box::new(TimedStreamBody { runtime, response, pending: Vec::new(), offset: 0, idle: Duration::from_secs_f64(read_timeout.max(0.001)) }), retry_after))
 }
 
 // Dropping the async request on cancellation closes both pending headers and bodies.
 // A call's timeoutMs bounds the wait for the response headers (TS apiCall's
 // timer); the client's timeout still caps the request.
-fn cancellable_http_json(call: &Value, timeout: f64, token: &AxCancellationToken) -> AxResult<Value> {
+fn cancellable_http_json(call: &Value, timeout: f64, token: &AxCancellationToken, raw: bool) -> AxResult<Value> {
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = cancelled.clone();
     let _subscription = token.subscribe(move || { flag.store(true, std::sync::atomic::Ordering::SeqCst); });
@@ -26933,12 +27211,120 @@ fn cancellable_http_json(call: &Value, timeout: f64, token: &AxCancellationToken
         token.throw_if_cancelled()?;
         let response=response.ok_or_else(||AxError::new("aborted","Request aborted"))?;
         let status=response.status().as_u16();
+        let retry_after=response.headers().get("retry-after").and_then(|value| value.to_str().ok()).map(str::to_string);
         let bytes=session::http_wait(response.bytes(),&cancelled).await.map_err(|error| transport_failure(error,total))?;
         token.throw_if_cancelled()?;
         let bytes=bytes.ok_or_else(||AxError::new("aborted","Request aborted"))?;
         let body=if bytes.is_empty(){Value::Null}else{serde_json::from_slice(&bytes).unwrap_or_else(|_|json!(String::from_utf8_lossy(&bytes)))};
-        normalize_passthrough_response(json!({"status":status,"json":body}))
+        let envelope=status_envelope(status,body,retry_after);
+        if raw { Ok(envelope) } else { normalize_passthrough_response(envelope) }
     })
+}
+
+// A status response's {status, json} envelope, with its Retry-After in
+// headers.
+fn status_envelope(status: u16, body: Value, retry_after: Option<String>) -> Value {
+    let mut envelope = json!({"status": status, "json": body});
+    if let (Some(value), true) = (retry_after, status >= 400) {
+        envelope["headers"] = json!({"Retry-After": value});
+    }
+    envelope
+}
+
+// A transport result's Retry-After header.
+fn retry_after_header(raw: &Value) -> Option<String> {
+    raw.get("headers")?.as_object()?.iter().find(|(key, _)| key.eq_ignore_ascii_case("retry-after")).and_then(|(_, value)| match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Null => None,
+        other => Some(other.to_string()),
+    })
+}
+
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources.
+#[derive(Default)]
+pub(crate) struct RequestRetryHooks {
+    pub(crate) delays: Option<Vec<f64>>,
+    pub(crate) random: Option<f64>,
+    pub(crate) now_ms: Option<f64>,
+}
+
+thread_local! {
+    pub(crate) static REQUEST_RETRY_HOOKS: std::cell::RefCell<RequestRetryHooks> = std::cell::RefCell::new(RequestRetryHooks::default());
+}
+
+static REQUEST_RETRY_RANDOM_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+// A number in [0, 1) for the backoff's jitter.
+fn request_retry_random() -> f64 {
+    let mut state = REQUEST_RETRY_RANDOM_STATE.load(std::sync::atomic::Ordering::Relaxed);
+    if state == 0 {
+        state = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64 | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    REQUEST_RETRY_RANDOM_STATE.store(state, std::sync::atomic::Ordering::Relaxed);
+    (state >> 11) as f64 / (1u64 << 53) as f64
+}
+
+fn request_retry_sleep(delay: f64) -> AxResult<()> {
+    let recorded = REQUEST_RETRY_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        match hooks.delays.as_mut() {
+            Some(delays) => {
+                delays.push(delay);
+                true
+            }
+            None => false,
+        }
+    });
+    if recorded {
+        if let Some(token) = current_cancellation_token() {
+            token.throw_if_cancelled()?;
+        }
+        return Ok(());
+    }
+    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))
+}
+
+// TS apiCall's view of a failed request: its HTTP status (with its
+// Retry-After) or a network failure. Anything else is None and not retried.
+fn request_retry_failure(error: &AxError, retry_after: Option<&str>) -> Option<Value> {
+    if matches!(error.error_type.as_deref(), Some("AxAIServiceAuthenticationError") | Some("AxAIServiceAbortedError")) || error.category == "aborted" {
+        return None;
+    }
+    if let Some(status) = error.status {
+        let mut failure = json!({"status": status});
+        if let Some(value) = retry_after {
+            failure["retry_after"] = json!(value);
+        }
+        return Some(failure);
+    }
+    (error.error_type.as_deref() == Some("AxAIServiceNetworkError")).then(|| json!({"network": true}))
+}
+
+// Waits before the failed request goes out again, as TS apiCall does, and
+// says whether it does.
+fn request_retry_wait(config: &Value, attempt: i64, error: &AxError, retry_after: Option<&str>) -> AxResult<bool> {
+    let Some(failure) = request_retry_failure(error, retry_after) else { return Ok(false) };
+    let (random, now_ms) = REQUEST_RETRY_HOOKS.with(|hooks| {
+        let hooks = hooks.borrow();
+        (hooks.random, hooks.now_ms)
+    });
+    let now_ms = now_ms.unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as f64);
+    let delay = request_retry_delay(&[
+        core_value_from_json(config),
+        CoreValue::Num(attempt as f64),
+        core_value_from_json(&failure),
+        CoreValue::Num(now_ms),
+        CoreValue::Num(random.unwrap_or_else(request_retry_random)),
+    ])?;
+    if delay.is_null() {
+        return Ok(false);
+    }
+    request_retry_sleep(core_value_to_json(&delay).as_f64().unwrap_or(0.0))?;
+    Ok(true)
 }
 
 #[cfg(test)]

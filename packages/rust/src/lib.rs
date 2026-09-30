@@ -223,6 +223,34 @@ fn bound_caching_function() -> Option<AxCachingFunction> {
     CACHING_FUNCTION_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
 }
 
+// The call's function result formatter, bound as the call's caching function
+// is: the AxGen forward the *_with_function_result_formatter methods start
+// takes it and binds None for the rest of its run.
+thread_local! {
+    static FUNCTION_RESULT_FORMATTER_BINDINGS: RefCell<Vec<Option<AxFunctionResultFormatter>>> = const { RefCell::new(Vec::new()) };
+}
+
+fn with_function_result_formatter_binding<R>(
+    formatter: Option<AxFunctionResultFormatter>,
+    run: impl FnOnce() -> R,
+) -> R {
+    struct Binding;
+    impl Drop for Binding {
+        fn drop(&mut self) {
+            FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| {
+                bindings.borrow_mut().pop();
+            });
+        }
+    }
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow_mut().push(formatter));
+    let _binding = Binding;
+    run()
+}
+
+fn bound_function_result_formatter() -> Option<AxFunctionResultFormatter> {
+    FUNCTION_RESULT_FORMATTER_BINDINGS.with(|bindings| bindings.borrow().last().cloned().flatten())
+}
+
 #[derive(Clone, Default)]
 struct RuntimeHookFrame {
     hooks: AxRuntimeHooks,
@@ -2978,7 +3006,7 @@ impl OpenAICompatibleClient {
             let call = self.provider_transport_request("chat", &payload, &model, false)?;
             let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
                 Some(value) => value,
-                None => self.dispatch_transport_request(call)?,
+                None => self.retried_transport_request(call, Some(("chat", &payload, &model)))?,
             };
             let profile = self.profile.clone();
             let response_context = if profile == "typesafe" {
@@ -3088,23 +3116,25 @@ impl OpenAICompatibleClient {
             .get("backoff_factor")
             .and_then(Value::as_f64)
             .unwrap_or(2.0);
-        let mut attempt: i64 = 0;
+        let mut start_attempt: i64 = 0;
+        let mut open_attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            // As in TS apiCall, a timeout is not retried here.
+            // The stream's request goes through apiCall's request-layer retry;
+            // its first event is read once, as TS reads it after apiCall
+            // returns, and a failure to read it surfaces.
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error)
-                    if is_retryable_ai_error(&error)
-                        && !is_timeout_error(&error)
-                        && attempt < max_retries =>
-                {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
-                Err(error) => {
+                Err((error, retry_after)) => {
+                    let cancelled = current_cancellation_token()
+                        .map(|token| token.is_cancelled())
+                        .unwrap_or(false);
+                    if !cancelled
+                        && request_retry_wait(&cfg, open_attempt, &error, retry_after.as_deref())?
+                    {
+                        open_attempt += 1;
+                        continue;
+                    }
                     record_runtime_metrics(
                         &hooks,
                         "client",
@@ -3144,16 +3174,6 @@ impl OpenAICompatibleClient {
                         })),
                     ));
                 }
-                Some(Err(error))
-                    if is_retryable_ai_error(&error)
-                        && !is_timeout_error(&error)
-                        && attempt < max_retries =>
-                {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
                 Some(Err(error)) => {
                     record_runtime_metrics(
                         &hooks,
@@ -3171,13 +3191,19 @@ impl OpenAICompatibleClient {
                 CoreValue::from(self.profile.as_str()),
                 core_value_from_json(&first),
             ])?;
+            // TS retryTransientStreamStart: a first event with a listed status
+            // goes out again, with its own budget and without jitter.
             if !status.is_null()
-                && core_truthy(&is_retryable_status(&[status.clone()])?)
-                && attempt < max_retries
+                && core_truthy(&retry_status_listed(&[
+                    core_value_from_json(&cfg),
+                    status.clone(),
+                ])?)
+                && start_attempt < max_retries
             {
-                attempt += 1;
-                let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
+                start_attempt += 1;
+                request_retry_sleep(
+                    (initial_delay * backoff.powi((start_attempt - 1) as i32)).min(max_delay),
+                )?;
                 continue;
             }
             let mut normalized = NormalizedProviderStream {
@@ -3428,6 +3454,12 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        self.dispatch_transport(call, false)
+    }
+
+    // One request. raw keeps a status response as its {status, json, headers}
+    // envelope (headers holding its Retry-After) instead of an error.
+    fn dispatch_transport(&mut self, call: Value, raw: bool) -> AxResult<Value> {
         let cancellation = current_cancellation_token();
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
@@ -3450,12 +3482,12 @@ impl OpenAICompatibleClient {
             .and_then(Value::as_f64)
             .unwrap_or(60.0);
         if let Some(token) = &cancellation {
-            return cancellable_http_json(&call, timeout, token);
+            return cancellable_http_json(&call, timeout, token, raw);
         }
         // A call's timeoutMs bounds only the wait for the response headers (TS
         // apiCall's timer), which the async client can time on its own.
         if call_header_timeout_ms(&call).is_some() {
-            return cancellable_http_json(&call, timeout, &AxCancellationToken::default());
+            return cancellable_http_json(&call, timeout, &AxCancellationToken::default(), raw);
         }
         let url = call
             .get("url")
@@ -3496,6 +3528,11 @@ impl OpenAICompatibleClient {
             token.throw_if_cancelled()?;
         }
         let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let bytes = response
             .bytes()
             .map_err(|error| transport_failure(error, timeout))?;
@@ -3508,7 +3545,59 @@ impl OpenAICompatibleClient {
             serde_json::from_slice(&bytes)
                 .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
         };
-        normalize_passthrough_response(json!({"status": status, "json": body}))
+        let envelope = status_envelope(status, body, retry_after);
+        if raw {
+            Ok(envelope)
+        } else {
+            normalize_passthrough_response(envelope)
+        }
+    }
+
+    // One request: the provider's body, or the error and a status response's
+    // Retry-After.
+    fn transport_attempt(&mut self, call: Value) -> Result<Value, (AxError, Option<String>)> {
+        let raw = self
+            .dispatch_transport(call, true)
+            .map_err(|error| (error, None))?;
+        let retry_after = retry_after_header(&raw);
+        normalize_passthrough_response(raw).map_err(|error| (error, retry_after))
+    }
+
+    // TS apiCall's request-layer retry around one request: a listed status or
+    // a network failure goes out again after its jittered backoff (or its
+    // Retry-After), under the call's retry options, else the client's. Each
+    // retry builds the request again (rebuild: operation, payload, model), as
+    // apiCall resolves its headers again; without rebuild it resends the call.
+    fn retried_transport_request(
+        &mut self,
+        first: Value,
+        rebuild: Option<(&str, &Value, &str)>,
+    ) -> AxResult<Value> {
+        let config = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
+            &self.options,
+        )])?);
+        let mut call = first;
+        let mut attempt: i64 = 0;
+        loop {
+            match self.transport_attempt(call.clone()) {
+                Ok(body) => return Ok(body),
+                Err((error, retry_after)) => {
+                    if current_cancellation_token()
+                        .map(|token| token.is_cancelled())
+                        .unwrap_or(false)
+                    {
+                        return Err(error);
+                    }
+                    if !request_retry_wait(&config, attempt, &error, retry_after.as_deref())? {
+                        return Err(error);
+                    }
+                    attempt += 1;
+                    if let Some((operation, payload, model)) = rebuild {
+                        call = self.provider_transport_request(operation, payload, model, false)?;
+                    }
+                }
+            }
+        }
     }
 
     fn transport_stream_iter(
@@ -3535,20 +3624,27 @@ impl OpenAICompatibleClient {
         }
     }
 
+    // Opens the stream, and on a status response also returns its Retry-After.
     fn dispatch_transport_stream(
         &mut self,
         call: Value,
-    ) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+    ) -> Result<Box<dyn Iterator<Item = AxResult<Value>>>, (AxError, Option<String>)> {
         let cancellation = current_cancellation_token();
         if let Some(token) = &cancellation {
-            token.throw_if_cancelled()?;
+            token.throw_if_cancelled().map_err(|error| (error, None))?;
         }
         if let Some(transport) = self.transport.as_mut() {
             let stream = match cancellation.as_ref() {
-                Some(token) => transport.stream_with_cancellation(call, token)?,
-                None => transport.stream(call)?,
+                Some(token) => transport.stream_with_cancellation(call, token),
+                None => transport.stream(call),
+            }
+            .map_err(|error| (error, None))?;
+            let retry_after = match &stream {
+                AxTransportStream::Buffered(response) => retry_after_header(response),
+                _ => None,
             };
-            let inner = Self::transport_stream_iter(stream)?;
+            let inner =
+                Self::transport_stream_iter(stream).map_err(|error| (error, retry_after))?;
             return Ok(match cancellation {
                 Some(token) => Box::new(CancellableProviderIterator { inner, token })
                     as Box<dyn Iterator<Item = AxResult<Value>>>,
@@ -3556,12 +3652,16 @@ impl OpenAICompatibleClient {
             });
         }
         if let Some(transport) = &self.session_transport {
-            return Self::transport_stream_iter(
-                transport
-                    .lock()
-                    .map_err(|_| AxError::runtime("Transport lock poisoned"))?
-                    .stream(call)?,
-            );
+            let stream = transport
+                .lock()
+                .map_err(|_| (AxError::runtime("Transport lock poisoned"), None))?
+                .stream(call)
+                .map_err(|error| (error, None))?;
+            let retry_after = match &stream {
+                AxTransportStream::Buffered(response) => retry_after_header(response),
+                _ => None,
+            };
+            return Self::transport_stream_iter(stream).map_err(|error| (error, retry_after));
         }
         // The per-call or client timeout in seconds, as for non-streaming
         // requests, else 60 s.
@@ -3570,43 +3670,57 @@ impl OpenAICompatibleClient {
             .get("timeout")
             .and_then(Value::as_f64)
             .unwrap_or(60.0);
-        let (status, body): (u16, Box<dyn Read>) = match call_header_timeout_ms(&call) {
-            Some(header_ms) => open_timed_stream(&call, header_ms, timeout)?,
-            None => {
-                let url = call
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let method = call
-                    .get("method")
-                    .and_then(Value::as_str)
-                    .unwrap_or("POST")
-                    .parse::<reqwest::Method>()
-                    .map_err(|error| {
-                        AxError::new("validation", format!("invalid HTTP method: {error}"))
-                    })?;
-                let mut builder = HttpClient::builder()
-                    .timeout(Duration::from_secs_f64(timeout.max(0.001)))
-                    .build()?
-                    .request(method, url);
-                if let Some(headers) = call.get("headers").and_then(Value::as_object) {
-                    for (key, value) in headers {
-                        builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
-                    }
+        let (status, body, retry_after): (u16, Box<dyn Read>, Option<String>) =
+            match call_header_timeout_ms(&call) {
+                Some(header_ms) => {
+                    open_timed_stream(&call, header_ms, timeout).map_err(|error| (error, None))?
                 }
-                let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-                let response = builder
-                    .js_json(&body)
-                    .send()
-                    .map_err(|error| transport_failure(error, timeout))?;
-                (response.status().as_u16(), Box::new(response))
-            }
-        };
+                None => {
+                    let url = call
+                        .get("url")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let method = call
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or("POST")
+                        .parse::<reqwest::Method>()
+                        .map_err(|error| {
+                            (
+                                AxError::new("validation", format!("invalid HTTP method: {error}")),
+                                None,
+                            )
+                        })?;
+                    let mut builder = HttpClient::builder()
+                        .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+                        .build()
+                        .map_err(|error| (AxError::from(error), None))?
+                        .request(method, url);
+                    if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+                        for (key, value) in headers {
+                            builder =
+                                builder.header(key.as_str(), value.as_str().unwrap_or_default());
+                        }
+                    }
+                    let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+                    let response = builder
+                        .js_json(&body)
+                        .send()
+                        .map_err(|error| (transport_failure(error, timeout), None))?;
+                    let retry_after = response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_string);
+                    (response.status().as_u16(), Box::new(response), retry_after)
+                }
+            };
         if let Some(token) = &cancellation {
-            token.throw_if_cancelled()?;
+            token.throw_if_cancelled().map_err(|error| (error, None))?;
         }
-        let inner = Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
+        let inner = Self::transport_stream_iter(AxTransportStream::Reader { status, body })
+            .map_err(|error| (error, retry_after))?;
         Ok(match cancellation {
             Some(token) => Box::new(CancellableProviderIterator { inner, token })
                 as Box<dyn Iterator<Item = AxResult<Value>>>,
@@ -3615,7 +3729,7 @@ impl OpenAICompatibleClient {
     }
 
     fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
-        normalize_passthrough_response(self.dispatch_transport_request(call)?)
+        self.retried_transport_request(call, None)
     }
 
     fn context_cache_get(&mut self, namespace: &str, key: &str) -> Value {
@@ -4211,8 +4325,7 @@ impl OpenAICompatibleClient {
                 .or_else(|| string_at(&payload, "model"))
                 .unwrap_or_else(|| self.embed_model.clone());
             let call = self.provider_transport_request("embed", &payload, &model, false)?;
-            let raw = self.dispatch_transport_request(call)?;
-            let body = normalize_passthrough_response(raw)?;
+            let body = self.retried_transport_request(call, Some(("embed", &payload, &model)))?;
             if profile == "openai-compatible" {
                 let _ = normalize_embed_response(&[core_value_from_json(&body)])?;
             }
@@ -5477,50 +5590,20 @@ impl AxAITypesafeClient {
         Ok(serde_json::from_value(core_value_to_json(&decoded))?)
     }
     fn request(&mut self, operation: &str, payload: &Value) -> AxResult<Value> {
-        let retry = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
-            &self.client.options,
-        )])?);
-        let retries = retry["max_retries"].as_u64().unwrap_or(0);
-        let cancellation = current_cancellation_token();
-        for attempt in 0.. {
-            if let Some(token) = &cancellation {
-                token.throw_if_cancelled()?;
-            }
-            let model = payload
-                .get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(&self.client.model);
-            let call = self
-                .client
-                .provider_transport_request(operation, payload, model, false)?;
-            let outcome = self
-                .client
-                .dispatch_transport_request(call)
-                .and_then(normalize_passthrough_response);
-            match outcome {
-                Ok(raw) => return Ok(raw),
-                Err(error) => {
-                    // As in TS apiCall, a timeout is not retried here.
-                    if !error.retryable || is_timeout_error(&error) || attempt >= retries {
-                        return Err(error);
-                    }
-                    let delay = (retry["initial_delay_ms"].as_f64().unwrap_or(1000.0)
-                        * retry["backoff_factor"]
-                            .as_f64()
-                            .unwrap_or(2.0)
-                            .powf(attempt as f64))
-                    .min(retry["max_delay_ms"].as_f64().unwrap_or(32000.0));
-                    let duration = Duration::from_secs_f64(delay.max(0.0) / 1000.0);
-                    if let Some(token) = &cancellation {
-                        token.wait_timeout(duration);
-                        token.throw_if_cancelled()?;
-                    } else {
-                        std::thread::sleep(duration);
-                    }
-                }
-            }
+        if let Some(token) = current_cancellation_token() {
+            token.throw_if_cancelled()?;
         }
-        unreachable!()
+        let model = payload
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or(&self.client.model)
+            .to_string();
+        let call = self
+            .client
+            .provider_transport_request(operation, payload, &model, false)?;
+        // TS apiCall's request-layer retry, as the client's chat requests use.
+        self.client
+            .retried_transport_request(call, Some((operation, payload, &model)))
     }
 }
 
@@ -5962,6 +6045,35 @@ pub struct AxResultPickerSample {
 
 pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync>;
 
+/// Writes a tool result for the model, as TypeScript's
+/// `functionResultFormatter` option does. Without one, a string goes as it
+/// is, null as `"done"`, and any other value as pretty JSON. An error fails
+/// the forward (`Generate failed: ...`), as a TS formatter that throws does.
+pub type AxFunctionResultFormatter = Arc<dyn Fn(&Value) -> AxResult<String> + Send + Sync>;
+
+static FUNCTION_RESULT_FORMATTER: Mutex<Option<AxFunctionResultFormatter>> = Mutex::new(None);
+
+/// Sets the process-wide [`AxFunctionResultFormatter`], as TypeScript's
+/// `axGlobals.functionResultFormatter`: an [`AxGen`] forward uses it when
+/// neither the call nor the program sets one. `None` restores the default.
+pub fn set_function_result_formatter(formatter: Option<AxFunctionResultFormatter>) {
+    *FUNCTION_RESULT_FORMATTER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = formatter;
+}
+
+// The process-wide formatter, or null.
+fn core_axgen_function_result_formatter(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let formatter = FUNCTION_RESULT_FORMATTER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    Ok(match formatter {
+        Some(formatter) => CoreValue::Host(Rc::new(FunctionResultFormatterHost { formatter })),
+        None => CoreValue::Null,
+    })
+}
+
 /// One update of [`AxGen::streaming_forward`], as TypeScript's
 /// `streamingForward` yields it. `delta` is an object of output fields: merge
 /// it into the sample at `index` (strings and arrays append, other values
@@ -6062,6 +6174,7 @@ pub struct AxGen {
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
+    pub function_result_formatter: Option<AxFunctionResultFormatter>,
     runtime_hooks: AxRuntimeHooks,
     streaming_assertions: Vec<AxGenStreamingAssertion>,
     feedback_processors: Vec<AxGenFieldProcessor>,
@@ -6099,6 +6212,7 @@ impl AxGen {
         let traces = self.traces.clone();
         let chat_log = self.chat_log.clone();
         let result_picker = self.result_picker.clone();
+        let function_result_formatter = self.function_result_formatter.clone();
         let runtime_hooks = self.runtime_hooks.clone();
         let streaming_assertions = self.streaming_assertions.clone();
         let feedback_processors = self.feedback_processors.clone();
@@ -6126,6 +6240,7 @@ impl AxGen {
             traces,
             chat_log,
             result_picker,
+            function_result_formatter,
             runtime_hooks,
             streaming_assertions,
             feedback_processors,
@@ -6163,6 +6278,7 @@ impl AxGen {
             traces: Vec::new(),
             chat_log: Vec::new(),
             result_picker: None,
+            function_result_formatter: None,
             runtime_hooks: AxRuntimeHooks::default(),
             streaming_assertions: Vec::new(),
             feedback_processors: Vec::new(),
@@ -6378,6 +6494,17 @@ impl AxGen {
         self
     }
 
+    /// Writes each tool result for the model, as TypeScript's
+    /// `functionResultFormatter` option does (see
+    /// [`AxFunctionResultFormatter`]).
+    pub fn with_function_result_formatter<F>(mut self, formatter: F) -> Self
+    where
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
+    {
+        self.function_result_formatter = Some(Arc::new(formatter));
+        self
+    }
+
     /// Caches this program's forwards, as TypeScript's `cachingFunction`
     /// option does (see [`AxCachingFunction`]). A forward reads the cache
     /// first, before it opens its span or records metrics. A stored output
@@ -6530,6 +6657,47 @@ impl AxGen {
         })
     }
 
+    /// [`forward_with_options`](Self::forward_with_options) with a tool result
+    /// formatter for this call, as TypeScript's `functionResultFormatter`
+    /// forward option (see [`AxFunctionResultFormatter`]). It comes before the
+    /// program's own
+    /// ([`with_function_result_formatter`](Self::with_function_result_formatter)).
+    /// The forwards this one starts, such as a tool that calls another
+    /// program, don't use it.
+    pub fn forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.forward_with_options(client, input, options)
+        })
+    }
+
+    /// [`streaming_forward`](Self::streaming_forward) with a tool result
+    /// formatter for this call, as in
+    /// [`forward_with_function_result_formatter`](Self::forward_with_function_result_formatter).
+    pub fn streaming_forward_with_function_result_formatter<C: AxAIClient, F>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: impl Into<AxForwardOptions>,
+        formatter: F,
+        on_delta: impl FnMut(AxGenDelta) -> AxResult<()> + 'static,
+    ) -> AxResult<Value>
+    where
+        F: Fn(&Value) -> AxResult<String> + Send + Sync + 'static,
+    {
+        with_function_result_formatter_binding(Some(Arc::new(formatter)), || {
+            self.streaming_forward(client, input, options, on_delta)
+        })
+    }
+
     /// [`streaming_forward`](Self::streaming_forward) with the raw
     /// `{version, index, delta}` envelopes; `sink` stops the run the same way.
     #[doc(hidden)]
@@ -6561,122 +6729,144 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
-        // The call's caching function, which the forwards this run starts
-        // don't inherit.
+        // The call's caching function and function result formatter, which
+        // the forwards this run starts don't inherit.
         let caching_function = bound_caching_function();
-        with_caching_function_binding(None, || {
-            // The program's own control (with_control) runs a forward that has
-            // none from its call or from a controlled run around it.
-            session::with_program_control(options, self.control.clone(), |mut options| {
-                // As in TS, the cache is read before the run's span and metrics. A
-                // stored output comes back without them (to a sink as one delta),
-                // and a forward's read error ends it before them. The forward op
-                // gets the lookup as its _ax_cache_lookup option, so it only stores.
-                // A state that fails to build fails the run inside its span, as
-                // before.
-                let values = core_value_from_json(&input);
-                let prepared = core_gen_state(self).ok();
-                let lookup = match &prepared {
-                    Some(state) => {
-                        let lookup_options =
+        let call_formatter = bound_function_result_formatter();
+        with_function_result_formatter_binding(None, || {
+            with_caching_function_binding(None, || {
+                // The program's own control (with_control) runs a forward that has
+                // none from its call or from a controlled run around it.
+                session::with_program_control(options, self.control.clone(), |mut options| {
+                    // As in TS, the cache is read before the run's span and metrics. A
+                    // stored output comes back without them (to a sink as one delta),
+                    // and a forward's read error ends it before them. The forward op
+                    // gets the lookup as its _ax_cache_lookup option, so it only stores.
+                    // A state that fails to build fails the run inside its span, as
+                    // before.
+                    let values = core_value_from_json(&input);
+                    let prepared = core_gen_state(self).ok();
+                    let lookup = match &prepared {
+                        Some(state) => {
+                            let lookup_options =
+                                core_forward_options(&options, caching_function.as_ref())?;
+                            // A flow worker's relay control, with no caller's control
+                            // behind it, doesn't skip the cache: TS's parallel flow nodes
+                            // run without a control. A program's own control has taken
+                            // its place here, and skips it.
+                            if session::current_control()
+                                .is_some_and(|control| !control.has_caller())
+                            {
+                                core_map_delete(&[
+                                    lookup_options.clone(),
+                                    CoreValue::from("control"),
+                                ])?;
+                            }
+                            _cache_lookup_impl(&[
+                                state.clone(),
+                                values.clone(),
+                                lookup_options,
+                                CoreValue::Bool(sink.is_some()),
+                            ])?
+                        }
+                        None => CoreValue::Null,
+                    };
+                    if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
+                        // A stored output's audio outputs are rendered, as TS does; the
+                        // renderer reaches the client only through speak().
+                        let stored = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
+                        let render_options =
                             core_forward_options(&options, caching_function.as_ref())?;
-                        // A flow worker's relay control, with no caller's control
-                        // behind it, doesn't skip the cache: TS's parallel flow nodes
-                        // run without a control. A program's own control has taken
-                        // its place here, and skips it.
-                        if session::current_control().is_some_and(|control| !control.has_caller()) {
-                            core_map_delete(&[lookup_options.clone(), CoreValue::from("control")])?;
+                        let mut speak =
+                            |method: &str, request: Value, _options: Value| -> AxResult<Value> {
+                                if method == "speak" {
+                                    client.speak(request)
+                                } else {
+                                    Err(AxError::runtime(format!(
+                                        "a stored output made a {method} call"
+                                    )))
+                                }
+                            };
+                        let cached = with_core_client(&mut speak, || {
+                            _render_audio_outputs_impl(&[
+                                prepared.clone().unwrap_or(CoreValue::Null),
+                                CoreValue::Null,
+                                stored,
+                                render_options,
+                            ])
+                        })?;
+                        if let Some(sink) = &sink {
+                            let envelope = core_axgen_map_from(&[
+                                ("version", CoreValue::Num(0.0)),
+                                ("index", CoreValue::Num(0.0)),
+                                ("delta", cached.clone()),
+                            ])?;
+                            core_axgen_emit_delta(&[CoreValue::Host(sink.clone()), envelope])?;
                         }
-                        _cache_lookup_impl(&[
-                            state.clone(),
-                            values.clone(),
-                            lookup_options,
-                            CoreValue::Bool(sink.is_some()),
-                        ])?
+                        return Ok(core_value_to_json(&cached));
                     }
-                    None => CoreValue::Null,
-                };
-                if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
-                    // A stored output's audio outputs are rendered, as TS does; the
-                    // renderer reaches the client only through speak().
-                    let stored = core_get(&lookup, &CoreValue::from("value"), CoreValue::Null);
-                    let render_options = core_forward_options(&options, caching_function.as_ref())?;
-                    let mut speak =
-                        |method: &str, request: Value, _options: Value| -> AxResult<Value> {
-                            if method == "speak" {
-                                client.speak(request)
+                    let defaults = self.runtime_hooks.clone();
+                    let mut attributes = BTreeMap::new();
+                    attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
+                    if sink.is_some() {
+                        attributes.insert("ax.streaming".to_string(), json!(true));
+                    }
+                    with_runtime_scope(
+                        None,
+                        Some(&defaults),
+                        "ax_gen_forward",
+                        "gen",
+                        attributes,
+                        || {
+                            let state = match &prepared {
+                                Some(state) => state.clone(),
+                                None => core_gen_state(self)?,
+                            };
+                            // As in TS, the constructor's options are defaults for every forward
+                            // and the call's win: the run's path, asyncMode and maxSteps come
+                            // from both.
+                            let mut run_options = if self.options.is_object() {
+                                self.options.clone()
                             } else {
-                                Err(AxError::runtime(format!(
-                                    "a stored output made a {method} call"
-                                )))
+                                json!({})
+                            };
+                            merge_object(&mut run_options, &options);
+                            let mut session_run = session::SessionRun::new(
+                                state.clone(),
+                                self.tools.clone(),
+                                run_options,
+                            );
+                            if let Some(formatter) = &call_formatter {
+                                // Keep the run's callable outside the JSON transport options.
+                                let formatter_options = CoreValue::new_map();
+                                core_set(
+                                    &formatter_options,
+                                    CoreValue::from("functionResultFormatter"),
+                                    CoreValue::Host(Rc::new(FunctionResultFormatterHost {
+                                        formatter: formatter.clone(),
+                                    })),
+                                )?;
+                                session_run.formatter_options = formatter_options;
                             }
-                        };
-                    let cached = with_core_client(&mut speak, || {
-                        _render_audio_outputs_impl(&[
-                            prepared.clone().unwrap_or(CoreValue::Null),
-                            CoreValue::Null,
-                            stored,
-                            render_options,
-                        ])
-                    })?;
-                    if let Some(sink) = &sink {
-                        let envelope = core_axgen_map_from(&[
-                            ("version", CoreValue::Num(0.0)),
-                            ("index", CoreValue::Num(0.0)),
-                            ("delta", cached.clone()),
-                        ])?;
-                        core_axgen_emit_delta(&[CoreValue::Host(sink.clone()), envelope])?;
-                    }
-                    return Ok(core_value_to_json(&cached));
-                }
-                let defaults = self.runtime_hooks.clone();
-                let mut attributes = BTreeMap::new();
-                attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
-                if sink.is_some() {
-                    attributes.insert("ax.streaming".to_string(), json!(true));
-                }
-                with_runtime_scope(
-                    None,
-                    Some(&defaults),
-                    "ax_gen_forward",
-                    "gen",
-                    attributes,
-                    || {
-                        let state = match &prepared {
-                            Some(state) => state.clone(),
-                            None => core_gen_state(self)?,
-                        };
-                        // As in TS, the constructor's options are defaults for every forward
-                        // and the call's win: the run's path, asyncMode and maxSteps come
-                        // from both.
-                        let mut run_options = if self.options.is_object() {
-                            self.options.clone()
-                        } else {
-                            json!({})
-                        };
-                        merge_object(&mut run_options, &options);
-                        let mut session_run = session::SessionRun::new(
-                            state.clone(),
-                            self.tools.clone(),
-                            run_options,
-                        );
-                        let run_session = session::current_control().is_some()
-                            || self.tools.iter().any(|tool| tool.execution == "background");
-                        if run_session {
-                            if !options.is_object() {
-                                options = json!({});
+                            let run_session = session::current_control().is_some()
+                                || self.tools.iter().any(|tool| tool.execution == "background");
+                            if run_session {
+                                if !options.is_object() {
+                                    options = json!({});
+                                }
+                                options["infraRetries"] = json!(0);
                             }
-                            options["infraRetries"] = json!(0);
-                        }
-                        // The run's model, as the forward op reads it, whose features decide
-                        // whether a chat session applies the run's controls.
-                        let control_model = options
-                            .get("model")
-                            .or_else(|| self.options.get("model"))
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
-                        let mut chat =
-                            |method: &str, request: Value, options: Value| -> AxResult<Value> {
+                            // The run's model, as the forward op reads it, whose features decide
+                            // whether a chat session applies the run's controls.
+                            let control_model = options
+                                .get("model")
+                                .or_else(|| self.options.get("model"))
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            let mut chat = |method: &str,
+                                            request: Value,
+                                            options: Value|
+                             -> AxResult<Value> {
                                 if method == "owned_worker" {
                                     return Ok(publish_owned_client_factory(
                                         client.owned_worker_factory(),
@@ -6741,41 +6931,52 @@ impl AxGen {
                                     session_run.chat(client, request, options)
                                 }
                             };
-                        let result = with_core_boundary_client(&mut chat, || {
-                            let options =
-                                core_forward_options(&options, caching_function.as_ref())?;
-                            if !lookup.is_null() {
-                                core_set(
-                                    &options,
-                                    CoreValue::from("_ax_cache_lookup"),
-                                    lookup.clone(),
-                                )?;
-                            }
-                            match &sink {
-                                Some(sink) => _streaming_forward_impl(&[
-                                    state.clone(),
-                                    CoreValue::Null,
-                                    values.clone(),
-                                    options,
-                                    CoreValue::Host(sink.clone()),
-                                ]),
-                                None => _forward_impl(&[
-                                    state.clone(),
-                                    CoreValue::Null,
-                                    values.clone(),
-                                    options,
-                                ]),
-                            }
-                        });
-                        drop(chat);
-                        let consumer_stopped = sink
-                            .as_ref()
-                            .is_some_and(|sink| sink.stopped.borrow().is_some());
-                        session_run.finish(result.as_ref().err(), consumer_stopped);
-                        core_gen_writeback(self, &state);
-                        Ok(core_value_to_json(&result?))
-                    },
-                )
+                            let result = with_core_boundary_client(&mut chat, || {
+                                let options =
+                                    core_forward_options(&options, caching_function.as_ref())?;
+                                if !lookup.is_null() {
+                                    core_set(
+                                        &options,
+                                        CoreValue::from("_ax_cache_lookup"),
+                                        lookup.clone(),
+                                    )?;
+                                }
+                                // The call's formatter comes before the program's.
+                                if let Some(formatter) = &call_formatter {
+                                    core_set(
+                                        &options,
+                                        CoreValue::from("functionResultFormatter"),
+                                        CoreValue::Host(Rc::new(FunctionResultFormatterHost {
+                                            formatter: formatter.clone(),
+                                        })),
+                                    )?;
+                                }
+                                match &sink {
+                                    Some(sink) => _streaming_forward_impl(&[
+                                        state.clone(),
+                                        CoreValue::Null,
+                                        values.clone(),
+                                        options,
+                                        CoreValue::Host(sink.clone()),
+                                    ]),
+                                    None => _forward_impl(&[
+                                        state.clone(),
+                                        CoreValue::Null,
+                                        values.clone(),
+                                        options,
+                                    ]),
+                                }
+                            });
+                            drop(chat);
+                            let consumer_stopped = sink
+                                .as_ref()
+                                .is_some_and(|sink| sink.stopped.borrow().is_some());
+                            session_run.finish(result.as_ref().err(), consumer_stopped);
+                            core_gen_writeback(self, &state);
+                            Ok(core_value_to_json(&result?))
+                        },
+                    )
+                })
             })
         })
     }
@@ -15183,6 +15384,44 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
             }
         }
     }
+    // The request-layer retry records its delays instead of waiting, and a
+    // fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    // pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    // checks that a cancellation ends the wait, so it waits for real.
+    let expected_delays = fixture.get("expected_retry_delays_ms").cloned();
+    let real_wait = fixture.get("kind").and_then(Value::as_str) == Some("ai_cancellation");
+    REQUEST_RETRY_HOOKS.with(|hooks| {
+        *hooks.borrow_mut() = RequestRetryHooks {
+            delays: if real_wait { None } else { Some(Vec::new()) },
+            random: fixture.get("retry_random").and_then(Value::as_f64),
+            now_ms: fixture.get("retry_now_ms").and_then(Value::as_f64),
+        };
+    });
+    let result = run_conformance_fixture_with_deprecations(fixture);
+    let delays = REQUEST_RETRY_HOOKS.with(|hooks| {
+        std::mem::take(&mut *hooks.borrow_mut())
+            .delays
+            .unwrap_or_default()
+    });
+    result?;
+    if let Some(expected) = expected_delays {
+        let want = expected.as_array().cloned().unwrap_or_default();
+        let matches = want.len() == delays.len()
+            && want
+                .iter()
+                .zip(&delays)
+                .all(|(want, got)| (want.as_f64().unwrap_or(f64::NAN) - got).abs() <= 1e-6);
+        if !matches {
+            return Err(AxError::new(
+                "fixture",
+                format!("retry delays: expected {expected}, got {delays:?}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn run_conformance_fixture_with_deprecations(fixture: Value) -> AxResult<()> {
     // expected_deprecations pins the one-time deprecation warnings the run
     // gives (the ones already shown are forgotten first).
     if let Some(expected) = fixture.get("expected_deprecations").cloned() {
@@ -24160,9 +24399,23 @@ impl RecordingTransport {
 impl AxTransport for RecordingTransport {
     fn send(&mut self, request: Value) -> AxResult<Value> {
         self.requests.lock().unwrap().push(request);
-        self.responses
+        let response = self
+            .responses
             .pop_front()
-            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))
+            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))?;
+        // {"network_error": message} stands for a request that failed to
+        // connect, send or read, which the transport reports as TS does.
+        if let Some(message) = response.get("network_error") {
+            let text = message
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| message.to_string());
+            let mut error = AxError::new("network", format!("Network Error: {text}"));
+            error.error_type = Some("AxAIServiceNetworkError".to_string());
+            error.retryable = true;
+            return Err(error);
+        }
+        Ok(response)
     }
 }
 
@@ -25019,6 +25272,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     {
         program = program.with_sample_count(sample_count as usize);
     }
+    if let Some(spec) = fixture.get("function_result_formatter") {
+        // The program's formatter.
+        let formatter = fixture_function_result_formatter(spec);
+        program = program.with_function_result_formatter(move |result| formatter(result));
+    }
     if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
         let expected_samples = fixture.get("expected_picker_samples").cloned();
         program = program.with_result_picker(move |samples| {
@@ -25071,7 +25329,34 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         } else {
             None
         };
-    let result = program.forward_with_options(&mut client, input, options);
+    // The process-wide formatter; the guard restores the default after the
+    // forward.
+    struct GlobalFormatterReset(bool);
+    impl Drop for GlobalFormatterReset {
+        fn drop(&mut self) {
+            if self.0 {
+                set_function_result_formatter(None);
+            }
+        }
+    }
+    let mut global_formatter_reset = GlobalFormatterReset(false);
+    if let Some(spec) = fixture.get("global_function_result_formatter") {
+        set_function_result_formatter(Some(fixture_function_result_formatter(spec)));
+        global_formatter_reset.0 = true;
+    }
+    // The forward call's formatter.
+    let result = match fixture.get("call_function_result_formatter") {
+        Some(spec) => {
+            let formatter = fixture_function_result_formatter(spec);
+            program.forward_with_function_result_formatter(
+                &mut client,
+                input,
+                options,
+                move |result| formatter(result),
+            )
+        }
+        None => program.forward_with_options(&mut client, input, options),
+    };
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
@@ -25254,6 +25539,28 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
             &Value::Array(program.memory.clone()),
             expected,
         )?;
+    }
+    // The memory's tool results, in order: result_text is the text the model
+    // got, and result holds the same text.
+    for (memory_key, entry_key) in [
+        ("expected_memory_function_results", "result_text"),
+        ("expected_memory_function_stored_results", "result"),
+    ] {
+        if let Some(expected) = fixture.get(memory_key) {
+            let values: Vec<Value> = program
+                .memory
+                .iter()
+                .filter(|item| item.get("role").and_then(Value::as_str) == Some("function"))
+                .flat_map(|item| {
+                    item.get("results")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .map(|entry| entry.get(entry_key).cloned().unwrap_or(Value::Null))
+                .collect();
+            expect_json_equal(memory_key, &Value::Array(values), expected)?;
+        }
     }
     if let Some(expected) = fixture
         .get("expected_chat_log_subset")
@@ -30687,6 +30994,45 @@ pub(crate) trait CoreHost {
     }
 }
 
+struct FunctionResultFormatterHost {
+    formatter: AxFunctionResultFormatter,
+}
+
+// A fixture's formatter: {text} writes that text for every tool result, and
+// {throws} fails with that message.
+fn fixture_function_result_formatter(spec: &Value) -> AxFunctionResultFormatter {
+    let text = spec
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let failure = spec
+        .get("throws")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Arc::new(move |_: &Value| match &failure {
+        Some(message) => Err(AxError::runtime(message.clone())),
+        None => Ok(text.clone()),
+    })
+}
+
+impl CoreHost for FunctionResultFormatterHost {
+    fn host_type(&self) -> &'static str {
+        "AxFunctionResultFormatter"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "format_result" {
+            return Err(AxError::runtime(format!(
+                "AxFunctionResultFormatter has no method '{name}'"
+            )));
+        }
+        Ok(CoreValue::from_string((self.formatter)(
+            &core_value_to_json(&core_arg(args, 0)),
+        )?))
+    }
+}
+
 struct ResultPickerHost {
     picker: AxResultPicker,
 }
@@ -32643,11 +32989,13 @@ fn core_axgen_memory_add_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
 }
 
 #[allow(dead_code)]
+// `result` and `result_text` both keep the text the model got.
 fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let gen = core_arg(args, 0);
     let call = core_arg(args, 1);
     let result = core_arg(args, 2);
     let ok = core_arg(args, 3);
+    let result_text = core_arg(args, 4);
     let memory = core_get(&gen, &CoreValue::from("memory"), CoreValue::Null);
     if let CoreValue::Host(host) = &memory {
         let payload = core_axgen_map_from(&[
@@ -32655,6 +33003,9 @@ fn core_axgen_memory_add_function_result(args: &[CoreValue]) -> Result<CoreValue
             ("result", result),
             ("ok", CoreValue::Bool(core_truthy(&ok))),
         ])?;
+        if !result_text.is_null() {
+            core_set(&payload, CoreValue::from("result_text"), result_text)?;
+        }
         host.call_method("add_function_results", &[payload])?;
     }
     Ok(CoreValue::Null)
@@ -32839,6 +33190,15 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
             CoreValue::from("resultPicker"),
             CoreValue::Host(Rc::new(ResultPickerHost {
                 picker: result_picker.clone(),
+            })),
+        )?;
+    }
+    if let Some(formatter) = &gen.function_result_formatter {
+        core_set(
+            &options,
+            CoreValue::from("functionResultFormatter"),
+            CoreValue::Host(Rc::new(FunctionResultFormatterHost {
+                formatter: formatter.clone(),
             })),
         )?;
     }
@@ -54851,6 +55211,7 @@ fn is_retryable_status(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 )]
 fn default_retry_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("default_retry_config");
+    let mut v_codes = CoreValue::Null;
     let mut v_config = CoreValue::Null;
     v_config = CoreValue::new_map();
     core_set(
@@ -54872,6 +55233,19 @@ fn default_retry_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_config,
         CoreValue::from("backoff_factor"),
         CoreValue::Num(2f64),
+    )?;
+    v_codes = CoreValue::new_list();
+    core_append(&v_codes, CoreValue::Num(500f64))?;
+    core_append(&v_codes, CoreValue::Num(408f64))?;
+    core_append(&v_codes, CoreValue::Num(429f64))?;
+    core_append(&v_codes, CoreValue::Num(502f64))?;
+    core_append(&v_codes, CoreValue::Num(503f64))?;
+    core_append(&v_codes, CoreValue::Num(504f64))?;
+    core_append(&v_codes, CoreValue::Num(529f64))?;
+    core_set(
+        &v_config,
+        CoreValue::from("retryable_status_codes"),
+        v_codes.clone(),
     )?;
     return Ok(v_config.clone());
 }
@@ -54918,7 +55292,9 @@ fn resolve_stream_retry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_options = core_arg(args, 0);
     let mut v_backoff = CoreValue::Null;
     let mut v_cfg = CoreValue::Null;
+    let mut v_codes = CoreValue::Null;
     let mut v_def_backoff = CoreValue::Null;
+    let mut v_def_codes = CoreValue::Null;
     let mut v_def_initial = CoreValue::Null;
     let mut v_def_max = CoreValue::Null;
     let mut v_def_max_delay = CoreValue::Null;
@@ -54961,6 +55337,17 @@ fn resolve_stream_retry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("backoff_factor"),
         v_def_backoff.clone(),
     ])?;
+    v_def_codes = core_get(
+        &v_cfg,
+        &CoreValue::from("retryable_status_codes"),
+        CoreValue::Null,
+    );
+    v_codes = retry_opt_value(&[
+        v_retry.clone(),
+        CoreValue::from("retryableStatusCodes"),
+        CoreValue::from("retryable_status_codes"),
+        v_def_codes.clone(),
+    ])?;
     v_out = CoreValue::new_map();
     core_set(
         &v_out,
@@ -54974,6 +55361,11 @@ fn resolve_stream_retry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     core_set(&v_out, CoreValue::from("max_delay_ms"), v_max_delay.clone())?;
     core_set(&v_out, CoreValue::from("backoff_factor"), v_backoff.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("retryable_status_codes"),
+        v_codes.clone(),
+    )?;
     return Ok(v_out.clone());
 }
 
@@ -56786,6 +57178,7 @@ fn _openai_responses_input_item_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_message = core_arg(args, 0);
     let mut v_call_id = CoreValue::Null;
     let mut v_call_id_camel = CoreValue::Null;
+    let mut v_call_id_legacy = CoreValue::Null;
     let mut v_call_id_snake = CoreValue::Null;
     let mut v_content = CoreValue::Null;
     let mut v_has_phase = CoreValue::Null;
@@ -56803,10 +57196,15 @@ fn _openai_responses_input_item_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     if core_truthy(&v_is_function) {
         v_message_id = core_get(&v_message, &CoreValue::from("id"), CoreValue::Null);
         v_message_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
-        v_call_id_snake = core_get(
+        v_call_id_legacy = core_get(
             &v_message,
             &CoreValue::from("function_call_id"),
             CoreValue::Null,
+        );
+        v_call_id_snake = core_get(
+            &v_message,
+            &CoreValue::from("function_id"),
+            v_call_id_legacy.clone(),
         );
         v_call_id_camel = core_get(
             &v_message,
@@ -67657,6 +68055,612 @@ fn _ai_error_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn retry_status_listed(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("retry_status_listed");
+    let mut v_config = core_arg(args, 0);
+    let mut v_status = core_arg(args, 1);
+    let mut v_code = CoreValue::Null;
+    let mut v_codes = CoreValue::Null;
+    let mut v_defaults = CoreValue::Null;
+    let mut v_no_codes = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    v_codes = core_get(
+        &v_config,
+        &CoreValue::from("retryable_status_codes"),
+        CoreValue::Null,
+    );
+    v_no_codes = core_is_none(&[v_codes.clone()])?;
+    if core_truthy(&v_no_codes) {
+        v_defaults = default_retry_config(&[])?;
+        v_codes = core_get(
+            &v_defaults,
+            &CoreValue::from("retryable_status_codes"),
+            CoreValue::Null,
+        );
+    }
+    for v_code in core_iter(&v_codes)? {
+        let mut v_code = v_code;
+        v_same = core_eq(&[v_code.clone(), v_status.clone()])?;
+        if core_truthy(&v_same) {
+            return Ok(CoreValue::Bool(true));
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn retry_backoff_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("retry_backoff_ms");
+    let mut v_config = core_arg(args, 0);
+    let mut v_attempt = core_arg(args, 1);
+    let mut v_random = core_arg(args, 2);
+    let mut v_base = CoreValue::Null;
+    let mut v_capped = CoreValue::Null;
+    let mut v_delay = CoreValue::Null;
+    let mut v_factor = CoreValue::Null;
+    let mut v_initial = CoreValue::Null;
+    let mut v_jitter = CoreValue::Null;
+    let mut v_max_delay = CoreValue::Null;
+    let mut v_scale = CoreValue::Null;
+    let mut v_spread = CoreValue::Null;
+    v_initial = core_get(
+        &v_config,
+        &CoreValue::from("initial_delay_ms"),
+        CoreValue::Num(1000f64),
+    );
+    v_max_delay = core_get(
+        &v_config,
+        &CoreValue::from("max_delay_ms"),
+        CoreValue::Num(60000f64),
+    );
+    v_factor = core_get(
+        &v_config,
+        &CoreValue::from("backoff_factor"),
+        CoreValue::Num(2f64),
+    );
+    v_scale = core_math_pow(&[v_factor.clone(), v_attempt.clone()])?;
+    v_base = core_mul(&[v_initial.clone(), v_scale.clone()])?;
+    v_capped = core_gt(&[v_base.clone(), v_max_delay.clone()])?;
+    if core_truthy(&v_capped) {
+        v_base = v_max_delay.clone();
+    }
+    v_spread = core_mul(&[v_random.clone(), CoreValue::Num(0.5f64)])?;
+    v_jitter = core_add(&[v_spread.clone(), CoreValue::Num(0.75f64)])?;
+    v_delay = core_mul(&[v_base.clone(), v_jitter.clone()])?;
+    return Ok(v_delay.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_digits_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_digits_value");
+    let mut v_text = core_arg(args, 0);
+    let mut v_ch = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_digit = CoreValue::Null;
+    let mut v_digits = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_digit = CoreValue::Null;
+    let mut v_scaled = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_count = core_len(&[v_text.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Ok(v_none.clone());
+    }
+    v_digits = CoreValue::new_map();
+    core_set(&v_digits, CoreValue::from("0"), CoreValue::Num(0f64))?;
+    core_set(&v_digits, CoreValue::from("1"), CoreValue::Num(1f64))?;
+    core_set(&v_digits, CoreValue::from("2"), CoreValue::Num(2f64))?;
+    core_set(&v_digits, CoreValue::from("3"), CoreValue::Num(3f64))?;
+    core_set(&v_digits, CoreValue::from("4"), CoreValue::Num(4f64))?;
+    core_set(&v_digits, CoreValue::from("5"), CoreValue::Num(5f64))?;
+    core_set(&v_digits, CoreValue::from("6"), CoreValue::Num(6f64))?;
+    core_set(&v_digits, CoreValue::from("7"), CoreValue::Num(7f64))?;
+    core_set(&v_digits, CoreValue::from("8"), CoreValue::Num(8f64))?;
+    core_set(&v_digits, CoreValue::from("9"), CoreValue::Num(9f64))?;
+    v_total = CoreValue::Num(0f64);
+    v_cursor = CoreValue::Num(0f64);
+    loop {
+        v_done = core_gte(&[v_cursor.clone(), v_count.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_next = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+        v_ch = core_string_slice(&[v_text.clone(), v_cursor.clone(), v_next.clone()])?;
+        v_digit = core_get(&v_digits, &v_ch.clone(), CoreValue::Null);
+        v_not_digit = core_is_none(&[v_digit.clone()])?;
+        if core_truthy(&v_not_digit) {
+            return Ok(v_none.clone());
+        }
+        v_scaled = core_mul(&[v_total.clone(), CoreValue::Num(10f64)])?;
+        v_total = core_add(&[v_scaled.clone(), v_digit.clone()])?;
+        v_cursor = v_next.clone();
+    }
+    return Ok(v_total.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_after_seconds(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_after_seconds");
+    let mut v_text = core_arg(args, 0);
+    let mut v_blank = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_decimal = CoreValue::Null;
+    let mut v_exponent = CoreValue::Null;
+    let mut v_exponent_digits = CoreValue::Null;
+    let mut v_exponent_split = CoreValue::Null;
+    let mut v_fraction = CoreValue::Null;
+    let mut v_fraction_length = CoreValue::Null;
+    let mut v_has_exponent = CoreValue::Null;
+    let mut v_has_fraction = CoreValue::Null;
+    let mut v_has_point = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_leading_zero = CoreValue::Null;
+    let mut v_literal = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_many_digits = CoreValue::Null;
+    let mut v_minus = CoreValue::Null;
+    let mut v_no_whole = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_decimal = CoreValue::Null;
+    let mut v_plus = CoreValue::Null;
+    let mut v_point_split = CoreValue::Null;
+    let mut v_sign = CoreValue::Null;
+    let mut v_strip = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_whole = CoreValue::Null;
+    let mut v_whole_length = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_trimmed = core_string_trim(&v_text);
+    v_blank = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_blank) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_decimal = core_regex_match(
+        CoreValue::from("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"),
+        &v_trimmed,
+    )?;
+    v_not_decimal = core_not(&[v_decimal.clone()])?;
+    if core_truthy(&v_not_decimal) {
+        return Ok(v_none.clone());
+    }
+    v_sign = CoreValue::from("");
+    v_body = v_trimmed.clone();
+    v_plus = core_string_starts_with(&[v_body.clone(), CoreValue::from("+")])?;
+    if core_truthy(&v_plus) {
+        v_body = core_string_slice(&[v_body.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_minus = core_string_starts_with(&[v_body.clone(), CoreValue::from("-")])?;
+    if core_truthy(&v_minus) {
+        v_sign = CoreValue::from("-");
+        v_body = core_string_slice(&[v_body.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_lower = core_string_lower(&[v_body.clone()])?;
+    v_exponent = CoreValue::from("");
+    v_exponent_split = core_string_split_once(&[v_lower.clone(), CoreValue::from("e")])?;
+    v_has_exponent = core_get(
+        &v_exponent_split,
+        &CoreValue::from("found"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_has_exponent) {
+        v_exponent_digits = core_get(
+            &v_exponent_split,
+            &CoreValue::from("right"),
+            CoreValue::Null,
+        );
+        v_exponent = core_string_format(&[CoreValue::from("e{}"), v_exponent_digits.clone()])?;
+        v_lower = core_get(&v_exponent_split, &CoreValue::from("left"), CoreValue::Null);
+    }
+    v_whole = v_lower.clone();
+    v_fraction = CoreValue::from("");
+    v_point_split = core_string_split_once(&[v_lower.clone(), CoreValue::from(".")])?;
+    v_has_point = core_get(
+        &v_point_split,
+        &CoreValue::from("found"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_has_point) {
+        v_whole = core_get(&v_point_split, &CoreValue::from("left"), CoreValue::Null);
+        v_fraction = core_get(&v_point_split, &CoreValue::from("right"), CoreValue::Null);
+    }
+    loop {
+        v_whole_length = core_len(&[v_whole.clone()])?;
+        v_many_digits = core_gt(&[v_whole_length.clone(), CoreValue::Num(1f64)])?;
+        v_leading_zero = core_string_starts_with(&[v_whole.clone(), CoreValue::from("0")])?;
+        v_strip = core_and(&[v_many_digits.clone(), v_leading_zero.clone()])?;
+        v_keep = core_not(&[v_strip.clone()])?;
+        if core_truthy(&v_keep) {
+            break;
+        }
+        v_whole = core_string_slice(&[v_whole.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_no_whole = core_eq(&[v_whole.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_no_whole) {
+        v_whole = CoreValue::from("0");
+    }
+    v_literal = core_string_format(&[CoreValue::from("{}{}"), v_sign.clone(), v_whole.clone()])?;
+    v_fraction_length = core_len(&[v_fraction.clone()])?;
+    v_has_fraction = core_gt(&[v_fraction_length.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_fraction) {
+        v_literal = core_string_format(&[
+            CoreValue::from("{}.{}"),
+            v_literal.clone(),
+            v_fraction.clone(),
+        ])?;
+    }
+    v_literal = core_string_format(&[
+        CoreValue::from("{}{}"),
+        v_literal.clone(),
+        v_exponent.clone(),
+    ])?;
+    v_value = core_json_parse(&[v_literal.clone()])?;
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_days_from_civil(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_days_from_civil");
+    let mut v_year = core_arg(args, 0);
+    let mut v_month = core_arg(args, 1);
+    let mut v_day = core_arg(args, 2);
+    let mut v_days = CoreValue::Null;
+    let mut v_doe = CoreValue::Null;
+    let mut v_doy = CoreValue::Null;
+    let mut v_early = CoreValue::Null;
+    let mut v_era = CoreValue::Null;
+    let mut v_era_ratio = CoreValue::Null;
+    let mut v_era_years = CoreValue::Null;
+    let mut v_leap100 = CoreValue::Null;
+    let mut v_leap100_negated = CoreValue::Null;
+    let mut v_leap100_ratio = CoreValue::Null;
+    let mut v_leap4 = CoreValue::Null;
+    let mut v_leap4_ratio = CoreValue::Null;
+    let mut v_month_days = CoreValue::Null;
+    let mut v_month_days_ratio = CoreValue::Null;
+    let mut v_month_index = CoreValue::Null;
+    let mut v_month_ratio = CoreValue::Null;
+    let mut v_month_wraps = CoreValue::Null;
+    let mut v_shifted = CoreValue::Null;
+    let mut v_year_of_era = CoreValue::Null;
+    let mut v_yoe = CoreValue::Null;
+    v_year_of_era = v_year.clone();
+    v_early = core_lte(&[v_month.clone(), CoreValue::Num(2f64)])?;
+    if core_truthy(&v_early) {
+        v_year_of_era = core_add(&[v_year.clone(), CoreValue::Num(-1f64)])?;
+    }
+    v_era_ratio = core_div(&[v_year_of_era.clone(), CoreValue::Num(400f64)])?;
+    v_era = core_math_floor(&[v_era_ratio.clone()])?;
+    v_era_years = core_mul(&[v_era.clone(), CoreValue::Num(-400f64)])?;
+    v_yoe = core_add(&[v_year_of_era.clone(), v_era_years.clone()])?;
+    v_shifted = core_add(&[v_month.clone(), CoreValue::Num(9f64)])?;
+    v_month_ratio = core_div(&[v_shifted.clone(), CoreValue::Num(12f64)])?;
+    v_month_wraps = core_math_floor(&[v_month_ratio.clone()])?;
+    v_month_wraps = core_mul(&[v_month_wraps.clone(), CoreValue::Num(-12f64)])?;
+    v_month_index = core_add(&[v_shifted.clone(), v_month_wraps.clone()])?;
+    v_month_days = core_mul(&[v_month_index.clone(), CoreValue::Num(153f64)])?;
+    v_month_days = core_add(&[v_month_days.clone(), CoreValue::Num(2f64)])?;
+    v_month_days_ratio = core_div(&[v_month_days.clone(), CoreValue::Num(5f64)])?;
+    v_month_days = core_math_floor(&[v_month_days_ratio.clone()])?;
+    v_doy = core_add(&[v_month_days.clone(), v_day.clone()])?;
+    v_doy = core_add(&[v_doy.clone(), CoreValue::Num(-1f64)])?;
+    v_doe = core_mul(&[v_yoe.clone(), CoreValue::Num(365f64)])?;
+    v_leap4_ratio = core_div(&[v_yoe.clone(), CoreValue::Num(4f64)])?;
+    v_leap4 = core_math_floor(&[v_leap4_ratio.clone()])?;
+    v_leap100_ratio = core_div(&[v_yoe.clone(), CoreValue::Num(100f64)])?;
+    v_leap100 = core_math_floor(&[v_leap100_ratio.clone()])?;
+    v_doe = core_add(&[v_doe.clone(), v_leap4.clone()])?;
+    v_leap100_negated = core_mul(&[v_leap100.clone(), CoreValue::Num(-1f64)])?;
+    v_doe = core_add(&[v_doe.clone(), v_leap100_negated.clone()])?;
+    v_doe = core_add(&[v_doe.clone(), v_doy.clone()])?;
+    v_days = core_mul(&[v_era.clone(), CoreValue::Num(146097f64)])?;
+    v_days = core_add(&[v_days.clone(), v_doe.clone()])?;
+    v_days = core_add(&[v_days.clone(), CoreValue::Num(-719468f64)])?;
+    return Ok(v_days.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_http_date_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_http_date_ms");
+    let mut v_text = core_arg(args, 0);
+    let mut v_bad = CoreValue::Null;
+    let mut v_bad_clock = CoreValue::Null;
+    let mut v_bad_day = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_day_high = CoreValue::Null;
+    let mut v_day_low = CoreValue::Null;
+    let mut v_day_text = CoreValue::Null;
+    let mut v_days = CoreValue::Null;
+    let mut v_fixdate = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_hour_high = CoreValue::Null;
+    let mut v_hour_ms = CoreValue::Null;
+    let mut v_hour_text = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_minute_high = CoreValue::Null;
+    let mut v_minute_ms = CoreValue::Null;
+    let mut v_minute_text = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_month_text = CoreValue::Null;
+    let mut v_months = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_fixdate = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_second_high = CoreValue::Null;
+    let mut v_second_ms = CoreValue::Null;
+    let mut v_second_text = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    let mut v_year_text = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_trimmed = core_string_trim(&v_text);
+    v_fixdate = core_regex_match(CoreValue::from("^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$"), &v_trimmed)?;
+    v_not_fixdate = core_not(&[v_fixdate.clone()])?;
+    if core_truthy(&v_not_fixdate) {
+        return Ok(v_none.clone());
+    }
+    v_day_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(5f64),
+        CoreValue::Num(7f64),
+    ])?;
+    v_month_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(8f64),
+        CoreValue::Num(11f64),
+    ])?;
+    v_year_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(12f64),
+        CoreValue::Num(16f64),
+    ])?;
+    v_hour_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(17f64),
+        CoreValue::Num(19f64),
+    ])?;
+    v_minute_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(20f64),
+        CoreValue::Num(22f64),
+    ])?;
+    v_second_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(23f64),
+        CoreValue::Num(25f64),
+    ])?;
+    v_day = _retry_digits_value(&[v_day_text.clone()])?;
+    v_year = _retry_digits_value(&[v_year_text.clone()])?;
+    v_hour = _retry_digits_value(&[v_hour_text.clone()])?;
+    v_minute = _retry_digits_value(&[v_minute_text.clone()])?;
+    v_second = _retry_digits_value(&[v_second_text.clone()])?;
+    v_months = CoreValue::new_map();
+    core_set(&v_months, CoreValue::from("Jan"), CoreValue::Num(1f64))?;
+    core_set(&v_months, CoreValue::from("Feb"), CoreValue::Num(2f64))?;
+    core_set(&v_months, CoreValue::from("Mar"), CoreValue::Num(3f64))?;
+    core_set(&v_months, CoreValue::from("Apr"), CoreValue::Num(4f64))?;
+    core_set(&v_months, CoreValue::from("May"), CoreValue::Num(5f64))?;
+    core_set(&v_months, CoreValue::from("Jun"), CoreValue::Num(6f64))?;
+    core_set(&v_months, CoreValue::from("Jul"), CoreValue::Num(7f64))?;
+    core_set(&v_months, CoreValue::from("Aug"), CoreValue::Num(8f64))?;
+    core_set(&v_months, CoreValue::from("Sep"), CoreValue::Num(9f64))?;
+    core_set(&v_months, CoreValue::from("Oct"), CoreValue::Num(10f64))?;
+    core_set(&v_months, CoreValue::from("Nov"), CoreValue::Num(11f64))?;
+    core_set(&v_months, CoreValue::from("Dec"), CoreValue::Num(12f64))?;
+    v_month = core_get(&v_months, &v_month_text.clone(), CoreValue::Null);
+    v_day_low = core_lt(&[v_day.clone(), CoreValue::Num(1f64)])?;
+    v_day_high = core_gt(&[v_day.clone(), CoreValue::Num(31f64)])?;
+    v_hour_high = core_gt(&[v_hour.clone(), CoreValue::Num(23f64)])?;
+    v_minute_high = core_gt(&[v_minute.clone(), CoreValue::Num(59f64)])?;
+    v_second_high = core_gt(&[v_second.clone(), CoreValue::Num(59f64)])?;
+    v_bad_day = core_or(&[v_day_low.clone(), v_day_high.clone()])?;
+    v_bad_clock = core_or(&[v_hour_high.clone(), v_minute_high.clone()])?;
+    v_bad_clock = core_or(&[v_bad_clock.clone(), v_second_high.clone()])?;
+    v_bad = core_or(&[v_bad_day.clone(), v_bad_clock.clone()])?;
+    if core_truthy(&v_bad) {
+        return Ok(v_none.clone());
+    }
+    v_days = _retry_days_from_civil(&[v_year.clone(), v_month.clone(), v_day.clone()])?;
+    v_millis = core_mul(&[v_days.clone(), CoreValue::Num(86400000f64)])?;
+    v_hour_ms = core_mul(&[v_hour.clone(), CoreValue::Num(3600000f64)])?;
+    v_minute_ms = core_mul(&[v_minute.clone(), CoreValue::Num(60000f64)])?;
+    v_second_ms = core_mul(&[v_second.clone(), CoreValue::Num(1000f64)])?;
+    v_millis = core_add(&[v_millis.clone(), v_hour_ms.clone()])?;
+    v_millis = core_add(&[v_millis.clone(), v_minute_ms.clone()])?;
+    v_millis = core_add(&[v_millis.clone(), v_second_ms.clone()])?;
+    return Ok(v_millis.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn retry_after_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("retry_after_ms");
+    let mut v_header = core_arg(args, 0);
+    let mut v_now_ms = core_arg(args, 1);
+    let mut v_date_ms = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_date = CoreValue::Null;
+    let mut v_has_seconds = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_negative_now = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_past = CoreValue::Null;
+    let mut v_seconds = CoreValue::Null;
+    let mut v_seconds_ms = CoreValue::Null;
+    let mut v_wait = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_is_string = core_type_is(&v_header, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_none.clone());
+    }
+    v_empty = core_eq(&[v_header.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        return Ok(v_none.clone());
+    }
+    v_seconds = _retry_after_seconds(&[v_header.clone()])?;
+    v_has_seconds = core_is_not_none(&[v_seconds.clone()])?;
+    if core_truthy(&v_has_seconds) {
+        v_seconds_ms = core_mul(&[v_seconds.clone(), CoreValue::Num(1000f64)])?;
+        return Ok(v_seconds_ms.clone());
+    }
+    v_date_ms = _retry_http_date_ms(&[v_header.clone()])?;
+    v_has_date = core_is_not_none(&[v_date_ms.clone()])?;
+    if core_truthy(&v_has_date) {
+        v_negative_now = core_mul(&[v_now_ms.clone(), CoreValue::Num(-1f64)])?;
+        v_wait = core_add(&[v_date_ms.clone(), v_negative_now.clone()])?;
+        v_past = core_lt(&[v_wait.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_past) {
+            return Ok(CoreValue::Num(0f64));
+        }
+        return Ok(v_wait.clone());
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn request_retry_delay(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("request_retry_delay");
+    let mut v_config = core_arg(args, 0);
+    let mut v_attempt = core_arg(args, 1);
+    let mut v_failure = core_arg(args, 2);
+    let mut v_now_ms = core_arg(args, 3);
+    let mut v_random = core_arg(args, 4);
+    let mut v_after = CoreValue::Null;
+    let mut v_auth = CoreValue::Null;
+    let mut v_delay = CoreValue::Null;
+    let mut v_has_after = CoreValue::Null;
+    let mut v_has_status = CoreValue::Null;
+    let mut v_header = CoreValue::Null;
+    let mut v_is_401 = CoreValue::Null;
+    let mut v_is_403 = CoreValue::Null;
+    let mut v_is_network = CoreValue::Null;
+    let mut v_listed = CoreValue::Null;
+    let mut v_max_delay = CoreValue::Null;
+    let mut v_max_retries = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_network = CoreValue::Null;
+    let mut v_network_delay = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_listed = CoreValue::Null;
+    let mut v_spent = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_within = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_max_retries = core_get(
+        &v_config,
+        &CoreValue::from("max_retries"),
+        CoreValue::Num(3f64),
+    );
+    v_spent = core_gte(&[v_attempt.clone(), v_max_retries.clone()])?;
+    if core_truthy(&v_spent) {
+        return Ok(v_none.clone());
+    }
+    v_status = core_get(&v_failure, &CoreValue::from("status"), CoreValue::Null);
+    v_has_status = core_is_not_none(&[v_status.clone()])?;
+    if core_truthy(&v_has_status) {
+        v_is_401 = core_eq(&[v_status.clone(), CoreValue::Num(401f64)])?;
+        v_is_403 = core_eq(&[v_status.clone(), CoreValue::Num(403f64)])?;
+        v_auth = core_or(&[v_is_401.clone(), v_is_403.clone()])?;
+        if core_truthy(&v_auth) {
+            return Ok(v_none.clone());
+        }
+        v_listed = retry_status_listed(&[v_config.clone(), v_status.clone()])?;
+        v_not_listed = core_not(&[v_listed.clone()])?;
+        if core_truthy(&v_not_listed) {
+            return Ok(v_none.clone());
+        }
+        v_delay = retry_backoff_ms(&[v_config.clone(), v_attempt.clone(), v_random.clone()])?;
+        v_header = core_get(&v_failure, &CoreValue::from("retry_after"), CoreValue::Null);
+        v_after = retry_after_ms(&[v_header.clone(), v_now_ms.clone()])?;
+        v_has_after = core_is_not_none(&[v_after.clone()])?;
+        if core_truthy(&v_has_after) {
+            v_max_delay = core_get(
+                &v_config,
+                &CoreValue::from("max_delay_ms"),
+                CoreValue::Num(60000f64),
+            );
+            v_within = core_lte(&[v_after.clone(), v_max_delay.clone()])?;
+            if core_truthy(&v_within) {
+                v_delay = v_after.clone();
+            }
+        }
+        v_negative = core_lt(&[v_delay.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_negative) {
+            return Ok(CoreValue::Num(0f64));
+        }
+        return Ok(v_delay.clone());
+    }
+    v_network = core_get(
+        &v_failure,
+        &CoreValue::from("network"),
+        CoreValue::Bool(false),
+    );
+    v_is_network = core_truthy_value(&[v_network.clone()])?;
+    if core_truthy(&v_is_network) {
+        v_network_delay =
+            retry_backoff_ms(&[v_config.clone(), v_attempt.clone(), v_random.clone()])?;
+        return Ok(v_network_delay.clone());
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_mode_enabled(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_mode_enabled");
     let mut v_options = core_arg(args, 0);
@@ -71208,6 +72212,11 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("model_config"),
         v_model_config.clone(),
     )?;
+    core_set(
+        &v_request,
+        CoreValue::from("_ax_step_index"),
+        v_step.clone(),
+    )?;
     return Ok(v_request.clone());
 }
 
@@ -72634,22 +73643,94 @@ fn chat_session_record_result(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_call = core_arg(args, 2);
     let mut v_result = core_arg(args, 3);
     let mut v_ok = core_arg(args, 4);
+    let mut v_options = core_arg(args, 5);
     let mut v_changed = CoreValue::Null;
+    let mut v_empty_pending = CoreValue::Null;
     let mut v_empty_turns = CoreValue::Null;
     let mut v_failed = CoreValue::Null;
+    let mut v_formatted = CoreValue::Null;
+    let mut v_formatter_error = CoreValue::Null;
+    let mut v_formatter_message = CoreValue::Null;
     let mut v_id = CoreValue::Null;
-    let mut v_is_string = CoreValue::Null;
     let mut v_message = CoreValue::Null;
+    let mut v_no_unresolved = CoreValue::Null;
+    let mut v_other_call = CoreValue::Null;
     let mut v_output = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_pending_call = CoreValue::Null;
+    let mut v_pending_id = CoreValue::Null;
+    let mut v_pending_ids = CoreValue::Null;
+    let mut v_pending_status = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
+    let mut v_session_error = CoreValue::Null;
+    let mut v_session_message = CoreValue::Null;
     let mut v_status = CoreValue::Null;
+    let mut v_still_running = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_turns = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
+    let mut v_unresolved_text = CoreValue::Null;
     v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
     v_text = v_result.clone();
-    v_is_string = core_type_is(&v_result, CoreValue::from("string"));
-    if core_truthy(&v_is_string) {
-    } else {
-        v_text = core_json_stringify(&[v_result.clone()])?;
+    if core_truthy(&v_ok) {
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            v_formatted = _function_result_text_impl(&[v_result.clone(), v_options.clone()])?;
+            v_text = v_formatted.clone();
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+            Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+            Err(__core_caught) => {
+                v_formatter_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                core_axgen_record_function_call(&[
+                    v_gen.clone(),
+                    v_call.clone(),
+                    v_formatter_error.clone(),
+                    CoreValue::from("error"),
+                ])?;
+                v_unresolved = CoreValue::new_list();
+                v_empty_pending = CoreValue::new_map();
+                v_pending = core_get(
+                    &v_state,
+                    &CoreValue::from("pending"),
+                    v_empty_pending.clone(),
+                );
+                v_pending_ids = core_map_keys(&[v_pending.clone()])?;
+                for v_pending_id in core_iter(&v_pending_ids)? {
+                    let mut v_pending_id = v_pending_id;
+                    v_other_call = core_ne(&[v_pending_id.clone(), v_id.clone()])?;
+                    v_pending_call = core_get(&v_pending, &v_pending_id.clone(), CoreValue::Null);
+                    v_pending_status = core_get(
+                        &v_pending_call,
+                        &CoreValue::from("status"),
+                        CoreValue::from(""),
+                    );
+                    v_running = core_eq(&[v_pending_status.clone(), CoreValue::from("running")])?;
+                    v_still_running = core_and(&[v_other_call.clone(), v_running.clone()])?;
+                    if core_truthy(&v_still_running) {
+                        core_append(&v_unresolved, v_pending_id.clone())?;
+                    }
+                }
+                v_unresolved_text =
+                    core_string_join_intrinsic(&[CoreValue::from(", "), v_unresolved.clone()])?;
+                v_no_unresolved = core_eq(&[v_unresolved_text.clone(), CoreValue::from("")])?;
+                if core_truthy(&v_no_unresolved) {
+                    v_unresolved_text = CoreValue::from("none");
+                }
+                v_formatter_message = core_exception_message(&[v_formatter_error.clone()])?;
+                v_session_message = core_string_format(&[
+                    CoreValue::from("Chat session failed: {}; unresolved calls: {}"),
+                    v_formatter_message.clone(),
+                    v_unresolved_text.clone(),
+                ])?;
+                v_session_error =
+                    core_exception_rewrap(&[v_formatter_error.clone(), v_session_message.clone()])?;
+                return Err(core_as_error(&v_session_error));
+            }
+        }
     }
     v_output = CoreValue::new_map();
     core_set(&v_output, CoreValue::from("function_id"), v_id.clone())?;
@@ -72663,8 +73744,9 @@ fn chat_session_record_result(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         core_axgen_memory_add_function_result(&[
             v_gen.clone(),
             v_call.clone(),
-            v_result.clone(),
+            v_text.clone(),
             v_ok.clone(),
+            v_text.clone(),
         ])?;
         core_axgen_record_function_call(&[
             v_gen.clone(),
@@ -72674,7 +73756,7 @@ fn chat_session_record_result(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         ])?;
         v_empty_turns = CoreValue::new_list();
         v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
-        v_message = _tool_result_message_impl(&[v_call.clone(), v_result.clone()])?;
+        v_message = _tool_result_message_impl(&[v_call.clone(), v_text.clone()])?;
         v_failed = core_not(&[v_ok.clone()])?;
         if core_truthy(&v_failed) {
             core_set(&v_message, CoreValue::from("result"), v_text.clone())?;
@@ -72938,55 +74020,6 @@ fn _stream_strip_trailing_fence_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
-fn chat_session_observe_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_observe_output");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_event = core_arg(args, 2);
-    let mut v_delta = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_output = CoreValue::Null;
-    let mut v_response = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_results = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_texts = CoreValue::Null;
-    let mut v_version = CoreValue::Null;
-    v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_texts = core_get(&v_state, &CoreValue::from("texts"), v_empty_map.clone());
-    v_id = core_get(&v_event, &CoreValue::from("response_id"), CoreValue::Null);
-    v_text = core_get(&v_texts, &v_id.clone(), CoreValue::from(""));
-    v_response = core_get(&v_event, &CoreValue::from("response"), CoreValue::Null);
-    v_results = core_get(
-        &v_response,
-        &CoreValue::from("results"),
-        v_empty_list.clone(),
-    );
-    for v_result in core_iter(&v_results)? {
-        let mut v_result = v_result;
-        v_delta = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
-        v_text = core_string_format(&[CoreValue::from("{}{}"), v_text.clone(), v_delta.clone()])?;
-    }
-    core_set(&v_texts, v_id.clone(), v_text.clone())?;
-    core_set(&v_state, CoreValue::from("texts"), v_texts.clone())?;
-    v_version = core_get(&v_state, &CoreValue::from("version"), CoreValue::Num(0f64));
-    v_output = CoreValue::new_map();
-    core_set(&v_output, CoreValue::from("response_id"), v_id.clone())?;
-    core_set(&v_output, CoreValue::from("text"), v_text.clone())?;
-    core_set(&v_output, CoreValue::from("version"), v_version.clone())?;
-    return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_abbreviation_offset_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_abbreviation_offset_impl");
     let mut v_units = core_arg(args, 0);
@@ -73182,6 +74215,55 @@ fn _stream_markdown_list_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         return Err(core_as_error(&v_missing));
     }
     return Ok(v_items.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_observe_output(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_observe_output");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_event = core_arg(args, 2);
+    let mut v_delta = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_texts = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_texts = core_get(&v_state, &CoreValue::from("texts"), v_empty_map.clone());
+    v_id = core_get(&v_event, &CoreValue::from("response_id"), CoreValue::Null);
+    v_text = core_get(&v_texts, &v_id.clone(), CoreValue::from(""));
+    v_response = core_get(&v_event, &CoreValue::from("response"), CoreValue::Null);
+    v_results = core_get(
+        &v_response,
+        &CoreValue::from("results"),
+        v_empty_list.clone(),
+    );
+    for v_result in core_iter(&v_results)? {
+        let mut v_result = v_result;
+        v_delta = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
+        v_text = core_string_format(&[CoreValue::from("{}{}"), v_text.clone(), v_delta.clone()])?;
+    }
+    core_set(&v_texts, v_id.clone(), v_text.clone())?;
+    core_set(&v_state, CoreValue::from("texts"), v_texts.clone())?;
+    v_version = core_get(&v_state, &CoreValue::from("version"), CoreValue::Num(0f64));
+    v_output = CoreValue::new_map();
+    core_set(&v_output, CoreValue::from("response_id"), v_id.clone())?;
+    core_set(&v_output, CoreValue::from("text"), v_text.clone())?;
+    core_set(&v_output, CoreValue::from("version"), v_version.clone())?;
+    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -73423,50 +74505,6 @@ fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn chat_session_create_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_create_state");
-    let mut v_model = core_arg(args, 0);
-    let mut v_path = core_arg(args, 1);
-    let mut v_max_steps = core_arg(args, 2);
-    let mut v_pending = CoreValue::Null;
-    let mut v_responses = CoreValue::Null;
-    let mut v_state = CoreValue::Null;
-    let mut v_turns = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_state = CoreValue::new_map();
-    v_pending = CoreValue::new_map();
-    v_responses = CoreValue::new_map();
-    v_updates = CoreValue::new_map();
-    core_set(&v_state, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_state, CoreValue::from("path"), v_path.clone())?;
-    core_set(&v_state, CoreValue::from("max_steps"), v_max_steps.clone())?;
-    core_set(&v_state, CoreValue::from("steps"), CoreValue::Num(0f64))?;
-    core_set(&v_state, CoreValue::from("version"), CoreValue::Num(0f64))?;
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
-    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("boundary"),
-        CoreValue::Bool(false),
-    )?;
-    core_set(
-        &v_state,
-        CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    )?;
-    v_turns = CoreValue::new_list();
-    core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
-    return Ok(v_state.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_select_sample_index");
     let mut v_samples = core_arg(args, 0);
@@ -73661,19 +74699,41 @@ fn _build_optimization_eval_result(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn chat_session_target_matches(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_target_matches");
-    let mut v_target = core_arg(args, 0);
+fn chat_session_create_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_create_state");
+    let mut v_model = core_arg(args, 0);
     let mut v_path = core_arg(args, 1);
-    let mut v_descendant = CoreValue::Null;
-    let mut v_exact = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_prefix = CoreValue::Null;
-    v_exact = core_eq(&[v_target.clone(), v_path.clone()])?;
-    v_prefix = core_string_format(&[CoreValue::from("{}/"), v_target.clone()])?;
-    v_descendant = core_string_starts_with(&[v_path.clone(), v_prefix.clone()])?;
-    v_matches = core_or(&[v_exact.clone(), v_descendant.clone()])?;
-    return Ok(v_matches.clone());
+    let mut v_max_steps = core_arg(args, 2);
+    let mut v_pending = CoreValue::Null;
+    let mut v_responses = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_turns = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_state = CoreValue::new_map();
+    v_pending = CoreValue::new_map();
+    v_responses = CoreValue::new_map();
+    v_updates = CoreValue::new_map();
+    core_set(&v_state, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_state, CoreValue::from("path"), v_path.clone())?;
+    core_set(&v_state, CoreValue::from("max_steps"), v_max_steps.clone())?;
+    core_set(&v_state, CoreValue::from("steps"), CoreValue::Num(0f64))?;
+    core_set(&v_state, CoreValue::from("version"), CoreValue::Num(0f64))?;
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
+    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("boundary"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    )?;
+    v_turns = CoreValue::new_list();
+    core_set(&v_state, CoreValue::from("turns"), v_turns.clone())?;
+    return Ok(v_state.clone());
 }
 
 #[allow(
@@ -73701,7 +74761,6 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_cache_key = CoreValue::Null;
     let mut v_cached = CoreValue::Null;
     let mut v_cached_messages = CoreValue::Null;
-    let mut v_call = CoreValue::Null;
     let mut v_call_count = CoreValue::Null;
     let mut v_calls = CoreValue::Null;
     let mut v_completed = CoreValue::Null;
@@ -73832,10 +74891,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_thought_field = CoreValue::Null;
     let mut v_thought_field_snake = CoreValue::Null;
     let mut v_thought_prefix = CoreValue::Null;
-    let mut v_tool_error = CoreValue::Null;
-    let mut v_tool_error_message = CoreValue::Null;
-    let mut v_tool_message = CoreValue::Null;
-    let mut v_tool_result = CoreValue::Null;
+    let mut v_tool_messages = CoreValue::Null;
     let mut v_unnamed_call_error = CoreValue::Null;
     let mut v_unnamed_call_failure = CoreValue::Null;
     let mut v_updated_messages = CoreValue::Null;
@@ -74300,52 +75356,14 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 v_calls.clone(),
             ])?;
             v_messages = v_updated_messages.clone();
-            for v_call in core_iter(&v_calls)? {
-                let mut v_call = v_call;
-                let __core_try: Result<CoreFlow, AxError> = (|| {
-                    v_tool_result = _execute_tool_call(&[v_functions.clone(), v_call.clone()])?;
-                    v_tool_message =
-                        _tool_result_message_impl(&[v_call.clone(), v_tool_result.clone()])?;
-                    core_append(&v_messages, v_tool_message.clone())?;
-                    core_axgen_memory_add_function_result(&[
-                        v_gen.clone(),
-                        v_call.clone(),
-                        v_tool_result.clone(),
-                        CoreValue::Bool(true),
-                    ])?;
-                    core_axgen_record_function_call(&[
-                        v_gen.clone(),
-                        v_call.clone(),
-                        v_tool_result.clone(),
-                        CoreValue::from("ok"),
-                    ])?;
-                    Ok(CoreFlow::Normal)
-                })();
-                match __core_try {
-                    Ok(CoreFlow::Normal) => {}
-                    Ok(CoreFlow::Return(value)) => return Ok(value),
-                    Ok(CoreFlow::Break) => break,
-                    Ok(CoreFlow::Continue) => continue,
-                    Err(__core_caught) => {
-                        v_tool_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                        v_tool_error_message =
-                            _tool_error_message_impl(&[v_call.clone(), v_tool_error.clone()])?;
-                        core_append(&v_messages, v_tool_error_message.clone())?;
-                        core_axgen_memory_add_function_result(&[
-                            v_gen.clone(),
-                            v_call.clone(),
-                            v_tool_error_message.clone(),
-                            CoreValue::Bool(false),
-                        ])?;
-                        core_axgen_record_function_call(&[
-                            v_gen.clone(),
-                            v_call.clone(),
-                            v_tool_error_message.clone(),
-                            CoreValue::from("error"),
-                        ])?;
-                    }
-                }
-            }
+            v_tool_messages = _run_tool_calls_impl(&[
+                v_gen.clone(),
+                v_functions.clone(),
+                v_messages.clone(),
+                v_calls.clone(),
+                v_runtime_options.clone(),
+            ])?;
+            v_messages = v_tool_messages.clone();
             v_continue_after_tools = _should_continue_steps(&[v_gen.clone(), v_calls.clone()])?;
             if core_truthy(&v_continue_after_tools) {
                 v_next_step = core_add(&[v_step.clone(), CoreValue::Num(1f64)])?;
@@ -74592,40 +75610,6 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_unresolved");
-    let mut v_state = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_sent = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_unresolved = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_pending.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_call = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::Null);
-        v_sent = core_eq(&[v_status.clone(), CoreValue::from("sent")])?;
-        v_unresolved = core_not(&[v_sent.clone()])?;
-        if core_truthy(&v_unresolved) {
-            core_append(&v_out, v_id.clone())?;
-        }
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _filter_optimization_components(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_filter_optimization_components");
     let mut v_components = core_arg(args, 0);
@@ -74751,6 +75735,28 @@ fn _regex_class_atom(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_t4 = _regex_literal(&[v_c.clone()])?;
     return Ok(v_t4.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_target_matches(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_target_matches");
+    let mut v_target = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_descendant = CoreValue::Null;
+    let mut v_exact = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    v_exact = core_eq(&[v_target.clone(), v_path.clone()])?;
+    v_prefix = core_string_format(&[CoreValue::from("{}/"), v_target.clone()])?;
+    v_descendant = core_string_starts_with(&[v_path.clone(), v_prefix.clone()])?;
+    v_matches = core_or(&[v_exact.clone(), v_descendant.clone()])?;
+    return Ok(v_matches.clone());
 }
 
 #[allow(
@@ -75086,46 +76092,31 @@ fn _stream_js_number_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_register_call");
+fn chat_session_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_unresolved");
     let mut v_state = core_arg(args, 0);
-    let mut v_call = core_arg(args, 1);
-    let mut v_execution = core_arg(args, 2);
-    let mut v_exists = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
     let mut v_id = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::from(""));
-    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
-    if core_truthy(&v_missing) {
-        return Err(AxError::runtime("Completed tool calls require a call ID"));
-    }
+    let mut v_sent = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
+    v_out = CoreValue::new_list();
     v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
-    if core_truthy(&v_exists) {
-        return Ok(CoreValue::Bool(false));
+    v_ids = core_map_keys(&[v_pending.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_call = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_call, &CoreValue::from("status"), CoreValue::Null);
+        v_sent = core_eq(&[v_status.clone(), CoreValue::from("sent")])?;
+        v_unresolved = core_not(&[v_sent.clone()])?;
+        if core_truthy(&v_unresolved) {
+            core_append(&v_out, v_id.clone())?;
+        }
     }
-    v_record = CoreValue::new_map();
-    core_set(&v_record, CoreValue::from("call"), v_call.clone())?;
-    core_set(&v_record, CoreValue::from("execution"), v_execution.clone())?;
-    core_set(
-        &v_record,
-        CoreValue::from("status"),
-        CoreValue::from("running"),
-    )?;
-    core_set(&v_pending, v_id.clone(), v_record.clone())?;
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    return Ok(CoreValue::Bool(true));
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -75292,6 +76283,110 @@ fn _regex_character_class(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_register_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_register_call");
+    let mut v_state = core_arg(args, 0);
+    let mut v_call = core_arg(args, 1);
+    let mut v_execution = core_arg(args, 2);
+    let mut v_exists = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::from(""));
+    v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        return Err(AxError::runtime("Completed tool calls require a call ID"));
+    }
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
+    if core_truthy(&v_exists) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_record = CoreValue::new_map();
+    core_set(&v_record, CoreValue::from("call"), v_call.clone())?;
+    core_set(&v_record, CoreValue::from("execution"), v_execution.clone())?;
+    core_set(
+        &v_record,
+        CoreValue::from("status"),
+        CoreValue::from("running"),
+    )?;
+    core_set(&v_pending, v_id.clone(), v_record.clone())?;
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimizer_request");
+    let mut v_program_kind = core_arg(args, 0);
+    let mut v_components = core_arg(args, 1);
+    let mut v_dataset = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
+    let mut v_trace = core_arg(args, 4);
+    let mut v_evaluator = CoreValue::Null;
+    let mut v_methods = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("contractVersion"),
+        CoreValue::from("axir-optimize-contract-v1"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("programKind"),
+        v_program_kind.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("components"), v_components.clone())?;
+    core_set(&v_out, CoreValue::from("dataset"), v_dataset.clone())?;
+    core_set(&v_out, CoreValue::from("options"), v_options.clone())?;
+    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
+    v_evaluator = CoreValue::new_map();
+    v_methods = CoreValue::new_list();
+    core_append(&v_methods, CoreValue::from("evaluate"))?;
+    core_set(
+        &v_evaluator,
+        CoreValue::from("available"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(
+        &v_evaluator,
+        CoreValue::from("contractVersion"),
+        CoreValue::from("axir-optimizer-evaluator-v1"),
+    )?;
+    core_set(
+        &v_evaluator,
+        CoreValue::from("evidenceContractVersion"),
+        CoreValue::from("axir-optimizer-evidence-v1"),
+    )?;
+    core_set(&v_evaluator, CoreValue::from("methods"), v_methods.clone())?;
+    core_set(&v_out, CoreValue::from("evaluator"), v_evaluator.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn chat_session_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("chat_session_result");
     let mut v_response = core_arg(args, 0);
@@ -75370,61 +76465,6 @@ fn chat_session_record_response(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn _build_optimizer_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_build_optimizer_request");
-    let mut v_program_kind = core_arg(args, 0);
-    let mut v_components = core_arg(args, 1);
-    let mut v_dataset = core_arg(args, 2);
-    let mut v_options = core_arg(args, 3);
-    let mut v_trace = core_arg(args, 4);
-    let mut v_evaluator = CoreValue::Null;
-    let mut v_methods = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(
-        &v_out,
-        CoreValue::from("contractVersion"),
-        CoreValue::from("axir-optimize-contract-v1"),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("programKind"),
-        v_program_kind.clone(),
-    )?;
-    core_set(&v_out, CoreValue::from("components"), v_components.clone())?;
-    core_set(&v_out, CoreValue::from("dataset"), v_dataset.clone())?;
-    core_set(&v_out, CoreValue::from("options"), v_options.clone())?;
-    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
-    v_evaluator = CoreValue::new_map();
-    v_methods = CoreValue::new_list();
-    core_append(&v_methods, CoreValue::from("evaluate"))?;
-    core_set(
-        &v_evaluator,
-        CoreValue::from("available"),
-        CoreValue::Bool(true),
-    )?;
-    core_set(
-        &v_evaluator,
-        CoreValue::from("contractVersion"),
-        CoreValue::from("axir-optimizer-evaluator-v1"),
-    )?;
-    core_set(
-        &v_evaluator,
-        CoreValue::from("evidenceContractVersion"),
-        CoreValue::from("axir-optimizer-evidence-v1"),
-    )?;
-    core_set(&v_evaluator, CoreValue::from("methods"), v_methods.clone())?;
-    core_set(&v_out, CoreValue::from("evaluator"), v_evaluator.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_zone_offset_seconds_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_zone_offset_seconds_impl");
     let mut v_zone = core_arg(args, 0);
@@ -75443,37 +76483,6 @@ fn _date_zone_offset_seconds_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     v_name = core_get(&v_zone, &CoreValue::from("name"), CoreValue::Null);
     v_seconds = core_date_zone_offset(&[v_name.clone(), v_millis.clone()])?;
     return Ok(v_seconds.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_final_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_final_result");
-    let mut v_state = core_arg(args, 0);
-    let mut v_response = core_arg(args, 1);
-    let mut v_empty_turns = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_turns = CoreValue::Null;
-    v_id = core_get(
-        &v_state,
-        &CoreValue::from("response_id"),
-        CoreValue::from(""),
-    );
-    v_result = chat_session_result(&[v_response.clone(), v_id.clone()])?;
-    v_empty_turns = CoreValue::new_list();
-    v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
-    core_set(
-        &v_result,
-        CoreValue::from("__session_turns"),
-        v_turns.clone(),
-    )?;
-    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -75590,41 +76599,48 @@ fn _date_parts_in_zone_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_completion");
-    let mut v_response = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_completion = CoreValue::Null;
-    v_completion = chat_response_to_completion(&[v_response.clone()])?;
-    core_set(&v_completion, CoreValue::from("remote_id"), v_id.clone())?;
-    return Ok(v_completion.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_has_continuation_work(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_has_continuation_work");
+fn chat_session_step_limit_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_step_limit_error");
     let mut v_state = core_arg(args, 0);
-    let mut v_continuation = CoreValue::Null;
-    let mut v_native_wait = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty_pending = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_is_running = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_no_ids = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
-    let mut v_work = CoreValue::Null;
-    v_pending = chat_session_unresolved(&[v_state.clone()])?;
-    v_pending = core_truthy_value(&[v_pending.clone()])?;
-    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
-    v_continuation = core_get(
+    let mut v_pending_id = CoreValue::Null;
+    let mut v_pending_ids = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    v_running = CoreValue::new_list();
+    v_empty_pending = CoreValue::new_map();
+    v_pending = core_get(
         &v_state,
-        &CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
+        &CoreValue::from("pending"),
+        v_empty_pending.clone(),
     );
-    v_work = core_or(&[v_pending.clone(), v_native_wait.clone()])?;
-    v_work = core_or(&[v_work.clone(), v_continuation.clone()])?;
-    return Ok(v_work.clone());
+    v_pending_ids = core_map_keys(&[v_pending.clone()])?;
+    for v_pending_id in core_iter(&v_pending_ids)? {
+        let mut v_pending_id = v_pending_id;
+        v_record = core_get(&v_pending, &v_pending_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+        v_is_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+        if core_truthy(&v_is_running) {
+            core_append(&v_running, v_pending_id.clone())?;
+        }
+    }
+    v_count = core_len(&[v_running.clone()])?;
+    v_ids = core_string_join_intrinsic(&[CoreValue::from(", "), v_running.clone()])?;
+    v_no_ids = core_eq(&[v_ids.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_no_ids) {
+        v_ids = CoreValue::from("none");
+    }
+    v_message = core_string_format(&[CoreValue::from("Chat session failed: Maximum steps reached with unincorporated tool results ({}); unresolved calls: {}"), v_count.clone(), v_ids.clone()])?;
+    v_error = core_runtime_error(&[v_message.clone()])?;
+    return Ok(v_error.clone());
 }
 
 #[allow(
@@ -76103,33 +77119,6 @@ fn _date_zone_offset_millis_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn chat_session_normalize_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_normalize_call");
-    let mut v_call = core_arg(args, 0);
-    let mut v_function = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-    v_missing = core_is_none(&[v_function.clone()])?;
-    if core_truthy(&v_missing) {
-        v_call = _completion_call_to_chat_impl(&[v_call.clone()])?;
-        v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-    }
-    v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::Null);
-    v_params = core_get(&v_function, &CoreValue::from("params"), CoreValue::Null);
-    core_set(&v_call, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_call, CoreValue::from("params"), v_params.clone())?;
-    return Ok(v_call.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_named_timestamp_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_named_timestamp_impl");
     let mut v_parts = core_arg(args, 0);
@@ -76172,41 +77161,28 @@ fn _date_named_timestamp_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn chat_session_defer_final_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_defer_final_call");
+fn chat_session_final_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_final_result");
     let mut v_state = core_arg(args, 0);
-    let mut v_call = core_arg(args, 1);
-    let mut v_defer = CoreValue::Null;
+    let mut v_response = core_arg(args, 1);
+    let mut v_empty_turns = CoreValue::Null;
     let mut v_id = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_registered = CoreValue::Null;
     let mut v_result = CoreValue::Null;
-    let mut v_unresolved = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
-    v_pending = core_truthy_value(&[v_unresolved.clone()])?;
-    v_updates = core_get(
+    let mut v_turns = CoreValue::Null;
+    v_id = core_get(
         &v_state,
-        &CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
+        &CoreValue::from("response_id"),
+        CoreValue::from(""),
     );
-    v_defer = core_or(&[v_pending.clone(), v_updates.clone()])?;
-    if core_truthy(&v_defer) {
-        v_registered = chat_session_register_call(&[
-            v_state.clone(),
-            v_call.clone(),
-            CoreValue::from("blocking"),
-        ])?;
-        if core_truthy(&v_registered) {
-            v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-            v_result = CoreValue::new_map();
-            core_set(&v_result, CoreValue::from("function_id"), v_id.clone())?;
-            core_set(&v_result, CoreValue::from("result"), CoreValue::from("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."))?;
-            chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_result.clone()])?;
-        }
-        return Ok(v_registered.clone());
-    }
-    return Ok(CoreValue::Bool(false));
+    v_result = chat_session_result(&[v_response.clone(), v_id.clone()])?;
+    v_empty_turns = CoreValue::new_list();
+    v_turns = core_get(&v_state, &CoreValue::from("turns"), v_empty_turns.clone());
+    core_set(
+        &v_result,
+        CoreValue::from("__session_turns"),
+        v_turns.clone(),
+    )?;
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -76228,6 +77204,23 @@ fn _stream_field_flag_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_value = core_get(&v_target, &v_camel.clone(), v_snake_value.clone());
     v_flag = core_truthy_value(&[v_value.clone()])?;
     return Ok(v_flag.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_completion");
+    let mut v_response = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_completion = CoreValue::Null;
+    v_completion = chat_response_to_completion(&[v_response.clone()])?;
+    core_set(&v_completion, CoreValue::from("remote_id"), v_id.clone())?;
+    return Ok(v_completion.clone());
 }
 
 #[allow(
@@ -76318,47 +77311,24 @@ fn _stream_field_type_label_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn chat_session_complete_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_complete_call");
+fn chat_session_has_continuation_work(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_has_continuation_work");
     let mut v_state = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_result = core_arg(args, 2);
-    let mut v_exists = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
+    let mut v_continuation = CoreValue::Null;
+    let mut v_native_wait = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_running = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    v_terminal = core_get(
+    let mut v_work = CoreValue::Null;
+    v_pending = chat_session_unresolved(&[v_state.clone()])?;
+    v_pending = core_truthy_value(&[v_pending.clone()])?;
+    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
+    v_continuation = core_get(
         &v_state,
-        &CoreValue::from("terminal"),
+        &CoreValue::from("needs_continuation"),
         CoreValue::Bool(false),
     );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
-    v_missing = core_not(&[v_exists.clone()])?;
-    if core_truthy(&v_missing) {
-        return Err(AxError::runtime("Tool result has no registered call"));
-    }
-    v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-    v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-    v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
-    if core_truthy(&v_running) {
-        core_set(&v_record, CoreValue::from("result"), v_result.clone())?;
-        core_set(
-            &v_record,
-            CoreValue::from("status"),
-            CoreValue::from("ready"),
-        )?;
-        core_set(&v_pending, v_id.clone(), v_record.clone())?;
-        core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-        return Ok(CoreValue::Bool(true));
-    }
-    return Ok(CoreValue::Bool(false));
+    v_work = core_or(&[v_pending.clone(), v_native_wait.clone()])?;
+    v_work = core_or(&[v_work.clone(), v_continuation.clone()])?;
+    return Ok(v_work.clone());
 }
 
 #[allow(
@@ -76420,6 +77390,33 @@ fn _date_parse_range_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Err(core_as_error(&v_order_error));
     }
     return Ok(v_range_millis.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_normalize_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_normalize_call");
+    let mut v_call = core_arg(args, 0);
+    let mut v_function = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    v_missing = core_is_none(&[v_function.clone()])?;
+    if core_truthy(&v_missing) {
+        v_call = _completion_call_to_chat_impl(&[v_call.clone()])?;
+        v_function = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    }
+    v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::Null);
+    v_params = core_get(&v_function, &CoreValue::from("params"), CoreValue::Null);
+    core_set(&v_call, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_call, CoreValue::from("params"), v_params.clone())?;
+    return Ok(v_call.clone());
 }
 
 #[allow(
@@ -76594,88 +77591,41 @@ fn _build_optimizer_evidence_batch(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn chat_session_complete_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_complete_response");
+fn chat_session_defer_final_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_defer_final_call");
     let mut v_state = core_arg(args, 0);
-    let mut v_id = core_arg(args, 1);
-    let mut v_duplicate = CoreValue::Null;
-    let mut v_exhausted = CoreValue::Null;
-    let mut v_finished = CoreValue::Null;
-    let mut v_had_successor = CoreValue::Null;
-    let mut v_has_parent = CoreValue::Null;
-    let mut v_limit = CoreValue::Null;
-    let mut v_next = CoreValue::Null;
-    let mut v_parent = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_responses = CoreValue::Null;
-    let mut v_steps = CoreValue::Null;
-    let mut v_successor = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    let mut v_update_id = CoreValue::Null;
-    let mut v_update_ids = CoreValue::Null;
+    let mut v_call = core_arg(args, 1);
+    let mut v_defer = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_registered = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_unresolved = CoreValue::Null;
     let mut v_updates = CoreValue::Null;
-    v_terminal = core_get(
+    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
+    v_pending = core_truthy_value(&[v_unresolved.clone()])?;
+    v_updates = core_get(
         &v_state,
-        &CoreValue::from("terminal"),
+        &CoreValue::from("needs_continuation"),
         CoreValue::Bool(false),
     );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
-    v_duplicate = core_map_contains(&[v_responses.clone(), v_id.clone()])?;
-    if core_truthy(&v_duplicate) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_steps = core_get(&v_state, &CoreValue::from("steps"), CoreValue::Num(0f64));
-    v_limit = core_get(&v_state, &CoreValue::from("max_steps"), CoreValue::Null);
-    v_exhausted = core_gte(&[v_steps.clone(), v_limit.clone()])?;
-    if core_truthy(&v_exhausted) {
-        return Err(AxError::runtime(
-            "Maximum model steps exhausted before final completion",
-        ));
-    }
-    v_next = core_add(&[v_steps.clone(), CoreValue::Num(1f64)])?;
-    core_set(&v_responses, v_id.clone(), CoreValue::Bool(true))?;
-    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
-    core_set(&v_state, CoreValue::from("response_id"), v_id.clone())?;
-    core_set(&v_state, CoreValue::from("steps"), v_next.clone())?;
-    core_set(&v_state, CoreValue::from("boundary"), CoreValue::Bool(true))?;
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_update_ids = core_map_keys(&[v_updates.clone()])?;
-    v_had_successor = CoreValue::Bool(false);
-    for v_update_id in core_iter(&v_update_ids)? {
-        let mut v_update_id = v_update_id;
-        v_record = core_get(&v_updates, &v_update_id.clone(), CoreValue::Null);
-        v_parent = core_get(
-            &v_record,
-            &CoreValue::from("native_parent"),
-            CoreValue::Null,
-        );
-        v_has_parent = core_is_not_none(&[v_parent.clone()])?;
-        v_successor = core_ne(&[v_parent.clone(), v_id.clone()])?;
-        v_finished = core_and(&[v_has_parent.clone(), v_successor.clone()])?;
-        if core_truthy(&v_finished) {
-            v_had_successor = CoreValue::Bool(true);
-            core_set(
-                &v_record,
-                CoreValue::from("native_state"),
-                CoreValue::from("done"),
-            )?;
-            core_set(&v_updates, v_update_id.clone(), v_record.clone())?;
+    v_defer = core_or(&[v_pending.clone(), v_updates.clone()])?;
+    if core_truthy(&v_defer) {
+        v_registered = chat_session_register_call(&[
+            v_state.clone(),
+            v_call.clone(),
+            CoreValue::from("blocking"),
+        ])?;
+        if core_truthy(&v_registered) {
+            v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+            v_result = CoreValue::new_map();
+            core_set(&v_result, CoreValue::from("function_id"), v_id.clone())?;
+            core_set(&v_result, CoreValue::from("result"), CoreValue::from("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."))?;
+            chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_result.clone()])?;
         }
+        return Ok(v_registered.clone());
     }
-    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    if core_truthy(&v_had_successor) {
-        v_queued = chat_session_has_queued_updates(&[v_state.clone()])?;
-        core_set(
-            &v_state,
-            CoreValue::from("needs_continuation"),
-            v_queued.clone(),
-        )?;
-    }
-    return Ok(CoreValue::Bool(true));
+    return Ok(CoreValue::Bool(false));
 }
 
 #[allow(
@@ -76794,6 +77744,56 @@ fn _date_range_endpoints_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
+fn chat_session_complete_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_complete_call");
+    let mut v_state = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_result = core_arg(args, 2);
+    let mut v_exists = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_pending.clone(), v_id.clone()])?;
+    v_missing = core_not(&[v_exists.clone()])?;
+    if core_truthy(&v_missing) {
+        return Err(AxError::runtime("Tool result has no registered call"));
+    }
+    v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+    v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+    v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+    if core_truthy(&v_running) {
+        core_set(&v_record, CoreValue::from("result"), v_result.clone())?;
+        core_set(
+            &v_record,
+            CoreValue::from("status"),
+            CoreValue::from("ready"),
+        )?;
+        core_set(&v_pending, v_id.clone(), v_record.clone())?;
+        core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+        return Ok(CoreValue::Bool(true));
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_required_missing_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_required_missing_error_impl");
     let mut v_field = core_arg(args, 0);
@@ -76855,47 +77855,27 @@ fn _stream_url_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_has_queued_updates");
-    let mut v_state = core_arg(args, 0);
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_updates.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-        v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
-        if core_truthy(&v_queued) {
-            return Ok(CoreValue::Bool(true));
-        }
-    }
-    return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_native_update");
+fn chat_session_complete_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_complete_response");
     let mut v_state = core_arg(args, 0);
     let mut v_id = core_arg(args, 1);
-    let mut v_baseline = CoreValue::Null;
-    let mut v_empty_baseline = CoreValue::Null;
-    let mut v_native_state = CoreValue::Null;
-    let mut v_new_native = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_exhausted = CoreValue::Null;
+    let mut v_finished = CoreValue::Null;
+    let mut v_had_successor = CoreValue::Null;
+    let mut v_has_parent = CoreValue::Null;
+    let mut v_limit = CoreValue::Null;
+    let mut v_limit_error = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
     let mut v_record = CoreValue::Null;
     let mut v_responses = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_successor = CoreValue::Null;
     let mut v_terminal = CoreValue::Null;
+    let mut v_update_id = CoreValue::Null;
+    let mut v_update_ids = CoreValue::Null;
     let mut v_updates = CoreValue::Null;
     v_terminal = core_get(
         &v_state,
@@ -76905,28 +77885,58 @@ fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     if core_truthy(&v_terminal) {
         return Ok(CoreValue::Bool(false));
     }
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-    v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-    v_new_native = core_is_none(&[v_native_state.clone()])?;
-    if core_truthy(&v_new_native) {
-        core_set(
-            &v_record,
-            CoreValue::from("native_state"),
-            CoreValue::from("awaiting_ack"),
-        )?;
-        v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
-        v_empty_baseline = CoreValue::new_map();
-        v_baseline = core_map_merge(&[v_empty_baseline.clone(), v_responses.clone()])?;
-        core_set(
-            &v_record,
-            CoreValue::from("native_responses"),
-            v_baseline.clone(),
-        )?;
-        core_set(&v_updates, v_id.clone(), v_record.clone())?;
-        core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
+    v_duplicate = core_map_contains(&[v_responses.clone(), v_id.clone()])?;
+    if core_truthy(&v_duplicate) {
+        return Ok(CoreValue::Bool(false));
     }
-    return Ok(v_new_native.clone());
+    v_steps = core_get(&v_state, &CoreValue::from("steps"), CoreValue::Num(0f64));
+    v_limit = core_get(&v_state, &CoreValue::from("max_steps"), CoreValue::Null);
+    v_exhausted = core_gte(&[v_steps.clone(), v_limit.clone()])?;
+    if core_truthy(&v_exhausted) {
+        v_limit_error = chat_session_step_limit_error(&[v_state.clone()])?;
+        return Err(core_as_error(&v_limit_error));
+    }
+    v_next = core_add(&[v_steps.clone(), CoreValue::Num(1f64)])?;
+    core_set(&v_responses, v_id.clone(), CoreValue::Bool(true))?;
+    core_set(&v_state, CoreValue::from("responses"), v_responses.clone())?;
+    core_set(&v_state, CoreValue::from("response_id"), v_id.clone())?;
+    core_set(&v_state, CoreValue::from("steps"), v_next.clone())?;
+    core_set(&v_state, CoreValue::from("boundary"), CoreValue::Bool(true))?;
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_update_ids = core_map_keys(&[v_updates.clone()])?;
+    v_had_successor = CoreValue::Bool(false);
+    for v_update_id in core_iter(&v_update_ids)? {
+        let mut v_update_id = v_update_id;
+        v_record = core_get(&v_updates, &v_update_id.clone(), CoreValue::Null);
+        v_parent = core_get(
+            &v_record,
+            &CoreValue::from("native_parent"),
+            CoreValue::Null,
+        );
+        v_has_parent = core_is_not_none(&[v_parent.clone()])?;
+        v_successor = core_ne(&[v_parent.clone(), v_id.clone()])?;
+        v_finished = core_and(&[v_has_parent.clone(), v_successor.clone()])?;
+        if core_truthy(&v_finished) {
+            v_had_successor = CoreValue::Bool(true);
+            core_set(
+                &v_record,
+                CoreValue::from("native_state"),
+                CoreValue::from("done"),
+            )?;
+            core_set(&v_updates, v_update_id.clone(), v_record.clone())?;
+        }
+    }
+    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    if core_truthy(&v_had_successor) {
+        v_queued = chat_session_has_queued_updates(&[v_state.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("needs_continuation"),
+            v_queued.clone(),
+        )?;
+    }
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -77474,49 +78484,6 @@ fn _ace_estimate_token_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_native_wait(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_native_wait");
-    let mut v_state = core_arg(args, 0);
-    let mut v_has_native = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_native_state = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_successor = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    let mut v_waiting = CoreValue::Null;
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_updates.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
-        v_has_native = core_is_not_none(&[v_native_state.clone()])?;
-        if core_truthy(&v_has_native) {
-            v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-            v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
-            v_successor = core_eq(&[
-                v_native_state.clone(),
-                CoreValue::from("awaiting_successor"),
-            ])?;
-            v_waiting = core_or(&[v_queued.clone(), v_successor.clone()])?;
-            if core_truthy(&v_waiting) {
-                return Ok(CoreValue::Bool(true));
-            }
-        }
-    }
-    return Ok(CoreValue::Bool(false));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ace_recompute_playbook_stats");
     let mut v_playbook = core_arg(args, 0);
@@ -77598,6 +78565,462 @@ fn _ace_recompute_playbook_stats(args: &[CoreValue]) -> Result<CoreValue, AxErro
     )?;
     core_set(&v_playbook, CoreValue::from("stats"), v_stats.clone())?;
     return Ok(v_playbook.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_has_queued_updates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_has_queued_updates");
+    let mut v_state = core_arg(args, 0);
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_updates.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+        v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
+        if core_truthy(&v_queued) {
+            return Ok(CoreValue::Bool(true));
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _date_delimiter_split_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_date_delimiter_split_impl");
+    let mut v_text = core_arg(args, 0);
+    let mut v_after_keyword = CoreValue::Null;
+    let mut v_before = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_finished = CoreValue::Null;
+    let mut v_first_terminator = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_keyword_at = CoreValue::Null;
+    let mut v_keyword_length = CoreValue::Null;
+    let mut v_last_terminator = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_no_gap = CoreValue::Null;
+    let mut v_no_keyword = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_space = CoreValue::Null;
+    let mut v_past_terminator = CoreValue::Null;
+    let mut v_rest_at = CoreValue::Null;
+    let mut v_rest_bad = CoreValue::Null;
+    let mut v_rest_empty = CoreValue::Null;
+    let mut v_rest_from = CoreValue::Null;
+    let mut v_rest_terminator = CoreValue::Null;
+    let mut v_rest_text = CoreValue::Null;
+    let mut v_rest_trimmed = CoreValue::Null;
+    let mut v_run_start = CoreValue::Null;
+    let mut v_scanned = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_split = CoreValue::Null;
+    let mut v_start_text = CoreValue::Null;
+    let mut v_start_to = CoreValue::Null;
+    let mut v_start_trimmed = CoreValue::Null;
+    let mut v_terminator = CoreValue::Null;
+    let mut v_unit = CoreValue::Null;
+    let mut v_units = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_units = core_string_utf16_units(&[v_text.clone()])?;
+    v_count = core_len(&[v_units.clone()])?;
+    v_first_terminator = v_count.clone();
+    v_last_terminator = CoreValue::Num(-1f64);
+    v_index = CoreValue::Num(0f64);
+    loop {
+        v_scanned = core_gte(&[v_index.clone(), v_count.clone()])?;
+        if core_truthy(&v_scanned) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_index.clone(), CoreValue::Num(0f64));
+        v_terminator = _date_is_line_terminator_impl(&[v_unit.clone()])?;
+        if core_truthy(&v_terminator) {
+            v_last_terminator = v_index.clone();
+            v_before = core_lt(&[v_index.clone(), v_first_terminator.clone()])?;
+            if core_truthy(&v_before) {
+                v_first_terminator = v_index.clone();
+            }
+        }
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_cursor = CoreValue::Num(1f64);
+    loop {
+        v_finished = core_gte(&[v_cursor.clone(), v_count.clone()])?;
+        if core_truthy(&v_finished) {
+            break;
+        }
+        v_past_terminator = core_gt(&[v_cursor.clone(), v_first_terminator.clone()])?;
+        if core_truthy(&v_past_terminator) {
+            break;
+        }
+        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
+        v_space = _date_space_impl(&[v_unit.clone()])?;
+        v_not_space = core_not(&[v_space.clone()])?;
+        if core_truthy(&v_not_space) {
+            v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+            continue;
+        }
+        v_run_start = v_cursor.clone();
+        v_keyword_at =
+            _date_skip_space_impl(&[v_units.clone(), v_cursor.clone(), v_count.clone()])?;
+        v_keyword_length =
+            _date_range_keyword_impl(&[v_units.clone(), v_keyword_at.clone(), v_count.clone()])?;
+        v_cursor = v_keyword_at.clone();
+        v_no_keyword = core_eq(&[v_keyword_length.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_no_keyword) {
+            continue;
+        }
+        v_after_keyword = core_add(&[v_keyword_at.clone(), v_keyword_length.clone()])?;
+        v_rest_at =
+            _date_skip_space_impl(&[v_units.clone(), v_after_keyword.clone(), v_count.clone()])?;
+        v_no_gap = core_eq(&[v_rest_at.clone(), v_after_keyword.clone()])?;
+        if core_truthy(&v_no_gap) {
+            continue;
+        }
+        v_rest_empty = core_gte(&[v_rest_at.clone(), v_count.clone()])?;
+        v_rest_terminator = core_gte(&[v_last_terminator.clone(), v_rest_at.clone()])?;
+        v_rest_bad = core_or(&[v_rest_empty.clone(), v_rest_terminator.clone()])?;
+        if core_truthy(&v_rest_bad) {
+            continue;
+        }
+        v_mode = _date_string_mode_impl(&[])?;
+        v_start_to =
+            _date_native_offset_impl(&[v_units.clone(), v_run_start.clone(), v_mode.clone()])?;
+        v_rest_from =
+            _date_native_offset_impl(&[v_units.clone(), v_rest_at.clone(), v_mode.clone()])?;
+        v_start_text =
+            core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_start_to.clone()])?;
+        v_rest_text = core_string_slice(&[v_text.clone(), v_rest_from.clone()])?;
+        v_split = CoreValue::new_map();
+        v_start_trimmed = _date_js_trim_impl(&[v_start_text.clone()])?;
+        core_set(&v_split, CoreValue::from("start"), v_start_trimmed.clone())?;
+        v_rest_trimmed = _date_js_trim_impl(&[v_rest_text.clone()])?;
+        core_set(&v_split, CoreValue::from("end"), v_rest_trimmed.clone())?;
+        return Ok(v_split.clone());
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_native_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_native_update");
+    let mut v_state = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_baseline = CoreValue::Null;
+    let mut v_empty_baseline = CoreValue::Null;
+    let mut v_native_state = CoreValue::Null;
+    let mut v_new_native = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_responses = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+    v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+    v_new_native = core_is_none(&[v_native_state.clone()])?;
+    if core_truthy(&v_new_native) {
+        core_set(
+            &v_record,
+            CoreValue::from("native_state"),
+            CoreValue::from("awaiting_ack"),
+        )?;
+        v_responses = core_get(&v_state, &CoreValue::from("responses"), CoreValue::Null);
+        v_empty_baseline = CoreValue::new_map();
+        v_baseline = core_map_merge(&[v_empty_baseline.clone(), v_responses.clone()])?;
+        core_set(
+            &v_record,
+            CoreValue::from("native_responses"),
+            v_baseline.clone(),
+        )?;
+        core_set(&v_updates, v_id.clone(), v_record.clone())?;
+        core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    }
+    return Ok(v_new_native.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_empty_playbook");
+    let mut v_description = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_has_description = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_stats = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
+    v_sections = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("sections"), v_sections.clone())?;
+    v_stats = CoreValue::new_map();
+    core_set(
+        &v_stats,
+        CoreValue::from("bulletCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("helpfulCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("harmfulCount"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_stats,
+        CoreValue::from("tokenEstimate"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(&v_out, CoreValue::from("stats"), v_stats.clone())?;
+    core_set(&v_out, CoreValue::from("updatedAt"), v_now.clone())?;
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        core_set(
+            &v_out,
+            CoreValue::from("description"),
+            v_description.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_native_wait(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_native_wait");
+    let mut v_state = core_arg(args, 0);
+    let mut v_has_native = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_native_state = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_successor = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    let mut v_waiting = CoreValue::Null;
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_updates.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+        v_native_state = core_get(&v_record, &CoreValue::from("native_state"), CoreValue::Null);
+        v_has_native = core_is_not_none(&[v_native_state.clone()])?;
+        if core_truthy(&v_has_native) {
+            v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+            v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
+            v_successor = core_eq(&[
+                v_native_state.clone(),
+                CoreValue::from("awaiting_successor"),
+            ])?;
+            v_waiting = core_or(&[v_queued.clone(), v_successor.clone()])?;
+            if core_truthy(&v_waiting) {
+                return Ok(CoreValue::Bool(true));
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_examples");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_examples = core_arg(args, 1);
+    core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
+    return Ok(v_gen.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _ace_render_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ace_render_playbook");
+    let mut v_playbook = core_arg(args, 0);
+    let mut v_block = CoreValue::Null;
+    let mut v_block_empty = CoreValue::Null;
+    let mut v_block_with_body = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_bullet = CoreValue::Null;
+    let mut v_bullet_count = CoreValue::Null;
+    let mut v_bullet_lines = CoreValue::Null;
+    let mut v_bullets = CoreValue::Null;
+    let mut v_combined = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_playbook = CoreValue::Null;
+    let mut v_has_body = CoreValue::Null;
+    let mut v_has_bullets = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_header = CoreValue::Null;
+    let mut v_header_with_description = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_joined_sections = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_next_bullet_count = CoreValue::Null;
+    let mut v_no_bullets = CoreValue::Null;
+    let mut v_no_description = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_section_blocks = CoreValue::Null;
+    let mut v_section_bullets = CoreValue::Null;
+    let mut v_section_count = CoreValue::Null;
+    let mut v_section_name = CoreValue::Null;
+    let mut v_section_names = CoreValue::Null;
+    let mut v_sections = CoreValue::Null;
+    let mut v_trimmed_description = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_description = core_get(
+        &v_playbook,
+        &CoreValue::from("description"),
+        CoreValue::Null,
+    );
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    v_sections = core_get(
+        &v_playbook,
+        &CoreValue::from("sections"),
+        v_empty_map.clone(),
+    );
+    v_section_names = core_map_keys(&[v_sections.clone()])?;
+    v_bullet_count = CoreValue::Num(0f64);
+    for v_section_name in core_iter(&v_section_names)? {
+        let mut v_section_name = v_section_name;
+        v_section_bullets = core_get(&v_sections, &v_section_name.clone(), v_empty_list.clone());
+        v_section_count = core_len(&[v_section_bullets.clone()])?;
+        v_next_bullet_count = core_add(&[v_bullet_count.clone(), v_section_count.clone()])?;
+        v_bullet_count = v_next_bullet_count.clone();
+    }
+    v_has_bullets = core_gt(&[v_bullet_count.clone(), CoreValue::Num(0f64)])?;
+    v_no_bullets = core_not(&[v_has_bullets.clone()])?;
+    v_no_description = core_not(&[v_has_description.clone()])?;
+    v_empty_playbook = core_and(&[v_no_bullets.clone(), v_no_description.clone()])?;
+    if core_truthy(&v_empty_playbook) {
+        return Ok(CoreValue::from(""));
+    }
+    v_header = CoreValue::from("## Context Playbook\n");
+    if core_truthy(&v_has_description) {
+        v_trimmed_description = core_string_trim(&v_description);
+        v_header_with_description = core_string_format(&[
+            CoreValue::from("## Context Playbook\n{}\n"),
+            v_trimmed_description.clone(),
+        ])?;
+        v_header = v_header_with_description.clone();
+    }
+    v_section_blocks = CoreValue::new_list();
+    for v_section_name in core_iter(&v_section_names)? {
+        let mut v_section_name = v_section_name;
+        v_bullets = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
+        v_bullet_lines = CoreValue::new_list();
+        for v_bullet in core_iter(&v_bullets)? {
+            let mut v_bullet = v_bullet;
+            v_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
+            v_content = core_get(&v_bullet, &CoreValue::from("content"), CoreValue::from(""));
+            v_line = core_string_format(&[
+                CoreValue::from("- [{}] {}"),
+                v_id.clone(),
+                v_content.clone(),
+            ])?;
+            core_append(&v_bullet_lines, v_line.clone())?;
+        }
+        v_body = core_string_join(&CoreValue::from("\n"), &v_bullet_lines)?;
+        v_has_body = core_ne(&[v_body.clone(), CoreValue::from("")])?;
+        v_block = CoreValue::from("");
+        if core_truthy(&v_has_body) {
+            v_block_with_body = core_string_format(&[
+                CoreValue::from("### {}\n{}"),
+                v_section_name.clone(),
+                v_body.clone(),
+            ])?;
+            v_block = v_block_with_body.clone();
+        } else {
+            v_block_empty = core_string_format(&[
+                CoreValue::from("### {}\n_(empty)_"),
+                v_section_name.clone(),
+            ])?;
+            v_block = v_block_empty.clone();
+        }
+        core_append(&v_section_blocks, v_block.clone())?;
+    }
+    v_joined_sections = core_string_join(&CoreValue::from("\n\n"), &v_section_blocks)?;
+    v_combined = core_string_format(&[
+        CoreValue::from("{}\n{}"),
+        v_header.clone(),
+        v_joined_sections.clone(),
+    ])?;
+    v_result = core_string_trim(&v_combined);
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_set_demos");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_demos = core_arg(args, 1);
+    core_set(&v_gen, CoreValue::from("demos"), v_demos.clone())?;
+    return Ok(v_gen.clone());
 }
 
 #[allow(
@@ -77845,329 +79268,12 @@ fn chat_session_native_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _date_delimiter_split_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_date_delimiter_split_impl");
-    let mut v_text = core_arg(args, 0);
-    let mut v_after_keyword = CoreValue::Null;
-    let mut v_before = CoreValue::Null;
-    let mut v_count = CoreValue::Null;
-    let mut v_cursor = CoreValue::Null;
-    let mut v_finished = CoreValue::Null;
-    let mut v_first_terminator = CoreValue::Null;
-    let mut v_index = CoreValue::Null;
-    let mut v_keyword_at = CoreValue::Null;
-    let mut v_keyword_length = CoreValue::Null;
-    let mut v_last_terminator = CoreValue::Null;
-    let mut v_mode = CoreValue::Null;
-    let mut v_no_gap = CoreValue::Null;
-    let mut v_no_keyword = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    let mut v_not_space = CoreValue::Null;
-    let mut v_past_terminator = CoreValue::Null;
-    let mut v_rest_at = CoreValue::Null;
-    let mut v_rest_bad = CoreValue::Null;
-    let mut v_rest_empty = CoreValue::Null;
-    let mut v_rest_from = CoreValue::Null;
-    let mut v_rest_terminator = CoreValue::Null;
-    let mut v_rest_text = CoreValue::Null;
-    let mut v_rest_trimmed = CoreValue::Null;
-    let mut v_run_start = CoreValue::Null;
-    let mut v_scanned = CoreValue::Null;
-    let mut v_space = CoreValue::Null;
-    let mut v_split = CoreValue::Null;
-    let mut v_start_text = CoreValue::Null;
-    let mut v_start_to = CoreValue::Null;
-    let mut v_start_trimmed = CoreValue::Null;
-    let mut v_terminator = CoreValue::Null;
-    let mut v_unit = CoreValue::Null;
-    let mut v_units = CoreValue::Null;
-    v_none = core_none(&[])?;
-    v_units = core_string_utf16_units(&[v_text.clone()])?;
-    v_count = core_len(&[v_units.clone()])?;
-    v_first_terminator = v_count.clone();
-    v_last_terminator = CoreValue::Num(-1f64);
-    v_index = CoreValue::Num(0f64);
-    loop {
-        v_scanned = core_gte(&[v_index.clone(), v_count.clone()])?;
-        if core_truthy(&v_scanned) {
-            break;
-        }
-        v_unit = core_get(&v_units, &v_index.clone(), CoreValue::Num(0f64));
-        v_terminator = _date_is_line_terminator_impl(&[v_unit.clone()])?;
-        if core_truthy(&v_terminator) {
-            v_last_terminator = v_index.clone();
-            v_before = core_lt(&[v_index.clone(), v_first_terminator.clone()])?;
-            if core_truthy(&v_before) {
-                v_first_terminator = v_index.clone();
-            }
-        }
-        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
-    }
-    v_cursor = CoreValue::Num(1f64);
-    loop {
-        v_finished = core_gte(&[v_cursor.clone(), v_count.clone()])?;
-        if core_truthy(&v_finished) {
-            break;
-        }
-        v_past_terminator = core_gt(&[v_cursor.clone(), v_first_terminator.clone()])?;
-        if core_truthy(&v_past_terminator) {
-            break;
-        }
-        v_unit = core_get(&v_units, &v_cursor.clone(), CoreValue::Num(0f64));
-        v_space = _date_space_impl(&[v_unit.clone()])?;
-        v_not_space = core_not(&[v_space.clone()])?;
-        if core_truthy(&v_not_space) {
-            v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
-            continue;
-        }
-        v_run_start = v_cursor.clone();
-        v_keyword_at =
-            _date_skip_space_impl(&[v_units.clone(), v_cursor.clone(), v_count.clone()])?;
-        v_keyword_length =
-            _date_range_keyword_impl(&[v_units.clone(), v_keyword_at.clone(), v_count.clone()])?;
-        v_cursor = v_keyword_at.clone();
-        v_no_keyword = core_eq(&[v_keyword_length.clone(), CoreValue::Num(0f64)])?;
-        if core_truthy(&v_no_keyword) {
-            continue;
-        }
-        v_after_keyword = core_add(&[v_keyword_at.clone(), v_keyword_length.clone()])?;
-        v_rest_at =
-            _date_skip_space_impl(&[v_units.clone(), v_after_keyword.clone(), v_count.clone()])?;
-        v_no_gap = core_eq(&[v_rest_at.clone(), v_after_keyword.clone()])?;
-        if core_truthy(&v_no_gap) {
-            continue;
-        }
-        v_rest_empty = core_gte(&[v_rest_at.clone(), v_count.clone()])?;
-        v_rest_terminator = core_gte(&[v_last_terminator.clone(), v_rest_at.clone()])?;
-        v_rest_bad = core_or(&[v_rest_empty.clone(), v_rest_terminator.clone()])?;
-        if core_truthy(&v_rest_bad) {
-            continue;
-        }
-        v_mode = _date_string_mode_impl(&[])?;
-        v_start_to =
-            _date_native_offset_impl(&[v_units.clone(), v_run_start.clone(), v_mode.clone()])?;
-        v_rest_from =
-            _date_native_offset_impl(&[v_units.clone(), v_rest_at.clone(), v_mode.clone()])?;
-        v_start_text =
-            core_string_slice(&[v_text.clone(), CoreValue::Num(0f64), v_start_to.clone()])?;
-        v_rest_text = core_string_slice(&[v_text.clone(), v_rest_from.clone()])?;
-        v_split = CoreValue::new_map();
-        v_start_trimmed = _date_js_trim_impl(&[v_start_text.clone()])?;
-        core_set(&v_split, CoreValue::from("start"), v_start_trimmed.clone())?;
-        v_rest_trimmed = _date_js_trim_impl(&[v_rest_text.clone()])?;
-        core_set(&v_split, CoreValue::from("end"), v_rest_trimmed.clone())?;
-        return Ok(v_split.clone());
-    }
-    return Ok(v_none.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _ace_empty_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_ace_empty_playbook");
-    let mut v_description = core_arg(args, 0);
-    let mut v_now = core_arg(args, 1);
-    let mut v_has_description = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_sections = CoreValue::Null;
-    let mut v_stats = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
-    v_sections = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("sections"), v_sections.clone())?;
-    v_stats = CoreValue::new_map();
-    core_set(
-        &v_stats,
-        CoreValue::from("bulletCount"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(
-        &v_stats,
-        CoreValue::from("helpfulCount"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(
-        &v_stats,
-        CoreValue::from("harmfulCount"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(
-        &v_stats,
-        CoreValue::from("tokenEstimate"),
-        CoreValue::Num(0f64),
-    )?;
-    core_set(&v_out, CoreValue::from("stats"), v_stats.clone())?;
-    core_set(&v_out, CoreValue::from("updatedAt"), v_now.clone())?;
-    v_has_description = core_truthy_value(&[v_description.clone()])?;
-    if core_truthy(&v_has_description) {
-        core_set(
-            &v_out,
-            CoreValue::from("description"),
-            v_description.clone(),
-        )?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _set_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_set_examples");
+fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_examples");
     let mut v_gen = core_arg(args, 0);
-    let mut v_examples = core_arg(args, 1);
-    core_set(&v_gen, CoreValue::from("examples"), v_examples.clone())?;
-    return Ok(v_gen.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _ace_render_playbook(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_ace_render_playbook");
-    let mut v_playbook = core_arg(args, 0);
-    let mut v_block = CoreValue::Null;
-    let mut v_block_empty = CoreValue::Null;
-    let mut v_block_with_body = CoreValue::Null;
-    let mut v_body = CoreValue::Null;
-    let mut v_bullet = CoreValue::Null;
-    let mut v_bullet_count = CoreValue::Null;
-    let mut v_bullet_lines = CoreValue::Null;
-    let mut v_bullets = CoreValue::Null;
-    let mut v_combined = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_description = CoreValue::Null;
-    let mut v_empty_list = CoreValue::Null;
-    let mut v_empty_map = CoreValue::Null;
-    let mut v_empty_playbook = CoreValue::Null;
-    let mut v_has_body = CoreValue::Null;
-    let mut v_has_bullets = CoreValue::Null;
-    let mut v_has_description = CoreValue::Null;
-    let mut v_header = CoreValue::Null;
-    let mut v_header_with_description = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_joined_sections = CoreValue::Null;
-    let mut v_line = CoreValue::Null;
-    let mut v_next_bullet_count = CoreValue::Null;
-    let mut v_no_bullets = CoreValue::Null;
-    let mut v_no_description = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_section_blocks = CoreValue::Null;
-    let mut v_section_bullets = CoreValue::Null;
-    let mut v_section_count = CoreValue::Null;
-    let mut v_section_name = CoreValue::Null;
-    let mut v_section_names = CoreValue::Null;
-    let mut v_sections = CoreValue::Null;
-    let mut v_trimmed_description = CoreValue::Null;
-    v_empty_map = CoreValue::new_map();
-    v_empty_list = CoreValue::new_list();
-    v_description = core_get(
-        &v_playbook,
-        &CoreValue::from("description"),
-        CoreValue::Null,
-    );
-    v_has_description = core_truthy_value(&[v_description.clone()])?;
-    v_sections = core_get(
-        &v_playbook,
-        &CoreValue::from("sections"),
-        v_empty_map.clone(),
-    );
-    v_section_names = core_map_keys(&[v_sections.clone()])?;
-    v_bullet_count = CoreValue::Num(0f64);
-    for v_section_name in core_iter(&v_section_names)? {
-        let mut v_section_name = v_section_name;
-        v_section_bullets = core_get(&v_sections, &v_section_name.clone(), v_empty_list.clone());
-        v_section_count = core_len(&[v_section_bullets.clone()])?;
-        v_next_bullet_count = core_add(&[v_bullet_count.clone(), v_section_count.clone()])?;
-        v_bullet_count = v_next_bullet_count.clone();
-    }
-    v_has_bullets = core_gt(&[v_bullet_count.clone(), CoreValue::Num(0f64)])?;
-    v_no_bullets = core_not(&[v_has_bullets.clone()])?;
-    v_no_description = core_not(&[v_has_description.clone()])?;
-    v_empty_playbook = core_and(&[v_no_bullets.clone(), v_no_description.clone()])?;
-    if core_truthy(&v_empty_playbook) {
-        return Ok(CoreValue::from(""));
-    }
-    v_header = CoreValue::from("## Context Playbook\n");
-    if core_truthy(&v_has_description) {
-        v_trimmed_description = core_string_trim(&v_description);
-        v_header_with_description = core_string_format(&[
-            CoreValue::from("## Context Playbook\n{}\n"),
-            v_trimmed_description.clone(),
-        ])?;
-        v_header = v_header_with_description.clone();
-    }
-    v_section_blocks = CoreValue::new_list();
-    for v_section_name in core_iter(&v_section_names)? {
-        let mut v_section_name = v_section_name;
-        v_bullets = core_get(&v_sections, &v_section_name.clone(), CoreValue::Null);
-        v_bullet_lines = CoreValue::new_list();
-        for v_bullet in core_iter(&v_bullets)? {
-            let mut v_bullet = v_bullet;
-            v_id = core_get(&v_bullet, &CoreValue::from("id"), CoreValue::from(""));
-            v_content = core_get(&v_bullet, &CoreValue::from("content"), CoreValue::from(""));
-            v_line = core_string_format(&[
-                CoreValue::from("- [{}] {}"),
-                v_id.clone(),
-                v_content.clone(),
-            ])?;
-            core_append(&v_bullet_lines, v_line.clone())?;
-        }
-        v_body = core_string_join(&CoreValue::from("\n"), &v_bullet_lines)?;
-        v_has_body = core_ne(&[v_body.clone(), CoreValue::from("")])?;
-        v_block = CoreValue::from("");
-        if core_truthy(&v_has_body) {
-            v_block_with_body = core_string_format(&[
-                CoreValue::from("### {}\n{}"),
-                v_section_name.clone(),
-                v_body.clone(),
-            ])?;
-            v_block = v_block_with_body.clone();
-        } else {
-            v_block_empty = core_string_format(&[
-                CoreValue::from("### {}\n_(empty)_"),
-                v_section_name.clone(),
-            ])?;
-            v_block = v_block_empty.clone();
-        }
-        core_append(&v_section_blocks, v_block.clone())?;
-    }
-    v_joined_sections = core_string_join(&CoreValue::from("\n\n"), &v_section_blocks)?;
-    v_combined = core_string_format(&[
-        CoreValue::from("{}\n{}"),
-        v_header.clone(),
-        v_joined_sections.clone(),
-    ])?;
-    v_result = core_string_trim(&v_combined);
-    return Ok(v_result.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _set_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_set_demos");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_demos = core_arg(args, 1);
-    core_set(&v_gen, CoreValue::from("demos"), v_demos.clone())?;
-    return Ok(v_gen.clone());
+    let mut v_messages = CoreValue::Null;
+    v_messages = core_axgen_render_examples(&[v_gen.clone()])?;
+    return Ok(v_messages.clone());
 }
 
 #[allow(
@@ -78334,11 +79440,11 @@ fn _stream_convert_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_render_examples");
+fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_render_demos");
     let mut v_gen = core_arg(args, 0);
     let mut v_messages = CoreValue::Null;
-    v_messages = core_axgen_render_examples(&[v_gen.clone()])?;
+    v_messages = core_axgen_render_demos(&[v_gen.clone()])?;
     return Ok(v_messages.clone());
 }
 
@@ -78349,12 +79455,13 @@ fn _render_examples(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _render_demos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_render_demos");
+fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_apply_field_processors");
     let mut v_gen = core_arg(args, 0);
-    let mut v_messages = CoreValue::Null;
-    v_messages = core_axgen_render_demos(&[v_gen.clone()])?;
-    return Ok(v_messages.clone());
+    let mut v_output = core_arg(args, 1);
+    let mut v_processed = CoreValue::Null;
+    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
+    return Ok(v_processed.clone());
 }
 
 #[allow(
@@ -78436,22 +79543,6 @@ fn _date_range_keyword_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(CoreValue::Num(0f64));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _apply_field_processors(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_apply_field_processors");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_output = core_arg(args, 1);
-    let mut v_processed = CoreValue::Null;
-    v_processed = core_axgen_apply_field_processors(&[v_gen.clone(), v_output.clone()])?;
-    return Ok(v_processed.clone());
 }
 
 #[allow(
@@ -78605,123 +79696,6 @@ fn _ace_update_bullet_feedback(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
-fn chat_session_boundary_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_boundary_action");
-    let mut v_state = core_arg(args, 0);
-    let mut v_action = CoreValue::Null;
-    let mut v_active = CoreValue::Null;
-    let mut v_blocking = CoreValue::Null;
-    let mut v_boundary = CoreValue::Null;
-    let mut v_execution = CoreValue::Null;
-    let mut v_has_results = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_is_blocking = CoreValue::Null;
-    let mut v_is_running = CoreValue::Null;
-    let mut v_native_wait = CoreValue::Null;
-    let mut v_needs_continuation = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_ready = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_results = CoreValue::Null;
-    let mut v_running = CoreValue::Null;
-    let mut v_running_barrier = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    v_action = CoreValue::new_map();
-    core_set(&v_action, CoreValue::from("type"), CoreValue::from("wait"))?;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("closed"),
-        )?;
-        return Ok(v_action.clone());
-    }
-    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
-    if core_truthy(&v_native_wait) {
-        return Ok(v_action.clone());
-    }
-    v_boundary = core_get(
-        &v_state,
-        &CoreValue::from("boundary"),
-        CoreValue::Bool(false),
-    );
-    v_active = core_not(&[v_boundary.clone()])?;
-    if core_truthy(&v_active) {
-        return Ok(v_action.clone());
-    }
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_pending.clone()])?;
-    v_results = CoreValue::new_list();
-    v_running = CoreValue::Bool(false);
-    v_blocking = CoreValue::Bool(false);
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-        v_is_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
-        v_execution = core_get(&v_record, &CoreValue::from("execution"), CoreValue::Null);
-        v_is_blocking = core_eq(&[v_execution.clone(), CoreValue::from("blocking")])?;
-        v_running_barrier = core_and(&[v_is_running.clone(), v_is_blocking.clone()])?;
-        v_blocking = core_or(&[v_blocking.clone(), v_running_barrier.clone()])?;
-        v_running = core_or(&[v_running.clone(), v_is_running.clone()])?;
-        v_ready = core_eq(&[v_status.clone(), CoreValue::from("ready")])?;
-        if core_truthy(&v_ready) {
-            v_result = core_get(&v_record, &CoreValue::from("result"), CoreValue::Null);
-            core_append(&v_results, v_result.clone())?;
-        }
-    }
-    if core_truthy(&v_blocking) {
-        return Ok(v_action.clone());
-    }
-    v_has_results = core_truthy_value(&[v_results.clone()])?;
-    if core_truthy(&v_has_results) {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("submit"),
-        )?;
-        core_set(&v_action, CoreValue::from("results"), v_results.clone())?;
-        return Ok(v_action.clone());
-    }
-    if core_truthy(&v_running) {
-        return Ok(v_action.clone());
-    }
-    v_needs_continuation = core_get(
-        &v_state,
-        &CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_needs_continuation) {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("continue"),
-        )?;
-    } else {
-        core_set(
-            &v_action,
-            CoreValue::from("type"),
-            CoreValue::from("validate"),
-        )?;
-    }
-    return Ok(v_action.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _regex_alternative(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_alternative");
     let mut v_s = core_arg(args, 0);
@@ -78796,6 +79770,27 @@ fn _regex_alternative(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_append_assertion_retry_messages");
+    let mut v_messages = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_error = core_arg(args, 2);
+    let mut v_updated_messages = CoreValue::Null;
+    v_updated_messages = _append_validation_retry_messages_impl(&[
+        v_messages.clone(),
+        v_response.clone(),
+        v_error.clone(),
+    ])?;
+    return Ok(v_updated_messages.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_strip_code_fence_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_strip_code_fence_impl");
     let mut v_value = core_arg(args, 0);
@@ -78849,27 +79844,6 @@ fn _date_strip_code_fence_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_inner = core_string_slice(&[v_text.clone(), v_slice_from.clone(), v_slice_to.clone()])?;
     v_stripped = _date_js_trim_impl(&[v_inner.clone()])?;
     return Ok(v_stripped.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _append_assertion_retry_messages(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_append_assertion_retry_messages");
-    let mut v_messages = core_arg(args, 0);
-    let mut v_response = core_arg(args, 1);
-    let mut v_error = core_arg(args, 2);
-    let mut v_updated_messages = CoreValue::Null;
-    v_updated_messages = _append_validation_retry_messages_impl(&[
-        v_messages.clone(),
-        v_response.clone(),
-        v_error.clone(),
-    ])?;
-    return Ok(v_updated_messages.clone());
 }
 
 #[allow(
@@ -79441,36 +80415,131 @@ fn _stream_field_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_session_mark_submitted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_mark_submitted");
+fn chat_session_boundary_action(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_boundary_action");
     let mut v_state = core_arg(args, 0);
-    let mut v_ids = core_arg(args, 1);
+    let mut v_action = CoreValue::Null;
+    let mut v_active = CoreValue::Null;
+    let mut v_blocking = CoreValue::Null;
+    let mut v_boundary = CoreValue::Null;
+    let mut v_execution = CoreValue::Null;
+    let mut v_has_results = CoreValue::Null;
     let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_is_blocking = CoreValue::Null;
+    let mut v_is_running = CoreValue::Null;
+    let mut v_native_wait = CoreValue::Null;
+    let mut v_needs_continuation = CoreValue::Null;
     let mut v_pending = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
     let mut v_record = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
+    let mut v_running_barrier = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_action = CoreValue::new_map();
+    core_set(&v_action, CoreValue::from("type"), CoreValue::from("wait"))?;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("closed"),
+        )?;
+        return Ok(v_action.clone());
+    }
+    v_native_wait = chat_session_native_wait(&[v_state.clone()])?;
+    if core_truthy(&v_native_wait) {
+        return Ok(v_action.clone());
+    }
+    v_boundary = core_get(
+        &v_state,
+        &CoreValue::from("boundary"),
+        CoreValue::Bool(false),
+    );
+    v_active = core_not(&[v_boundary.clone()])?;
+    if core_truthy(&v_active) {
+        return Ok(v_action.clone());
+    }
     v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_pending.clone()])?;
+    v_results = CoreValue::new_list();
+    v_running = CoreValue::Bool(false);
+    v_blocking = CoreValue::Bool(false);
     for v_id in core_iter(&v_ids)? {
         let mut v_id = v_id;
         v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        core_set(
-            &v_record,
-            CoreValue::from("status"),
-            CoreValue::from("sent"),
-        )?;
-        core_set(&v_pending, v_id.clone(), v_record.clone())?;
+        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+        v_is_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+        v_execution = core_get(&v_record, &CoreValue::from("execution"), CoreValue::Null);
+        v_is_blocking = core_eq(&[v_execution.clone(), CoreValue::from("blocking")])?;
+        v_running_barrier = core_and(&[v_is_running.clone(), v_is_blocking.clone()])?;
+        v_blocking = core_or(&[v_blocking.clone(), v_running_barrier.clone()])?;
+        v_running = core_or(&[v_running.clone(), v_is_running.clone()])?;
+        v_ready = core_eq(&[v_status.clone(), CoreValue::from("ready")])?;
+        if core_truthy(&v_ready) {
+            v_result = core_get(&v_record, &CoreValue::from("result"), CoreValue::Null);
+            core_append(&v_results, v_result.clone())?;
+        }
     }
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    core_set(
+    if core_truthy(&v_blocking) {
+        return Ok(v_action.clone());
+    }
+    v_has_results = core_truthy_value(&[v_results.clone()])?;
+    if core_truthy(&v_has_results) {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("submit"),
+        )?;
+        core_set(&v_action, CoreValue::from("results"), v_results.clone())?;
+        return Ok(v_action.clone());
+    }
+    if core_truthy(&v_running) {
+        return Ok(v_action.clone());
+    }
+    v_needs_continuation = core_get(
         &v_state,
-        CoreValue::from("boundary"),
+        &CoreValue::from("needs_continuation"),
         CoreValue::Bool(false),
-    )?;
-    core_set(
-        &v_state,
-        CoreValue::from("needs_continuation"),
-        CoreValue::Bool(false),
-    )?;
-    return Ok(CoreValue::Null);
+    );
+    if core_truthy(&v_needs_continuation) {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("continue"),
+        )?;
+    } else {
+        core_set(
+            &v_action,
+            CoreValue::from("type"),
+            CoreValue::from("validate"),
+        )?;
+    }
+    return Ok(v_action.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_output_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_output = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = core_string_trim(&v_content);
+    v_output = core_json_parse_strict(&[v_text.clone()])?;
+    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -79506,76 +80575,29 @@ fn _date_string_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_output_impl");
-    let mut v_content = core_arg(args, 0);
-    let mut v_output = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    v_text = core_string_trim(&v_content);
-    v_output = core_json_parse_strict(&[v_text.clone()])?;
-    return Ok(v_output.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_queue_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_queue_update");
-    let mut v_state = core_arg(args, 0);
-    let mut v_update = core_arg(args, 1);
-    let mut v_exists = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_path = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_target = CoreValue::Null;
-    let mut v_terminal = CoreValue::Null;
-    let mut v_unmatched = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    v_terminal = core_get(
-        &v_state,
-        &CoreValue::from("terminal"),
-        CoreValue::Bool(false),
-    );
-    if core_truthy(&v_terminal) {
-        return Ok(CoreValue::Bool(false));
+fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_is_flexible_json_field");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_fields = CoreValue::Null;
+    let mut v_flexible = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_no_fields = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
+    v_no_fields = core_not(&[v_has_fields.clone()])?;
+    v_flexible = v_is_json.clone();
+    if core_truthy(&v_is_object) {
+        if core_truthy(&v_no_fields) {
+            v_flexible = CoreValue::Bool(true);
+        }
     }
-    v_target = core_get(
-        &v_update,
-        &CoreValue::from("target"),
-        CoreValue::from("root"),
-    );
-    v_path = core_get(&v_state, &CoreValue::from("path"), CoreValue::Null);
-    v_matches = chat_session_target_matches(&[v_target.clone(), v_path.clone()])?;
-    v_unmatched = core_not(&[v_matches.clone()])?;
-    if core_truthy(&v_unmatched) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_id = core_get(&v_update, &CoreValue::from("id"), CoreValue::Null);
-    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
-    v_exists = core_map_contains(&[v_updates.clone(), v_id.clone()])?;
-    if core_truthy(&v_exists) {
-        return Ok(CoreValue::Bool(false));
-    }
-    v_record = CoreValue::new_map();
-    core_set(&v_record, CoreValue::from("update"), v_update.clone())?;
-    core_set(
-        &v_record,
-        CoreValue::from("status"),
-        CoreValue::from("queued"),
-    )?;
-    core_set(&v_updates, v_id.clone(), v_record.clone())?;
-    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
-    core_set(
-        &v_state,
-        CoreValue::from("needs_continuation"),
-        CoreValue::Bool(true),
-    )?;
-    return Ok(CoreValue::Bool(true));
+    return Ok(v_flexible.clone());
 }
 
 #[allow(
@@ -79723,38 +80745,6 @@ fn _ace_prune_section_for_addition(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn _is_flexible_json_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_is_flexible_json_field");
-    let mut v_typ = core_arg(args, 0);
-    let mut v_fields = CoreValue::Null;
-    let mut v_flexible = CoreValue::Null;
-    let mut v_has_fields = CoreValue::Null;
-    let mut v_is_json = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_no_fields = CoreValue::Null;
-    let mut v_type_name = CoreValue::Null;
-    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
-    v_is_json = core_eq(&[v_type_name.clone(), CoreValue::from("json")])?;
-    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
-    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
-    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
-    v_no_fields = core_not(&[v_has_fields.clone()])?;
-    v_flexible = v_is_json.clone();
-    if core_truthy(&v_is_object) {
-        if core_truthy(&v_no_fields) {
-            v_flexible = CoreValue::Bool(true);
-        }
-    }
-    return Ok(v_flexible.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_native_offset_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_native_offset_impl");
     let mut v_units = core_arg(args, 0);
@@ -79824,6 +80814,45 @@ fn _date_native_offset_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_cursor = core_add(&[v_cursor.clone(), v_step.clone()])?;
     }
     return Ok(v_offset.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_json_string_value");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_string = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_value.clone());
+    }
+    v_result = v_value.clone();
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_parsed = core_json_parse(&[v_value.clone()])?;
+        v_result = v_parsed.clone();
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_result = v_value.clone();
+        }
+    }
+    return Ok(v_result.clone());
 }
 
 #[allow(
@@ -79955,102 +80984,6 @@ fn _regex_space(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_json_string_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_json_string_value");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_string = CoreValue::Null;
-    let mut v_not_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
-    v_not_string = core_not(&[v_is_string.clone()])?;
-    if core_truthy(&v_not_string) {
-        return Ok(v_value.clone());
-    }
-    v_result = v_value.clone();
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_parsed = core_json_parse(&[v_value.clone()])?;
-        v_result = v_parsed.clone();
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_result = v_value.clone();
-        }
-    }
-    return Ok(v_result.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_record_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_record_unresolved");
-    let mut v_gen = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_call = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_needed = CoreValue::Null;
-    let mut v_not_recorded = CoreValue::Null;
-    let mut v_pending = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_recorded = CoreValue::Null;
-    let mut v_running = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
-    v_ids = core_map_keys(&[v_pending.clone()])?;
-    for v_id in core_iter(&v_ids)? {
-        let mut v_id = v_id;
-        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
-        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
-        v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
-        v_recorded = core_get(
-            &v_record,
-            &CoreValue::from("diagnostic_recorded"),
-            CoreValue::Bool(false),
-        );
-        v_not_recorded = core_not(&[v_recorded.clone()])?;
-        v_needed = core_and(&[v_running.clone(), v_not_recorded.clone()])?;
-        if core_truthy(&v_needed) {
-            v_call = core_get(&v_record, &CoreValue::from("call"), CoreValue::Null);
-            v_message = CoreValue::from("Run closed before the started tool settled; its external effects may still complete");
-            core_axgen_record_function_call(&[
-                v_gen.clone(),
-                v_call.clone(),
-                v_message.clone(),
-                CoreValue::from("unresolved"),
-            ])?;
-            core_set(
-                &v_record,
-                CoreValue::from("diagnostic_recorded"),
-                CoreValue::Bool(true),
-            )?;
-            core_set(&v_pending, v_id.clone(), v_record.clone())?;
-        }
-    }
-    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
-    return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _parse_json_string_for_field(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_parse_json_string_for_field");
     let mut v_field = core_arg(args, 0);
@@ -80137,13 +81070,98 @@ fn _parse_json_string_for_field(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_close_state");
+fn chat_session_mark_submitted(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_mark_submitted");
     let mut v_state = core_arg(args, 0);
-    let mut v_unresolved = CoreValue::Null;
-    core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
-    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
-    return Ok(v_unresolved.clone());
+    let mut v_ids = core_arg(args, 1);
+    let mut v_id = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        core_set(
+            &v_record,
+            CoreValue::from("status"),
+            CoreValue::from("sent"),
+        )?;
+        core_set(&v_pending, v_id.clone(), v_record.clone())?;
+    }
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("boundary"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("needs_continuation"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_queue_update(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_queue_update");
+    let mut v_state = core_arg(args, 0);
+    let mut v_update = core_arg(args, 1);
+    let mut v_exists = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    let mut v_unmatched = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    v_terminal = core_get(
+        &v_state,
+        &CoreValue::from("terminal"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_terminal) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_target = core_get(
+        &v_update,
+        &CoreValue::from("target"),
+        CoreValue::from("root"),
+    );
+    v_path = core_get(&v_state, &CoreValue::from("path"), CoreValue::Null);
+    v_matches = chat_session_target_matches(&[v_target.clone(), v_path.clone()])?;
+    v_unmatched = core_not(&[v_matches.clone()])?;
+    if core_truthy(&v_unmatched) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_id = core_get(&v_update, &CoreValue::from("id"), CoreValue::Null);
+    v_updates = core_get(&v_state, &CoreValue::from("updates"), CoreValue::Null);
+    v_exists = core_map_contains(&[v_updates.clone(), v_id.clone()])?;
+    if core_truthy(&v_exists) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_record = CoreValue::new_map();
+    core_set(&v_record, CoreValue::from("update"), v_update.clone())?;
+    core_set(
+        &v_record,
+        CoreValue::from("status"),
+        CoreValue::from("queued"),
+    )?;
+    core_set(&v_updates, v_id.clone(), v_record.clone())?;
+    core_set(&v_state, CoreValue::from("updates"), v_updates.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("needs_continuation"),
+        CoreValue::Bool(true),
+    )?;
+    return Ok(CoreValue::Bool(true));
 }
 
 #[allow(
@@ -80175,222 +81193,6 @@ fn _date_js_trim_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_slice_to = _date_native_offset_impl(&[v_units.clone(), v_end.clone(), v_mode.clone()])?;
     v_trimmed = core_string_slice(&[v_text.clone(), v_slice_from.clone(), v_slice_to.clone()])?;
     return Ok(v_trimmed.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn chat_session_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_session_transition");
-    let mut v_state = core_arg(args, 0);
-    let mut v_event = core_arg(args, 1);
-    let mut v_action = CoreValue::Null;
-    let mut v_action_type = CoreValue::Null;
-    let mut v_applied = CoreValue::Null;
-    let mut v_call = CoreValue::Null;
-    let mut v_change = CoreValue::Null;
-    let mut v_changed = CoreValue::Null;
-    let mut v_closed = CoreValue::Null;
-    let mut v_execution = CoreValue::Null;
-    let mut v_exists = CoreValue::Null;
-    let mut v_final_call = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_ids = CoreValue::Null;
-    let mut v_item = CoreValue::Null;
-    let mut v_kind = CoreValue::Null;
-    let mut v_native_queued = CoreValue::Null;
-    let mut v_next_version = CoreValue::Null;
-    let mut v_not_ready = CoreValue::Null;
-    let mut v_queued = CoreValue::Null;
-    let mut v_ready = CoreValue::Null;
-    let mut v_record = CoreValue::Null;
-    let mut v_response = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_status = CoreValue::Null;
-    let mut v_steer = CoreValue::Null;
-    let mut v_steering = CoreValue::Null;
-    let mut v_submitted = CoreValue::Null;
-    let mut v_tool_call = CoreValue::Null;
-    let mut v_type = CoreValue::Null;
-    let mut v_update = CoreValue::Null;
-    let mut v_updates = CoreValue::Null;
-    let mut v_validated = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_version = CoreValue::Null;
-    v_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::Null);
-    v_call = core_eq(&[v_type.clone(), CoreValue::from("tool.validated")])?;
-    v_result = core_eq(&[v_type.clone(), CoreValue::from("tool.result")])?;
-    v_response = core_eq(&[v_type.clone(), CoreValue::from("response.completed")])?;
-    v_update = core_eq(&[v_type.clone(), CoreValue::from("update.queued")])?;
-    v_submitted = core_eq(&[v_type.clone(), CoreValue::from("results.submitted")])?;
-    v_closed = core_eq(&[v_type.clone(), CoreValue::from("closed")])?;
-    v_validated = core_eq(&[v_type.clone(), CoreValue::from("validated")])?;
-    v_applied = core_eq(&[v_type.clone(), CoreValue::from("update.applied")])?;
-    v_changed = CoreValue::Bool(false);
-    v_native_queued = core_eq(&[v_type.clone(), CoreValue::from("native.queued")])?;
-    if core_truthy(&v_native_queued) {
-        v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-        v_changed = chat_session_native_update(&[v_state.clone(), v_id.clone()])?;
-        v_action = chat_session_boundary_action(&[v_state.clone()])?;
-        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
-        return Ok(v_action.clone());
-    }
-    v_steering = core_eq(&[v_type.clone(), CoreValue::from("steering")])?;
-    if core_truthy(&v_steering) {
-        v_change = chat_session_native_event(&[v_state.clone(), v_event.clone()])?;
-        v_action = chat_session_boundary_action(&[v_state.clone()])?;
-        v_action = core_map_merge(&[v_action.clone(), v_change.clone()])?;
-        return Ok(v_action.clone());
-    }
-    v_final_call = core_eq(&[v_type.clone(), CoreValue::from("tool.final")])?;
-    if core_truthy(&v_final_call) {
-        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
-        v_changed = chat_session_defer_final_call(&[v_state.clone(), v_tool_call.clone()])?;
-        v_action = chat_session_boundary_action(&[v_state.clone()])?;
-        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
-        return Ok(v_action.clone());
-    }
-    if core_truthy(&v_call) {
-        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
-        v_execution = core_get(
-            &v_event,
-            &CoreValue::from("execution"),
-            CoreValue::from("blocking"),
-        );
-        v_changed = chat_session_register_call(&[
-            v_state.clone(),
-            v_tool_call.clone(),
-            v_execution.clone(),
-        ])?;
-    } else {
-        if core_truthy(&v_result) {
-            v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-            v_value = core_get(&v_event, &CoreValue::from("result"), CoreValue::Null);
-            v_changed =
-                chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_value.clone()])?;
-        } else {
-            if core_truthy(&v_response) {
-                v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-                v_changed = chat_session_complete_response(&[v_state.clone(), v_id.clone()])?;
-            } else {
-                if core_truthy(&v_update) {
-                    v_item = core_get(&v_event, &CoreValue::from("update"), CoreValue::Null);
-                    v_changed = chat_session_queue_update(&[v_state.clone(), v_item.clone()])?;
-                } else {
-                    if core_truthy(&v_submitted) {
-                        v_ids = core_get(&v_event, &CoreValue::from("ids"), CoreValue::Null);
-                        chat_session_mark_submitted(&[v_state.clone(), v_ids.clone()])?;
-                        v_changed = CoreValue::Bool(true);
-                    } else {
-                        if core_truthy(&v_closed) {
-                            chat_session_close_state(&[v_state.clone()])?;
-                            v_changed = CoreValue::Bool(true);
-                        } else {
-                            if core_truthy(&v_validated) {
-                                v_action = chat_session_boundary_action(&[v_state.clone()])?;
-                                v_action_type =
-                                    core_get(&v_action, &CoreValue::from("type"), CoreValue::Null);
-                                v_ready =
-                                    core_eq(&[v_action_type.clone(), CoreValue::from("validate")])?;
-                                v_not_ready = core_not(&[v_ready.clone()])?;
-                                if core_truthy(&v_not_ready) {
-                                    return Err(AxError::runtime(
-                                        "Cannot finalize while model or tool work is unresolved",
-                                    ));
-                                }
-                                core_set(
-                                    &v_state,
-                                    CoreValue::from("terminal"),
-                                    CoreValue::Bool(true),
-                                )?;
-                                v_changed = CoreValue::Bool(true);
-                            } else {
-                                if core_truthy(&v_applied) {
-                                    v_id =
-                                        core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
-                                    v_updates = core_get(
-                                        &v_state,
-                                        &CoreValue::from("updates"),
-                                        CoreValue::Null,
-                                    );
-                                    v_exists =
-                                        core_map_contains(&[v_updates.clone(), v_id.clone()])?;
-                                    if core_truthy(&v_exists) {
-                                        v_record =
-                                            core_get(&v_updates, &v_id.clone(), CoreValue::Null);
-                                        v_status = core_get(
-                                            &v_record,
-                                            &CoreValue::from("status"),
-                                            CoreValue::Null,
-                                        );
-                                        v_queued = core_eq(&[
-                                            v_status.clone(),
-                                            CoreValue::from("queued"),
-                                        ])?;
-                                        if core_truthy(&v_queued) {
-                                            core_set(
-                                                &v_record,
-                                                CoreValue::from("status"),
-                                                CoreValue::from("applied"),
-                                            )?;
-                                            core_set(&v_updates, v_id.clone(), v_record.clone())?;
-                                            core_set(
-                                                &v_state,
-                                                CoreValue::from("updates"),
-                                                v_updates.clone(),
-                                            )?;
-                                            v_item = core_get(
-                                                &v_record,
-                                                &CoreValue::from("update"),
-                                                CoreValue::Null,
-                                            );
-                                            v_kind = core_get(
-                                                &v_item,
-                                                &CoreValue::from("type"),
-                                                CoreValue::Null,
-                                            );
-                                            v_steer = core_eq(&[
-                                                v_kind.clone(),
-                                                CoreValue::from("steer"),
-                                            ])?;
-                                            if core_truthy(&v_steer) {
-                                                v_version = core_get(
-                                                    &v_state,
-                                                    &CoreValue::from("version"),
-                                                    CoreValue::Num(0f64),
-                                                );
-                                                v_next_version = core_add(&[
-                                                    v_version.clone(),
-                                                    CoreValue::Num(1f64),
-                                                ])?;
-                                                core_set(
-                                                    &v_state,
-                                                    CoreValue::from("version"),
-                                                    v_next_version.clone(),
-                                                )?;
-                                            }
-                                            v_changed = CoreValue::Bool(true);
-                                        }
-                                    }
-                                } else {
-                                    return Err(AxError::runtime(
-                                        "Unknown chat session transition",
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    v_action = chat_session_boundary_action(&[v_state.clone()])?;
-    core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
-    return Ok(v_action.clone());
 }
 
 #[allow(
@@ -80829,6 +81631,99 @@ fn _date_trim_bounds_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn chat_session_record_unresolved(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_record_unresolved");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_call = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_needed = CoreValue::Null;
+    let mut v_not_recorded = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_recorded = CoreValue::Null;
+    let mut v_running = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    v_pending = core_get(&v_state, &CoreValue::from("pending"), CoreValue::Null);
+    v_ids = core_map_keys(&[v_pending.clone()])?;
+    for v_id in core_iter(&v_ids)? {
+        let mut v_id = v_id;
+        v_record = core_get(&v_pending, &v_id.clone(), CoreValue::Null);
+        v_status = core_get(&v_record, &CoreValue::from("status"), CoreValue::Null);
+        v_running = core_eq(&[v_status.clone(), CoreValue::from("running")])?;
+        v_recorded = core_get(
+            &v_record,
+            &CoreValue::from("diagnostic_recorded"),
+            CoreValue::Bool(false),
+        );
+        v_not_recorded = core_not(&[v_recorded.clone()])?;
+        v_needed = core_and(&[v_running.clone(), v_not_recorded.clone()])?;
+        if core_truthy(&v_needed) {
+            v_call = core_get(&v_record, &CoreValue::from("call"), CoreValue::Null);
+            v_message = CoreValue::from("Run closed before the started tool settled; its external effects may still complete");
+            core_axgen_record_function_call(&[
+                v_gen.clone(),
+                v_call.clone(),
+                v_message.clone(),
+                CoreValue::from("unresolved"),
+            ])?;
+            core_set(
+                &v_record,
+                CoreValue::from("diagnostic_recorded"),
+                CoreValue::Bool(true),
+            )?;
+            core_set(&v_pending, v_id.clone(), v_record.clone())?;
+        }
+    }
+    core_set(&v_state, CoreValue::from("pending"), v_pending.clone())?;
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _parse_json_string_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_json_string_fields");
+    let mut v_output_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_field = CoreValue::Null;
+    let mut v_has_key = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_not_map = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values_is_map = CoreValue::Null;
+    v_values_is_map = core_type_is(&v_values, CoreValue::from("object"));
+    v_not_map = core_not(&[v_values_is_map.clone()])?;
+    if core_truthy(&v_not_map) {
+        return Ok(v_values.clone());
+    }
+    for v_field in core_iter(&v_output_fields)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_has_key = core_map_contains(&[v_values.clone(), v_name.clone()])?;
+        if core_truthy(&v_has_key) {
+            v_value = core_get(&v_values, &v_name.clone(), CoreValue::Null);
+            v_parsed = _parse_json_string_for_field(&[v_field.clone(), v_value.clone()])?;
+            core_set(&v_values, v_name.clone(), v_parsed.clone())?;
+        }
+    }
+    return Ok(v_values.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_member");
     let mut v_n = core_arg(args, 0);
@@ -81010,42 +81905,6 @@ fn _regex_member(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _parse_json_string_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_json_string_fields");
-    let mut v_output_fields = core_arg(args, 0);
-    let mut v_values = core_arg(args, 1);
-    let mut v_field = CoreValue::Null;
-    let mut v_has_key = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_not_map = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    let mut v_values_is_map = CoreValue::Null;
-    v_values_is_map = core_type_is(&v_values, CoreValue::from("object"));
-    v_not_map = core_not(&[v_values_is_map.clone()])?;
-    if core_truthy(&v_not_map) {
-        return Ok(v_values.clone());
-    }
-    for v_field in core_iter(&v_output_fields)? {
-        let mut v_field = v_field;
-        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
-        v_has_key = core_map_contains(&[v_values.clone(), v_name.clone()])?;
-        if core_truthy(&v_has_key) {
-            v_value = core_get(&v_values, &v_name.clone(), CoreValue::Null);
-            v_parsed = _parse_json_string_for_field(&[v_field.clone(), v_value.clone()])?;
-            core_set(&v_values, v_name.clone(), v_parsed.clone())?;
-        }
-    }
-    return Ok(v_values.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_skip_space_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_skip_space_impl");
     let mut v_units = core_arg(args, 0);
@@ -81071,6 +81930,22 @@ fn _date_skip_space_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_cursor = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
     }
     return Ok(v_cursor.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_close_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_close_state");
+    let mut v_state = core_arg(args, 0);
+    let mut v_unresolved = CoreValue::Null;
+    core_set(&v_state, CoreValue::from("terminal"), CoreValue::Bool(true))?;
+    v_unresolved = chat_session_unresolved(&[v_state.clone()])?;
+    return Ok(v_unresolved.clone());
 }
 
 #[allow(
@@ -81109,6 +81984,222 @@ fn _parse_json_string_for_fields(args: &[CoreValue]) -> Result<CoreValue, AxErro
         }
     }
     return Ok(v_values.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_session_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_session_transition");
+    let mut v_state = core_arg(args, 0);
+    let mut v_event = core_arg(args, 1);
+    let mut v_action = CoreValue::Null;
+    let mut v_action_type = CoreValue::Null;
+    let mut v_applied = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_change = CoreValue::Null;
+    let mut v_changed = CoreValue::Null;
+    let mut v_closed = CoreValue::Null;
+    let mut v_execution = CoreValue::Null;
+    let mut v_exists = CoreValue::Null;
+    let mut v_final_call = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_native_queued = CoreValue::Null;
+    let mut v_next_version = CoreValue::Null;
+    let mut v_not_ready = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
+    let mut v_record = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_steer = CoreValue::Null;
+    let mut v_steering = CoreValue::Null;
+    let mut v_submitted = CoreValue::Null;
+    let mut v_tool_call = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    let mut v_updates = CoreValue::Null;
+    let mut v_validated = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::Null);
+    v_call = core_eq(&[v_type.clone(), CoreValue::from("tool.validated")])?;
+    v_result = core_eq(&[v_type.clone(), CoreValue::from("tool.result")])?;
+    v_response = core_eq(&[v_type.clone(), CoreValue::from("response.completed")])?;
+    v_update = core_eq(&[v_type.clone(), CoreValue::from("update.queued")])?;
+    v_submitted = core_eq(&[v_type.clone(), CoreValue::from("results.submitted")])?;
+    v_closed = core_eq(&[v_type.clone(), CoreValue::from("closed")])?;
+    v_validated = core_eq(&[v_type.clone(), CoreValue::from("validated")])?;
+    v_applied = core_eq(&[v_type.clone(), CoreValue::from("update.applied")])?;
+    v_changed = CoreValue::Bool(false);
+    v_native_queued = core_eq(&[v_type.clone(), CoreValue::from("native.queued")])?;
+    if core_truthy(&v_native_queued) {
+        v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+        v_changed = chat_session_native_update(&[v_state.clone(), v_id.clone()])?;
+        v_action = chat_session_boundary_action(&[v_state.clone()])?;
+        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
+        return Ok(v_action.clone());
+    }
+    v_steering = core_eq(&[v_type.clone(), CoreValue::from("steering")])?;
+    if core_truthy(&v_steering) {
+        v_change = chat_session_native_event(&[v_state.clone(), v_event.clone()])?;
+        v_action = chat_session_boundary_action(&[v_state.clone()])?;
+        v_action = core_map_merge(&[v_action.clone(), v_change.clone()])?;
+        return Ok(v_action.clone());
+    }
+    v_final_call = core_eq(&[v_type.clone(), CoreValue::from("tool.final")])?;
+    if core_truthy(&v_final_call) {
+        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
+        v_changed = chat_session_defer_final_call(&[v_state.clone(), v_tool_call.clone()])?;
+        v_action = chat_session_boundary_action(&[v_state.clone()])?;
+        core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
+        return Ok(v_action.clone());
+    }
+    if core_truthy(&v_call) {
+        v_tool_call = core_get(&v_event, &CoreValue::from("call"), CoreValue::Null);
+        v_execution = core_get(
+            &v_event,
+            &CoreValue::from("execution"),
+            CoreValue::from("blocking"),
+        );
+        v_changed = chat_session_register_call(&[
+            v_state.clone(),
+            v_tool_call.clone(),
+            v_execution.clone(),
+        ])?;
+    } else {
+        if core_truthy(&v_result) {
+            v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+            v_value = core_get(&v_event, &CoreValue::from("result"), CoreValue::Null);
+            v_changed =
+                chat_session_complete_call(&[v_state.clone(), v_id.clone(), v_value.clone()])?;
+        } else {
+            if core_truthy(&v_response) {
+                v_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+                v_changed = chat_session_complete_response(&[v_state.clone(), v_id.clone()])?;
+            } else {
+                if core_truthy(&v_update) {
+                    v_item = core_get(&v_event, &CoreValue::from("update"), CoreValue::Null);
+                    v_changed = chat_session_queue_update(&[v_state.clone(), v_item.clone()])?;
+                } else {
+                    if core_truthy(&v_submitted) {
+                        v_ids = core_get(&v_event, &CoreValue::from("ids"), CoreValue::Null);
+                        chat_session_mark_submitted(&[v_state.clone(), v_ids.clone()])?;
+                        v_changed = CoreValue::Bool(true);
+                    } else {
+                        if core_truthy(&v_closed) {
+                            chat_session_close_state(&[v_state.clone()])?;
+                            v_changed = CoreValue::Bool(true);
+                        } else {
+                            if core_truthy(&v_validated) {
+                                v_action = chat_session_boundary_action(&[v_state.clone()])?;
+                                v_action_type =
+                                    core_get(&v_action, &CoreValue::from("type"), CoreValue::Null);
+                                v_ready =
+                                    core_eq(&[v_action_type.clone(), CoreValue::from("validate")])?;
+                                v_not_ready = core_not(&[v_ready.clone()])?;
+                                if core_truthy(&v_not_ready) {
+                                    return Err(AxError::runtime(
+                                        "Cannot finalize while model or tool work is unresolved",
+                                    ));
+                                }
+                                core_set(
+                                    &v_state,
+                                    CoreValue::from("terminal"),
+                                    CoreValue::Bool(true),
+                                )?;
+                                v_changed = CoreValue::Bool(true);
+                            } else {
+                                if core_truthy(&v_applied) {
+                                    v_id =
+                                        core_get(&v_event, &CoreValue::from("id"), CoreValue::Null);
+                                    v_updates = core_get(
+                                        &v_state,
+                                        &CoreValue::from("updates"),
+                                        CoreValue::Null,
+                                    );
+                                    v_exists =
+                                        core_map_contains(&[v_updates.clone(), v_id.clone()])?;
+                                    if core_truthy(&v_exists) {
+                                        v_record =
+                                            core_get(&v_updates, &v_id.clone(), CoreValue::Null);
+                                        v_status = core_get(
+                                            &v_record,
+                                            &CoreValue::from("status"),
+                                            CoreValue::Null,
+                                        );
+                                        v_queued = core_eq(&[
+                                            v_status.clone(),
+                                            CoreValue::from("queued"),
+                                        ])?;
+                                        if core_truthy(&v_queued) {
+                                            core_set(
+                                                &v_record,
+                                                CoreValue::from("status"),
+                                                CoreValue::from("applied"),
+                                            )?;
+                                            core_set(&v_updates, v_id.clone(), v_record.clone())?;
+                                            core_set(
+                                                &v_state,
+                                                CoreValue::from("updates"),
+                                                v_updates.clone(),
+                                            )?;
+                                            v_item = core_get(
+                                                &v_record,
+                                                &CoreValue::from("update"),
+                                                CoreValue::Null,
+                                            );
+                                            v_kind = core_get(
+                                                &v_item,
+                                                &CoreValue::from("type"),
+                                                CoreValue::Null,
+                                            );
+                                            v_steer = core_eq(&[
+                                                v_kind.clone(),
+                                                CoreValue::from("steer"),
+                                            ])?;
+                                            if core_truthy(&v_steer) {
+                                                v_version = core_get(
+                                                    &v_state,
+                                                    &CoreValue::from("version"),
+                                                    CoreValue::Num(0f64),
+                                                );
+                                                v_next_version = core_add(&[
+                                                    v_version.clone(),
+                                                    CoreValue::Num(1f64),
+                                                ])?;
+                                                core_set(
+                                                    &v_state,
+                                                    CoreValue::from("version"),
+                                                    v_next_version.clone(),
+                                                )?;
+                                            }
+                                            v_changed = CoreValue::Bool(true);
+                                        }
+                                    }
+                                } else {
+                                    return Err(AxError::runtime(
+                                        "Unknown chat session transition",
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    v_action = chat_session_boundary_action(&[v_state.clone()])?;
+    core_set(&v_action, CoreValue::from("changed"), v_changed.clone())?;
+    return Ok(v_action.clone());
 }
 
 #[allow(
@@ -81445,6 +82536,45 @@ fn _date_ascii_letter_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_spec_impl");
+    let mut v_fn = core_arg(args, 0);
+    let mut v_background = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_execution = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_parameters = CoreValue::Null;
+    let mut v_spec = CoreValue::Null;
+    v_spec = CoreValue::new_map();
+    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::Null);
+    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
+    core_set(&v_spec, CoreValue::from("name"), v_name.clone())?;
+    core_set(
+        &v_spec,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    core_set(&v_spec, CoreValue::from("parameters"), v_parameters.clone())?;
+    v_execution = core_get(
+        &v_fn,
+        &CoreValue::from("execution"),
+        CoreValue::from("blocking"),
+    );
+    v_background = core_eq(&[v_execution.clone(), CoreValue::from("background")])?;
+    if core_truthy(&v_background) {
+        core_set(&v_spec, CoreValue::from("execution"), v_execution.clone())?;
+    }
+    return Ok(v_spec.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_text_extract_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_text_extract_impl");
     let mut v_xstate = core_arg(args, 0);
@@ -81723,45 +82853,6 @@ fn _stream_text_extract_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_tool_spec_impl");
-    let mut v_fn = core_arg(args, 0);
-    let mut v_background = CoreValue::Null;
-    let mut v_description = CoreValue::Null;
-    let mut v_execution = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_parameters = CoreValue::Null;
-    let mut v_spec = CoreValue::Null;
-    v_spec = CoreValue::new_map();
-    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::Null);
-    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
-    core_set(&v_spec, CoreValue::from("name"), v_name.clone())?;
-    core_set(
-        &v_spec,
-        CoreValue::from("description"),
-        v_description.clone(),
-    )?;
-    core_set(&v_spec, CoreValue::from("parameters"), v_parameters.clone())?;
-    v_execution = core_get(
-        &v_fn,
-        &CoreValue::from("execution"),
-        CoreValue::from("blocking"),
-    );
-    v_background = core_eq(&[v_execution.clone(), CoreValue::from("background")])?;
-    if core_truthy(&v_background) {
-        core_set(&v_spec, CoreValue::from("execution"), v_execution.clone())?;
-    }
-    return Ok(v_spec.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _date_ascii_matches_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_ascii_matches_impl");
     let mut v_units = core_arg(args, 0);
@@ -81819,26 +82910,6 @@ fn _date_ascii_matches_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _regex_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_regex_state");
-    let mut v_pos = core_arg(args, 0);
-    let mut v_caps = core_arg(args, 1);
-    let mut v_t1 = CoreValue::Null;
-    let mut v_t2 = CoreValue::Null;
-    v_t1 = CoreValue::new_map();
-    core_set(&v_t1, CoreValue::from("pos"), v_pos.clone())?;
-    v_t2 = _regex_copy_map(&[v_caps.clone()])?;
-    core_set(&v_t1, CoreValue::from("caps"), v_t2.clone())?;
-    return Ok(v_t1.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_function_call_mode_impl");
     let mut v_mode = core_arg(args, 0);
@@ -81862,6 +82933,26 @@ fn _function_call_mode_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Ok(CoreValue::from("none"));
     }
     return Ok(CoreValue::from("auto"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _regex_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_regex_state");
+    let mut v_pos = core_arg(args, 0);
+    let mut v_caps = core_arg(args, 1);
+    let mut v_t1 = CoreValue::Null;
+    let mut v_t2 = CoreValue::Null;
+    v_t1 = CoreValue::new_map();
+    core_set(&v_t1, CoreValue::from("pos"), v_pos.clone())?;
+    v_t2 = _regex_copy_map(&[v_caps.clone()])?;
+    core_set(&v_t1, CoreValue::from("caps"), v_t2.clone())?;
+    return Ok(v_t1.clone());
 }
 
 #[allow(
@@ -82124,6 +83215,27 @@ fn _ace_is_noop_acknowledgment(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_response_function_calls_impl");
+    let mut v_response = core_arg(args, 0);
+    let mut v_calls = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    v_empty = CoreValue::new_list();
+    v_calls = core_get(
+        &v_response,
+        &CoreValue::from("function_calls"),
+        v_empty.clone(),
+    );
+    return Ok(v_calls.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_digits_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_digits_impl");
     let mut v_units = core_arg(args, 0);
@@ -82168,27 +83280,6 @@ fn _date_digits_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
     }
     return Ok(v_value.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _response_function_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_response_function_calls_impl");
-    let mut v_response = core_arg(args, 0);
-    let mut v_calls = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    v_empty = CoreValue::new_list();
-    v_calls = core_get(
-        &v_response,
-        &CoreValue::from("function_calls"),
-        v_empty.clone(),
-    );
-    return Ok(v_calls.clone());
 }
 
 #[allow(
@@ -82323,6 +83414,34 @@ fn _regex_push(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_completion_call_to_chat_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_function = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+    v_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
+    v_function = CoreValue::new_map();
+    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
+    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_scan_date_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_scan_date_impl");
     let mut v_units = core_arg(args, 0);
@@ -82423,34 +83542,6 @@ fn _regex_task(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _completion_call_to_chat_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_completion_call_to_chat_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_function = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-    v_params = core_get(&v_call, &CoreValue::from("params"), CoreValue::Null);
-    v_function = CoreValue::new_map();
-    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
-    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
-    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _regex_frame(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_regex_frame");
     let mut v_todo = core_arg(args, 0);
@@ -82460,6 +83551,34 @@ fn _regex_frame(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_t1, CoreValue::from("todo"), v_todo.clone())?;
     core_set(&v_t1, CoreValue::from("st"), v_st.clone())?;
     return Ok(v_t1.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_tool_result_message_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_result_text = core_arg(args, 1);
+    let mut v_id = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
+    v_message = CoreValue::new_map();
+    core_set(
+        &v_message,
+        CoreValue::from("role"),
+        CoreValue::from("function"),
+    )?;
+    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
+    core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_message, CoreValue::from("result"), v_result_text.clone())?;
+    return Ok(v_message.clone());
 }
 
 #[allow(
@@ -83235,36 +84354,6 @@ fn _regex_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_t225 = core_none(&[])?;
     return Ok(v_t225.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _tool_result_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_tool_result_message_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_result = core_arg(args, 1);
-    let mut v_id = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_result_json = CoreValue::Null;
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_name = core_get(&v_call, &CoreValue::from("name"), CoreValue::Null);
-    v_result_json = core_json_stringify(&[v_result.clone()])?;
-    v_message = CoreValue::new_map();
-    core_set(
-        &v_message,
-        CoreValue::from("role"),
-        CoreValue::from("function"),
-    )?;
-    core_set(&v_message, CoreValue::from("function_id"), v_id.clone())?;
-    core_set(&v_message, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_message, CoreValue::from("result"), v_result_json.clone())?;
-    return Ok(v_message.clone());
 }
 
 #[allow(
@@ -84403,6 +85492,31 @@ fn _date_offset_zone_matches_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
     unreachable_code,
     clippy::all
 )]
+fn _parse_output_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_output_fields_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_fields = core_arg(args, 1);
+    let mut v_is_json = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = core_string_trim(&v_content);
+    v_is_json = core_string_starts_with(&[v_text.clone(), CoreValue::from("{")])?;
+    if core_truthy(&v_is_json) {
+        v_output = _parse_output_impl(&[v_text.clone()])?;
+        return Ok(v_output.clone());
+    }
+    v_output =
+        _parse_text_output_fields_impl(&[v_text.clone(), v_fields.clone(), CoreValue::Bool(true)])?;
+    return Ok(v_output.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_offset_minutes_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_offset_minutes_impl");
     let mut v_units = core_arg(args, 0);
@@ -84686,31 +85800,6 @@ fn _stream_text_final_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     _stream_text_missed_fields_impl(&[v_values.clone(), v_content.clone(), v_fields.clone()])?;
     _stream_text_required_check_impl(&[v_values.clone(), v_fields.clone()])?;
     return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _parse_output_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_output_fields_impl");
-    let mut v_content = core_arg(args, 0);
-    let mut v_fields = core_arg(args, 1);
-    let mut v_is_json = CoreValue::Null;
-    let mut v_output = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    v_text = core_string_trim(&v_content);
-    v_is_json = core_string_starts_with(&[v_text.clone(), CoreValue::from("{")])?;
-    if core_truthy(&v_is_json) {
-        v_output = _parse_output_impl(&[v_text.clone()])?;
-        return Ok(v_output.clone());
-    }
-    v_output =
-        _parse_text_output_fields_impl(&[v_text.clone(), v_fields.clone(), CoreValue::Bool(true)])?;
-    return Ok(v_output.clone());
 }
 
 #[allow(
@@ -85206,6 +86295,26 @@ fn _caller_function_call_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
+fn _function_call_forces_tool_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_function_call_forces_tool_impl");
+    let mut v_choice = core_arg(args, 0);
+    let mut v_is_named = CoreValue::Null;
+    let mut v_is_required = CoreValue::Null;
+    v_is_required = core_eq(&[v_choice.clone(), CoreValue::from("required")])?;
+    if core_truthy(&v_is_required) {
+        return Ok(CoreValue::Bool(true));
+    }
+    v_is_named = core_type_is(&v_choice, CoreValue::from("object"));
+    return Ok(v_is_named.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _date_js_json_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_date_js_json_impl");
     let mut v_value = core_arg(args, 0);
@@ -85332,26 +86441,6 @@ fn _stream_text_extract_values_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
         }
     }
     return Ok(v_values.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _function_call_forces_tool_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_function_call_forces_tool_impl");
-    let mut v_choice = core_arg(args, 0);
-    let mut v_is_named = CoreValue::Null;
-    let mut v_is_required = CoreValue::Null;
-    v_is_required = core_eq(&[v_choice.clone(), CoreValue::from("required")])?;
-    if core_truthy(&v_is_required) {
-        return Ok(CoreValue::Bool(true));
-    }
-    v_is_named = core_type_is(&v_choice, CoreValue::from("object"));
-    return Ok(v_is_named.clone());
 }
 
 #[allow(
@@ -85923,7 +87012,6 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_cached = CoreValue::Null;
     let mut v_cached_envelope = CoreValue::Null;
     let mut v_cached_messages = CoreValue::Null;
-    let mut v_call = CoreValue::Null;
     let mut v_call_count = CoreValue::Null;
     let mut v_callback_failed = CoreValue::Null;
     let mut v_callback_failure = CoreValue::Null;
@@ -86169,10 +87257,7 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_thought_pending = CoreValue::Null;
     let mut v_thought_yielded = CoreValue::Null;
     let mut v_tool_calls = CoreValue::Null;
-    let mut v_tool_error = CoreValue::Null;
-    let mut v_tool_error_message = CoreValue::Null;
-    let mut v_tool_message = CoreValue::Null;
-    let mut v_tool_result = CoreValue::Null;
+    let mut v_tool_messages = CoreValue::Null;
     let mut v_update_behind = CoreValue::Null;
     let mut v_update_held_version = CoreValue::Null;
     let mut v_updated_messages = CoreValue::Null;
@@ -87308,57 +88393,14 @@ fn _streaming_forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                         v_tool_calls.clone(),
                     ])?;
                     v_messages = v_updated_messages.clone();
-                    for v_call in core_iter(&v_tool_calls)? {
-                        let mut v_call = v_call;
-                        let __core_try: Result<CoreFlow, AxError> = (|| {
-                            v_tool_result =
-                                _execute_tool_call(&[v_functions.clone(), v_call.clone()])?;
-                            v_tool_message = _tool_result_message_impl(&[
-                                v_call.clone(),
-                                v_tool_result.clone(),
-                            ])?;
-                            core_append(&v_messages, v_tool_message.clone())?;
-                            core_axgen_memory_add_function_result(&[
-                                v_gen.clone(),
-                                v_call.clone(),
-                                v_tool_result.clone(),
-                                CoreValue::Bool(true),
-                            ])?;
-                            core_axgen_record_function_call(&[
-                                v_gen.clone(),
-                                v_call.clone(),
-                                v_tool_result.clone(),
-                                CoreValue::from("ok"),
-                            ])?;
-                            Ok(CoreFlow::Normal)
-                        })();
-                        match __core_try {
-                            Ok(CoreFlow::Normal) => {}
-                            Ok(CoreFlow::Return(value)) => return Ok(value),
-                            Ok(CoreFlow::Break) => break,
-                            Ok(CoreFlow::Continue) => continue,
-                            Err(__core_caught) => {
-                                v_tool_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                                v_tool_error_message = _tool_error_message_impl(&[
-                                    v_call.clone(),
-                                    v_tool_error.clone(),
-                                ])?;
-                                core_append(&v_messages, v_tool_error_message.clone())?;
-                                core_axgen_memory_add_function_result(&[
-                                    v_gen.clone(),
-                                    v_call.clone(),
-                                    v_tool_error_message.clone(),
-                                    CoreValue::Bool(false),
-                                ])?;
-                                core_axgen_record_function_call(&[
-                                    v_gen.clone(),
-                                    v_call.clone(),
-                                    v_tool_error_message.clone(),
-                                    CoreValue::from("error"),
-                                ])?;
-                            }
-                        }
-                    }
+                    v_tool_messages = _run_tool_calls_impl(&[
+                        v_gen.clone(),
+                        v_functions.clone(),
+                        v_messages.clone(),
+                        v_tool_calls.clone(),
+                        v_runtime_options.clone(),
+                    ])?;
+                    v_messages = v_tool_messages.clone();
                     v_continue_after_tools =
                         _should_continue_steps(&[v_gen.clone(), v_tool_calls.clone()])?;
                     if core_truthy(&v_continue_after_tools) {
@@ -89997,6 +91039,94 @@ fn _regex_copy_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _parse_text_contract_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_parse_text_contract_output_impl");
+    let mut v_content = core_arg(args, 0);
+    let mut v_output_fields = core_arg(args, 1);
+    let mut v_strict_mode = core_arg(args, 2);
+    let mut v_candidate = CoreValue::Null;
+    let mut v_declared = CoreValue::Null;
+    let mut v_declared_only = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_lenient = CoreValue::Null;
+    let mut v_looks_json = CoreValue::Null;
+    let mut v_not_json = CoreValue::Null;
+    let mut v_opens_object = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_undeclared = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_trimmed = core_string_trim(&v_content);
+    v_opens_object = core_string_starts_with(&[v_trimmed.clone(), CoreValue::from("{")])?;
+    v_lenient = core_not(&[v_strict_mode.clone()])?;
+    v_looks_json = core_and(&[v_opens_object.clone(), v_lenient.clone()])?;
+    if core_truthy(&v_looks_json) {
+        v_candidate = core_none(&[])?;
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            v_candidate = core_json_parse_strict(&[v_trimmed.clone()])?;
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+            Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+            Err(__core_caught) => {
+                v_not_json = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            }
+        }
+        v_is_object = core_type_is(&v_candidate, CoreValue::from("object"));
+        if core_truthy(&v_is_object) {
+            v_declared_only = CoreValue::Bool(true);
+            v_keys = core_map_keys(&[v_candidate.clone()])?;
+            for v_key in core_iter(&v_keys)? {
+                let mut v_key = v_key;
+                v_declared = CoreValue::Bool(false);
+                for v_field in core_iter(&v_output_fields)? {
+                    let mut v_field = v_field;
+                    v_field_name =
+                        core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+                    v_same = core_eq(&[v_field_name.clone(), v_key.clone()])?;
+                    if core_truthy(&v_same) {
+                        v_declared = CoreValue::Bool(true);
+                    }
+                }
+                v_undeclared = core_not(&[v_declared.clone()])?;
+                if core_truthy(&v_undeclared) {
+                    v_declared_only = CoreValue::Bool(false);
+                }
+            }
+            if core_truthy(&v_declared_only) {
+                core_axgen_deprecation(&[CoreValue::from("json-text-contract"), CoreValue::from("A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")])?;
+                core_set(&v_out, CoreValue::from("values"), v_candidate.clone())?;
+                core_set(&v_out, CoreValue::from("extracted"), CoreValue::Bool(false))?;
+                return Ok(v_out.clone());
+            }
+        }
+    }
+    v_values = _stream_text_extract_values_impl(&[
+        v_content.clone(),
+        v_output_fields.clone(),
+        v_strict_mode.clone(),
+    ])?;
+    core_set(&v_out, CoreValue::from("values"), v_values.clone())?;
+    core_set(&v_out, CoreValue::from("extracted"), CoreValue::Bool(true))?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_json_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_validate_impl");
     let mut v_fields = core_arg(args, 0);
@@ -90095,85 +91225,21 @@ fn _stream_json_validate_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _parse_text_contract_output_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_parse_text_contract_output_impl");
-    let mut v_content = core_arg(args, 0);
-    let mut v_output_fields = core_arg(args, 1);
-    let mut v_strict_mode = core_arg(args, 2);
-    let mut v_candidate = CoreValue::Null;
-    let mut v_declared = CoreValue::Null;
-    let mut v_declared_only = CoreValue::Null;
-    let mut v_field = CoreValue::Null;
-    let mut v_field_name = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_keys = CoreValue::Null;
-    let mut v_lenient = CoreValue::Null;
-    let mut v_looks_json = CoreValue::Null;
-    let mut v_not_json = CoreValue::Null;
-    let mut v_opens_object = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_same = CoreValue::Null;
-    let mut v_trimmed = CoreValue::Null;
-    let mut v_undeclared = CoreValue::Null;
-    let mut v_values = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    v_trimmed = core_string_trim(&v_content);
-    v_opens_object = core_string_starts_with(&[v_trimmed.clone(), CoreValue::from("{")])?;
-    v_lenient = core_not(&[v_strict_mode.clone()])?;
-    v_looks_json = core_and(&[v_opens_object.clone(), v_lenient.clone()])?;
-    if core_truthy(&v_looks_json) {
-        v_candidate = core_none(&[])?;
-        let __core_try: Result<CoreFlow, AxError> = (|| {
-            v_candidate = core_json_parse_strict(&[v_trimmed.clone()])?;
-            Ok(CoreFlow::Normal)
-        })();
-        match __core_try {
-            Ok(CoreFlow::Normal) => {}
-            Ok(CoreFlow::Return(value)) => return Ok(value),
-            Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-            Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-            Err(__core_caught) => {
-                v_not_json = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            }
-        }
-        v_is_object = core_type_is(&v_candidate, CoreValue::from("object"));
-        if core_truthy(&v_is_object) {
-            v_declared_only = CoreValue::Bool(true);
-            v_keys = core_map_keys(&[v_candidate.clone()])?;
-            for v_key in core_iter(&v_keys)? {
-                let mut v_key = v_key;
-                v_declared = CoreValue::Bool(false);
-                for v_field in core_iter(&v_output_fields)? {
-                    let mut v_field = v_field;
-                    v_field_name =
-                        core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
-                    v_same = core_eq(&[v_field_name.clone(), v_key.clone()])?;
-                    if core_truthy(&v_same) {
-                        v_declared = CoreValue::Bool(true);
-                    }
-                }
-                v_undeclared = core_not(&[v_declared.clone()])?;
-                if core_truthy(&v_undeclared) {
-                    v_declared_only = CoreValue::Bool(false);
-                }
-            }
-            if core_truthy(&v_declared_only) {
-                core_axgen_deprecation(&[CoreValue::from("json-text-contract"), CoreValue::from("A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")])?;
-                core_set(&v_out, CoreValue::from("values"), v_candidate.clone())?;
-                core_set(&v_out, CoreValue::from("extracted"), CoreValue::Bool(false))?;
-                return Ok(v_out.clone());
-            }
-        }
+fn _generate_failed_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_generate_failed_impl");
+    let mut v_error = core_arg(args, 0);
+    let mut v_aborted = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_wrapped = CoreValue::Null;
+    v_aborted = core_exception_is_aborted(&[v_error.clone()])?;
+    if core_truthy(&v_aborted) {
+        return Ok(v_error.clone());
     }
-    v_values = _stream_text_extract_values_impl(&[
-        v_content.clone(),
-        v_output_fields.clone(),
-        v_strict_mode.clone(),
-    ])?;
-    core_set(&v_out, CoreValue::from("values"), v_values.clone())?;
-    core_set(&v_out, CoreValue::from("extracted"), CoreValue::Bool(true))?;
-    return Ok(v_out.clone());
+    v_text = core_exception_message(&[v_error.clone()])?;
+    v_message = core_add(&[CoreValue::from("Generate failed: "), v_text.clone()])?;
+    v_wrapped = core_exception_rewrap(&[v_error.clone(), v_message.clone()])?;
+    return Ok(v_wrapped.clone());
 }
 
 #[allow(
@@ -90358,30 +91424,6 @@ fn _stream_json_validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     unreachable_code,
     clippy::all
 )]
-fn _generate_failed_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_generate_failed_impl");
-    let mut v_error = core_arg(args, 0);
-    let mut v_aborted = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_wrapped = CoreValue::Null;
-    v_aborted = core_exception_is_aborted(&[v_error.clone()])?;
-    if core_truthy(&v_aborted) {
-        return Ok(v_error.clone());
-    }
-    v_text = core_exception_message(&[v_error.clone()])?;
-    v_message = core_add(&[CoreValue::from("Generate failed: "), v_text.clone()])?;
-    v_wrapped = core_exception_rewrap(&[v_error.clone(), v_message.clone()])?;
-    return Ok(v_wrapped.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _unable_to_fix_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_unable_to_fix_impl");
     let mut v_error = core_arg(args, 0);
@@ -90525,6 +91567,52 @@ fn _max_tokens_error_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _strict_mode_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_strict_mode_option_impl");
+    let mut v_base_options = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_call_options = CoreValue::Null;
+    let mut v_call_snake = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_gen_options = CoreValue::Null;
+    let mut v_gen_snake = CoreValue::Null;
+    let mut v_gen_strict = CoreValue::Null;
+    let mut v_strict = CoreValue::Null;
+    let mut v_strict_mode = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_call_options = core_map_merge(&[v_empty.clone(), v_options.clone()])?;
+    v_gen_options = core_map_merge(&[v_empty.clone(), v_base_options.clone()])?;
+    v_gen_snake = core_get(
+        &v_gen_options,
+        &CoreValue::from("strict_mode"),
+        CoreValue::Bool(false),
+    );
+    v_gen_strict = core_get(
+        &v_gen_options,
+        &CoreValue::from("strictMode"),
+        v_gen_snake.clone(),
+    );
+    v_call_snake = core_get(
+        &v_call_options,
+        &CoreValue::from("strict_mode"),
+        v_gen_strict.clone(),
+    );
+    v_strict = core_get(
+        &v_call_options,
+        &CoreValue::from("strictMode"),
+        v_call_snake.clone(),
+    );
+    v_strict_mode = core_truthy_value(&[v_strict.clone()])?;
+    return Ok(v_strict_mode.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_json_validate_nested_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_validate_nested_impl");
     let mut v_parent = core_arg(args, 0);
@@ -90655,52 +91743,6 @@ fn _stream_json_validate_nested_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
-fn _strict_mode_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_strict_mode_option_impl");
-    let mut v_base_options = core_arg(args, 0);
-    let mut v_options = core_arg(args, 1);
-    let mut v_call_options = CoreValue::Null;
-    let mut v_call_snake = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_gen_options = CoreValue::Null;
-    let mut v_gen_snake = CoreValue::Null;
-    let mut v_gen_strict = CoreValue::Null;
-    let mut v_strict = CoreValue::Null;
-    let mut v_strict_mode = CoreValue::Null;
-    v_empty = CoreValue::new_map();
-    v_call_options = core_map_merge(&[v_empty.clone(), v_options.clone()])?;
-    v_gen_options = core_map_merge(&[v_empty.clone(), v_base_options.clone()])?;
-    v_gen_snake = core_get(
-        &v_gen_options,
-        &CoreValue::from("strict_mode"),
-        CoreValue::Bool(false),
-    );
-    v_gen_strict = core_get(
-        &v_gen_options,
-        &CoreValue::from("strictMode"),
-        v_gen_snake.clone(),
-    );
-    v_call_snake = core_get(
-        &v_call_options,
-        &CoreValue::from("strict_mode"),
-        v_gen_strict.clone(),
-    );
-    v_strict = core_get(
-        &v_call_options,
-        &CoreValue::from("strictMode"),
-        v_call_snake.clone(),
-    );
-    v_strict_mode = core_truthy_value(&[v_strict.clone()])?;
-    return Ok(v_strict_mode.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _feedback_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_feedback_message_impl");
     let mut v_text = core_arg(args, 0);
@@ -90749,46 +91791,6 @@ fn _caching_function_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     }
     v_cache_fn = core_axgen_caching_function(&[v_gen.clone(), v_call_options.clone()])?;
     return Ok(v_cache_fn.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _stream_json_select_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_stream_json_select_fields_impl");
-    let mut v_fields = core_arg(args, 0);
-    let mut v_values = core_arg(args, 1);
-    let mut v_declared = CoreValue::Null;
-    let mut v_field = CoreValue::Null;
-    let mut v_key = CoreValue::Null;
-    let mut v_keys = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_same = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    v_keys = core_map_keys(&[v_values.clone()])?;
-    for v_key in core_iter(&v_keys)? {
-        let mut v_key = v_key;
-        v_declared = CoreValue::Bool(false);
-        for v_field in core_iter(&v_fields)? {
-            let mut v_field = v_field;
-            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
-            v_same = core_eq(&[v_name.clone(), v_key.clone()])?;
-            if core_truthy(&v_same) {
-                v_declared = CoreValue::Bool(true);
-            }
-        }
-        if core_truthy(&v_declared) {
-            v_value = core_get(&v_values, &v_key.clone(), CoreValue::Null);
-            core_set(&v_out, v_key.clone(), v_value.clone())?;
-        }
-    }
-    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -90893,6 +91895,46 @@ fn _cache_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _stream_json_select_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_json_select_fields_impl");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_values = core_arg(args, 1);
+    let mut v_declared = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_keys = core_map_keys(&[v_values.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_declared = CoreValue::Bool(false);
+        for v_field in core_iter(&v_fields)? {
+            let mut v_field = v_field;
+            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+            v_same = core_eq(&[v_name.clone(), v_key.clone()])?;
+            if core_truthy(&v_same) {
+                v_declared = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_declared) {
+            v_value = core_get(&v_values, &v_key.clone(), CoreValue::Null);
+            core_set(&v_out, v_key.clone(), v_value.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_json_nested_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_nested_fields_impl");
     let mut v_fields_map = core_arg(args, 0);
@@ -90938,38 +91980,6 @@ fn _stream_json_nested_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn _stream_json_flexible_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_stream_json_flexible_impl");
-    let mut v_field = core_arg(args, 0);
-    let mut v_flexible = CoreValue::Null;
-    let mut v_has_nested = CoreValue::Null;
-    let mut v_is_json = CoreValue::Null;
-    let mut v_is_object = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_nested = CoreValue::Null;
-    let mut v_open_object = CoreValue::Null;
-    let mut v_typ = CoreValue::Null;
-    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
-    v_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::from(""));
-    v_is_json = core_eq(&[v_name.clone(), CoreValue::from("json")])?;
-    if core_truthy(&v_is_json) {
-        return Ok(CoreValue::Bool(true));
-    }
-    v_is_object = core_eq(&[v_name.clone(), CoreValue::from("object")])?;
-    v_nested = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
-    v_has_nested = core_truthy_value(&[v_nested.clone()])?;
-    v_open_object = core_not(&[v_has_nested.clone()])?;
-    v_flexible = core_and(&[v_is_object.clone(), v_open_object.clone()])?;
-    return Ok(v_flexible.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _cache_store_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_cache_store_impl");
     let mut v_cache_fn = core_arg(args, 0);
@@ -91004,43 +92014,29 @@ fn _cache_store_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _stream_json_string_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_stream_json_string_value_impl");
+fn _stream_json_flexible_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_json_flexible_impl");
     let mut v_field = core_arg(args, 0);
-    let mut v_value = core_arg(args, 1);
-    let mut v_detail = CoreValue::Null;
-    let mut v_invalid = CoreValue::Null;
-    let mut v_is_string = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_not_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed = CoreValue::Null;
-    let mut v_title = CoreValue::Null;
-    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
-    v_not_string = core_not(&[v_is_string.clone()])?;
-    if core_truthy(&v_not_string) {
-        return Ok(v_value.clone());
+    let mut v_flexible = CoreValue::Null;
+    let mut v_has_nested = CoreValue::Null;
+    let mut v_is_json = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_open_object = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::from(""));
+    v_is_json = core_eq(&[v_name.clone(), CoreValue::from("json")])?;
+    if core_truthy(&v_is_json) {
+        return Ok(CoreValue::Bool(true));
     }
-    v_parsed = core_none(&[])?;
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        v_parsed = core_json_parse_strict(&[v_value.clone()])?;
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_title = _stream_field_title_impl(&[v_field.clone()])?;
-            v_detail = core_exception_message(&[v_parse_error.clone()])?;
-            v_message = core_string_format(&[CoreValue::from("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), v_detail.clone(), v_title.clone()])?;
-            v_invalid = core_validation_error(&[v_message.clone()])?;
-            return Err(core_as_error(&v_invalid));
-        }
-    }
-    return Ok(v_parsed.clone());
+    v_is_object = core_eq(&[v_name.clone(), CoreValue::from("object")])?;
+    v_nested = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_nested = core_truthy_value(&[v_nested.clone()])?;
+    v_open_object = core_not(&[v_has_nested.clone()])?;
+    v_flexible = core_and(&[v_is_object.clone(), v_open_object.clone()])?;
+    return Ok(v_flexible.clone());
 }
 
 #[allow(
@@ -91119,6 +92115,52 @@ fn _cache_lookup_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_lookup.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _stream_json_string_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_json_string_value_impl");
+    let mut v_field = core_arg(args, 0);
+    let mut v_value = core_arg(args, 1);
+    let mut v_detail = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    v_is_string = core_type_is(&v_value, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_value.clone());
+    }
+    v_parsed = core_none(&[])?;
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        v_parsed = core_json_parse_strict(&[v_value.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_title = _stream_field_title_impl(&[v_field.clone()])?;
+            v_detail = core_exception_message(&[v_parse_error.clone()])?;
+            v_message = core_string_format(&[CoreValue::from("Invalid JSON: {} in field '{}'. Return only valid JSON. Prefer a fenced code block containing a single JSON object or array with no trailing text."), v_detail.clone(), v_title.clone()])?;
+            v_invalid = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_invalid));
+        }
+    }
+    return Ok(v_parsed.clone());
 }
 
 #[allow(
@@ -91321,6 +92363,61 @@ fn _stream_json_strings_for_fields_impl(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
+fn _structured_output_render_options_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_structured_output_render_options_impl");
+    let mut v_selection = core_arg(args, 0);
+    let mut v_extra_functions = CoreValue::Null;
+    let mut v_function_rung = CoreValue::Null;
+    let mut v_output_function = CoreValue::Null;
+    let mut v_render_options = CoreValue::Null;
+    let mut v_rung = CoreValue::Null;
+    let mut v_structured = CoreValue::Null;
+    v_render_options = CoreValue::new_map();
+    v_rung = core_get(&v_selection, &CoreValue::from("rung"), CoreValue::Null);
+    v_structured = core_is_not_none(&[v_rung.clone()])?;
+    core_set(
+        &v_render_options,
+        CoreValue::from("structured_output"),
+        v_structured.clone(),
+    )?;
+    v_extra_functions = CoreValue::new_list();
+    v_function_rung = core_eq(&[v_rung.clone(), CoreValue::from("function")])?;
+    if core_truthy(&v_function_rung) {
+        core_set(
+            &v_render_options,
+            CoreValue::from("structured_output_function_name"),
+            CoreValue::from("__axOutput"),
+        )?;
+        v_output_function = CoreValue::new_map();
+        core_set(
+            &v_output_function,
+            CoreValue::from("name"),
+            CoreValue::from("__axOutput"),
+        )?;
+        core_set(
+            &v_output_function,
+            CoreValue::from("description"),
+            CoreValue::from(
+                "Emit the complete structured program output using the declared argument shape.",
+            ),
+        )?;
+        core_append(&v_extra_functions, v_output_function.clone())?;
+    }
+    core_set(
+        &v_render_options,
+        CoreValue::from("extra_functions"),
+        v_extra_functions.clone(),
+    )?;
+    return Ok(v_render_options.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_json_strings_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_json_strings_impl");
     let mut v_fields = core_arg(args, 0);
@@ -91372,61 +92469,6 @@ fn _stream_json_strings_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _structured_output_render_options_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_structured_output_render_options_impl");
-    let mut v_selection = core_arg(args, 0);
-    let mut v_extra_functions = CoreValue::Null;
-    let mut v_function_rung = CoreValue::Null;
-    let mut v_output_function = CoreValue::Null;
-    let mut v_render_options = CoreValue::Null;
-    let mut v_rung = CoreValue::Null;
-    let mut v_structured = CoreValue::Null;
-    v_render_options = CoreValue::new_map();
-    v_rung = core_get(&v_selection, &CoreValue::from("rung"), CoreValue::Null);
-    v_structured = core_is_not_none(&[v_rung.clone()])?;
-    core_set(
-        &v_render_options,
-        CoreValue::from("structured_output"),
-        v_structured.clone(),
-    )?;
-    v_extra_functions = CoreValue::new_list();
-    v_function_rung = core_eq(&[v_rung.clone(), CoreValue::from("function")])?;
-    if core_truthy(&v_function_rung) {
-        core_set(
-            &v_render_options,
-            CoreValue::from("structured_output_function_name"),
-            CoreValue::from("__axOutput"),
-        )?;
-        v_output_function = CoreValue::new_map();
-        core_set(
-            &v_output_function,
-            CoreValue::from("name"),
-            CoreValue::from("__axOutput"),
-        )?;
-        core_set(
-            &v_output_function,
-            CoreValue::from("description"),
-            CoreValue::from(
-                "Emit the complete structured program output using the declared argument shape.",
-            ),
-        )?;
-        core_append(&v_extra_functions, v_output_function.clone())?;
-    }
-    core_set(
-        &v_render_options,
-        CoreValue::from("extra_functions"),
-        v_extra_functions.clone(),
-    )?;
-    return Ok(v_render_options.clone());
 }
 
 #[allow(
@@ -91612,6 +92654,80 @@ fn _stream_merge_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _check_completion_function_call_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_check_completion_function_call_names");
+    let mut v_response = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_is_correct = CoreValue::Null;
+    let mut v_is_fail = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_mode_error = CoreValue::Null;
+    let mut v_mode_json = CoreValue::Null;
+    let mut v_mode_message = CoreValue::Null;
+    let mut v_mode_set = CoreValue::Null;
+    let mut v_mode_snake = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_unnamed = CoreValue::Null;
+    let mut v_unnamed_error = CoreValue::Null;
+    v_mode_snake = core_get(
+        &v_options,
+        &CoreValue::from("function_call_validation"),
+        CoreValue::Null,
+    );
+    v_mode = core_get(
+        &v_options,
+        &CoreValue::from("functionCallValidation"),
+        v_mode_snake.clone(),
+    );
+    v_mode_set = core_is_not_none(&[v_mode.clone()])?;
+    if core_truthy(&v_mode_set) {
+        v_is_fail = core_eq(&[v_mode.clone(), CoreValue::from("fail")])?;
+        v_is_correct = core_eq(&[v_mode.clone(), CoreValue::from("correct")])?;
+        v_known = core_or(&[v_is_fail.clone(), v_is_correct.clone()])?;
+        v_unknown = core_not(&[v_known.clone()])?;
+        if core_truthy(&v_unknown) {
+            v_mode_json = core_json_pretty(&[v_mode.clone()])?;
+            v_mode_message = core_string_format(&[
+                CoreValue::from("functionCallValidation must be 'correct' or 'fail', received: {}"),
+                v_mode_json.clone(),
+            ])?;
+            v_mode_error = core_validation_error(&[v_mode_message.clone()])?;
+            return Err(core_as_error(&v_mode_error));
+        }
+        if core_truthy(&v_is_fail) {
+            _validate_completion_function_call_names(&[v_response.clone()])?;
+        }
+        return Ok(CoreValue::Null);
+    }
+    v_unnamed = CoreValue::Bool(false);
+    let __core_try: Result<CoreFlow, AxError> = (|| {
+        _validate_completion_function_call_names(&[v_response.clone()])?;
+        Ok(CoreFlow::Normal)
+    })();
+    match __core_try {
+        Ok(CoreFlow::Normal) => {}
+        Ok(CoreFlow::Return(value)) => return Ok(value),
+        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
+        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
+        Err(__core_caught) => {
+            v_unnamed_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+            v_unnamed = CoreValue::Bool(true);
+        }
+    }
+    if core_truthy(&v_unnamed) {
+        core_axgen_deprecation(&[CoreValue::from("function-call-validation"), CoreValue::from("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")])?;
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _stream_commit_delta_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_stream_commit_delta_impl");
     let mut v_committed = core_arg(args, 0);
@@ -91731,71 +92847,67 @@ fn _stream_commit_delta_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _check_completion_function_call_names(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_check_completion_function_call_names");
-    let mut v_response = core_arg(args, 0);
+fn _function_result_text_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_function_result_text_impl");
+    let mut v_result = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
-    let mut v_is_correct = CoreValue::Null;
-    let mut v_is_fail = CoreValue::Null;
-    let mut v_known = CoreValue::Null;
-    let mut v_mode = CoreValue::Null;
-    let mut v_mode_error = CoreValue::Null;
-    let mut v_mode_json = CoreValue::Null;
-    let mut v_mode_message = CoreValue::Null;
-    let mut v_mode_set = CoreValue::Null;
-    let mut v_mode_snake = CoreValue::Null;
-    let mut v_unknown = CoreValue::Null;
-    let mut v_unnamed = CoreValue::Null;
-    let mut v_unnamed_error = CoreValue::Null;
-    v_mode_snake = core_get(
-        &v_options,
-        &CoreValue::from("function_call_validation"),
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_formatted = CoreValue::Null;
+    let mut v_formatter = CoreValue::Null;
+    let mut v_formatter_snake = CoreValue::Null;
+    let mut v_global_formatter = CoreValue::Null;
+    let mut v_has_formatter = CoreValue::Null;
+    let mut v_has_local_formatter = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts = core_coalesce(&[v_options.clone(), v_empty_map.clone()])?;
+    v_formatter_snake = core_get(
+        &v_opts,
+        &CoreValue::from("function_result_formatter"),
         CoreValue::Null,
     );
-    v_mode = core_get(
-        &v_options,
-        &CoreValue::from("functionCallValidation"),
-        v_mode_snake.clone(),
+    v_formatter = core_get(
+        &v_opts,
+        &CoreValue::from("functionResultFormatter"),
+        v_formatter_snake.clone(),
     );
-    v_mode_set = core_is_not_none(&[v_mode.clone()])?;
-    if core_truthy(&v_mode_set) {
-        v_is_fail = core_eq(&[v_mode.clone(), CoreValue::from("fail")])?;
-        v_is_correct = core_eq(&[v_mode.clone(), CoreValue::from("correct")])?;
-        v_known = core_or(&[v_is_fail.clone(), v_is_correct.clone()])?;
-        v_unknown = core_not(&[v_known.clone()])?;
-        if core_truthy(&v_unknown) {
-            v_mode_json = core_json_pretty(&[v_mode.clone()])?;
-            v_mode_message = core_string_format(&[
-                CoreValue::from("functionCallValidation must be 'correct' or 'fail', received: {}"),
-                v_mode_json.clone(),
-            ])?;
-            v_mode_error = core_validation_error(&[v_mode_message.clone()])?;
-            return Err(core_as_error(&v_mode_error));
-        }
-        if core_truthy(&v_is_fail) {
-            _validate_completion_function_call_names(&[v_response.clone()])?;
-        }
-        return Ok(CoreValue::Null);
+    v_has_local_formatter = core_is_not_none(&[v_formatter.clone()])?;
+    if core_truthy(&v_has_local_formatter) {
+    } else {
+        v_global_formatter = core_axgen_function_result_formatter(&[])?;
+        v_formatter = v_global_formatter.clone();
     }
-    v_unnamed = CoreValue::Bool(false);
-    let __core_try: Result<CoreFlow, AxError> = (|| {
-        _validate_completion_function_call_names(&[v_response.clone()])?;
-        Ok(CoreFlow::Normal)
-    })();
-    match __core_try {
-        Ok(CoreFlow::Normal) => {}
-        Ok(CoreFlow::Return(value)) => return Ok(value),
-        Ok(CoreFlow::Break) => unreachable!("break outside loop"),
-        Ok(CoreFlow::Continue) => unreachable!("continue outside loop"),
-        Err(__core_caught) => {
-            v_unnamed_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-            v_unnamed = CoreValue::Bool(true);
+    v_has_formatter = core_is_not_none(&[v_formatter.clone()])?;
+    v_text = CoreValue::from("");
+    if core_truthy(&v_has_formatter) {
+        v_formatted = core_object_call_method(&[
+            v_formatter.clone(),
+            CoreValue::from("format_result"),
+            v_result.clone(),
+        ])?;
+        v_text = core_string_str(&[v_formatted.clone()])?;
+    } else {
+        v_is_text = core_type_is(&v_result, CoreValue::from("string"));
+        v_missing = core_is_none(&[v_result.clone()])?;
+        if core_truthy(&v_is_text) {
+            v_text = v_result.clone();
+        } else {
+            if core_truthy(&v_missing) {
+                v_text = CoreValue::from("");
+            } else {
+                v_text = core_json_pretty(&[v_result.clone()])?;
+            }
         }
     }
-    if core_truthy(&v_unnamed) {
-        core_axgen_deprecation(&[CoreValue::from("function-call-validation"), CoreValue::from("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")])?;
+    v_empty = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        return Ok(CoreValue::from("done"));
     }
-    return Ok(CoreValue::Null);
+    return Ok(v_text.clone());
 }
 
 #[allow(
@@ -91840,6 +92952,120 @@ fn _stream_run_state_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_buffer = CoreValue::new_list();
     core_set(&v_run, CoreValue::from("buffer"), v_buffer.clone())?;
     return Ok(v_run.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _run_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_run_tool_calls_impl");
+    let mut v_gen = core_arg(args, 0);
+    let mut v_functions = core_arg(args, 1);
+    let mut v_messages = core_arg(args, 2);
+    let mut v_calls = core_arg(args, 3);
+    let mut v_options = core_arg(args, 4);
+    let mut v_call = CoreValue::Null;
+    let mut v_executed = CoreValue::Null;
+    let mut v_format_error = CoreValue::Null;
+    let mut v_format_error_message = CoreValue::Null;
+    let mut v_format_failure = CoreValue::Null;
+    let mut v_formatted_text = CoreValue::Null;
+    let mut v_tool_error = CoreValue::Null;
+    let mut v_tool_error_message = CoreValue::Null;
+    let mut v_tool_error_text = CoreValue::Null;
+    let mut v_tool_message = CoreValue::Null;
+    let mut v_tool_ok = CoreValue::Null;
+    let mut v_tool_result = CoreValue::Null;
+    let mut v_tool_text = CoreValue::Null;
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_tool_ok = CoreValue::Bool(false);
+        v_tool_result = core_none(&[])?;
+        let __core_try: Result<CoreFlow, AxError> = (|| {
+            v_executed = _execute_tool_call(&[v_functions.clone(), v_call.clone()])?;
+            v_tool_result = v_executed.clone();
+            v_tool_ok = CoreValue::Bool(true);
+            Ok(CoreFlow::Normal)
+        })();
+        match __core_try {
+            Ok(CoreFlow::Normal) => {}
+            Ok(CoreFlow::Return(value)) => return Ok(value),
+            Ok(CoreFlow::Break) => break,
+            Ok(CoreFlow::Continue) => continue,
+            Err(__core_caught) => {
+                v_tool_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                v_tool_error_message =
+                    _tool_error_message_impl(&[v_call.clone(), v_tool_error.clone()])?;
+                core_append(&v_messages, v_tool_error_message.clone())?;
+                v_tool_error_text = core_get(
+                    &v_tool_error_message,
+                    &CoreValue::from("result"),
+                    CoreValue::from(""),
+                );
+                core_axgen_memory_add_function_result(&[
+                    v_gen.clone(),
+                    v_call.clone(),
+                    v_tool_error_text.clone(),
+                    CoreValue::Bool(false),
+                    v_tool_error_text.clone(),
+                ])?;
+                core_axgen_record_function_call(&[
+                    v_gen.clone(),
+                    v_call.clone(),
+                    v_tool_error_message.clone(),
+                    CoreValue::from("error"),
+                ])?;
+            }
+        }
+        if core_truthy(&v_tool_ok) {
+            v_tool_text = CoreValue::from("");
+            let __core_try: Result<CoreFlow, AxError> = (|| {
+                v_formatted_text =
+                    _function_result_text_impl(&[v_tool_result.clone(), v_options.clone()])?;
+                v_tool_text = v_formatted_text.clone();
+                Ok(CoreFlow::Normal)
+            })();
+            match __core_try {
+                Ok(CoreFlow::Normal) => {}
+                Ok(CoreFlow::Return(value)) => return Ok(value),
+                Ok(CoreFlow::Break) => break,
+                Ok(CoreFlow::Continue) => continue,
+                Err(__core_caught) => {
+                    v_format_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                    v_format_error_message =
+                        _tool_error_message_impl(&[v_call.clone(), v_format_error.clone()])?;
+                    core_axgen_record_function_call(&[
+                        v_gen.clone(),
+                        v_call.clone(),
+                        v_format_error_message.clone(),
+                        CoreValue::from("error"),
+                    ])?;
+                    v_format_failure = _generate_failed_impl(&[v_format_error.clone()])?;
+                    return Err(core_as_error(&v_format_failure));
+                }
+            }
+            v_tool_message = _tool_result_message_impl(&[v_call.clone(), v_tool_text.clone()])?;
+            core_append(&v_messages, v_tool_message.clone())?;
+            core_axgen_memory_add_function_result(&[
+                v_gen.clone(),
+                v_call.clone(),
+                v_tool_text.clone(),
+                CoreValue::Bool(true),
+                v_tool_text.clone(),
+            ])?;
+            core_axgen_record_function_call(&[
+                v_gen.clone(),
+                v_call.clone(),
+                v_tool_result.clone(),
+                CoreValue::from("ok"),
+            ])?;
+        }
+    }
+    return Ok(v_messages.clone());
 }
 
 #[allow(
@@ -129208,7 +130434,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (961 of 961 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (972 of 972 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -129677,7 +130903,7 @@ fn open_timed_stream(
     call: &Value,
     header_ms: f64,
     read_timeout: f64,
-) -> AxResult<(u16, Box<dyn Read>)> {
+) -> AxResult<(u16, Box<dyn Read>, Option<String>)> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -129706,6 +130932,11 @@ fn open_timed_stream(
             Err(_) => return Err(call_timeout_error(call)),
         };
     let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     Ok((
         status,
         Box::new(TimedStreamBody {
@@ -129715,6 +130946,7 @@ fn open_timed_stream(
             offset: 0,
             idle: Duration::from_secs_f64(read_timeout.max(0.001)),
         }),
+        retry_after,
     ))
 }
 
@@ -129725,6 +130957,7 @@ fn cancellable_http_json(
     call: &Value,
     timeout: f64,
     token: &AxCancellationToken,
+    raw: bool,
 ) -> AxResult<Value> {
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = cancelled.clone();
@@ -129771,6 +131004,11 @@ fn cancellable_http_json(
         token.throw_if_cancelled()?;
         let response = response.ok_or_else(|| AxError::new("aborted", "Request aborted"))?;
         let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let bytes = session::http_wait(response.bytes(), &cancelled)
             .await
             .map_err(|error| transport_failure(error, total))?;
@@ -129782,8 +131020,145 @@ fn cancellable_http_json(
             serde_json::from_slice(&bytes)
                 .unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)))
         };
-        normalize_passthrough_response(json!({"status":status,"json":body}))
+        let envelope = status_envelope(status, body, retry_after);
+        if raw {
+            Ok(envelope)
+        } else {
+            normalize_passthrough_response(envelope)
+        }
     })
+}
+
+// A status response's {status, json} envelope, with its Retry-After in
+// headers.
+fn status_envelope(status: u16, body: Value, retry_after: Option<String>) -> Value {
+    let mut envelope = json!({"status": status, "json": body});
+    if let (Some(value), true) = (retry_after, status >= 400) {
+        envelope["headers"] = json!({"Retry-After": value});
+    }
+    envelope
+}
+
+// A transport result's Retry-After header.
+fn retry_after_header(raw: &Value) -> Option<String> {
+    raw.get("headers")?
+        .as_object()?
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
+        .and_then(|(_, value)| match value {
+            Value::String(text) => Some(text.clone()),
+            Value::Null => None,
+            other => Some(other.to_string()),
+        })
+}
+
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources.
+#[derive(Default)]
+pub(crate) struct RequestRetryHooks {
+    pub(crate) delays: Option<Vec<f64>>,
+    pub(crate) random: Option<f64>,
+    pub(crate) now_ms: Option<f64>,
+}
+
+thread_local! {
+    pub(crate) static REQUEST_RETRY_HOOKS: std::cell::RefCell<RequestRetryHooks> = std::cell::RefCell::new(RequestRetryHooks::default());
+}
+
+static REQUEST_RETRY_RANDOM_STATE: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+// A number in [0, 1) for the backoff's jitter.
+fn request_retry_random() -> f64 {
+    let mut state = REQUEST_RETRY_RANDOM_STATE.load(std::sync::atomic::Ordering::Relaxed);
+    if state == 0 {
+        state = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
+            | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    REQUEST_RETRY_RANDOM_STATE.store(state, std::sync::atomic::Ordering::Relaxed);
+    (state >> 11) as f64 / (1u64 << 53) as f64
+}
+
+fn request_retry_sleep(delay: f64) -> AxResult<()> {
+    let recorded = REQUEST_RETRY_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        match hooks.delays.as_mut() {
+            Some(delays) => {
+                delays.push(delay);
+                true
+            }
+            None => false,
+        }
+    });
+    if recorded {
+        if let Some(token) = current_cancellation_token() {
+            token.throw_if_cancelled()?;
+        }
+        return Ok(());
+    }
+    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))
+}
+
+// TS apiCall's view of a failed request: its HTTP status (with its
+// Retry-After) or a network failure. Anything else is None and not retried.
+fn request_retry_failure(error: &AxError, retry_after: Option<&str>) -> Option<Value> {
+    if matches!(
+        error.error_type.as_deref(),
+        Some("AxAIServiceAuthenticationError") | Some("AxAIServiceAbortedError")
+    ) || error.category == "aborted"
+    {
+        return None;
+    }
+    if let Some(status) = error.status {
+        let mut failure = json!({"status": status});
+        if let Some(value) = retry_after {
+            failure["retry_after"] = json!(value);
+        }
+        return Some(failure);
+    }
+    (error.error_type.as_deref() == Some("AxAIServiceNetworkError"))
+        .then(|| json!({"network": true}))
+}
+
+// Waits before the failed request goes out again, as TS apiCall does, and
+// says whether it does.
+fn request_retry_wait(
+    config: &Value,
+    attempt: i64,
+    error: &AxError,
+    retry_after: Option<&str>,
+) -> AxResult<bool> {
+    let Some(failure) = request_retry_failure(error, retry_after) else {
+        return Ok(false);
+    };
+    let (random, now_ms) = REQUEST_RETRY_HOOKS.with(|hooks| {
+        let hooks = hooks.borrow();
+        (hooks.random, hooks.now_ms)
+    });
+    let now_ms = now_ms.unwrap_or_else(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as f64
+    });
+    let delay = request_retry_delay(&[
+        core_value_from_json(config),
+        CoreValue::Num(attempt as f64),
+        core_value_from_json(&failure),
+        CoreValue::Num(now_ms),
+        CoreValue::Num(random.unwrap_or_else(request_retry_random)),
+    ])?;
+    if delay.is_null() {
+        return Ok(false);
+    }
+    request_retry_sleep(core_value_to_json(&delay).as_f64().unwrap_or(0.0))?;
+    Ok(true)
 }
 
 #[cfg(test)]

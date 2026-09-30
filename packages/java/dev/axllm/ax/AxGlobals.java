@@ -13,6 +13,8 @@ public final class AxGlobals {
   private static final AtomicReference<AxTracer> TRACER = new AtomicReference<>();
   private static final AtomicReference<AxMeter> METER = new AtomicReference<>();
   private static final AtomicReference<AxCachingFunction> CACHING_FUNCTION = new AtomicReference<>();
+  private static final AtomicReference<AxGen.FunctionResultFormatter> FUNCTION_RESULT_FORMATTER =
+      new AtomicReference<>();
   private static final ThreadLocal<Frame> FRAME = new ThreadLocal<>();
   private static final Map<AxMeter, Instruments> INSTRUMENTS = new IdentityHashMap<>();
 
@@ -42,6 +44,19 @@ public final class AxGlobals {
 
   static AxCachingFunction cachingFunction() {
     return CACHING_FUNCTION.get();
+  }
+
+  /**
+   * Sets the process-wide tool result formatter, as TypeScript's {@code
+   * axGlobals.functionResultFormatter}; {@code null} restores the default. AxGen uses it when
+   * neither the forward call nor the program sets {@code functionResultFormatter}.
+   */
+  public static void setFunctionResultFormatter(AxGen.FunctionResultFormatter formatter) {
+    FUNCTION_RESULT_FORMATTER.set(formatter);
+  }
+
+  static AxGen.FunctionResultFormatter functionResultFormatter() {
+    return FUNCTION_RESULT_FORMATTER.get();
   }
 
   public static void setTracer(AxTracer tracer) {

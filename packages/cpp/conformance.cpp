@@ -302,6 +302,9 @@ struct ScriptedTransport : Transport {
     if (responses.empty()) throw AxError("fixture", "scripted transport exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
+    // {"network_error": message} stands for a request that failed to connect,
+    // send or read, as the HTTP client reports it.
+    if (out.is_object() && !Core::get(out, "network_error").is_null()) throw AxError("network", display(Core::get(out, "network_error")));
     return out;
   }
   Value call(Value request, const AxCancellationToken* cancellation) override { cancellations.push_back(cancellation); return call(std::move(request)); }
@@ -1069,11 +1072,49 @@ static void run_forward(Value fixture) {
       return std::stoi(display(picker_index));
     });
   }
+  // A fixture's formatter: {text} writes that text for every tool result,
+  // and {throws} fails with that message.
+  auto fixture_formatter = [](const Value& spec) -> AxFunctionResultFormatter {
+    std::string text = display(Core::get(spec, "text", ""));
+    Value failure = Core::get(spec, "throws");
+    std::string message = failure.is_null() ? "" : display(failure);
+    bool fails = !failure.is_null();
+    return [text, message, fails](const Value&) -> std::string {
+      if (fails) throw std::runtime_error(message);
+      return text;
+    };
+  };
+  Value formatter_spec = Core::get(fixture, "function_result_formatter");
+  if (!formatter_spec.is_null()) {
+    // The program's formatter.
+    gen.set_function_result_formatter(fixture_formatter(formatter_spec));
+  }
   Value forward_options = Core::get(fixture, "forward_options", Value::object());
+  // The forward call's formatter; the handle stays alive for the call.
+  std::optional<AxFunctionResultFormatterHandle> call_formatter;
+  Value call_formatter_spec = Core::get(fixture, "call_function_result_formatter");
+  if (!call_formatter_spec.is_null()) {
+    call_formatter.emplace(fixture_formatter(call_formatter_spec));
+    forward_options = Core::map_merge(Value::object(), forward_options);
+    Core::set(forward_options, "functionResultFormatter", call_formatter->value());
+  }
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) {
     forward_options = Core::map_merge(Value::object(), forward_options);
     control = attach_fixture_control(fixture, client, forward_options, control_events);
+  }
+  // The process-wide formatter; the guard restores the default after the
+  // forward.
+  struct GlobalFormatterReset {
+    bool active = false;
+    ~GlobalFormatterReset() {
+      if (active) set_function_result_formatter(nullptr);
+    }
+  } global_formatter_reset;
+  Value global_formatter_spec = Core::get(fixture, "global_function_result_formatter");
+  if (!global_formatter_spec.is_null()) {
+    set_function_result_formatter(fixture_formatter(global_formatter_spec));
+    global_formatter_reset.active = true;
   }
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, forward_options); }, fixture, true);
@@ -1149,6 +1190,18 @@ static void run_forward(Value fixture) {
     throw AxError("fixture", "expected memory history count mismatch");
   }
   if (!Core::get(fixture, "expected_memory_history_subset").is_null()) assert_list_subset(gen.get_memory().history(), Core::get(fixture, "expected_memory_history_subset"), "memory history");
+  // The memory's tool results, in order: result_text is the text the model
+  // got, and result holds the same text.
+  for (const auto& [memory_key, entry_key] : std::vector<std::pair<std::string, std::string>>{{"expected_memory_function_results", "result_text"}, {"expected_memory_function_stored_results", "result"}}) {
+    Value expected_memory = Core::get(fixture, memory_key);
+    if (expected_memory.is_null()) continue;
+    Value memory_values = Value::array();
+    for (const auto& item : Core::iter(gen.get_memory().history())) {
+      if (display(Core::get(item, "role")) != "function") continue;
+      for (const auto& entry : Core::iter(Core::get(item, "results", Value::array()))) Core::append(memory_values, Core::get(entry, entry_key));
+    }
+    assert_equal(memory_values, expected_memory, memory_key);
+  }
   if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(gen.get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "chat log");
   if (!Core::get(fixture, "expected_function_traces_subset").is_null()) assert_list_subset(gen.get_function_call_traces(), Core::get(fixture, "expected_function_traces_subset"), "function call traces");
   if (!Core::get(fixture, "expected_chat_prompt").is_null()) {
@@ -4213,7 +4266,42 @@ static void run_kind(Value fixture);
 
 // expected_deprecations pins the one-time deprecation warnings the run gives
 // (the ones already shown are forgotten first).
+static void run_with_deprecations(Value fixture);
+
+// The request-layer retry records its delays instead of waiting, and a
+// fixture can fix its jitter (retry_random) and clock (retry_now_ms) and pin
+// the delays (expected_retry_delays_ms). An ai_cancellation fixture checks
+// that a cancellation ends the wait, so it waits for real.
 static void run(Value fixture) {
+  auto delays = std::make_shared<std::vector<double>>();
+  Value random = Core::get(fixture, "retry_random");
+  Value now = Core::get(fixture, "retry_now_ms");
+  Value kind = Core::get(fixture, "kind");
+  bool real_wait = kind.is_string() && display(kind) == "ai_cancellation";
+  set_request_retry_hooks(
+      real_wait ? std::function<void(double)>() : std::function<void(double)>([delays](double delay) { delays->push_back(delay); }),
+      random.is_null() ? std::function<double()>() : std::function<double()>([random] { return Core::number(random); }),
+      now.is_null() ? std::function<double()>() : std::function<double()>([now] { return Core::number(now); }));
+  try {
+    run_with_deprecations(fixture);
+  } catch (...) {
+    set_request_retry_hooks({}, {}, {});
+    throw;
+  }
+  set_request_retry_hooks({}, {}, {});
+  Value expected = Core::get(fixture, "expected_retry_delays_ms");
+  if (expected.is_null()) return;
+  const Array& want = as_array(expected);
+  bool matches = want.size() == delays->size();
+  for (std::size_t index = 0; matches && index < want.size(); ++index) matches = std::abs(Core::number(want[index]) - (*delays)[index]) <= 1e-6;
+  if (!matches) {
+    std::string got = "[";
+    for (std::size_t index = 0; index < delays->size(); ++index) got += (index ? "," : "") + display(Value((*delays)[index]));
+    throw std::runtime_error("retry delays: expected " + stringify(expected) + ", got " + got + "]");
+  }
+}
+
+static void run_with_deprecations(Value fixture) {
   Value expected = Core::get(fixture, "expected_deprecations");
   if (expected.is_null()) {
     run_kind(fixture);
