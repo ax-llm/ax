@@ -79,6 +79,7 @@ Give the agent a code runtime on the constructor (`runtime`: a runtime object, o
 - `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'`, the default since 25.0.0, is the above; `'tools'` calls every flat function `tools.<name>`, as the ports did before 25.0.0.
 - A flat function without its own namespace uses `utils`, matching TypeScript. Explicit `'tools'` mode retains the legacy namespace.
 - `clarificationShape` / `clarification_shape` defaults to `'structured'`: clarifications carry `{question, ...}`. Explicit `'raw'` retains the original payload. `inputValidation` / `input_validation` defaults to `'fail'`: missing required context fails before any request; explicit `'lenient'` retains the old behavior.
+- Initialize saved state with `playbook.playbook` (a snapshot or bare playbook). `playbook.seed` is the numeric random seed; object seeds no longer load state.
 - Task evaluation returns an error prediction for a thrown run in every language. Playbook evolve records keep the error without an extra error prediction, and evaluation does not trigger run-end learning.
 - A function names its namespace with `fn(name).namespace("crm")`, or a function spec with a `"namespace"` key.
 

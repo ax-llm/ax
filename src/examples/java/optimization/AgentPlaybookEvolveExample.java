@@ -25,7 +25,7 @@ public final class AgentPlaybookEvolveExample {
   public static void main(String[] args) throws Exception {
     AxAIService client = Ax.ai("openai", Map.of(
         "api_key", apiKey(),
-        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini")));
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-6-luna")));
 
     Map<String, Object> bullet = Map.of(
         "id", "failures-to-avoid-00001",
@@ -52,7 +52,7 @@ public final class AgentPlaybookEvolveExample {
             "ai", client,
             "contextFields", List.of(),
             "runtime", Map.of("language", "JavaScript"),
-            "playbook", Map.of("seed", seed, "onUpdate", playbookObserver),
+            "playbook", Map.of("playbook", seed, "seed", 7, "onUpdate", playbookObserver),
             "citations", Map.of("surface", "hidden", "onCitations", citationObserver)));
     assistant
         .setInstruction("Answer from evidence and state uncertainty plainly.")

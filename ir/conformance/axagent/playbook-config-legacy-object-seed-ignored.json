@@ -1,12 +1,13 @@
 {
-  "name": "playbook-config-seed-attach",
+  "name": "playbook-config-legacy-object-seed-ignored",
   "kind": "agent_forward",
   "signature": "question:string -> answer:string",
   "options": {
     "contextFields": [],
     "playbook": {
       "learn": false,
-      "playbook": {
+      "now": "2024-01-02T03:04:05.000Z",
+      "seed": {
         "playbook": {
           "version": 1,
           "sections": {
@@ -34,8 +35,7 @@
           "feedback": [],
           "history": []
         }
-      },
-      "seed": 7
+      }
     }
   },
   "input": {
@@ -55,8 +55,61 @@
   "expected_output": {
     "answer": "the live evidence"
   },
-  "expected_request_contains": [
-    "failures_to_avoid",
-    "Check the live evidence before answering."
-  ]
+  "expected_playbook_state": {
+    "playbook": {
+      "version": 1,
+      "sections": {},
+      "stats": {
+        "bulletCount": 0,
+        "helpfulCount": 0,
+        "harmfulCount": 0,
+        "tokenEstimate": 0
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z"
+    },
+    "artifact": {
+      "playbook": {
+        "version": 1,
+        "sections": {},
+        "stats": {
+          "bulletCount": 0,
+          "helpfulCount": 0,
+          "harmfulCount": 0,
+          "tokenEstimate": 0
+        },
+        "updatedAt": "2024-01-02T03:04:05.000Z"
+      },
+      "feedback": [],
+      "history": []
+    }
+  },
+  "expected_playbook_state_before_forward": {
+    "playbook": {
+      "version": 1,
+      "sections": {},
+      "stats": {
+        "bulletCount": 0,
+        "helpfulCount": 0,
+        "harmfulCount": 0,
+        "tokenEstimate": 0
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z"
+    },
+    "artifact": {
+      "playbook": {
+        "version": 1,
+        "sections": {},
+        "stats": {
+          "bulletCount": 0,
+          "helpfulCount": 0,
+          "harmfulCount": 0,
+          "tokenEstimate": 0
+        },
+        "updatedAt": "2024-01-02T03:04:05.000Z"
+      },
+      "feedback": [],
+      "history": []
+    }
+  },
+  "expected_playbook_config_unchanged": true
 }

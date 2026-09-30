@@ -6245,8 +6245,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         .as_str().unwrap_or_default().to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
-        // TS's `playbook` seed (a snapshot or a bare playbook), or the older
-        // `seed` key with a deprecation warning; else an initialPlaybook.
+        // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
         let seed = core_value_to_json(&_agent_playbook_config_seed(&[core_value_from_json(&playbook_config)])?);
         let seed = if seed.is_null() {
             config.get("initialPlaybook").or_else(|| config.get("initial_playbook")).cloned().map(|value| json!({"playbook": value}))

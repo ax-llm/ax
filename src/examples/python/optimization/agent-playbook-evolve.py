@@ -20,7 +20,7 @@ if not api_key:
 client = ai(
     "openai",
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-6-luna"),
 )
 
 seed = {
@@ -52,7 +52,7 @@ assistant = agent(
         "ai": client,
         "contextFields": [],
         "runtime": {"language": "JavaScript"},
-        "playbook": {"seed": seed, "onUpdate": playbook_updates.append},
+        "playbook": {"playbook": seed, "seed": 7, "onUpdate": playbook_updates.append},
         "citations": {
             "surface": "hidden",
             "onCitations": observed_citations.append,

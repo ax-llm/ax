@@ -40409,18 +40409,6 @@ Value Core::_agent_playbook_config_seed(Value config) {
     }
     return bare;
   }
-  Value legacy = Core::get(config, Value("seed"), Value());
-  Value legacy_is_object = Core::type_is(legacy, Value("object"));
-  if (Core::truthy(legacy_is_object)) {
-    Core::axgen_deprecation(Value("agent-playbook-seed-snapshot"), Value("A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed."));
-    Value legacy_has_playbook = Core::map_contains(legacy, Value("playbook"));
-    if (Core::truthy(legacy_has_playbook)) {
-      return legacy;
-    }
-    Value wrapped = Value::object();
-    Core::set(wrapped, Value("playbook"), legacy);
-    return wrapped;
-  }
   Value artifact = Core::get(config, Value("artifact"), Value());
   Value has_artifact_only = Core::is_not_none(artifact);
   if (Core::truthy(has_artifact_only)) {
@@ -56026,8 +56014,7 @@ void AxAgent::attach_configured_playbook() {
     throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
   }
   AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
-  // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
-  // key with a deprecation warning.
+  // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
   Value seed = Core::_agent_playbook_config_seed(config);
   AxPlaybook& handle = playbook(*student, config, teacher);
   if (seed.is_object()) handle.load(seed);

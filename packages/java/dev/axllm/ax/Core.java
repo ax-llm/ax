@@ -38637,18 +38637,6 @@ final class Core {
       }
       return bare;
     }
-    Object legacy = Core.get(config, "seed", null);
-    Object legacy_is_object = Core.typeIs(legacy, "object");
-    if (Core.truthy(legacy_is_object)) {
-      Core.axgenDeprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.");
-      Object legacy_has_playbook = Core.mapContains(legacy, "playbook");
-      if (Core.truthy(legacy_has_playbook)) {
-        return legacy;
-      }
-      Object wrapped = new java.util.LinkedHashMap<String, Object>();
-      Core.set(wrapped, "playbook", legacy);
-      return wrapped;
-    }
     Object artifact = Core.get(config, "artifact", null);
     Object has_artifact_only = Core.isNotNone(artifact);
     if (Core.truthy(has_artifact_only)) {

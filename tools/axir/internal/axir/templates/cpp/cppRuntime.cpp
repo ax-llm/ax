@@ -9377,8 +9377,7 @@ void AxAgent::attach_configured_playbook() {
     throw AxError("validation", "AxAgent: the `playbook` config option requires studentAI when the agent has no default ai.");
   }
   AIClient* teacher = playbook_config_client(config, {"teacherAI", "teacher_ai", "teacher"});
-  // TS's `playbook` seed (a snapshot or a bare playbook), or the older `seed`
-  // key with a deprecation warning.
+  // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
   Value seed = Core::_agent_playbook_config_seed(config);
   AxPlaybook& handle = playbook(*student, config, teacher);
   if (seed.is_object()) handle.load(seed);

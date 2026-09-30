@@ -8788,8 +8788,7 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	if config == nil {
 		config = Object()
 	}
-	// TS's `playbook` seed (a snapshot or a bare playbook), or the older
-	// `seed` key with a deprecation warning.
+	// TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
 	seed := mustCore(_agent_playbook_config_seed(config))
 	options := cloneMap(config)
 	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {

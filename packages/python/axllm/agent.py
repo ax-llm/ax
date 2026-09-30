@@ -2278,8 +2278,7 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
-        # `seed` key with a deprecation warning.
+        # TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
         seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:
@@ -10466,20 +10465,6 @@ def _agent_playbook_config_seed(config: Any) -> Any:
         else:
             pass
         return bare
-    else:
-        pass
-    legacy = _core_get(config, "seed", None)
-    legacy_is_object = _core_type_is(legacy, "object")
-    if legacy_is_object:
-        _core_axgen_deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
-        legacy_has_playbook = _core_map_contains(legacy, "playbook")
-        if legacy_has_playbook:
-            return legacy
-        else:
-            pass
-        wrapped = {}
-        wrapped["playbook"] = legacy
-        return wrapped
     else:
         pass
     artifact = _core_get(config, "artifact", None)
