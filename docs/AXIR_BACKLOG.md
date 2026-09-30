@@ -18,12 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age` [axagent] Match TS's auto-promoted context value previews in the ports' agent prompts
-  - Status: open
-  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
-  - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/runtime.ts`
-  - Impact: autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.
-  - Suggested AxIR work: Port TS's promotion decision (string length for strings and the preview and omit modes); Render TS's truncated preview in the actor and responder prompts; Replace the port-only promotion fixture with TS-derived goldens
 - `axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un` [prompt] Split the actor prompt into cached and uncached user messages under contextCache in the ports
   - Status: open
   - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
@@ -1247,6 +1241,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `c1fc65ba7`
   - Verification: `TS: src/ax/ai/transport_errors.test.ts pins fetch's failures against loopback servers (a refused or dropped connection is AxAIServiceNetworkError 'Network Error: ...', which apiCall retries; a timeout is AxAIServiceTimeoutError after one request; a dropped started stream is a network error; AxGen at maxRetries 1 sends both failures twice; the Typesafe client retries a network error and not a timeout). Ports: the transport_errors_http_roundtrip example (refused, closed without a response, never answering and a dropped started stream through the real HTTP client; stream retries; the Typesafe client; AxGen's retries; Java's default JDK exceptions and typedTransportErrors; Python's IncompleteRead base) fails on #761's head in all five ports and passes in all five. Before the fix AxGen sent a non-streaming network failure once in Go, Java, C++ and Rust (TS twice at maxRetries 1), and Rust's streams too. Full conformance passes in python, go and java; verify --mode release passes in all five.`
+- `axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age` [axagent] Match TS's auto-promoted context value previews in the ports' agent prompts
+  - Status: done
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/runtime.ts`
+  - Impact: autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.
+  - Suggested AxIR work: Port TS's promotion decision (string length for strings and the preview and omit modes); Render TS's truncated preview in the actor and responder prompts; Replace the port-only promotion fixture with TS-derived goldens
+  - Completed at: 2026-09-27
+  - Completed by: `1c20db2fa68af33ebeebcf55b8d533947fa5db7c`
+  - Verification: `TS's decideAutoPromotion and truncated preview in all five ports (preview, stringifiedPreview and omit modes, UTF-16 sizes), the Context Metadata mode, and the responder's preview (finalizeResponderNonContextValues). TS goldens axagent/agent-first-requests-auto-promotion and -auto-promotion-modes pin every stage's first request; the port-only auto-upgrade-discovery-and-context-promotion now pins TS's preview. Both goldens fail on the base Python (the modes golden with 'input.<field> must be an array': the old preview turned an optional array into a string).`
 - `axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents` [axagent] Honor a flat function's own namespace in the ports' agents
   - Status: done
   - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
@@ -1256,3 +1259,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `51f5419cf393032e8809209006a0005a260ca9dd`
   - Verification: `25.0.0 (the major): the agent option flatFunctionNamespace defaults to 'own', which files a flat function under its own namespace as TS does (TS's error for a reserved one); 'tools' is the permanent opt-out that keeps tools.<name>. Go Tool.WithNamespace and Java fn(...).namespace(...) added. TS golden axagent/agent-first-requests-flat-namespace, real-engine axagent-real/agent-runtime-real-flat-namespace-call, and seven port-only axagent/agent-flat-function-namespace-* fixtures; all but the two 'tools' fixtures fail on #766's Python. axagent+axmcp pass in all five ports; the real-engine antidote passes in goja, QuickJS, the quickjs wheel, rquickjs and quickjs4j.`
+- `axir-2026-09-27-restore-each-agent-stage-s-own-action-log-and-ts-s-runtime-resto` [axagent] Restore each agent stage's own action log and TS's Runtime Restore notice on a later forward in the ports
+  - Status: done
+  - Source commit: `5c9264235f25a2dad916f35e0d6271308de1f19a`
+  - TS paths: `src/ax/agent/agentInternal/actorLoop.ts`, `src/ax/agent/state.ts`
+  - Impact: TS keeps each actor stage's state across forward calls (actorLoop.ts restores s.state): on a second forward of the same agent the distiller's first request shows 'Summarized Actor Log: Runtime Restore:' (state.ts buildRuntimeRestoreNotice), its own earlier actions (a finished final() turn renders as the code and 'Result: (no output)') and the live runtime state, and the executor shows the same notice (not the shared-session one) with its own earlier actions. Main's ports showed both stages' earlier actions plus the runtime-session records; after 3a2 PR A the ports show none ('(no actions yet)') and no restore notice. Reproduced with two forwards on one agent (scripted model and runtime) in TS and the Python port.
+  - Suggested AxIR work: Keep each stage's action log across forwards and render finished turns as TS does; Render TS's Runtime Restore notice on a later forward and keep it over the shared-session notice; Pin a two-forward TS golden with each stage's first request of the second run
+  - Completed at: 2026-09-27
+  - Completed by: `1c20db2fa68af33ebeebcf55b8d533947fa5db7c`
+  - Verification: `Each stage keeps its own action log across forwards and opens with TS's Runtime Restore notice on its first turn (its own notice wins over the shared-session one); a finished final() turn renders as its code and '(no output)'; evaluation runs start without the stages' earlier actions (TS forwardPipelineForEvaluation). The two-forward TS golden axagent/agent-first-requests-second-forward pins each run's first request of each stage and fails on the base Python.`
