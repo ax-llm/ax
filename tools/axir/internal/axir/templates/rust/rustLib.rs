@@ -10587,7 +10587,14 @@ impl MultiServiceRouter {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        self.service_for(&request)?.embed(request)
+        let entries = Value::Array(self.services.iter().map(|(key, service)|
+            json!({"key": key, "models": service.get_model_list()})
+        ).collect());
+        let routed = core_value_to_json(&router_embed_route(&[
+            core_value_from_json(&request), core_value_from_json(&entries)
+        ])?);
+        let key = routed["key"].as_str().unwrap_or_default();
+        self.services.get_mut(key).ok_or_else(|| AxError::runtime("Embedding service unavailable"))?.embed(routed["request"].clone())
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -13148,13 +13155,11 @@ impl ConformanceMultiServiceRouter {
             .cloned()
             .ok_or_else(|| AxError::runtime(format!("No service found for embed model key: {model_key}")))?;
         self.last_used = Some(entry.service_index);
-        let mut forwarded = request.clone();
-        if entry.model.is_none() {
-            if let Some(obj) = forwarded.as_object_mut() {
-                obj.remove("embedModel");
-                obj.remove("embed_model");
-            }
-        }
+        let forwarded = core_value_to_json(&router_embed_request(&[
+            core_value_from_json(request),
+            core_value_from_json(&entry.model.clone().unwrap_or(Value::Null)),
+            core_value_from_json(&entry.embed_model.clone().unwrap_or(Value::Null)),
+        ])?);
         self.services[entry.service_index].embed(&forwarded, options)
     }
 
@@ -23077,7 +23082,6 @@ fn core_prompt_user_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let items = core_iter(&parts)?;
     let all_plain_text = items.iter().all(|part| {
         core_get(part, &CoreValue::from("type"), CoreValue::Null).as_str() == Some("text")
-            && !core_truthy(&core_get(part, &CoreValue::from("cache"), CoreValue::Null))
     });
     if all_plain_text {
         let joined = items
@@ -29226,6 +29230,32 @@ mod agent_playbook_student_tests {
         assert_eq!(output, json!({"answer": "recovered"}));
         assert_eq!(shared.borrow().requests.len(), 6);
         assert_eq!(learned_rules(&agent), vec![json!(RULE)]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod router_embed_key_tests {
+    use super::*;
+    struct Recording(Arc<Mutex<Vec<Value>>>);
+    impl AxTransport for Recording {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            self.0.lock().unwrap().push(request);
+            Ok(json!({"data":[{"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":1,"total_tokens":1}}))
+        }
+    }
+    #[test]
+    fn model_key_routes_to_mapped_embedding_and_router_key_uses_default() -> AxResult<()> {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let service = ai("openai", json!({"api_key":"test", "model":"gpt-6-luna", "embed_model":"text-embedding-3-small", "models":[{"key":"large-embed","description":"Large","embedModel":"text-embedding-3-large"}]}))?.with_transport(Recording(sent.clone()));
+        let mut router = MultiServiceRouter::new().with_service("service", service);
+        router.embed(json!({"embedModel":"large-embed","texts":["hello"]}))?;
+        router.embed(json!({"embedModel":"service","texts":["hello"]}))?;
+        assert!(router.embed(json!({"embedModel":"unknown","texts":["hello"]})).is_err());
+        let calls = sent.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["json"]["model"], "text-embedding-3-large");
+        assert_eq!(calls[1]["json"]["model"], "text-embedding-3-small");
         Ok(())
     }
 }

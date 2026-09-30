@@ -5285,18 +5285,31 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     prompt_template = _core_get(gen, "prompt_template", None)
     render_options = _structured_output_render_options_impl(selection)
     _include_optional_render_option_impl(render_options, options)
+    cache_snake = _core_get(runtime_options, "context_cache", None)
+    cache = _core_get(runtime_options, "contextCache", cache_snake)
+    render_options["contextCache"] = cache
+    caching_features = _core_get(features, "caching", None)
+    breakpoints = _core_get(caching_features, "cacheBreakpoints", True)
+    ignore_breakpoints = _core_eq(breakpoints, False)
+    render_options["ignoreBreakpoints"] = ignore_breakpoints
     messages = _core_object_call_method(prompt_template, "render", values, render_options)
     example_messages = _render_examples(gen)
     demo_messages = _render_demos(gen)
     system_message = _core_list_get(messages, 0, messages)
-    user_message = _core_list_get(messages, 1, messages)
     ordered_messages = []
     ordered_messages.append(system_message)
     for example_message in example_messages:
         ordered_messages.append(example_message)
     for demo_message in demo_messages:
         ordered_messages.append(demo_message)
-    ordered_messages.append(user_message)
+    message_index = 0
+    for message in messages:
+        after_system = _core_gt(message_index, 0)
+        if after_system:
+            ordered_messages.append(message)
+        else:
+            pass
+        message_index = _core_add(message_index, 1)
     output_fields = _core_get(signature, "output_fields", None)
     output_fields = _date_parse_fields_impl(output_fields, base_options, options)
     validation_feedback_snake = _core_get(runtime_options, "validation_feedback", "")
@@ -7604,12 +7617,6 @@ def _set_examples(gen: AxGen, examples: list[Any]) -> AxGen:
     return gen
 
 
-def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
-    _core_coverage_mark("_set_demos")
-    gen["demos"] = demos
-    return gen
-
-
 def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: str) -> Any:
     _core_coverage_mark("_ace_update_bullet_feedback")
     empty_map = {}
@@ -7657,10 +7664,10 @@ def _ace_update_bullet_feedback(playbook: Any, bullet_id: str, tag: str, now: st
     return playbook
 
 
-def _render_examples(gen: AxGen) -> list[Any]:
-    _core_coverage_mark("_render_examples")
-    messages = _core_axgen_render_examples(gen)
-    return messages
+def _set_demos(gen: AxGen, demos: list[Any]) -> AxGen:
+    _core_coverage_mark("_set_demos")
+    gen["demos"] = demos
+    return gen
 
 
 def _regex_alternative(s: Any) -> Any:
@@ -7725,16 +7732,16 @@ def chat_session_has_queued_updates(state: Any) -> bool:
     return False
 
 
+def _render_examples(gen: AxGen) -> list[Any]:
+    _core_coverage_mark("_render_examples")
+    messages = _core_axgen_render_examples(gen)
+    return messages
+
+
 def _render_demos(gen: AxGen) -> list[Any]:
     _core_coverage_mark("_render_demos")
     messages = _core_axgen_render_demos(gen)
     return messages
-
-
-def _apply_field_processors(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_apply_field_processors")
-    processed = _core_axgen_apply_field_processors(gen, output)
-    return processed
 
 
 def chat_session_native_update(state: Any, id: str) -> bool:
@@ -7795,31 +7802,10 @@ def _date_strip_code_fence_impl(value: Any) -> Any:
     return stripped
 
 
-def _run_assertions(gen: AxGen, output: Any) -> Any:
-    _core_coverage_mark("_run_assertions")
-    result = _core_axgen_run_assertions(gen, output)
-    status = _core_get(result, "status", "pass")
-    threw = _core_eq(status, "error")
-    if threw:
-        thrown = _core_get(result, "error", None)
-        return thrown
-    else:
-        pass
-    failed = _core_eq(status, "fail")
-    if failed:
-        message = _core_get(result, "message", None)
-        has_message = _core_is_not_none(message)
-        if has_message:
-            assertion_error = _core_runtime_error(message)
-            raise assertion_error
-        else:
-            pass
-        message_less = _core_runtime_error("Assertion failed without message")
-        return message_less
-    else:
-        pass
-    passed = _core_none()
-    return passed
+def _apply_field_processors(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_apply_field_processors")
+    processed = _core_axgen_apply_field_processors(gen, output)
+    return processed
 
 
 def _ace_dedupe_playbook(playbook: Any) -> Any:
@@ -7855,6 +7841,33 @@ def _ace_dedupe_playbook(playbook: Any) -> Any:
     playbook["sections"] = sections
     recomputed = _ace_recompute_playbook_stats(playbook)
     return recomputed
+
+
+def _run_assertions(gen: AxGen, output: Any) -> Any:
+    _core_coverage_mark("_run_assertions")
+    result = _core_axgen_run_assertions(gen, output)
+    status = _core_get(result, "status", "pass")
+    threw = _core_eq(status, "error")
+    if threw:
+        thrown = _core_get(result, "error", None)
+        return thrown
+    else:
+        pass
+    failed = _core_eq(status, "fail")
+    if failed:
+        message = _core_get(result, "message", None)
+        has_message = _core_is_not_none(message)
+        if has_message:
+            assertion_error = _core_runtime_error(message)
+            raise assertion_error
+        else:
+            pass
+        message_less = _core_runtime_error("Assertion failed without message")
+        return message_less
+    else:
+        pass
+    passed = _core_none()
+    return passed
 
 
 def chat_session_native_wait(state: Any) -> bool:
@@ -8125,12 +8138,6 @@ def _date_string_mode_impl() -> Any:
     return "codepoint"
 
 
-def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
-    _core_coverage_mark("_append_assertion_retry_messages")
-    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
-    return updated_messages
-
-
 def chat_session_native_event(state: Any, event: Any) -> Any:
     _core_coverage_mark("chat_session_native_event")
     result = {}
@@ -8255,10 +8262,10 @@ def chat_session_native_event(state: Any, event: Any) -> Any:
     return result
 
 
-def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
-    _core_coverage_mark("_record_trace")
-    _core_axgen_record_trace(gen, input, output, status)
-    return None
+def _append_assertion_retry_messages(messages: list[Any], response: Any, error: error) -> list[Any]:
+    _core_coverage_mark("_append_assertion_retry_messages")
+    updated_messages = _append_validation_retry_messages_impl(messages, response, error)
+    return updated_messages
 
 
 def _ace_prune_section_for_addition(section: Any, protected_ids: Any) -> Any:
@@ -8396,10 +8403,10 @@ def _date_native_offset_impl(units: Any, index: Any, mode: Any) -> Any:
     return offset
 
 
-def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
-    _core_coverage_mark("_should_continue_steps")
-    should_continue = _core_axgen_should_continue_steps(gen, calls)
-    return should_continue
+def _record_trace(gen: AxGen, input: Any, output: Any, status: str) -> None:
+    _core_coverage_mark("_record_trace")
+    _core_axgen_record_trace(gen, input, output, status)
+    return None
 
 
 def _regex_space(c: Any) -> Any:
@@ -8497,6 +8504,12 @@ def _regex_space(c: Any) -> Any:
     else:
         pass
     return t2
+
+
+def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
+    _core_coverage_mark("_should_continue_steps")
+    should_continue = _core_axgen_should_continue_steps(gen, calls)
+    return should_continue
 
 
 def _parse_output_impl(content: str) -> Any:
@@ -9078,26 +9091,6 @@ def _date_space_impl(unit: Any) -> bool:
     return blank
 
 
-def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_fields")
-    values_is_map = _core_type_is(values, "object")
-    not_map = _core_not(values_is_map)
-    if not_map:
-        return values
-    else:
-        pass
-    for field in output_fields:
-        name = _core_get(field, "name", None)
-        has_key = _core_map_contains(values, name)
-        if has_key:
-            value = _core_get(values, name, None)
-            parsed = _parse_json_string_for_field(field, value)
-            values[name] = parsed
-        else:
-            pass
-    return values
-
-
 def _stream_text_state_impl() -> Any:
     _core_coverage_mark("_stream_text_state_impl")
     xstate = {}
@@ -9115,16 +9108,15 @@ def _stream_text_state_impl() -> Any:
     return xstate
 
 
-def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
-    _core_coverage_mark("_parse_json_string_for_fields")
+def _parse_json_string_fields(output_fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_fields")
     values_is_map = _core_type_is(values, "object")
     not_map = _core_not(values_is_map)
     if not_map:
         return values
     else:
         pass
-    nested_fields = _core_fields_from_map(fields_map)
-    for field in nested_fields:
+    for field in output_fields:
         name = _core_get(field, "name", None)
         has_key = _core_map_contains(values, name)
         if has_key:
@@ -9186,6 +9178,27 @@ def _stream_text_note_field_impl(xstate: Any, field: Any, init_streamed: bool) -
     else:
         pass
     return None
+
+
+def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
+    _core_coverage_mark("_parse_json_string_for_fields")
+    values_is_map = _core_type_is(values, "object")
+    not_map = _core_not(values_is_map)
+    if not_map:
+        return values
+    else:
+        pass
+    nested_fields = _core_fields_from_map(fields_map)
+    for field in nested_fields:
+        name = _core_get(field, "name", None)
+        has_key = _core_map_contains(values, name)
+        if has_key:
+            value = _core_get(values, name, None)
+            parsed = _parse_json_string_for_field(field, value)
+            values[name] = parsed
+        else:
+            pass
+    return values
 
 
 def chat_session_queue_update(state: Any, update: Any) -> bool:
@@ -9672,24 +9685,6 @@ def _ace_is_noop_acknowledgment(content: str) -> bool:
     return is_noop
 
 
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    execution = _core_get(fn, "execution", "blocking")
-    background = _core_eq(execution, "background")
-    if background:
-        spec["execution"] = execution
-    else:
-        pass
-    return spec
-
-
 def chat_session_close_state(state: Any) -> list[Any]:
     _core_coverage_mark("chat_session_close_state")
     state["terminal"] = True
@@ -9839,6 +9834,24 @@ def chat_session_transition(state: Any, event: Any) -> Any:
     return action
 
 
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    execution = _core_get(fn, "execution", "blocking")
+    background = _core_eq(execution, "background")
+    if background:
+        spec["execution"] = execution
+    else:
+        pass
+    return spec
+
+
 def _function_call_mode_impl(mode: Any) -> str:
     _core_coverage_mark("_function_call_mode_impl")
     missing = _core_is_none(mode)
@@ -9881,13 +9894,6 @@ def _regex_push(stack: Any, top: Any, value: Any) -> Any:
     return t2
 
 
-def _response_function_calls_impl(response: Any) -> list[Any]:
-    _core_coverage_mark("_response_function_calls_impl")
-    empty = []
-    calls = _core_get(response, "function_calls", empty)
-    return calls
-
-
 def _date_scan_date_impl(units: Any, at: Any) -> Any:
     _core_coverage_mark("_date_scan_date_impl")
     none = _core_none()
@@ -9928,6 +9934,21 @@ def _regex_task(n: Any, next: Any) -> Any:
     return t1
 
 
+def _response_function_calls_impl(response: Any) -> list[Any]:
+    _core_coverage_mark("_response_function_calls_impl")
+    empty = []
+    calls = _core_get(response, "function_calls", empty)
+    return calls
+
+
+def _regex_frame(todo: Any, st: Any) -> Any:
+    _core_coverage_mark("_regex_frame")
+    t1 = {}
+    t1["todo"] = todo
+    t1["st"] = st
+    return t1
+
+
 def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> list[Any]:
     _core_coverage_mark("_append_tool_call_messages_impl")
     chat_calls = []
@@ -9965,14 +9986,6 @@ def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: l
         pass
     messages.append(message)
     return messages
-
-
-def _regex_frame(todo: Any, st: Any) -> Any:
-    _core_coverage_mark("_regex_frame")
-    t1 = {}
-    t1["todo"] = todo
-    t1["st"] = st
-    return t1
 
 
 def _regex_search(n: Any, u: Any, initial: Any, d: Any) -> Any:
@@ -10673,18 +10686,6 @@ def _completion_call_to_chat_impl(call: Any) -> Any:
     return out
 
 
-def _tool_result_message_impl(call: Any, result_text: str) -> Any:
-    _core_coverage_mark("_tool_result_message_impl")
-    id = _core_get(call, "id", None)
-    name = _core_get(call, "name", None)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["name"] = name
-    message["result"] = result_text
-    return message
-
-
 def chat_session_tool_argument_errors(schema: Any, arguments: Any) -> Any:
     _core_coverage_mark("chat_session_tool_argument_errors")
     empty = []
@@ -10861,20 +10862,15 @@ def _ace_normalize_curator_operations(operations: Any) -> list[Any]:
     return empty_list
 
 
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
+def _tool_result_message_impl(call: Any, result_text: str) -> Any:
+    _core_coverage_mark("_tool_result_message_impl")
     id = _core_get(call, "id", None)
     name = _core_get(call, "name", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
     message = {}
     message["role"] = "function"
     message["function_id"] = id
     message["name"] = name
-    message["result"] = payload_json
-    message["is_error"] = True
+    message["result"] = result_text
     return message
 
 
@@ -11054,6 +11050,23 @@ def _stream_text_missed_fields_impl(values: Any, content: str, fields: list[Any]
                 pass
             break
     return None
+
+
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    name = _core_get(call, "name", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["name"] = name
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
 
 
 def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> list[Any]:
@@ -11434,19 +11447,6 @@ def _ace_locate_bullet_section(playbook: Any, bullet_id: str) -> Any:
     return found
 
 
-def _parse_output_fields_impl(content: str, fields: Any) -> Any:
-    _core_coverage_mark("_parse_output_fields_impl")
-    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    is_json = _core_string_starts_with(text, "{")
-    if is_json:
-        output = _parse_output_impl(text)
-        return output
-    else:
-        pass
-    output = _parse_text_output_fields_impl(text, fields, True)
-    return output
-
-
 def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, reflection: Any, generator_output: Any) -> list[Any]:
     _core_coverage_mark("_ace_resolve_curator_operation_targets")
     op_count = _core_len(operations)
@@ -11592,6 +11592,19 @@ def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, refle
     return resolved
 
 
+def _parse_output_fields_impl(content: str, fields: Any) -> Any:
+    _core_coverage_mark("_parse_output_fields_impl")
+    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    is_json = _core_string_starts_with(text, "{")
+    if is_json:
+        output = _parse_output_impl(text)
+        return output
+    else:
+        pass
+    output = _parse_text_output_fields_impl(text, fields, True)
+    return output
+
+
 def _signature_has_complex_fields(signature: AxSignature, options: Any) -> bool:
     _core_coverage_mark("_signature_has_complex_fields")
     option_forced_snake = _core_get(options, "force_structured", False)
@@ -11696,30 +11709,6 @@ def _stream_text_extract_values_impl(content: str, fields: list[Any], strict_mod
     return values
 
 
-def _caller_function_call_impl(options: Any) -> Any:
-    _core_coverage_mark("_caller_function_call_impl")
-    requested_snake = _core_get(options, "function_call", None)
-    requested = _core_get(options, "functionCall", requested_snake)
-    has_requested = _core_is_not_none(requested)
-    if has_requested:
-        return requested
-    else:
-        pass
-    mode_snake = _core_get(options, "function_call_mode", None)
-    mode = _core_get(options, "functionCallMode", mode_snake)
-    is_required = _core_eq(mode, "required")
-    is_none = _core_eq(mode, "none")
-    is_named = _core_type_is(mode, "object")
-    required_or_none = _core_or(is_required, is_none)
-    routed = _core_or(required_or_none, is_named)
-    if routed:
-        return mode
-    else:
-        pass
-    none = _core_none()
-    return none
-
-
 def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int, xstate: Any, held: list[Any], complete: bool) -> Any:
     _core_coverage_mark("_stream_text_yield_delta_impl")
     none = _core_none()
@@ -11808,15 +11797,28 @@ def _stream_text_yield_delta_impl(content: str, field: Any, start: int, end: int
     return none
 
 
-def _function_call_forces_tool_impl(choice: Any) -> bool:
-    _core_coverage_mark("_function_call_forces_tool_impl")
-    is_required = _core_eq(choice, "required")
-    if is_required:
-        return True
+def _caller_function_call_impl(options: Any) -> Any:
+    _core_coverage_mark("_caller_function_call_impl")
+    requested_snake = _core_get(options, "function_call", None)
+    requested = _core_get(options, "functionCall", requested_snake)
+    has_requested = _core_is_not_none(requested)
+    if has_requested:
+        return requested
     else:
         pass
-    is_named = _core_type_is(choice, "object")
-    return is_named
+    mode_snake = _core_get(options, "function_call_mode", None)
+    mode = _core_get(options, "functionCallMode", mode_snake)
+    is_required = _core_eq(mode, "required")
+    is_none = _core_eq(mode, "none")
+    is_named = _core_type_is(mode, "object")
+    required_or_none = _core_or(is_required, is_none)
+    routed = _core_or(required_or_none, is_named)
+    if routed:
+        return mode
+    else:
+        pass
+    none = _core_none()
+    return none
 
 
 def _date_js_json_string_impl(text: Any) -> Any:
@@ -11951,6 +11953,17 @@ def _date_js_json_string_impl(text: Any) -> Any:
     out = _core_add(out, rest)
     out = _core_add(out, "\"")
     return out
+
+
+def _function_call_forces_tool_impl(choice: Any) -> bool:
+    _core_coverage_mark("_function_call_forces_tool_impl")
+    is_required = _core_eq(choice, "required")
+    if is_required:
+        return True
+    else:
+        pass
+    is_named = _core_type_is(choice, "object")
+    return is_named
 
 
 def _function_call_names_output_impl(choice: Any) -> bool:
@@ -12315,18 +12328,31 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
     prompt_template = _core_get(gen, "prompt_template", None)
     render_options = _structured_output_render_options_impl(selection)
     _include_optional_render_option_impl(render_options, options)
+    cache_snake = _core_get(runtime_options, "context_cache", None)
+    cache = _core_get(runtime_options, "contextCache", cache_snake)
+    render_options["contextCache"] = cache
+    caching_features = _core_get(features, "caching", None)
+    breakpoints = _core_get(caching_features, "cacheBreakpoints", True)
+    ignore_breakpoints = _core_eq(breakpoints, False)
+    render_options["ignoreBreakpoints"] = ignore_breakpoints
     messages = _core_object_call_method(prompt_template, "render", values, render_options)
     example_messages = _render_examples(gen)
     demo_messages = _render_demos(gen)
     system_message = _core_list_get(messages, 0, messages)
-    user_message = _core_list_get(messages, 1, messages)
     ordered_messages = []
     ordered_messages.append(system_message)
     for example_message in example_messages:
         ordered_messages.append(example_message)
     for demo_message in demo_messages:
         ordered_messages.append(demo_message)
-    ordered_messages.append(user_message)
+    message_index = 0
+    for message in messages:
+        after_system = _core_gt(message_index, 0)
+        if after_system:
+            ordered_messages.append(message)
+        else:
+            pass
+        message_index = _core_add(message_index, 1)
     output_fields = _core_get(signature, "output_fields", None)
     output_fields = _date_parse_fields_impl(output_fields, base_options, options)
     validation_feedback_snake = _core_get(runtime_options, "validation_feedback", "")
@@ -14238,54 +14264,6 @@ def _stream_json_validate_impl(fields: list[Any], values: Any, allow_missing: bo
     return None
 
 
-def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
-    _core_coverage_mark("_parse_text_contract_output_impl")
-    out = {}
-    trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    opens_object = _core_string_starts_with(trimmed, "{")
-    lenient = _core_not(strict_mode)
-    looks_json = _core_and(opens_object, lenient)
-    if looks_json:
-        candidate = _core_none()
-        try:
-            candidate = _core_json_parse_strict(trimmed)
-        except Exception as not_json:
-            pass
-        is_object = _core_type_is(candidate, "object")
-        if is_object:
-            declared_only = True
-            keys = _core_map_keys(candidate)
-            for key in keys:
-                declared = False
-                for field in output_fields:
-                    field_name = _core_get(field, "name", "")
-                    same = _core_eq(field_name, key)
-                    if same:
-                        declared = True
-                    else:
-                        pass
-                undeclared = _core_not(declared)
-                if undeclared:
-                    declared_only = False
-                else:
-                    pass
-            if declared_only:
-                _core_axgen_deprecation("json-text-contract", "A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")
-                out["values"] = candidate
-                out["extracted"] = False
-                return out
-            else:
-                pass
-        else:
-            pass
-    else:
-        pass
-    values = _stream_text_extract_values_impl(content, output_fields, strict_mode)
-    out["values"] = values
-    out["extracted"] = True
-    return out
-
-
 def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool) -> Any:
     _core_coverage_mark("_stream_json_validate_value_impl")
     typ = _core_get(field, "type", None)
@@ -14383,6 +14361,54 @@ def _stream_json_validate_value_impl(field: Any, value: Any, allow_missing: bool
     return value
 
 
+def _parse_text_contract_output_impl(content: str, output_fields: list[Any], strict_mode: bool) -> Any:
+    _core_coverage_mark("_parse_text_contract_output_impl")
+    out = {}
+    trimmed = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    opens_object = _core_string_starts_with(trimmed, "{")
+    lenient = _core_not(strict_mode)
+    looks_json = _core_and(opens_object, lenient)
+    if looks_json:
+        candidate = _core_none()
+        try:
+            candidate = _core_json_parse_strict(trimmed)
+        except Exception as not_json:
+            pass
+        is_object = _core_type_is(candidate, "object")
+        if is_object:
+            declared_only = True
+            keys = _core_map_keys(candidate)
+            for key in keys:
+                declared = False
+                for field in output_fields:
+                    field_name = _core_get(field, "name", "")
+                    same = _core_eq(field_name, key)
+                    if same:
+                        declared = True
+                    else:
+                        pass
+                undeclared = _core_not(declared)
+                if undeclared:
+                    declared_only = False
+                else:
+                    pass
+            if declared_only:
+                _core_axgen_deprecation("json-text-contract", "A text-contract answer that is one JSON object of output fields is parsed as those fields for compatibility; TypeScript Ax reads it as text. This fallback is deprecated and will be removed in the next major version: answer with `Label: value` lines.")
+                out["values"] = candidate
+                out["extracted"] = False
+                return out
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    values = _stream_text_extract_values_impl(content, output_fields, strict_mode)
+    out["values"] = values
+    out["extracted"] = True
+    return out
+
+
 def _generate_failed_impl(error: error) -> error:
     _core_coverage_mark("_generate_failed_impl")
     aborted = _core_exception_is_aborted(error)
@@ -14405,31 +14431,6 @@ def _unable_to_fix_impl(error: error, output: str) -> error:
     unfixed = _core_exception_rewrap(error, message)
     wrapped = _generate_failed_impl(unfixed)
     return wrapped
-
-
-def _attempt_output_impl(response: Any) -> str:
-    _core_coverage_mark("_attempt_output_impl")
-    empty_results = []
-    completions = _core_get(response, "results", empty_results)
-    count = _core_len(completions)
-    single = _core_eq(count, 0)
-    if single:
-        completions = []
-        completions.append(response)
-    else:
-        pass
-    contents = []
-    for completion in completions:
-        content = _core_get(completion, "content", "")
-        text = ""
-        has_content = _core_is_not_none(content)
-        if has_content:
-            text = content
-        else:
-            pass
-        contents.append(text)
-    joined = _core_string_join("\n---\n", contents)
-    return joined
 
 
 def _stream_json_validate_nested_impl(parent: Any, object: Any, allow_missing: bool) -> None:
@@ -14491,6 +14492,31 @@ def _stream_json_validate_nested_impl(parent: Any, object: Any, allow_missing: b
     return None
 
 
+def _attempt_output_impl(response: Any) -> str:
+    _core_coverage_mark("_attempt_output_impl")
+    empty_results = []
+    completions = _core_get(response, "results", empty_results)
+    count = _core_len(completions)
+    single = _core_eq(count, 0)
+    if single:
+        completions = []
+        completions.append(response)
+    else:
+        pass
+    contents = []
+    for completion in completions:
+        content = _core_get(completion, "content", "")
+        text = ""
+        has_content = _core_is_not_none(content)
+        if has_content:
+            text = content
+        else:
+            pass
+        contents.append(text)
+    joined = _core_string_join("\n---\n", contents)
+    return joined
+
+
 def _max_tokens_error_impl(response: Any) -> Any:
     _core_coverage_mark("_max_tokens_error_impl")
     empty_results = []
@@ -14515,6 +14541,27 @@ def _max_tokens_error_impl(response: Any) -> Any:
             pass
     none = _core_none()
     return none
+
+
+def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_stream_json_select_fields_impl")
+    out = {}
+    keys = _core_map_keys(values)
+    for key in keys:
+        declared = False
+        for field in fields:
+            name = _core_get(field, "name", "")
+            same = _core_eq(name, key)
+            if same:
+                declared = True
+            else:
+                pass
+        if declared:
+            value = _core_get(values, key, None)
+            out[key] = value
+        else:
+            pass
+    return out
 
 
 def _strict_mode_option_impl(base_options: Any, options: Any) -> bool:
@@ -14543,24 +14590,22 @@ def _feedback_message_impl(text: Any) -> Any:
     return message
 
 
-def _stream_json_select_fields_impl(fields: list[Any], values: Any) -> Any:
-    _core_coverage_mark("_stream_json_select_fields_impl")
-    out = {}
-    keys = _core_map_keys(values)
-    for key in keys:
-        declared = False
-        for field in fields:
-            name = _core_get(field, "name", "")
-            same = _core_eq(name, key)
-            if same:
-                declared = True
-            else:
-                pass
-        if declared:
-            value = _core_get(values, key, None)
-            out[key] = value
-        else:
-            pass
+def _stream_json_nested_fields_impl(fields_map: Any) -> list[Any]:
+    _core_coverage_mark("_stream_json_nested_fields_impl")
+    out = []
+    nested_fields = _core_fields_from_map(fields_map)
+    for nested in nested_fields:
+        name = _core_get(nested, "name", "")
+        typ = _core_get(nested, "type", None)
+        optional = _stream_field_flag_impl(nested, "is_optional", "isOptional")
+        internal = _stream_field_flag_impl(nested, "is_internal", "isInternal")
+        field = {}
+        field["name"] = name
+        field["title"] = name
+        field["type"] = typ
+        field["is_optional"] = optional
+        field["is_internal"] = internal
+        out.append(field)
     return out
 
 
@@ -14581,23 +14626,21 @@ def _caching_function_option_impl(gen: AxGen, options: Any) -> Any:
     return cache_fn
 
 
-def _stream_json_nested_fields_impl(fields_map: Any) -> list[Any]:
-    _core_coverage_mark("_stream_json_nested_fields_impl")
-    out = []
-    nested_fields = _core_fields_from_map(fields_map)
-    for nested in nested_fields:
-        name = _core_get(nested, "name", "")
-        typ = _core_get(nested, "type", None)
-        optional = _stream_field_flag_impl(nested, "is_optional", "isOptional")
-        internal = _stream_field_flag_impl(nested, "is_internal", "isInternal")
-        field = {}
-        field["name"] = name
-        field["title"] = name
-        field["type"] = typ
-        field["is_optional"] = optional
-        field["is_internal"] = internal
-        out.append(field)
-    return out
+def _stream_json_flexible_impl(field: Any) -> bool:
+    _core_coverage_mark("_stream_json_flexible_impl")
+    typ = _core_get(field, "type", None)
+    name = _core_get(typ, "name", "")
+    is_json = _core_eq(name, "json")
+    if is_json:
+        return True
+    else:
+        pass
+    is_object = _core_eq(name, "object")
+    nested = _core_get(typ, "fields", None)
+    has_nested = _core_truthy(nested)
+    open_object = _core_not(has_nested)
+    flexible = _core_and(is_object, open_object)
+    return flexible
 
 
 def _cache_key_impl(gen: AxGen, values: Any) -> str:
@@ -14631,23 +14674,6 @@ def _cache_key_impl(gen: AxGen, values: Any) -> str:
     return key
 
 
-def _stream_json_flexible_impl(field: Any) -> bool:
-    _core_coverage_mark("_stream_json_flexible_impl")
-    typ = _core_get(field, "type", None)
-    name = _core_get(typ, "name", "")
-    is_json = _core_eq(name, "json")
-    if is_json:
-        return True
-    else:
-        pass
-    is_object = _core_eq(name, "object")
-    nested = _core_get(typ, "fields", None)
-    has_nested = _core_truthy(nested)
-    open_object = _core_not(has_nested)
-    flexible = _core_and(is_object, open_object)
-    return flexible
-
-
 def _stream_json_string_value_impl(field: Any, value: Any) -> Any:
     _core_coverage_mark("_stream_json_string_value_impl")
     is_string = _core_type_is(value, "string")
@@ -14666,20 +14692,6 @@ def _stream_json_string_value_impl(field: Any, value: Any) -> Any:
         invalid = _core_validation_error(message)
         raise invalid
     return parsed
-
-
-def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
-    _core_coverage_mark("_cache_store_impl")
-    no_cache = _core_is_none(cache_fn)
-    if no_cache:
-        return None
-    else:
-        pass
-    try:
-        _core_axgen_cache_write(cache_fn, key, output)
-    except Exception as cache_write_error:
-        pass
-    return None
 
 
 def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
@@ -14740,6 +14752,20 @@ def _stream_json_strings_for_field_impl(field: Any, value: Any) -> Any:
     return value
 
 
+def _cache_store_impl(cache_fn: Any, key: str, output: Any) -> None:
+    _core_coverage_mark("_cache_store_impl")
+    no_cache = _core_is_none(cache_fn)
+    if no_cache:
+        return None
+    else:
+        pass
+    try:
+        _core_axgen_cache_write(cache_fn, key, output)
+    except Exception as cache_write_error:
+        pass
+    return None
+
+
 def _cache_store_streamed_impl(cache_fn: Any, key: str, output: Any) -> None:
     _core_coverage_mark("_cache_store_streamed_impl")
     output_count = _core_len(output)
@@ -14796,6 +14822,34 @@ def _stream_json_strings_for_fields_impl(fields_map: Any, values: Any) -> None:
     return None
 
 
+def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> None:
+    _core_coverage_mark("_stream_json_strings_impl")
+    for field in fields:
+        name = _core_get(field, "name", "")
+        present = _core_map_contains(values, name)
+        absent = _core_not(present)
+        if absent:
+            continue
+        else:
+            pass
+        value = _core_get(values, name, None)
+        try:
+            parsed = _stream_json_strings_for_field_impl(field, value)
+            values[name] = parsed
+        except Exception as parse_error:
+            flexible = _stream_json_flexible_impl(field)
+            is_string = _core_type_is(value, "string")
+            droppable = _core_and(flexible, is_string)
+            drop = _core_and(droppable, partial)
+            keep_error = _core_not(drop)
+            if keep_error:
+                raise parse_error
+            else:
+                pass
+            _core_map_delete(values, name)
+    return None
+
+
 def _cache_lookup_option_impl(options: Any) -> Any:
     _core_coverage_mark("_cache_lookup_option_impl")
     empty = {}
@@ -14827,54 +14881,6 @@ def _apply_control_updates_impl(gen: AxGen, messages: list[Any], runtime_options
     else:
         pass
     return messages
-
-
-def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> None:
-    _core_coverage_mark("_stream_json_strings_impl")
-    for field in fields:
-        name = _core_get(field, "name", "")
-        present = _core_map_contains(values, name)
-        absent = _core_not(present)
-        if absent:
-            continue
-        else:
-            pass
-        value = _core_get(values, name, None)
-        try:
-            parsed = _stream_json_strings_for_field_impl(field, value)
-            values[name] = parsed
-        except Exception as parse_error:
-            flexible = _stream_json_flexible_impl(field)
-            is_string = _core_type_is(value, "string")
-            droppable = _core_and(flexible, is_string)
-            drop = _core_and(droppable, partial)
-            keep_error = _core_not(drop)
-            if keep_error:
-                raise parse_error
-            else:
-                pass
-            _core_map_delete(values, name)
-    return None
-
-
-def _structured_output_render_options_impl(selection: Any) -> Any:
-    _core_coverage_mark("_structured_output_render_options_impl")
-    render_options = {}
-    rung = _core_get(selection, "rung", None)
-    structured = _core_is_not_none(rung)
-    render_options["structured_output"] = structured
-    extra_functions = []
-    function_rung = _core_eq(rung, "function")
-    if function_rung:
-        render_options["structured_output_function_name"] = "__axOutput"
-        output_function = {}
-        output_function["name"] = "__axOutput"
-        output_function["description"] = "Emit the complete structured program output using the declared argument shape."
-        extra_functions.append(output_function)
-    else:
-        pass
-    render_options["extra_functions"] = extra_functions
-    return render_options
 
 
 def _stream_state_impl(index: int) -> Any:
@@ -14925,6 +14931,26 @@ def _stream_merge_value_impl(base: Any, has_base: bool, delta: Any) -> Any:
     else:
         pass
     return delta
+
+
+def _structured_output_render_options_impl(selection: Any) -> Any:
+    _core_coverage_mark("_structured_output_render_options_impl")
+    render_options = {}
+    rung = _core_get(selection, "rung", None)
+    structured = _core_is_not_none(rung)
+    render_options["structured_output"] = structured
+    extra_functions = []
+    function_rung = _core_eq(rung, "function")
+    if function_rung:
+        render_options["structured_output_function_name"] = "__axOutput"
+        output_function = {}
+        output_function["name"] = "__axOutput"
+        output_function["description"] = "Emit the complete structured program output using the declared argument shape."
+        extra_functions.append(output_function)
+    else:
+        pass
+    render_options["extra_functions"] = extra_functions
+    return render_options
 
 
 def _completion_function_call_problems(response: Any) -> Any:
@@ -15106,19 +15132,6 @@ def _check_completion_function_calls(response: Any, options: Any) -> None:
     return None
 
 
-def _include_optional_render_option_impl(render_options: Any, options: Any) -> None:
-    _core_coverage_mark("_include_optional_render_option_impl")
-    snake = _core_get(options, "include_optional_input_fields_in_system_prompt", None)
-    value = _core_get(options, "includeOptionalInputFieldsInSystemPrompt", snake)
-    given = _core_is_not_none(value)
-    if given:
-        flag = _core_truthy(value)
-        render_options["include_optional_input_fields_in_system_prompt"] = flag
-    else:
-        pass
-    return None
-
-
 def _stream_run_state_impl(sink: Any, buffered: bool, thought_field: str) -> Any:
     _core_coverage_mark("_stream_run_state_impl")
     run = {}
@@ -15134,13 +15147,17 @@ def _stream_run_state_impl(sink: Any, buffered: bool, thought_field: str) -> Any
     return run
 
 
-def _memory_cleanup_option_impl(options: Any) -> bool:
-    _core_coverage_mark("_memory_cleanup_option_impl")
-    disabled_snake = _core_get(options, "disable_memory_cleanup", False)
-    disabled_value = _core_get(options, "disableMemoryCleanup", disabled_snake)
-    disabled = _core_truthy(disabled_value)
-    cleanup = _core_not(disabled)
-    return cleanup
+def _include_optional_render_option_impl(render_options: Any, options: Any) -> None:
+    _core_coverage_mark("_include_optional_render_option_impl")
+    snake = _core_get(options, "include_optional_input_fields_in_system_prompt", None)
+    value = _core_get(options, "includeOptionalInputFieldsInSystemPrompt", snake)
+    given = _core_is_not_none(value)
+    if given:
+        flag = _core_truthy(value)
+        render_options["include_optional_input_fields_in_system_prompt"] = flag
+    else:
+        pass
+    return None
 
 
 def _stream_run_new_version_impl(run: Any, version: int) -> None:
@@ -15152,32 +15169,6 @@ def _stream_run_new_version_impl(run: Any, version: int) -> None:
     cleared_buffer = []
     run["buffer"] = cleared_buffer
     return None
-
-
-def _settle_failed_attempts_impl(messages: list[Any], failed: list[Any], cleanup: bool) -> list[Any]:
-    _core_coverage_mark("_settle_failed_attempts_impl")
-    failed_count = _core_len(failed)
-    none_failed = _core_eq(failed_count, 0)
-    if none_failed:
-        return messages
-    else:
-        pass
-    settled = []
-    for message in messages:
-        settled.append(message)
-    for failed_message in failed:
-        keep = _core_not(cleanup)
-        role = _core_get(failed_message, "role", "")
-        is_result = _core_eq(role, "function")
-        keep = _core_or(keep, is_result)
-        calls = _core_get(failed_message, "function_calls", None)
-        has_calls = _core_truthy(calls)
-        keep = _core_or(keep, has_calls)
-        if keep:
-            settled.append(failed_message)
-        else:
-            pass
-    return settled
 
 
 def _stream_yield_impl(run: Any, version: int, index: int, delta: Any) -> None:
@@ -15268,6 +15259,41 @@ def _stream_yield_impl(run: Any, version: int, index: int, delta: Any) -> None:
     return None
 
 
+def _memory_cleanup_option_impl(options: Any) -> bool:
+    _core_coverage_mark("_memory_cleanup_option_impl")
+    disabled_snake = _core_get(options, "disable_memory_cleanup", False)
+    disabled_value = _core_get(options, "disableMemoryCleanup", disabled_snake)
+    disabled = _core_truthy(disabled_value)
+    cleanup = _core_not(disabled)
+    return cleanup
+
+
+def _settle_failed_attempts_impl(messages: list[Any], failed: list[Any], cleanup: bool) -> list[Any]:
+    _core_coverage_mark("_settle_failed_attempts_impl")
+    failed_count = _core_len(failed)
+    none_failed = _core_eq(failed_count, 0)
+    if none_failed:
+        return messages
+    else:
+        pass
+    settled = []
+    for message in messages:
+        settled.append(message)
+    for failed_message in failed:
+        keep = _core_not(cleanup)
+        role = _core_get(failed_message, "role", "")
+        is_result = _core_eq(role, "function")
+        keep = _core_or(keep, is_result)
+        calls = _core_get(failed_message, "function_calls", None)
+        has_calls = _core_truthy(calls)
+        keep = _core_or(keep, has_calls)
+        if keep:
+            settled.append(failed_message)
+        else:
+            pass
+    return settled
+
+
 def _function_result_text_impl(result: Any, options: Any) -> str:
     _core_coverage_mark("_function_result_text_impl")
     empty_map = {}
@@ -15303,6 +15329,22 @@ def _function_result_text_impl(result: Any, options: Any) -> str:
     return text
 
 
+def _stream_marker_incomplete_impl(marker: Any) -> bool:
+    _core_coverage_mark("_stream_marker_incomplete_impl")
+    no_marker = _core_is_none(marker)
+    if no_marker:
+        return False
+    else:
+        pass
+    depth = _core_get(marker, "nesting_level", 0)
+    nested = _core_gt(depth, 0)
+    in_array = _core_get(marker, "in_array", False)
+    in_object = _core_get(marker, "in_object", False)
+    open = _core_or(nested, in_array)
+    open = _core_or(open, in_object)
+    return open
+
+
 def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], calls: list[Any], options: Any) -> list[Any]:
     _core_coverage_mark("_run_tool_calls_impl")
     for call in calls:
@@ -15335,22 +15377,6 @@ def _run_tool_calls_impl(gen: AxGen, functions: list[Any], messages: list[Any], 
         else:
             pass
     return messages
-
-
-def _stream_marker_incomplete_impl(marker: Any) -> bool:
-    _core_coverage_mark("_stream_marker_incomplete_impl")
-    no_marker = _core_is_none(marker)
-    if no_marker:
-        return False
-    else:
-        pass
-    depth = _core_get(marker, "nesting_level", 0)
-    nested = _core_gt(depth, 0)
-    in_array = _core_get(marker, "in_array", False)
-    in_object = _core_get(marker, "in_object", False)
-    open = _core_or(nested, in_array)
-    open = _core_or(open, in_object)
-    return open
 
 
 def _stream_apply_structured_impl(state: Any, fields: list[Any], parsed: Any, marker: Any, held: list[Any]) -> list[Any]:

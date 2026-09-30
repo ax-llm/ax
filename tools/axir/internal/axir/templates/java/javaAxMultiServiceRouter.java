@@ -162,11 +162,7 @@ public final class AxMultiServiceRouter implements AxAIService, AxChatSession.Pr
     Map<String, Object> entry = services.get(String.valueOf(modelKey));
     if (entry == null) throw new IllegalArgumentException("No service found for embed model key: " + modelKey);
     lastUsedService = (AxAIService) entry.get("service");
-    Map<String, Object> req = new LinkedHashMap<>(request);
-    if (!entry.containsKey("model")) {
-      req.remove("embedModel");
-      req.remove("embed_model");
-    }
+    Map<String, Object> req = (Map<String, Object>) Core.router_embed_request(request, entry.get("model"), entry.get("embedModel"));
     return lastUsedService.embed(req, options);
   }
 

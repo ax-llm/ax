@@ -2034,3 +2034,86 @@ for (const [
     });
   }
 }
+
+// Pin cached/dynamic user-message boundaries against the real TS generator.
+for (const [name, cache, input, ignoreBreakpoints] of [
+  [
+    'cache-split-default',
+    {},
+    { document: 'Stable facts', question: 'First question' },
+    false,
+  ],
+  [
+    'cache-split-system-breakpoint',
+    { cacheBreakpoint: 'system' },
+    { document: 'Stable facts', question: 'First question' },
+    false,
+  ],
+  [
+    'cache-split-after-functions',
+    { cacheBreakpoint: 'after-functions' },
+    { document: 'Stable facts', question: 'First question' },
+    false,
+  ],
+  [
+    'cache-split-provider-ignores-breakpoints',
+    { cacheBreakpoint: 'system' },
+    { document: 'Stable facts', question: 'First question' },
+    true,
+  ],
+  ['cache-split-empty-cached', {}, { question: 'First question' }, false],
+  [
+    'cache-split-disabled',
+    undefined,
+    { document: 'Stable facts', question: 'First question' },
+    false,
+  ],
+] as const) {
+  const signature = f()
+    .input('document', f.string().optional().cache())
+    .input('question', f.string())
+    .output('answer', f.string())
+    .build();
+  let prompt: unknown;
+  const client = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (request) => {
+      prompt = request.chatPrompt;
+      return {
+        results: [{ index: 0, content: 'Answer: done', finishReason: 'stop' }],
+      };
+    },
+  });
+  const baseFeatures = client.getFeatures();
+  client.getFeatures = () => ({
+    ...baseFeatures,
+    caching: { ...baseFeatures.caching, cacheBreakpoints: !ignoreBreakpoints },
+  });
+  const program = ax(signature);
+  const options = cache === undefined ? {} : { contextCache: cache };
+  const output = await program.forward(client, input, {
+    ...options,
+    stream: false,
+  });
+  writeFixture(name, {
+    kind: 'forward',
+    signature_spec: {
+      inputs: {
+        document: { type: 'string', optional: true, cache: true },
+        question: { type: 'string' },
+      },
+      outputs: { answer: { type: 'string' } },
+    },
+    input: input as Json,
+    features: {
+      functions: false,
+      streaming: false,
+      caching: { cacheBreakpoints: !ignoreBreakpoints },
+    },
+    forward_options: options as Json,
+    responses: [{ content: 'Answer: done' }],
+    expected_output: output as Json,
+    expected_chat_prompt: prompt as Json,
+    expected_request_count: 1,
+  });
+}
