@@ -13,8 +13,4 @@ release flow.
 - Rust `AxError` gains `cause`, `source()`, request info (url and body, as TypeScript's `AxAIServiceError` keeps them) and `#[non_exhaustive]`. Adding fields to its public struct breaks callers that build it with a struct literal (#729, #747).
 - The Rust caching function moves onto `AxForwardOptions` (#733).
 - `playbook.seed` means TypeScript's numeric seed, and snapshot seeds go in `playbook.playbook` (#739).
-- TypeScript's deprecated, ignored `responseFormatWithFunctions` is removed (#721).
 - An agent without runtime config builds TypeScript's JavaScript actor stages by default, and the runtime-less completion mode becomes opt-in (pending PR).
-- TypeScript `AxAIProfileAuthentication.type` drops `'api-key-query'`. No profile uses it and TypeScript never implemented query-key auth (such a profile fell through to a Bearer header), so it is deprecated until then (#747).
-- Java chat and embed throw `AxAIServiceNetworkError` / `AxAIServiceTimeoutError` for a failed connection or the client's timeout, with the JDK exception as the cause, as `typedTransportErrors: true` does today. Today they throw the JDK's `ConnectException`, `IOException` or `HttpTimeoutException` and warn once; AxGen retries either kind (#767).
-- Python's transport errors drop their compatibility bases: a connect that runs out of the client's timeout is only an `AxAIServiceTimeoutError` (today also an `AxAIServiceNetworkError`), and a connection dropped mid-stream only an `AxAIServiceNetworkError` (today also an `http.client.IncompleteRead`) (#767).

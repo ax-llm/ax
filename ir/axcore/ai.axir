@@ -1759,4 +1759,75 @@ module @ax.ai version "0.1" {
       core.return %out
     }
   }
+  op ax.ai.semantic @router_embed_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/multiservice.ts"
+    type signature = "(request:json, model:json, embed_model:json) -> json"
+    body @entry(%request: json, %model: json, %embed_model: json) {
+      %empty = core.map
+      %out = core.call intrinsic.map.merge(%empty, %request)
+      %chat_key = core.call intrinsic.truthy(%model)
+      %embed_key = core.call intrinsic.truthy(%embed_model)
+      %service_key = core.call intrinsic.or(%chat_key, %embed_key)
+      core.if %service_key {
+      } else {
+        core.call intrinsic.map.delete(%out, "embedModel")
+        core.call intrinsic.map.delete(%out, "embed_model")
+      }
+      core.return %out
+    }
+  }
+
+  op ax.ai.semantic @router_embed_route {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/multiservice.ts"
+    type signature = "(request:json, entries:json) -> json throws"
+    body @entry(%request: json, %entries: json) {
+      %snake = core.get %request["embed_model"]
+      %key = core.get %request["embedModel"] default %snake
+      %has_key = core.call intrinsic.truthy(%key)
+      core.if %has_key {
+      } else {
+        %error = core.call intrinsic.error.runtime("Embed model key must be specified for multi-service")
+        core.raise %error
+      }
+      %empty = core.list
+      core.for %entry in %entries {
+        %service_key = core.get %entry["key"]
+        %models = core.get %entry["models"] default %empty
+        core.for %model in %models {
+          %model_key = core.get %model["key"]
+          %matches = core.call intrinsic.eq(%model_key, %key)
+          core.if %matches {
+            %chat_model = core.get %model["model"]
+            %embed_snake = core.get %model["embed_model"]
+            %embed_model = core.get %model["embedModel"] default %embed_snake
+            %forwarded = core.call @router_embed_request(%request, %chat_model, %embed_model)
+            %out = core.map
+            core.set %out["key"] = %service_key
+            core.set %out["request"] = %forwarded
+            core.return %out
+          }
+        }
+      }
+      core.for %entry in %entries {
+        %service_key = core.get %entry["key"]
+        %matches = core.call intrinsic.eq(%service_key, %key)
+        core.if %matches {
+          %none = core.call intrinsic.none()
+          %forwarded = core.call @router_embed_request(%request, %none, %none)
+          %out = core.map
+          core.set %out["key"] = %service_key
+          core.set %out["request"] = %forwarded
+          core.return %out
+        }
+      }
+      %message = core.call intrinsic.string.format("No service found for embed model key: {}", %key)
+      %error = core.call intrinsic.error.runtime(%message)
+      core.raise %error
+    }
+  }
+
 }

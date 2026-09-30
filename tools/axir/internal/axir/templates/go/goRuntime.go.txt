@@ -6241,11 +6241,7 @@ func (r *MultiServiceRouter) Embed(ctx context.Context, request map[string]Value
 		return nil, AxError{Category: "runtime", Message: "No service found for embed model key: " + embedKey}
 	}
 	r.lastUsedService = entry.Service
-	req := cloneMap(request)
-	if !entry.HasModel {
-		coreDelete(req, "embedModel")
-		coreDelete(req, "embed_model")
-	}
+	req := mustCore(router_embed_request(request, entry.Model, entry.EmbedModel)).(map[string]Value)
 	return entry.Service.Embed(ctx, req, options)
 }
 func (r *MultiServiceRouter) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
