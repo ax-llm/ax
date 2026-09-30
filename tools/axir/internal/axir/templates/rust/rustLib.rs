@@ -23020,7 +23020,6 @@ fn core_prompt_user_content(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let items = core_iter(&parts)?;
     let all_plain_text = items.iter().all(|part| {
         core_get(part, &CoreValue::from("type"), CoreValue::Null).as_str() == Some("text")
-            && !core_truthy(&core_get(part, &CoreValue::from("cache"), CoreValue::Null))
     });
     if all_plain_text {
         let joined = items

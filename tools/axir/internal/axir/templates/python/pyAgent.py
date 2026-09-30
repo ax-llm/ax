@@ -64,7 +64,7 @@ from .gen import (
     _validate_optimized_artifact,
 )
 from .mcp import resolve_execution_context
-from .signature import AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder, _js_format
+from .signature import _core_record_new, AxSignature, _js_json_dumps, _js_number_text, parse_signature, f as _signature_builder, _js_format
 # AXIR_CORE_IMPORTS
 
 

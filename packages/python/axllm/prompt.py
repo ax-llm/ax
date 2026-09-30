@@ -4,7 +4,7 @@ import os
 import json
 import re
 from typing import Any
-from .signature import _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl, _js_format
+from .signature import _core_gt, _core_type_is, _core_record_new, _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl, _js_format
 
 
 PROMPT_FEATURES = {
@@ -737,7 +737,7 @@ def _core_prompt_combine_consecutive_text(parts, separator: str):
 
 def _core_prompt_user_content(signature, values):
     parts = _core_prompt_user_parts(signature, values or {})
-    if all(part.get("type") == "text" and not part.get("cache") for part in parts):
+    if all(part.get("type") == "text" for part in parts):
         return "\n".join(part.get("text", "") for part in parts)
     return _core_prompt_combine_consecutive_text(parts, "\n")
 
@@ -790,9 +790,93 @@ def _template_validate_impl(source: str, context: str, required_variables: Any) 
 def render_prompt(signature: AxSignature, values: Any, functions: list[Any], options: Any = None) -> list[Any]:
     _core_coverage_mark("render_prompt")
     system_content = _prompt_structured_impl(signature, values, functions, options)
+    none = _core_none()
+    cache_snake = _core_get(options, "context_cache", none)
+    cache = _core_get(options, "contextCache", cache_snake)
+    cache_object = _core_type_is(cache, "object")
+    cache_truthy = _core_truthy(cache)
+    cache_enabled = _core_or(cache_object, cache_truthy)
+    breakpoint_snake = _core_get(cache, "cache_breakpoint", "after-examples")
+    breakpoint = _core_get(cache, "cacheBreakpoint", breakpoint_snake)
+    system_only = _core_eq(breakpoint, "system")
+    functions_only = _core_eq(breakpoint, "after-functions")
+    early_breakpoint = _core_or(system_only, functions_only)
+    split_allowed = _core_not(early_breakpoint)
+    ignore = _core_get(options, "ignoreBreakpoints", False)
+    split_allowed = _core_or(split_allowed, ignore)
+    split_allowed = _core_and(split_allowed, cache_enabled)
+    cached = []
+    dynamic = []
+    fields = _core_get(signature, "input_fields", None)
+    for field in fields:
+        is_cached = _core_get(field, "is_cached", False)
+        if is_cached:
+            cached.append(field)
+        else:
+            dynamic.append(field)
+    cached_count = _core_len(cached)
+    dynamic_count = _core_len(dynamic)
+    has_cached = _core_gt(cached_count, 0)
+    has_dynamic = _core_gt(dynamic_count, 0)
+    split = _core_and(split_allowed, has_cached)
+    split = _core_and(split, has_dynamic)
+    if split:
+        messages = []
+        system_message = {}
+        system_message["role"] = "system"
+        system_message["content"] = system_content
+        system_message["cache"] = True
+        messages.append(system_message)
+        cached_content = _prompt_field_group_content_impl(signature, values, cached)
+        has_cached_content = _core_truthy(cached_content)
+        if has_cached_content:
+            cached_message = {}
+            cached_message["role"] = "user"
+            cached_message["content"] = cached_content
+            cached_message["cache"] = True
+            messages.append(cached_message)
+        else:
+            pass
+        dynamic_content = _prompt_field_group_content_impl(signature, values, dynamic)
+        has_dynamic_content = _core_truthy(dynamic_content)
+        if has_dynamic_content:
+            dynamic_message = {}
+            dynamic_message["role"] = "user"
+            dynamic_message["content"] = dynamic_content
+            messages.append(dynamic_message)
+        else:
+            pass
+        return messages
+    else:
+        pass
     user_content = _prompt_user_content_impl(signature, values)
     messages = _prompt_messages_impl(system_content, user_content)
+    first = 0
+    system_message = _core_get(messages, first, None)
+    system_message["cache"] = cache_enabled
+    no_dynamic = _core_not(has_dynamic)
+    all_cached = _core_and(has_cached, no_dynamic)
+    all_cached = _core_and(all_cached, cache_enabled)
+    if all_cached:
+        second = 1
+        user_message = _core_get(messages, second, None)
+        user_message["cache"] = True
+    else:
+        pass
     return messages
+
+
+def _prompt_field_group_content_impl(signature: AxSignature, values: Any, fields: list[Any]) -> Any:
+    _core_coverage_mark("_prompt_field_group_content_impl")
+    attrs = {}
+    attrs["inputs"] = fields
+    outputs = _core_get(signature, "output_fields", None)
+    attrs["outputs"] = outputs
+    description = _core_get(signature, "description", None)
+    attrs["description"] = description
+    group = _core_record_new("AxSignature", attrs)
+    content = _prompt_user_content_impl(group, values)
+    return content
 
 
 def _prompt_structured_impl(signature: AxSignature, values: Any, functions: list[Any], options: Any) -> str:
