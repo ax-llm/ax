@@ -3086,7 +3086,7 @@
     },
     {
       "id": "axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime",
-      "status": "open",
+      "status": "done",
       "title": "Return console output from the Java QuickJS code runtime",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -3098,9 +3098,9 @@
         "Capture console output in the Java QuickJS bootstrap and return it as the step's output",
         "Pin a runtime-protocol fixture with console output reaching the action log in every port"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-30",
+      "completedByCommit": "72788456546f95dc07e5cf4ae210ea5a8b747b6f",
+      "verification": "PR #780 exact-head CI: all five real-engine runners passed agent-runtime-real-console-output; https://github.com/ax-llm/ax/actions/runs/36661139986/job/109716053015"
     },
     {
       "id": "axir-2026-09-27-run-flow-nodes-at-parent-node-and-report-a-flow-s-own-lifecycle-",
@@ -3170,7 +3170,7 @@
     },
     {
       "id": "axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un",
-      "status": "open",
+      "status": "done",
       "title": "Split the actor prompt into cached and uncached user messages under contextCache in the ports",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -3186,9 +3186,9 @@
         "Mark the actor signatures' cached inputs as TS does once the split lands",
         "Pin a contextCache agent golden with TS's cached and uncached user messages"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-30",
+      "completedByCommit": "41886d7369e2d92914eb18c8b08724f422ea8e6a",
+      "verification": "PR #784 exact-head CI: TypeScript-derived cached/uncached actor and generator prompt fixtures passed release verification in Python, Java, C++, Go and Rust; https://github.com/ax-llm/ax/actions/runs/36663651062"
     },
     {
       "id": "axir-2026-09-27-stable-stringify-locale-order",
