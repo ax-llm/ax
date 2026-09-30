@@ -4502,6 +4502,7 @@ pub struct AxGen {
     caching_function: Option<AxCachingFunction>,
     host_assertions: Vec<AxGenHostAssertionFn>,
     control: Option<AxRunControl>,
+    cancellation: Option<AxCancellationToken>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -4540,7 +4541,8 @@ impl AxGen {
         // share their program: a worker's run uses it unless a caller's
         // control reaches the worker (see session::with_program_control).
         let control=self.control.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control}))
+        let cancellation=self.cancellation.clone();
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control,cancellation}))
     }
 
     // Adds a host-callable assertion, checked after the declarative ones.
@@ -4577,6 +4579,7 @@ impl AxGen {
             caching_function: None,
             host_assertions: Vec::new(),
             control: None,
+            cancellation: None,
         }
     }
 
@@ -4809,6 +4812,17 @@ impl AxGen {
         self
     }
 
+    /// Gives the program a cancellation token, as TypeScript's `abortSignal`
+    /// in the AxGen constructor: every forward and streaming forward stops
+    /// once it is cancelled (before its next request). A forward with its own
+    /// token ([`forward_with_cancellation`](Self::forward_with_cancellation)),
+    /// or inside a run that has one, uses that token instead, as a call's
+    /// `abortSignal` replaces the constructor's.
+    pub fn with_cancellation(mut self, cancellation: AxCancellationToken) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
     pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
         self.runtime_hooks = hooks;
         self
@@ -4938,6 +4952,12 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
+        // The program's cancellation token (with_cancellation) covers a run
+        // that has none from its call or from a run around it.
+        let _cancellation = match &self.cancellation {
+            Some(token) if current_cancellation_token().is_none() => Some(AxCancellationScope::enter(token)?),
+            _ => None,
+        };
         // The call's caching function, which the forwards this run starts
         // don't inherit.
         let caching_function = bound_caching_function();
@@ -17747,6 +17767,17 @@ fn expect_fixture_chat_prompt(fixture: &Value, client: &FixtureClient) -> AxResu
 // a run control records its events (see attach_fixture_control); with
 // `stop_after_deltas` the consumer stops the run from on_delta after that
 // many deltas, which is the expected outcome, and the output is not compared.
+// A fixture's constructor_cancellation or call_cancellation: a token,
+// cancelled with the reason when the spec says so.
+fn fixture_cancellation(spec: Option<&Value>) -> Option<AxCancellationToken> {
+    let spec = spec.filter(|spec| spec.is_object())?;
+    let token = AxCancellationToken::default();
+    if spec.get("cancelled").and_then(Value::as_bool).unwrap_or(false) {
+        token.cancel(spec.get("reason").and_then(Value::as_str).unwrap_or("fixture-stop"));
+    }
+    Some(token)
+}
+
 fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     let signature = build_fixture_signature(fixture)?;
     let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
@@ -17793,6 +17824,12 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         } else {
             options = options.with_control(control);
         }
+    }
+    if let Some(token) = fixture_cancellation(fixture.get("constructor_cancellation")) {
+        program = program.with_cancellation(token);
+    }
+    if fixture.get("call_cancellation").is_some() {
+        return Err(AxError::new("fixture", "a streaming forward takes no call cancellation token in Rust"));
     }
     let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
     let deltas = Rc::new(RefCell::new(Vec::new()));
@@ -18192,7 +18229,19 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     } else {
         None
     };
-    let result = program.forward_with_options(&mut client, input, options);
+    // constructor_cancellation gives the program its token (with_cancellation);
+    // call_cancellation gives the call its own (forward_with_cancellation).
+    if let Some(token) = fixture_cancellation(fixture.get("constructor_cancellation")) {
+        program = program.with_cancellation(token);
+    }
+    let result = match fixture_cancellation(fixture.get("call_cancellation")) {
+        // forward_with_cancellation takes JSON options, without a call control.
+        Some(token) if options.control.is_none() => {
+            program.forward_with_cancellation(&mut client, input, options.options.clone(), &token)
+        }
+        Some(_) => Err(AxError::new("fixture", "call_cancellation with a call control is not supported in Rust")),
+        None => program.forward_with_options(&mut client, input, options),
+    };
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {

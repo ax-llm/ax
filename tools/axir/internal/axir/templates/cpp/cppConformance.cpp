@@ -1050,6 +1050,15 @@ static void assert_last_request_tail(Value fixture, const ConformanceScriptedAI&
   assert_equal(tail, expected, "last request tail");
 }
 
+// A fixture's constructor_cancellation or call_cancellation: a token,
+// cancelled with the reason when the spec says so.
+static std::optional<AxCancellationToken> fixture_cancellation(const Value& spec) {
+  if (!spec.is_object()) return std::nullopt;
+  AxCancellationToken token;
+  if (Core::truthy(Core::get(spec, "cancelled", false))) token.cancel(display(Core::get(spec, "reason", Value("fixture-stop"))));
+  return token;
+}
+
 static void run_forward(Value fixture) {
   Value sig = build_signature(fixture);
   ToolBuild tool_build = build_tools(Core::get(fixture, "tools", Value::array()));
@@ -1063,6 +1072,10 @@ static void run_forward(Value fixture) {
   std::optional<AxRunControl> constructor_control;
   if (Core::truthy(Core::get(fixture, "constructor_control", false))) constructor_control = attach_fixture_control(fixture, client, options, control_events);
   AxGen gen(sig, options);
+  // constructor_cancellation: the program's token (set_cancellation).
+  if (auto token = fixture_cancellation(Core::get(fixture, "constructor_cancellation"))) gen.set_cancellation(*token);
+  // call_cancellation: the forward call's own token.
+  std::optional<AxCancellationToken> call_token = fixture_cancellation(Core::get(fixture, "call_cancellation"));
   if (!Core::get(fixture, "examples").is_null()) gen.set_examples(Core::get(fixture, "examples"));
   if (!Core::get(fixture, "demos").is_null()) gen.set_demos(Core::get(fixture, "demos"));
   for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
@@ -1091,7 +1104,7 @@ static void run_forward(Value fixture) {
     control = attach_fixture_control(fixture, client, forward_options, control_events);
   }
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
-  Value output = expect_maybe_error([&] { return gen.forward(client, input, forward_options); }, fixture, true);
+  Value output = expect_maybe_error([&] { return call_token ? gen.forward(client, input, forward_options, &*call_token) : gen.forward(client, input, forward_options); }, fixture, true);
   bool expected_error = !Core::get(fixture, "expected_error_contains").is_null();
   assert_speak_requests(fixture, client);
   assert_session_log(fixture, client);
@@ -1195,6 +1208,10 @@ static void run_streaming_forward(Value fixture) {
   std::optional<AxRunControl> constructor_control;
   if (Core::truthy(Core::get(fixture, "constructor_control", false))) constructor_control = attach_fixture_control(fixture, client, options, control_events);
   AxGen gen(sig, options);
+  // constructor_cancellation: the program's token (set_cancellation).
+  if (auto token = fixture_cancellation(Core::get(fixture, "constructor_cancellation"))) gen.set_cancellation(*token);
+  // call_cancellation: the forward call's own token.
+  std::optional<AxCancellationToken> call_token = fixture_cancellation(Core::get(fixture, "call_cancellation"));
   for (const auto& assertion : Core::iter(Core::get(fixture, "assertions", Value::array()))) gen.add_assert(assertion);
   for (const auto& assertion : Core::iter(Core::get(fixture, "streaming_assertions", Value::array()))) gen.add_streaming_assert(assertion);
   add_fixture_transforms(gen, fixture);
@@ -1225,7 +1242,7 @@ static void run_streaming_forward(Value fixture) {
   Value output;
   bool failed = false;
   try {
-    output = gen.streaming_forward(client, Core::get(fixture, "input", Value::object()), run_options, record);
+    output = call_token ? gen.streaming_forward(client, Core::get(fixture, "input", Value::object()), run_options, record, &*call_token) : gen.streaming_forward(client, Core::get(fixture, "input", Value::object()), run_options, record);
   } catch (const std::exception& error) {
     if (const auto* ax = dynamic_cast<const AxError*>(&error); ax && ax->category == "fixture") throw;
     if (expected_error.is_null() || std::string(error.what()).find(display(expected_error)) == std::string::npos) throw;
@@ -3423,6 +3440,13 @@ static void run_ai_stream(Value fixture) {
 }
 
 static void run_ai_cancellation(Value fixture) {
+  {
+    // A scope given a cancelled token throws without becoming the thread's
+    // current token, which would dangle once the token is gone.
+    AxCancellationToken stopped;stopped.cancel("fixture-stop");
+    try{AxCancellationScope scope(&stopped);throw AxError("fixture","a cancellation scope took a cancelled token");}catch(const AxError& error){if(error.category=="fixture")throw;}
+    if(current_cancellation_token()!=nullptr)throw AxError("fixture","a cancelled token's scope stayed the thread's current token");
+  }
   auto reason=display(Core::get(fixture,"reason","fixture-stop"));auto request=Core::get(fixture,"request",Value::object());auto max_elapsed=static_cast<long>(Core::number(Core::get(fixture,"max_elapsed_ms",1000)));auto program_max_elapsed=static_cast<long>(Core::number(Core::get(fixture,"program_max_elapsed_ms",100)));
   Value preflight_fixture=fixture;Core::set(preflight_fixture,"transport_responses",array({Core::get(fixture,"success_response")}));ClientFixture preflight(preflight_fixture);AxCancellationToken token;token.cancel(reason);try{preflight.client->chat(request,Value::object(),&token);throw AxError("fixture","pre-cancelled provider request unexpectedly reached transport");}catch(const AxError& error){if(error.type!="AxAIServiceAbortedError"||error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}if(!preflight.transport.requests.empty())throw AxError("fixture","pre-cancelled provider request reached transport");
 

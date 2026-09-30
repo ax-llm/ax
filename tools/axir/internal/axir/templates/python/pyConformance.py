@@ -18,7 +18,7 @@ from .ai import build_chat_request, build_embed_request, normalize_chat_response
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
-from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
+from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations, _check_cancelled
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -137,7 +137,7 @@ class ConformanceScriptedAI(AxBaseAI):
     def _chat(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
-        self.chat_options.append(copy.deepcopy(options or {}))
+        self.chat_options.append(_copy_chat_options(options))
         self._note_request()
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
@@ -152,7 +152,7 @@ class ConformanceScriptedAI(AxBaseAI):
             raise RuntimeError("scripted client has no native sessions")
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
-        self.chat_options.append(copy.deepcopy(options or {}))
+        self.chat_options.append(_copy_chat_options(options))
         self.session_log.append({"op": "open"})
         self._note_request()
         if not self.native_sessions:
@@ -166,12 +166,15 @@ class ConformanceScriptedAI(AxBaseAI):
         return copy.deepcopy(self.responses.pop(0))
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        # A scripted {"stream": [...]} response streams its chunks; fixture
-        # stream_events stream as before; any other response streams as one.
+        # A cancelled call stops before its request, as the base client's
+        # chat() does. A scripted {"stream": [...]} response streams its
+        # chunks; fixture stream_events stream as before; any other response
+        # streams as one.
+        _check_cancelled(options)
         if self.responses and isinstance(self.responses[0], dict) and "stream" in self.responses[0]:
             self.chat_calls += 1
             self.requests.append(copy.deepcopy(request))
-            self.chat_options.append(copy.deepcopy(options or {}))
+            self.chat_options.append(_copy_chat_options(options))
             self._note_request()
             raw = self.responses.pop(0)
             for event in raw["stream"]:
@@ -303,6 +306,25 @@ def _assert_notifications(actual, expected):
         for needle in spec.get("value_contains") or []:
             if str(needle) not in value:
                 raise FixtureError(f"notification {index} value missing {needle!r}: {value}")
+
+
+def _copy_chat_options(options):
+    # A deep copy of the options, with a cancellation token kept as is.
+    tokens = {key: value for key, value in (options or {}).items() if isinstance(value, AxCancellationToken)}
+    copied = copy.deepcopy({key: value for key, value in (options or {}).items() if key not in tokens})
+    copied.update(tokens)
+    return copied
+
+
+def _fixture_cancellation(spec):
+    # A fixture's constructor_cancellation or call_cancellation: a token,
+    # cancelled with the reason when the spec says so.
+    if not spec:
+        return None
+    token = AxCancellationToken()
+    if spec.get("cancelled"):
+        token.cancel(spec.get("reason") or "fixture-stop")
+    return token
 
 
 def _fixture_ai_service_error(spec):
@@ -1370,6 +1392,10 @@ def _run_forward(fixture):
     if fixture.get("constructor_control"):
         # The run control is a constructor default, not a call option.
         control_events = _attach_fixture_control(fixture, client, options)
+    constructor_token = _fixture_cancellation(fixture.get("constructor_cancellation"))
+    if constructor_token is not None:
+        # The program's cancellation, the default for every forward.
+        options["cancellation"] = constructor_token
     gen = ax(sig, options)
     if "examples" in fixture:
         gen.set_examples(fixture.get("examples") or [])
@@ -1395,6 +1421,9 @@ def _run_forward(fixture):
     if fixture.get("control"):
         forward_options = dict(forward_options or {})
         control_events = _attach_fixture_control(fixture, client, forward_options)
+    call_token = _fixture_cancellation(fixture.get("call_cancellation"))
+    if call_token is not None:
+        forward_options = {**(forward_options or {}), "cancellation": call_token}
     try:
         output = gen.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
@@ -1724,6 +1753,9 @@ def _run_streaming_forward(fixture):
     if fixture.get("constructor_control"):
         # The run control is a constructor default, not a call option.
         control_events = _attach_fixture_control(fixture, client, options)
+    constructor_token = _fixture_cancellation(fixture.get("constructor_cancellation"))
+    if constructor_token is not None:
+        options["cancellation"] = constructor_token
     gen = ax(sig, options)
     for assertion in fixture.get("assertions") or []:
         gen.add_assert(assertion)
@@ -1742,6 +1774,9 @@ def _run_streaming_forward(fixture):
     run_options = dict(fixture.get("forward_options") or {})
     if fixture.get("control"):
         control_events = _attach_fixture_control(fixture, client, run_options)
+    call_token = _fixture_cancellation(fixture.get("call_cancellation"))
+    if call_token is not None:
+        run_options["cancellation"] = call_token
     deltas = []
     stop_after = fixture.get("stop_after_deltas")
     try:

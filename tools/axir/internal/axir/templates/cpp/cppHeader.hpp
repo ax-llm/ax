@@ -1284,6 +1284,12 @@ class AxGen : public AxProgram {
   Value get_function_call_traces() const;
   AxMemory& get_memory();
   Value value() const;
+  // Gives the program a cancellation token, as TypeScript's abortSignal in
+  // the AxGen constructor: every forward and streaming forward stops once it
+  // is cancelled (before its next request). A forward given its own token,
+  // or run inside a scope that has one, uses that token instead, as a call's
+  // abortSignal replaces the constructor's.
+  AxGen& set_cancellation(AxCancellationToken token);
 
  private:
   Value state_;
@@ -1291,6 +1297,8 @@ class AxGen : public AxProgram {
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   // Keeps the caching function the options name registered.
   std::optional<AxCachingFunctionHandle> caching_function_;
+  // The program's own cancellation token (set_cancellation).
+  std::optional<AxCancellationToken> cancellation_;
   void refresh_prompt_template();
 };
 
