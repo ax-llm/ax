@@ -40076,6 +40076,7 @@ final class Core {
     Core.set(values, "task", query);
     Core.set(values, "context", context);
     Object sub_options = Core.mapMerge(empty_map, options);
+    Core.mapDelete(sub_options, "runtime");
     Object parent_snake = Core.get(options, "execution_path", "root");
     Object parent = Core.get(options, "executionPath", parent_snake);
     Object path = Core.stringFormat("{}/llmQuery", parent);

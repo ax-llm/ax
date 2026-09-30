@@ -120735,6 +120735,7 @@ fn _agent_run_llm_query_one(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_values, CoreValue::from("task"), v_query.clone())?;
     core_set(&v_values, CoreValue::from("context"), v_context.clone())?;
     v_sub_options = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
+    core_map_delete(&[v_sub_options.clone(), CoreValue::from("runtime")])?;
     v_parent_snake = core_get(
         &v_options,
         &CoreValue::from("execution_path"),

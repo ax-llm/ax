@@ -84483,6 +84483,7 @@ func _agent_run_llm_query_one(args ...Value) (Value, error) {
 	if err := coreSet(v_values, "task", v_query); err != nil { return nil, err }
 	if err := coreSet(v_values, "context", v_context); err != nil { return nil, err }
 	v_sub_options = _core_map_merge(v_empty_map, v_options)
+	_core_map_delete(v_sub_options, "runtime")
 	v_parent_snake = coreGet(v_options, "execution_path", "root")
 	v_parent = coreGet(v_options, "executionPath", v_parent_snake)
 	v_path = _core_string_format("{}/llmQuery", v_parent)

@@ -9641,6 +9641,9 @@ module @ax.agent version "0.1" {
       core.set %values["task"] = %query
       core.set %values["context"] = %context
       %sub_options = core.call intrinsic.map.merge(%empty_map, %options)
+      // The selected actor engine is a host object, not an AI call option.
+      // Keep it out of the sub-query just as agent_stage_options does.
+      core.call intrinsic.map.delete(%sub_options, "runtime")
       %parent_snake = core.get %options["execution_path"] default "root"
       %parent = core.get %options["executionPath"] default %parent_snake
       %path = core.call intrinsic.string.format("{}/llmQuery", %parent)

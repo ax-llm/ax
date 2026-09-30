@@ -41851,6 +41851,7 @@ Value Core::_agent_run_llm_query_one(Value sub_gen, Value client, Value item, Va
   Core::set(values, Value("task"), query);
   Core::set(values, Value("context"), context);
   Value sub_options = Core::map_merge(empty_map, options);
+  Core::map_delete(sub_options, Value("runtime"));
   Value parent_snake = Core::get(options, Value("execution_path"), Value("root"));
   Value parent = Core::get(options, Value("executionPath"), parent_snake);
   Value path = Core::string_format(Value("{}/llmQuery"), parent);

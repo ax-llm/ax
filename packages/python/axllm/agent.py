@@ -11959,6 +11959,7 @@ def _agent_run_llm_query_one(sub_gen: Any, client: Any, item: Any, options: Any)
     values["task"] = query
     values["context"] = context
     sub_options = _core_map_merge(empty_map, options)
+    _core_map_delete(sub_options, "runtime")
     parent_snake = _core_get(options, "execution_path", "root")
     parent = _core_get(options, "executionPath", parent_snake)
     path = _core_string_format("{}/llmQuery", parent)
