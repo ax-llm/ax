@@ -197,7 +197,7 @@ class SessionRun final:public AIClient {
     for(const auto& candidate:array_ref(Core::get(gen_,"functions",Value::array())))if(display(Core::get(candidate,"name"))==name){tool=candidate;break;}
     std::string execution=display(Core::get(tool,"execution","blocking"));
     try{if(tool.is_null())throw AxError("validation","Function '"+name+"' not found");if(params.is_string())params=parse_json(display(params));Core::validate_fields(Core::get(tool,"args",Value::array()),params,"tool."+name+".args");Core::chat_session_validate_required_arguments(Core::get(tool,"parameters",Value::object()),params,"tool."+name+".args");}
-    catch(const std::exception& error){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,Core::get(Core::_tool_error_message_impl(call,object({{"message",error.what()}})),"result",error.what()),false);return;}
+    catch(const std::exception& error){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,Core::get(Core::_tool_error_message_impl(call,object({{"message",error.what()}})),"result",error.what()),false,options_);return;}
     Core::chat_session_register_call(state_,call,execution);blocking_=execution!="background";emit("tool.started",object({{"call_id",id}}));
     auto callbacks=registered_tool(display(Core::get(tool,"__tool_id")));auto handler=callbacks.first;auto contextual=callbacks.second;
     auto inherited=runtime_hook_frames;auto results=results_;params=parse_json(stringify(params));call=parse_json(stringify(call));Value returns=parse_json(stringify(Core::get(tool,"returns",Value::array())));
@@ -304,7 +304,7 @@ class SessionRun final:public AIClient {
       for(const auto& update:updates){Core::chat_session_queue_update(state_,update);if(session_->update(update)=="native")Core::chat_session_native_update(state_,Core::get(update,"id"));else applied_.push_back(display(Core::get(update,"id")));}}
     Value result=results_->pop(std::chrono::milliseconds(0));
     if(!result.is_null()){Value call=Core::get(result,"call"),output=Core::get(result,"result");std::string id=display(Core::get(call,"id"));bool ok=Core::truthy(Core::get(result,"ok"));if(!ok)output=Core::get(Core::_tool_error_message_impl(call,object({{"message",Core::get(result,"error")}})),"result");
-      if(!Core::truthy(Core::chat_session_record_result(gen_,state_,call,output,ok)))return;emit("tool.completed",object({{"call_id",id}}));
+      if(!Core::truthy(Core::chat_session_record_result(gen_,state_,call,output,ok,options_)))return;emit("tool.completed",object({{"call_id",id}}));
       if(display(Core::get(Core::get(Core::get(state_,"pending"),id),"execution"))!="background"){blocking_=false;auto waiting=std::move(waiting_);waiting_.clear();for(const auto& call:waiting)start(call);}}
     Value event=session_->next(std::chrono::milliseconds(10));
     if(!event.is_null()){std::string type=display(Core::get(event,"type"));

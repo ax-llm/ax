@@ -440,6 +440,10 @@ type Case = {
   // Port-only forward options, added to the fixture's forward_options but
   // not passed to TS: a port's opt-in to what TS always does.
   port_forward_options?: JsonMap;
+  // Pin the tool results the last request sent back, each as a JSON string
+  // literal, which every runner's JSON text of the request must contain.
+  pin_function_results?: boolean;
+  call_function_result_formatter?: { text?: string; throws?: string };
 };
 
 async function record(name: string, spec: Case): Promise<void> {
@@ -490,6 +494,13 @@ async function record(name: string, spec: Case): Promise<void> {
   const forwardOptions: Record<string, unknown> = {
     ...tsOptions(spec.forward_options),
   };
+  if (spec.call_function_result_formatter) {
+    const formatter = spec.call_function_result_formatter;
+    forwardOptions.functionResultFormatter = () => {
+      if (formatter.throws) throw new Error(formatter.throws);
+      return formatter.text ?? '';
+    };
+  }
   if (spec.result_picker_index !== undefined) {
     const picked = spec.result_picker_index;
     forwardOptions.resultPicker = async () => picked;
@@ -566,6 +577,10 @@ async function record(name: string, spec: Case): Promise<void> {
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
   }
+  if (spec.call_function_result_formatter) {
+    fixture.call_function_result_formatter =
+      spec.call_function_result_formatter;
+  }
   if (spec.native_session) {
     fixture.expected_session_log = sessionLog();
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
@@ -628,6 +643,16 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
+  }
+  if (spec.pin_function_results) {
+    const last = (prompts().at(-1) ?? []) as { role?: string; result?: Json }[];
+    const results = last
+      .filter((message) => message.role === 'function')
+      .map((message) => JSON.stringify(message.result));
+    if (results.length === 0) {
+      throw new Error(`${name}: no function results to pin`);
+    }
+    fixture.expected_request_contains = results;
   }
   if (spec.pin_user_prompt) {
     const first = (prompts()[0] ?? []) as { role?: string; content?: Json }[];
@@ -1158,6 +1183,33 @@ const cases: Record<string, Case> = {
         })
       ),
       streamed(thought('Answer.'), text('Answer: gre'), done('en')),
+    ],
+  },
+  // The streaming loop writes tool results as TS's default
+  // functionResultFormatter does: a string as it is, any other value as
+  // JSON.stringify(result, null, 2). The object's keys are in sorted order,
+  // which the fixture sync keeps.
+  'streaming-forward-tool-result-format': {
+    signature: 'question:string -> answer:string',
+    tools: [
+      {
+        ...lookupTool,
+        result: { checks: [2, 1], note: null, status: 'green' },
+      },
+      { ...finishTool, name: 'note', result: 'plain text' },
+    ],
+    pin_function_results: true,
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [
+            call('call_1', 'lookup', '{"key":"a"}'),
+            call('call_2', 'note', '{"note":"n"}'),
+          ],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: gre'), done('en')),
     ],
   },
   'streaming-forward-stop-function': {
@@ -2566,6 +2618,59 @@ const sessionCases: Record<string, Case> = {
   },
   // A streamed correction's fresh session gets the first session's tool call
   // and result too.
+  'forward-native-session-tool-result-format': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    pin_function_results: true,
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'forward-native-session-tool-result-call-formatter': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    call_function_result_formatter: { text: 'custom result' },
+    pin_function_results: true,
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'forward-native-session-tool-result-formatter-throws': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    call_function_result_formatter: { throws: 'formatter broke' },
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
+  'streaming-native-session-tool-result-format': {
+    kind: 'streaming_forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [{ ...lookupTool, result: { a: [2], b: 1, c: null } }],
+    assertions: [mustBeParis],
+    pin_function_results: true,
+    native_session: [
+      [[lookupCall], [sessionAnswer('r2', 'Answer: Lyon')]],
+      [[sessionAnswer('r3', 'Answer: Paris')]],
+    ],
+    responses: [],
+  },
   'streaming-forward-native-session-tool-then-correction': {
     signature: 'question:string -> answer:string',
     input: { question: 'Capital of France?' },

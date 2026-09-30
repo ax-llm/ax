@@ -438,14 +438,41 @@ module @ax.session version "0.1" {
     attr core_kind = "func"
     attr emit_module = "gen"
     attr effect = "throws"
-    type signature = "(gen:json, state:json, call:json, result:json, ok:bool) -> bool throws"
-    body @entry(%gen: json, %state: json, %call: json, %result: json, %ok: bool) {
+    type signature = "(gen:json, state:json, call:json, result:json, ok:bool, options:json) -> bool throws"
+    body @entry(%gen: json, %state: json, %call: json, %result: json, %ok: bool, %options: json) {
       %id = core.get %call["id"]
       %text = core.let %result
-      %is_string = core.type_is %result type "string"
-      core.if %is_string {
-      } else {
-        %text = core.call intrinsic.json.stringify(%result)
+      core.if %ok {
+        core.try {
+          %formatted = core.call @function_result_text_impl(%result, %options)
+          %text = core.let %formatted
+        } catch %formatter_error {
+          core.call intrinsic.axgen.record_function_call(%gen, %call, %formatter_error, "error")
+          // The failing call has settled, as in axRunChatSession's pending map.
+          %unresolved = core.list
+          %empty_pending = core.map
+          %pending = core.get %state["pending"] default %empty_pending
+          %pending_ids = core.call intrinsic.map.keys(%pending)
+          core.for %pending_id in %pending_ids {
+            %other_call = core.call intrinsic.ne(%pending_id, %id)
+            %pending_call = core.get %pending[%pending_id]
+            %pending_status = core.get %pending_call["status"] default ""
+            %running = core.call intrinsic.eq(%pending_status, "running")
+            %still_running = core.call intrinsic.and(%other_call, %running)
+            core.if %still_running {
+              core.append %unresolved, %pending_id
+            }
+          }
+          %unresolved_text = core.call intrinsic.string.join(", ", %unresolved)
+          %no_unresolved = core.call intrinsic.eq(%unresolved_text, "")
+          core.if %no_unresolved {
+            %unresolved_text = core.let "none"
+          }
+          %formatter_message = core.call intrinsic.exception.message(%formatter_error)
+          %session_message = core.call intrinsic.string.format("Chat session failed: {}; unresolved calls: {}", %formatter_message, %unresolved_text)
+          %session_error = core.call intrinsic.exception.rewrap(%formatter_error, %session_message)
+          core.raise %session_error
+        }
       }
       %output = core.map
       core.set %output["function_id"] = %id
@@ -456,11 +483,11 @@ module @ax.session version "0.1" {
         core.if %ok {
           %status = core.let "ok"
         }
-        core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %result, %ok)
+        core.call intrinsic.axgen.memory_add_function_result(%gen, %call, %text, %ok, %text)
         core.call intrinsic.axgen.record_function_call(%gen, %call, %result, %status)
         %empty_turns = core.list
         %turns = core.get %state["turns"] default %empty_turns
-        %message = core.call @tool_result_message_impl(%call, %result)
+        %message = core.call @tool_result_message_impl(%call, %text)
         %failed = core.call intrinsic.not(%ok)
         core.if %failed {
           // An error result is already the error payload's text.

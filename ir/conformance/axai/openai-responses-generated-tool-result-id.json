@@ -1,0 +1,50 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "call_id": "call_inventory",
+          "output": "12 units available",
+          "type": "function_call_output"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6-luna",
+  "name": "openai-responses-generated-tool-result-id",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "function_id": "call_inventory",
+        "result": "12 units available",
+        "role": "function"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_tool_output",
+        "output": [
+          {
+            "content": [
+              {
+                "text": "12 units",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_tool_output",
+            "role": "assistant",
+            "type": "message"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

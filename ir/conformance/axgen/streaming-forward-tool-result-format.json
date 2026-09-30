@@ -1,0 +1,125 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "gre"
+      },
+      "index": 0,
+      "version": 0
+    },
+    {
+      "delta": {
+        "answer": "en"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "green"
+  },
+  "expected_request_contains": [
+    "\"{\\n  \\\"checks\\\": [\\n    2,\\n    1\\n  ],\\n  \\\"note\\\": null,\\n  \\\"status\\\": \\\"green\\\"\\n}\"",
+    "\"plain text\""
+  ],
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "note": "n"
+      },
+      "name": "note"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-tool-result-format",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"a\"}"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                },
+                {
+                  "function": {
+                    "name": "note",
+                    "params": "{\"note\":\"n\"}"
+                  },
+                  "id": "call_2",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: gre",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "en",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": {
+        "checks": [2, 1],
+        "note": null,
+        "status": "green"
+      }
+    },
+    {
+      "args": {
+        "note": {
+          "type": "string"
+        }
+      },
+      "description": "Finish the task",
+      "name": "note",
+      "result": "plain text"
+    }
+  ]
+}

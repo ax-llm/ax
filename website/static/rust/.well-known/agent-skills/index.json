@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:cfeb64b2b16278daf0ccaf9c06c41cdf5544c8c6848dd09e2cde556ab025d671"
+      "digest": "sha256:48987080b4694255d9ead3fdfa7f162d18b6302054ef75c2d501fd0b257b4d46"
     },
     {
       "name": "ax-rust-flow",
