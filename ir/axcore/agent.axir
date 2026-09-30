@@ -3217,7 +3217,11 @@ module @ax.agent version "0.1" {
       core.for %key in %bindings {
         %reserved_key = core.call intrinsic.contains(%reserved, %key)
         %injected_key = core.call intrinsic.map.contains(%injected, %key)
-        %skipped_key = core.call intrinsic.or(%reserved_key, %injected_key)
+        // A runtime's own __ax_ names (the goja session's captured console
+        // output) are not user variables either.
+        %internal_key = core.call intrinsic.string.starts_with(%key, "__ax_")
+        %hidden_key = core.call intrinsic.or(%reserved_key, %injected_key)
+        %skipped_key = core.call intrinsic.or(%hidden_key, %internal_key)
         %allowed_key = core.call intrinsic.not(%skipped_key)
         %under_limit = core.call intrinsic.lt(%count, %max_entries)
         %include_key = core.call intrinsic.and(%allowed_key, %under_limit)

@@ -28,6 +28,9 @@ pub struct QuickJsCodeSession {
     // The globals present before the agent's code ran; the snapshot entries
     // leave them out, as TS's AxJSRuntime does.
     baseline: Vec<String>,
+    // The engine's own globals, before any session global: never user
+    // bindings.
+    engine_globals: BTreeSet<String>,
 }
 
 // TypeScript's AxJSRuntime.getUsageInstructions() in its default stdout mode.
@@ -146,8 +149,14 @@ impl QuickJsCodeSession {
             host_callables,
             closed: false,
             baseline: Vec::new(),
+            engine_globals: BTreeSet::new(),
         };
         session.bootstrap()?;
+        let engine_names = session.eval_json_string("JSON.stringify(globalThis.__ax_engine_globals || [])".to_string())?;
+        session.engine_globals = serde_json::from_str::<Vec<String>>(&engine_names)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         session.install_initial_globals(globals)?;
         let names = session.eval_json_string("JSON.stringify(Object.getOwnPropertyNames(globalThis))".to_string())?;
         session.baseline = serde_json::from_str(&names).unwrap_or_default();
@@ -400,9 +409,13 @@ impl AxCodeSession for QuickJsCodeSession {
         }
         if let Some(obj) = bindings.as_object() {
             for (name, value) in obj {
+                // A snapshot saved before the engine's globals were left out
+                // (24.x listed Atomics and performance as bindings) must not
+                // overwrite them.
                 if name.starts_with("__ax_")
                     || (self.reserved.contains(name) && !merge)
                     || (is_builtin_reserved_name(name) && !(merge && name == "inputs"))
+                    || self.engine_globals.contains(name)
                     || is_host_callable_marker(value)
                 {
                     continue;
@@ -663,6 +676,7 @@ function __ax_snapshot_json() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     const value = globalThis[key];
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
@@ -674,7 +688,12 @@ function __ax_clear_user_globals() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     try { delete globalThis[key]; } catch (_) {}
   }
 }
+// The engine's own globals (Atomics, performance, the bootstrap functions,
+// ...) are not user bindings: the snapshot leaves them out, a replacing patch
+// keeps them, and a restored snapshot cannot overwrite them.
+globalThis.__ax_engine_globals = Object.getOwnPropertyNames(globalThis);
 "#;
