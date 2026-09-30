@@ -96,7 +96,7 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 ## Transport Errors
 
 - A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). AxGen retries both as infrastructure errors.
-- Until the next major version, chat and embed throw the JDK's own exception for these failures (`ConnectException`, `IOException`, `HttpTimeoutException`), as they did, and warn once; set `typedTransportErrors: true` in the client's or the call's options for the typed errors, with the JDK exception as `getCause()`. Streams always throw the typed errors, and AxGen retries either kind as an infrastructure error. The JDK's `HttpClient` itself retries an idempotent GET whose connection closes before a response.
+- Chat, embed and streams throw typed Ax transport errors by default, with the JDK exception as `getCause()`. Explicit `typedTransportErrors: false` retains legacy JDK exceptions for chat and embed. AxGen retries either kind as an infrastructure error. The JDK's `HttpClient` itself retries an idempotent GET whose connection closes before a response.
 
 ## Request Retries
 
