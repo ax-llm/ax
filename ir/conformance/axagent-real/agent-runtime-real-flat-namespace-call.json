@@ -1,0 +1,63 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-flat-namespace-call",
+  "description": "Port-only real-engine antidote: a flat function filed under its own namespace (TS fn().namespace('crm')) is a crm global in the runtime, so the executor's crm.lookup call runs and its scripted result reaches the responder. The engine computes the evidence from the call's result (r.tier + ':' + 6 * 7), so only an executed call can put gold:42 in a request.",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "What tier is customer c-7?"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "functions": [
+      {
+        "name": "lookup",
+        "namespace": "crm",
+        "description": "Look up a customer by id",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"]
+        }
+      }
+    ],
+    "callable_results": {
+      "crm.lookup": {
+        "value": {
+          "tier": "gold"
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Look up customer c-7\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"const r = await crm.lookup({ id: 'c-7' }); final(\\\"Report the tier\\\", { tierProbe: r.tier + ':' + (6 * 7) })\"}"
+    },
+    {
+      "content": "{\"answer\":\"gold\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "gold"
+  },
+  "expected_request_count": 3,
+  "expected_request_contains": ["crm.lookup(args: { id: string })", "gold:42"],
+  "expected_function_call_traces_subset": [
+    {
+      "qualified_name": "crm.lookup",
+      "arguments": {
+        "id": "c-7"
+      },
+      "status": "ok"
+    }
+  ]
+}

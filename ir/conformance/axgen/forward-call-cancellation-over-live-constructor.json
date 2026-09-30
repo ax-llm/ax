@@ -1,0 +1,27 @@
+{
+  "call_cancellation": {
+    "cancelled": true,
+    "reason": "call-stop"
+  },
+  "constructor_cancellation": {
+    "cancelled": false
+  },
+  "expected_error_contains": "Request aborted: call-stop",
+  "expected_request_count": 0,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-call-cancellation-over-live-constructor",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

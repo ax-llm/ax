@@ -26,8 +26,8 @@ module @ax.tool version "0.1" {
     attr private = true
     ref validate = @validate_fields
     tag "native-tool-call"
-    type signature = "(list<Tool>, json) -> json throws"
-    body @entry(%functions: list<Tool>, %call: json) {
+    type signature = "(list<Tool>, json, json) -> json throws"
+    body @entry(%functions: list<Tool>, %call: json, %options: json) {
       %fn_call = core.get %call["function"]
       %direct_name = core.get %call["name"]
       %name = core.get %fn_call["name"] default %direct_name
@@ -52,7 +52,9 @@ module @ax.tool version "0.1" {
         %fn_name = core.get %fn["name"]
         %matches = core.call intrinsic.eq(%fn_name, %name)
         core.if %matches {
-          %result = core.call intrinsic.tool.invoke(%fn, %params)
+          // As TS, the tool gets the run's extras (see @tool_call_extras).
+          %extras = core.call @tool_call_extras(%options, %name)
+          %result = core.call intrinsic.tool.invoke(%fn, %params, %extras)
           core.return %result
         }
       }
@@ -66,6 +68,45 @@ module @ax.tool version "0.1" {
       %message = core.call intrinsic.string.format("Function not found: {}. Available functions: {}. Call one of these exact function names.", %name, %available)
       %error = core.call intrinsic.error.validation(%message)
       core.raise %error
+    }
+  }
+
+  op ax.tool.semantic @tool_call_extras {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "source:src/ax/dsp/functions.ts#processFunctions"
+    type signature = "(options:json, name:string) -> json"
+    body @entry(%options: json, %name: string) {
+      // The extras TS gives a tool of a run with these options: its
+      // sessionId and eventContext when set, and under a run control its
+      // executionPath, <the run's path>/<the tool's name>.
+      %extras = core.map
+      %options_map = core.type_is %options type "object"
+      core.if %options_map {
+      } else {
+        core.return %extras
+      }
+      %session_snake = core.get %options["session_id"] default null
+      %session = core.get %options["sessionId"] default %session_snake
+      %has_session = core.call intrinsic.is_not_none(%session)
+      core.if %has_session {
+        core.set %extras["sessionId"] = %session
+      }
+      %control = core.get %options["control"] default null
+      %controlled = core.call intrinsic.is_not_none(%control)
+      core.if %controlled {
+        %path_snake = core.get %options["execution_path"] default "root"
+        %path = core.get %options["executionPath"] default %path_snake
+        %tool_path = core.call intrinsic.string.format("{}/{}", %path, %name)
+        core.set %extras["executionPath"] = %tool_path
+      }
+      %event_snake = core.get %options["event_context"] default null
+      %event_context = core.get %options["eventContext"] default %event_snake
+      %has_event_context = core.call intrinsic.is_not_none(%event_context)
+      core.if %has_event_context {
+        core.set %extras["eventContext"] = %event_context
+      }
+      core.return %extras
     }
   }
 }

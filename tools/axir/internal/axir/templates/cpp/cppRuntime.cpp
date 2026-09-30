@@ -47,7 +47,9 @@ struct AxCallOptionsScope {
 }
 
 const AxCancellationToken* current_cancellation_token() { return ax_current_cancellation_token; }
-AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { ax_current_cancellation_token = token; if (token) token->throw_if_cancelled(); }
+// A cancelled token throws before the scope takes over: a constructor that
+// throws runs no destructor, which would leave the thread's token dangling.
+AxCancellationScope::AxCancellationScope(const AxCancellationToken* token) : previous_(ax_current_cancellation_token) { if (token) token->throw_if_cancelled(); ax_current_cancellation_token = token; }
 AxCancellationScope::~AxCancellationScope() { ax_current_cancellation_token = previous_; }
 
 Value::Value() : data(nullptr) {}
@@ -1985,6 +1987,10 @@ Value Core::exception_value(const std::exception& error) {
       out["request"] = Value(std::move(request));
     }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
+    if (const auto* clarification = dynamic_cast<const AxAgentClarificationError*>(ax)) {
+      out["clarification"] = clarification->clarification;
+      out["state"] = clarification->state;
+    }
     return Value(out);
   }
   return runtime_error(error.what());
@@ -2107,6 +2113,11 @@ AxError Core::as_error(Value error) {
     const std::string prefix = "Request aborted: ";
     std::string reason = message.rfind(prefix, 0) == 0 ? message.substr(prefix.size()) : "cancelled";
     throw AxAIServiceAbortedError(reason);
+  }
+  // A clarification keeps its payload and the runtime state, as the other
+  // ports' clarification errors do.
+  if (error.is_object() && str(get_key(error, "__error")) == "AxAgentClarificationError") {
+    throw AxAgentClarificationError(str(get_key(error, "message")), get_key(error, "clarification"), get_key(error, "state"));
   }
   throw as_error(std::move(error));
 }
@@ -2295,6 +2306,15 @@ Value Core::retry_sleep(Value attempt, Value, Value) {
   return Value();
 }
 Value Core::tool_invoke(Value fn, Value params) {return tool_invoke(std::move(fn),std::move(params),AxToolContext{});}
+Value Core::tool_invoke(Value fn, Value params, Value extras) {AxToolContext context;context.set_extras(extras);return tool_invoke(std::move(fn),std::move(params),context);}
+void AxToolContext::set_extras(const Value& extras) {
+  if (!extras.is_object()) return;
+  Value session = Core::get(extras, "sessionId");
+  if (!session.is_null()) session_id = display(session);
+  Value path = Core::get(extras, "executionPath");
+  if (!path.is_null()) execution_path = display(path);
+  event_context = Core::get(extras, "eventContext");
+}
 Value Core::tool_invoke(Value fn,Value params,const AxToolContext& context) {
   if(context.is_cancelled())throw AxAIServiceAbortedError("Tool invocation cancelled");
   Value args = get_key(fn, "args", Value::array());
@@ -2359,6 +2379,17 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
     return stage_ptr->forward(*registered,values,options);
   }
   return stage_ptr->forward(*registered, values, options);
+}
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+Value Core::agent_program_forward(Value signature, Value program_options, Value client, Value values, Value options) {
+  std::string client_id = str(get_key(client, "__client_id"));
+  AIClient* registered = registered_client(client_id);
+  if (registered == nullptr) {
+    throw AxError("runtime", "client does not implement AIClient");
+  }
+  AxGen program = ax(str(signature), program_options);
+  return program.forward(*registered, values, options);
 }
 Value Core::agent_stage_chat_log(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
@@ -2435,6 +2466,19 @@ Value Core::agent_runtime_restore_state(Value session, Value snapshot, Value opt
 }
 // A runtime's language: a runtime config's "language", else the code runtime's
 // own, else JavaScript, TS's default runtime.
+// A runtime's own usage instructions, as TS's getUsageInstructions(): the
+// registered code runtime's own, else a runtime config's
+// "usageInstructions", else none.
+Value Core::agent_runtime_usage_instructions(Value runtime) {
+  if (!runtime.is_object()) return Value(std::string());
+  std::string runtime_id = str(Core::get(runtime, "__code_runtime_id", Value("")));
+  if (!runtime_id.empty()) {
+    auto it = code_runtime_registry().find(runtime_id);
+    if (it != code_runtime_registry().end() && it->second != nullptr) return Value(it->second->usage_instructions());
+  }
+  Value raw = Core::get(runtime, "usageInstructions", Core::get(runtime, "usage_instructions", Value()));
+  return Value(raw.is_null() ? std::string() : display(raw));
+}
 Value Core::agent_runtime_language(Value runtime) {
   std::string language;
   if (runtime.is_object()) {
@@ -2874,6 +2918,13 @@ static Array prompt_inputs_for_values(Value sig, Value values) {
   for (const auto& field : fields) if (!Core::truthy(get_key(field, "isOptional")) || prompt_provided(get_key(values, str(get_key(field, "name"))))) out.push_back(field);
   return out;
 }
+// The input fields the system prompt shows with TS's
+// includeOptionalInputFieldsInSystemPrompt: every one, cached first.
+static Array prompt_all_inputs(Value sig) {
+  Array fields = array_ref(get_key(sig, "inputs"));
+  std::stable_sort(fields.begin(), fields.end(), [](const Value& a, const Value& b) { return Core::truthy(get_key(a, "isCached")) && !Core::truthy(get_key(b, "isCached")); });
+  return fields;
+}
 static Array prompt_outputs(Value sig) {
   Array out;
   for (const auto& field : array_ref(get_key(sig, "outputs"))) {
@@ -3040,7 +3091,10 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
   vars["hasOutputFields"] = !outputs.empty();
   vars["hasComplexFields"] = complex;
   vars["hasStructuredOutputFunction"] = complex && !get_key(options, "structured_output_function_name").is_null();
-  Array inputs = prompt_inputs_for_values(signature, values);
+  // TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+  // every input field, provided or not. Off by default.
+  bool include_optional = truthy(get_key(options, "include_optional_input_fields_in_system_prompt", get_key(options, "includeOptionalInputFieldsInSystemPrompt")));
+  Array inputs = include_optional ? prompt_all_inputs(signature) : prompt_inputs_for_values(signature, values);
   vars["identityText"] = "You will be provided with the following fields: " + prompt_desc_fields(inputs) + ". Your task is to generate new fields: " + prompt_desc_fields(outputs) + ".";
   vars["taskDefinitionText"] = task;
   vars["functionsList"] = prompt_render_functions(functions);
@@ -3200,7 +3254,7 @@ Value Core::prompt_user_content(Value signature, Value values) {
     parts.emplace_back(part);
   }
   bool all_text = true;
-  for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
+  for (const auto& part : parts) if (str(get_key(part, "type")) != "text") all_text = false;
   if (!all_text) {
     // As TS combineConsecutiveStrings: in a message with media, each run of
     // text parts joins with a newline and is cached when any of them is.
@@ -4112,12 +4166,66 @@ AxRuntimeHooks effective_runtime_hooks(const AxRuntimeHooks& call,
   return merge_runtime_hooks({call, service, snapshot_runtime_hooks()});
 }
 
+// A metric's attributes with TypeScript's custom labels (ai_custom_labels):
+// the service's customLabels, then the call's, cut to 100 characters when
+// sanitize is set (TS cuts them for the request duration and errors, not for
+// the request counter).
+static Value with_custom_labels(const Value& attributes, const Value& service_options, const Value& call_options, bool sanitize) {
+  Value out = Core::map_merge(Value::object(), attributes);
+  try {
+    Value labels = Core::ai_custom_labels(service_options.is_object() ? service_options : Value::object(), call_options.is_object() ? call_options : Value::object(), Value(sanitize));
+    for (const auto& key : Core::iter(Core::map_keys(labels))) Core::set(out, key, Core::get(labels, key));
+  } catch (...) {
+    // Labels never fail a request.
+  }
+  return out;
+}
+
+// An AxGen run's custom labels, as TypeScript's getMergedCustomLabels: the AI
+// service's, then the AxGen constructor's with the call's over them, each
+// value cut to 100 characters.
+static Value gen_metric_labels(AIClient& client, const Value& gen_options, const Value& call_options) {
+  try {
+    Value run_labels = Core::ai_custom_labels(gen_options.is_object() ? gen_options : Value::object(), call_options.is_object() ? call_options : Value::object(), Value(false));
+    Value service_options = Value::object();
+    if (auto* service = dynamic_cast<AxAIService*>(&client)) service_options = service->get_options();
+    return Core::ai_custom_labels(service_options.is_object() ? service_options : Value::object(), object({{"customLabels", run_labels}}), Value(true));
+  } catch (...) {
+    return Value::object();
+  }
+}
+
+// Prints a verbose block, as TypeScript's apiCall uses console.log.
+static void verbose_log(const Value& text) {
+  auto& sink = verbose_log_sink();
+  if (sink) sink(display(text)); else std::cout << display(text) << std::endl;
+}
+
+// Whether a call logs its requests: the call's verbose, else the client's
+// (the options are the two merged).
+static bool verbose_enabled(const Value& options) {
+  return options.is_object() && Core::truthy(Core::get(options, "verbose", false));
+}
+
+static void log_verbose_request(const Value& call) {
+  verbose_log(Core::ai_verbose_request_log(Core::get(call, "url", Value("")), Core::get(call, "method", Value("POST")), Core::get(call, "headers", Value::object()), Core::get(call, "json")));
+}
+
+// A transport result's HTTP status.
+static Value transport_status(const Value& raw) {
+  if (raw.is_object() && !Core::get(raw, "status").is_null()) return Core::get(raw, "status");
+  return Value(200.0);
+}
+
 class RuntimeHookScope {
  public:
+  // metric_labels (TS's custom labels) go on the metrics, not the span.
   RuntimeHookScope(const AxRuntimeHooks& call, const AxRuntimeHooks& program,
-                   std::string span_name, std::string metric_prefix, Value attributes)
+                   std::string span_name, std::string metric_prefix, Value attributes,
+                   Value metric_labels = Value::object())
       : metric_prefix_(std::move(metric_prefix)), attributes_(std::move(attributes)),
         started_(std::chrono::steady_clock::now()), exceptions_(std::uncaught_exceptions()) {
+    metric_attributes_ = Core::map_merge(attributes_, metric_labels);
     AxRuntimeHooks inherited;
     AxRuntimeHooks globals = snapshot_runtime_hooks();
     std::shared_ptr<AxSpan> parent;
@@ -4130,14 +4238,14 @@ class RuntimeHookScope {
     effective_ = merge_runtime_hooks({scoped, globals});
     own_span_ = start_runtime_span(effective_, std::move(span_name), "internal", attributes_, parent);
     runtime_hook_frames.push_back(RuntimeHookFrame{scoped, globals, own_span_ ? own_span_ : parent});
-    record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_requests_total", 1, attributes_);
+    record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_requests_total", 1, metric_attributes_);
   }
 
   ~RuntimeHookScope() {
     bool failed = std::uncaught_exceptions() > exceptions_;
-    if (failed) record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_errors_total", 1, attributes_);
+    if (failed) record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_errors_total", 1, metric_attributes_);
     auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started_).count();
-    record_runtime_metric(effective_.meter, "histogram", metric_prefix_ + "_duration_ms", duration, attributes_);
+    record_runtime_metric(effective_.meter, "histogram", metric_prefix_ + "_duration_ms", duration, metric_attributes_);
     finish_runtime_span(own_span_, failed);
     if (!runtime_hook_frames.empty()) runtime_hook_frames.pop_back();
   }
@@ -4147,6 +4255,7 @@ class RuntimeHookScope {
   std::shared_ptr<AxSpan> own_span_;
   std::string metric_prefix_;
   Value attributes_;
+  Value metric_attributes_;
   std::chrono::steady_clock::time_point started_;
   int exceptions_;
 };
@@ -4718,6 +4827,11 @@ void set_tracer(std::shared_ptr<AxTracer> tracer) {
   global_runtime_hooks.tracer = std::move(tracer);
 }
 
+std::function<void(const std::string&)>& verbose_log_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
+}
+
 void set_meter(std::shared_ptr<AxMeter> meter) {
   std::lock_guard<std::mutex> lock(runtime_hooks_mutex);
   global_runtime_hooks.meter = std::move(meter);
@@ -4770,7 +4884,8 @@ Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& ca
   Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(selected_model)}, {"ax.streaming", streaming}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
   auto span = start_runtime_span(hooks, "ax_llm_chat", "client", attributes, parent);
-  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, with_custom_labels(attributes, options_, call_options, false));
+  attributes = with_custom_labels(attributes, options_, call_options, true);
   auto started = std::chrono::steady_clock::now();
   try {
     AxRequestExecutor next = [&]() { return do_chat(req, merged_options); };
@@ -4828,7 +4943,8 @@ Value AxBaseAI::embed(Value request, Value call_options, const AxRuntimeHooks& c
   Value attributes = object({{"ax.operation", "embed"}, {"ax.ai", name_}, {"ax.model", display(selected)}, {"ax.streaming", false}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
   auto span = start_runtime_span(hooks, "ax_llm_embed", "client", attributes, parent);
-  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, with_custom_labels(attributes, options_, call_options, false));
+  attributes = with_custom_labels(attributes, options_, call_options, true);
   auto started = std::chrono::steady_clock::now();
   try {
     AxRequestExecutor next = [&]() { return do_embed(req, merged_options); };
@@ -5396,7 +5512,8 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
   Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(model)}, {"ax.streaming", true}});
   std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
   auto span = start_runtime_span(hooks, "ax_llm_chat", "client", attributes, parent);
-  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, with_custom_labels(attributes, options_, call_options, false));
+  attributes = with_custom_labels(attributes, options_, call_options, true);
   auto started = std::chrono::steady_clock::now();
   bool cancelled = false;
   try {
@@ -5454,8 +5571,14 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           if (!handler(normalized)) { cancelled = true; return false; }
           return true;
         });
+        // As TS's apiCall, a verbose call logs the request and that its stream
+        // started (with the first chunk).
+        bool verbose = verbose_enabled(merged_options);
+        bool stream_logged = false;
+        if (verbose) log_verbose_request(call);
         auto consume = [&](Value chunk) {
           Value raw = chunk;
+          Value status = transport_status(chunk);
           if (raw.is_object() && has_key(raw, "status")) {
             if (num(Core::get(raw, "status", 200)) >= 400) {
               for (const auto& entry : object_ref(Core::get(raw, "headers", Value::object()))) {
@@ -5467,6 +5590,10 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
             raw = transport_result(raw, call, merged_options);
           }
           response_started = true;
+          if (verbose && !stream_logged) {
+            stream_logged = true;
+            verbose_log(Core::ai_verbose_stream_log(status));
+          }
           if (raw.is_array()) {
             for (const auto& event : array_ref(raw)) {
               if (display(event) == "[DONE]") return false;
@@ -5947,6 +6074,10 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 Value OpenAICompatibleClient::request_json_attempt(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options, std::string* retry_after) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
   if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  // As TS's apiCall, a verbose call logs the request, then its JSON response
+  // or the stream's start.
+  bool verbose = verbose_enabled(error_options.is_object() ? error_options : options_);
+  if (verbose) log_verbose_request(call);
   Value raw;
   ax_transport_response_started = false;
   try {
@@ -5965,7 +6096,9 @@ Value OpenAICompatibleClient::request_json_attempt(const std::string& endpoint, 
       if (name == "retry-after") *retry_after = display(entry.second);
     }
   }
-  return transport_result(raw, call, error_options);
+  Value result = transport_result(raw, call, error_options);
+  if (verbose) verbose_log(stream ? Core::ai_verbose_stream_log(transport_status(raw)) : Core::ai_verbose_response_log(transport_status(raw), result));
+  return result;
 }
 
 // TS apiCall's request-layer retry around one request: a listed status or a
@@ -7711,6 +7844,9 @@ static std::string playbook_error_signature(const std::string& value) {
 }
 
 static std::string playbook_record_signature(const Value& record) {
+  // TS's record of a thrown run has only its error.
+  Value record_error = Core::get(record, "error");
+  if (Core::truthy(record_error)) return playbook_error_signature(display(record_error));
   Value prediction = Core::get(record, "prediction", Value::object());
   std::vector<std::pair<std::string, int>> counts;
   for (const auto& signal : Core::iter(Core::get(prediction, "failureSignals", Value::array()))) {
@@ -7962,7 +8098,17 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
         --remaining;
         double score = 0;
         try {
-          prediction = agent_->evaluate_optimization_task(*student_, task, options);
+          Value candidate = agent_->evaluate_optimization_task(*student_, task, options);
+          if (display(Core::get(candidate, "completionType", Value(""))) == "error") {
+            // TS's harness sees a thrown run: a zero score with no metric
+            // call, and its message as the error.
+            Value error_value = Core::get(candidate, "error");
+            last_error = error_value.is_object() ? display(Core::get(error_value, "message", Value(""))) : display(error_value);
+            score_sum += 0;
+            ++completed_runs;
+            continue;
+          }
+          prediction = candidate;
           Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
           Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
           score = num(Core::_scalarize_optimization_scores(Core::_normalize_optimization_metric_scores(raw_score), options));
@@ -7981,7 +8127,9 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
       weight_sum += weight;
       Value record = object({{"task", task}, {"index", Value(static_cast<double>(task_index))}, {"score", Value(score)}, {"passed", Value(score >= threshold && display(Core::get(prediction, "completionType", Value(""))) == "final")}});
       if (!prediction.is_null()) Core::set(record, "prediction", prediction);
-      else if (!last_error.empty()) Core::set(record, "error", Value(last_error));
+      else if (!last_error.empty()) {
+        Core::set(record, "error", Value(last_error));
+      }
       records.push_back(record);
       if (completed_runs < runs_per_task) break;
     }
@@ -8240,7 +8388,16 @@ static bool axgen_runs_in_session(const Value& state, const Value& run_options) 
   return eligible && (!Core::get(run_options,"control").is_null() || display(Core::get(run_options,"asyncMode",Core::get(run_options,"async_mode","auto")))!="off");
 }
 
+AxGen& AxGen::set_cancellation(AxCancellationToken token) {
+  cancellation_ = std::move(token);
+  return *this;
+}
+
 Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  // The program's cancellation token covers a run that has none from its
+  // call or from a run around it.
+  std::optional<AxCancellationScope> program_cancellation;
+  if (cancellation_ && current_cancellation_token() == nullptr) program_cancellation.emplace(&*cancellation_);
   auto global_cache = global_caching_function();  // held for the run
   // As in TS, the cache is read before the run's span and metrics, so a hit
   // records neither; a read error propagates. A miss hands the lookup to the
@@ -8252,7 +8409,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}),
+                         gen_metric_labels(client, Core::get(state_, "options", Value::object()), options));
   Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);
   if(axgen_runs_in_session(state_, run_options)) {
     SessionRun session(state_,client,run_options);
@@ -8325,6 +8483,8 @@ struct AxGenDeltaConsumer {
 
 Value AxGen::streaming_forward(AIClient& client, Value values, Value options, AxGenDeltaHandler handler) {
   if (!handler) throw AxError("runtime", "AxGen::streaming_forward: handler must be callable");
+  std::optional<AxCancellationScope> program_cancellation;
+  if (cancellation_ && current_cancellation_token() == nullptr) program_cancellation.emplace(&*cancellation_);
   auto global_cache = global_caching_function();  // held for the run
   // As in TS, the cache is read before the run's span and metrics, and a
   // read error is ignored: a hit is one {version 0, index 0} delta with no
@@ -8342,7 +8502,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   Core::set(options, "_ax_cache_lookup", lookup);
   AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
   RuntimeHookScope scope(AxRuntimeHooks{}, program_hooks, "ax_gen_forward", "ax_gen_generation",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}));
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}, {"ax.streaming", true}}),
+                         gen_metric_labels(client, Core::get(state_, "options", Value::object()), options));
   AxGenDeltaConsumer consumer(std::move(handler));
   AxGenSinkRegistration registration([&consumer](Value envelope) { consumer.deliver(envelope); });
   Value run_options = Core::map_merge(Core::get(state_, "options", Value::object()), options);
@@ -8392,8 +8553,8 @@ AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
 std::function<std::shared_ptr<AxProgram>()> AxGen::owned_worker_factory() const {
   auto options=Core::get(state_,"options",Value::object());
   if(!Core::get(options,"execution_context",Core::get(options,"executionContext")).is_null())return {};
-  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;auto cache=caching_function_;
-  return [snapshot,hooks,cache] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->caching_function_=cache;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
+  auto snapshot=stringify(state_);auto hooks=runtime_hooks_;auto cache=caching_function_;auto cancellation=cancellation_;
+  return [snapshot,hooks,cache,cancellation] {auto state=parse_json(snapshot);auto worker=std::make_shared<AxGen>(Core::get(state,"signature"),Core::get(state,"options"),*hooks);worker->state_=state;worker->caching_function_=cache;worker->cancellation_=cancellation;worker->memory_.value_ref()=Core::get(state,"memory",Value::array());worker->refresh_prompt_template();return worker;};
 }
 std::function<std::shared_ptr<AxProgram>()> AxFlow::owned_worker_factory() const {
   std::vector<std::pair<std::size_t,std::function<std::shared_ptr<AxProgram>()>>> factories;
@@ -8574,10 +8735,23 @@ Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRun
   if (Core::truthy(Core::get(lookup, "hit", false))) return Core::get(lookup, "value");
   options = Core::map_merge(Value::object(), options);
   Core::set(options, "_ax_flow_cache_lookup", lookup);
-  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
-  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
-                         object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
-  return Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+  // As TypeScript's AxFlow.forward does, a run control hears the flow's own
+  // lifecycle at its path; each node reports at <path>/<node>.
+  auto control = resolve_control(options);
+  std::string run_path = display(Core::get(options, "execution_path", Core::get(options, "executionPath", "root")));
+  if (control) control->emit(object({{"type", "started"}, {"path", run_path}}));
+  Value output;
+  try {
+    AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+    RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
+                           object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
+    output = Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+  } catch (const std::exception& error) {
+    if (control) control->emit(object({{"type", "failed"}, {"path", run_path}, {"error", std::string(error.what())}}));
+    throw;
+  }
+  if (control) control->emit(object({{"type", "completed"}, {"path", run_path}}));
+  return output;
 }
 
 AxFlow& AxFlow::set_rate_limiter(AxRateLimiter limiter) {
@@ -8664,8 +8838,8 @@ AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
   playbook_config_ = Core::get(options, "playbook", Value());
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   reset_stage_sets();
@@ -8697,8 +8871,8 @@ void AxAgent::use_stage_mode(const Value& options) {
     incoming.responder->set_instruction(Core::get(record, "responder_description", Value("")));
   } else {
     Value actor_validation_retries = Core::get(options_, "validation_retries", Core::get(options_, "validationRetries", 1));
-    incoming.distiller = std::make_unique<AxGen>(s(str(Core::get(record, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(record, "distiller_description", "")}}));
-    incoming.executor = std::make_unique<AxGen>(s(str(Core::get(record, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(record, "executor_description", "")}}));
+    incoming.distiller = std::make_unique<AxGen>(s(str(Core::get(record, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(record, "distiller_description", "")}}));
+    incoming.executor = std::make_unique<AxGen>(s(str(Core::get(record, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(record, "executor_description", "")}}));
     incoming.responder = make_responder(options_);
   }
   incoming.distiller->apply_optimized_components(optimized_components_);
@@ -8735,8 +8909,8 @@ AxAgent& AxAgent::set_signature(Value signature) {
   Value options = options_;
   state_ = Core::_agent_factory(std::move(signature), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   reset_stage_sets();
@@ -8934,8 +9108,8 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   options_ = options;
   state_ = Core::_agent_factory(Core::get(state_, "signature"), options);
   Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"includeOptionalInputFieldsInSystemPrompt", true}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = make_responder(options);
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   reset_stage_sets();
@@ -9046,9 +9220,17 @@ Value AxAgent::evaluate_optimization_task(AIClient& client, Value task, Value op
   // this run's share of the agent's logs.
   Value marks = Core::_agent_eval_marks(state_);
   Value completion;
+  // TS's evaluation path runs no playbook run-end learning.
+  Core::set(state_, "playbook_learning_paused", Value(true));
+  struct ResumeLearning {
+    Value& state;
+    ~ResumeLearning() { Core::map_delete(state, Value("playbook_learning_paused")); }
+  } resume_learning{state_};
   try {
     Value output = forward(client, input, forward_options);
     completion = object({{"type", Value("final")}, {"output", output}});
+  } catch (const AxAgentClarificationError& e) {
+    completion = object({{"type", Value("askClarification")}, {"clarification", e.clarification}});
   } catch (const AxError& e) {
     if (e.category == "AxAgentClarificationError") {
       completion = object({{"type", Value("askClarification")}, {"clarification", Value(std::string(e.what()))}});
@@ -9224,6 +9406,8 @@ void AxAgent::attach_configured_playbook() {
 
 void AxAgent::learn_playbook_failures(Value output) {
   if (!playbook_handle_ || playbook_config_.is_null()) return;
+  // An evaluated run learns nothing, as TS's evaluation path.
+  if (Core::truthy(Core::get(state_, "playbook_learning_paused", Value(false)))) return;
   Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
   Value learn = Core::get(config, "learn", Value(true));
   if (learn.is_bool() && !Core::truthy(learn)) return;

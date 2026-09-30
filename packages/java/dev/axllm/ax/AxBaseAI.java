@@ -114,7 +114,7 @@ public abstract class AxBaseAI implements AxAIService {
     boolean streaming = Boolean.TRUE.equals(mergedConfig.get("stream"));
     Map<String, Object> attributes = Map.of("ax.operation", "chat", "ax.ai", name, "ax.model", selectedModel, "ax.streaming", streaming);
     AxSpan span = AxGlobals.startSpan(hooks, "ax_llm_chat", "client", attributes, AxGlobals.currentSpan());
-    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, attributes);
+    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, AxGlobals.labeled(attributes, options, callOptions, false));
     long started = System.nanoTime();
     Throwable failure = null;
     try {
@@ -133,8 +133,8 @@ public abstract class AxBaseAI implements AxAIService {
       throw new RuntimeException(error);
     } finally {
       if(cancellation!=null)ACTIVE_CANCELLATION.remove();
-      if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, attributes);
-      AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, attributes);
+      if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, AxGlobals.labeled(attributes, options, callOptions, true));
+      AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, AxGlobals.labeled(attributes, options, callOptions, true));
       AxGlobals.finishSpan(span, failure);
     }
   }
@@ -161,7 +161,7 @@ public abstract class AxBaseAI implements AxAIService {
     Map<String, Object> mergedOptions = mergedOptions(callOptions);
     Map<String, Object> attributes = Map.of("ax.operation", "embed", "ax.ai", name, "ax.model", selected, "ax.streaming", false);
     AxSpan span = AxGlobals.startSpan(hooks, "ax_llm_embed", "client", attributes, AxGlobals.currentSpan());
-    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, attributes);
+    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, AxGlobals.labeled(attributes, options, callOptions, false));
     long started = System.nanoTime();
     Throwable failure = null;
     try {
@@ -180,8 +180,8 @@ public abstract class AxBaseAI implements AxAIService {
       throw new RuntimeException(error);
     } finally {
       if(cancellation!=null)ACTIVE_CANCELLATION.remove();
-      if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, attributes);
-      AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, attributes);
+      if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, AxGlobals.labeled(attributes, options, callOptions, true));
+      AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, AxGlobals.labeled(attributes, options, callOptions, true));
       AxGlobals.finishSpan(span, failure);
     }
   }

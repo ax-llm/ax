@@ -679,7 +679,7 @@ impl SessionRun {
             return Ok(());
         }
         let tool = self.tools.iter().find(|tool| tool.name == name).cloned();
-        let arguments = (|| -> AxResult<Value> {
+        let arguments = (|| -> AxResult<(Value, Option<Value>)> {
             let args = match &call["function"]["params"] {
                 Value::String(text) => serde_json::from_str(text)?,
                 value => value.clone(),
@@ -687,14 +687,15 @@ impl SessionRun {
             let tool = tool
                 .as_ref()
                 .ok_or_else(|| AxError::runtime(format!("Function '{name}' not found")))?;
-            validate_fields(&[
-                core_tool_args_fields(&tool.args)?,
-                core_value_from_json(&args),
-                CoreValue::from_string(format!("tool.{name}.args")),
-            ])?;
+            // As TS's session does, a call whose arguments fail the tool's
+            // schema does not run: its result is TS's fixing instructions.
             let schema = core_value_from_json(&tool.schema()?);
-            chat_session_validate_required_arguments(&[schema, core_value_from_json(&args), CoreValue::from_string(format!("tool.{name}.args"))])?;
-            Ok(args)
+            let fixing = core_value_to_json(&chat_session_tool_argument_error(&[
+                CoreValue::from(name),
+                schema,
+                core_value_from_json(&args),
+            ])?);
+            Ok((args, if fixing.is_null() { None } else { Some(fixing) }))
         })();
         let execution = tool
             .as_ref()
@@ -706,7 +707,11 @@ impl SessionRun {
             CoreValue::from(execution),
         ])?;
         let args = match arguments {
-            Ok(args) => args,
+            Ok((_, Some(fixing))) => {
+                chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&call),core_value_from_json(&fixing),CoreValue::Bool(false),self.formatter_options.clone()])?;
+                return Ok(());
+            }
+            Ok((args, None)) => args,
             Err(error) => {
                 let message = _tool_error_message_impl(&[
                     core_value_from_json(&call),
@@ -723,10 +728,12 @@ impl SessionRun {
         // session that started it, never to a later one.
         let sender = self.sender.clone();
         let cancelled = self.cancelled.clone();
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        let extras = core_value_to_json(&tool_call_extras(&[core_value_from_json(&self.options), CoreValue::from(name)])?);
         let inherited=RUNTIME_HOOK_FRAMES.with(|frames|frames.borrow().clone());
         std::thread::spawn(move || {
             RUNTIME_HOOK_FRAMES.with(|frames|*frames.borrow_mut()=inherited);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()})))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()}.with_extras(&extras))))
                 .unwrap_or_else(|_| Err(AxError::runtime("Tool handler panicked")));
             if !cancelled.load(Ordering::SeqCst) {
                 let _ = sender.send(ToolResult { call, result });
@@ -1870,7 +1877,7 @@ mod tests {
         fn get_features(&self,_:Option<&str>)->Value{json!({"functions":true,"streaming":false,"asyncTools":self.unused})}
         fn chat(&mut self,request:Value)->AxResult<Value>{
             assert!(!self.unused,"Pinned run changed providers");let count=self.calls.fetch_add(1,Ordering::SeqCst)+1;
-            if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","function":{"name":"lookup","params":{}}}]}]}));}
+            if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","type":"function","function":{"name":"lookup","params":{}}}]}]}));}
             assert_eq!(count,2);assert_eq!(self.tools.load(Ordering::SeqCst),1,"request: {request}");assert!(request.to_string().contains("FALLBACK"));assert!(request.to_string().contains("balanced-call"));Ok(json!({"results":[{"content":"{\"answer\":\"FALLBACK\"}"}]}))
         }
         fn open_chat_session(&mut self,_:Value,_:Value)->AxResult<Option<Box<dyn AxChatSession>>>{assert!(!self.unused,"Pinned run changed providers");Ok(None)}

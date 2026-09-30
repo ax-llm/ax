@@ -56,7 +56,7 @@
       }
     },
     "prepared": {
-      "liveRuntimeState": "Current runtime state:\nrows: array (1 items) = [{\"id\":1}] [from t1 via db.search; read t2]\nstaleNote: string (6 chars) = \"unused\""
+      "liveRuntimeState": "rows: array (1 items) = [{\"id\":1}] [from t1 via db.search; read t2]\nstaleNote: string (6 chars) = \"unused\""
     }
   },
   "kind": "agent_runtime_policy",

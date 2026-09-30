@@ -1,0 +1,65 @@
+{
+  "description": "Port-only: functionCallValidation: 'correct' runs a call TS rejects as given, without the warning.",
+  "expected_deprecations": [],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    }
+  ],
+  "forward_options": {
+    "function_call_validation": "correct"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "function-call-missing-id-correct-explicit",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "lookup",
+                "params": "{\"key\":\"a\"}"
+              },
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "Answer: done",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

@@ -18,7 +18,18 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un` [prompt] Split the actor prompt into cached and uncached user messages under contextCache in the ports
+  - Status: open
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
+  - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
+- `axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime` [runtime] Return console output from the Java QuickJS code runtime
+  - Status: open
+  - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
+  - TS paths: `src/ax/funcs/jsRuntime.ts`
+  - Impact: TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.
+  - Suggested AxIR work: Capture console output in the Java QuickJS bootstrap and return it as the step's output; Pin a runtime-protocol fixture with console output reaching the action log in every port
 
 ## Done
 
@@ -942,6 +953,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `ae09148e2a4b5dd10d32725492b84a3fe0264068`
   - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with 8 axflow flow-cache-* goldens and axgen/cache-forward-key-stable-input-order; per-port flow telemetry tests; npm run test --workspace=@ax-llm/ax`
+- `axir-2026-09-27-check-a-chat-session-s-tool-arguments-as-typescript-does-and-sen` [axgen] Check a chat session's tool arguments as TypeScript does and send its fixing instructions in the ports
+  - Status: done
+  - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
+  - TS paths: `src/ax/dsp/toolArguments.ts`, `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript checks a native session's tool call with axValidateToolArguments and, when it fails, submits FunctionError.getFixingInstructions() as an error result (isError): 'Errors In Function Arguments: Fix the following invalid arguments to <name>' and a line per field with TS's message and the field's description. The ports sent their own validator's message ('Validation failed: ...' or 'Required field is missing: ...') as an ordinary result, without the error flag. On the 54 raw cases, main's Python validator accepted and rejected the same arguments as TypeScript.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `0b3a55047`
+  - Verification: `TS goldens: session-raw-argument-validation pins axValidateToolArguments' errors for 54 cases, and three native-session goldens pin the submitted tool results (expected_session_tool_results: an invalid argument, a missing argument, a valid call). On main the ports submitted their own message without is_error (Python: {"error":"Validation failed: Expected 'key' to be a string"}); they pass in all five now. Mutants (no is_error, a reworded message, no field description) fail their goldens; based on main at b780a14a3, the full suites pass (1573 of 1573 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
   - Status: done
   - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`
@@ -969,6 +989,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `319c07a31b08bba2f246f8551c25d7433d15864d`
   - Verification: `npm run axir:conformance:check (25 date fixtures: 305 parser cases, 16 input cases, forward and streamingForward with and without parseDates); node scripts/run-axir.mjs verify --mode release per target (python, go, java, cpp: 1137 fixtures; rust conformance suites); npm run test --workspace=@ax-llm/ax`
+- `axir-2026-09-27-drop-a-failed-non-streaming-axgen-attempt-and-its-correction-whe` [axgen] Drop a failed non-streaming AxGen attempt and its correction when the next answer arrives in the ports
+  - Status: done
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/response/nonStreaming.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TS forward's non-streaming response handling removes the memory tagged correction and error once a new answer parses (response/nonStreaming.ts, unless disableMemoryCleanup), and generate.ts tags the failed answer error, so for failures thrown after the answer parses (assertions and field processors) each retry sends only the latest failed attempt and its correction. Parse, missing-field and constraint failures are thrown before that cleanup and pile up in TS too, as do __axOutput (function rung) retries and streamingForward. The ports keep every failed attempt in all cases. Plain ax('question:string -> answer:string') with an assert that always fails and maxRetries 3, request roles: TS [[system,user],[system,user,assistant,user],[system,user,assistant,user],[system,user,assistant,user]]; Python port [[system,user],[system,user,assistant,user],[system,user,assistant,user,assistant,user],[system,user,assistant,user,assistant,user,assistant,user]]. The agent goldens agent-forward-citations-exhausted and agent-forward-control-failed (citation assertion retries) leave expected_request_roles out until this lands.
+  - Suggested AxIR work: Port TS's non-streaming memory cleanup of correction and error tagged messages; Add an AxGen forward golden with two or more validation retries that pins the request roles; Re-add expected_request_roles to agent-forward-citations-exhausted and agent-forward-control-failed
+  - Completed at: 2026-09-27
+  - Completed by: `ba626dce1`
+  - Verification: `gen.axir @forward holds the failed attempts since the last cleanup point apart and settles them where TS's non-streaming forward cleans up (response/nonStreaming.ts): a retry whose answer parsed, a tool step, a feedback step and a steer step; a failed __axOutput call keeps its call and done result; disableMemoryCleanup keeps everything; streaming is unchanged, as in TS. Scope per TS probes: only failures after an answer parses (assertions) drop earlier attempts; parse, missing-field and constraint failures, function-rung retries and streams keep them. 13 TS goldens (forward-retry-memory-*, streaming-forward-retry-memory-assertion) pin every request's roles; on main 8 fail in each of the five ports; Python mutation checks of each part are caught. The two citation agent goldens with TS's roles pinned pass in all five ports with the fix and fail on main (their roles pin lands with #766). verify --mode release on ccee3bda2 plus the fix: 1547 fixtures in python, go, java, cpp and rust.`
 - `axir-2026-09-27-evaluated-agent-predictions-carry-the-runs-calls-errors-and-turns` [axagent] Evaluated agent predictions carry the run's function calls, tool errors and turn count, as TypeScript's do
   - Status: done
   - Source commit: `fcb1c34d80cea7dec27380f48d4228a9f361a857`
@@ -987,6 +1016,15 @@ No entries.
   - Completed at: 2026-09-30
   - Completed by: `285e7b045`
   - Verification: `TypeScript conformance synchronization and generated-package freshness pass; axir verify --mode dev --jobs 2 passes Python, Java, C++, Go, and Rust, each with 1567 conformance fixtures. Main Python reproduced the eleven-response failure; all three new budget fixtures pass in every port.`
+- `axir-2026-09-27-give-an-axgen-a-constructor-cancellation-token-in-go-c-and-rust-` [axgen] Give an AxGen a constructor cancellation token in Go, C++ and Rust, as TypeScript's constructor abortSignal
+  - Status: done
+  - Source commit: `4867ffe31e2ea7176ce7f9bbf1275f64a122c4c3`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript's AxGen takes an abortSignal in its constructor as the default for every forward, which a call's own abortSignal replaces. Python and Java honored a constructor cancellation token that way; Go, C++ and Rust took cancellation per call only (a ctx or a token), so a program could not carry one.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `d0cbdaca8`
+  - Verification: `TS goldens from tools/axir/extractors/axgen-streaming-goldens.ts (a cancelled constructor abortSignal stops a forward and a streaming forward before any request; a live call signal wins over a cancelled constructor one; a live constructor signal changes nothing; a cancelled call signal wins over a live constructor one) pass in all five ports (Go: a context under the cancellation option; Rust: AxGen::with_cancellation; C++: AxGen::set_cancellation). Mutants (Go's constructor token winning, Rust without the program scope, C++ without the forward scope) fail them; C++'s AxCancellationScope no longer leaves a cancelled token current (reproduced on main's package, pinned by the C++ cancellation runner, and the old order fails it); based on main at b780a14a3, the full suites pass (1570 of 1570 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-js-text-for-string-format-chat-message-and-nameless-call-checks` [axai] string.format and string.str write JavaScript's text in the ports; chat messages and nameless function calls fail with TypeScript's checks
   - Status: done
   - Source commit: `521b7a6258dec05b8281c69e0ad8ea0c8ebfa8b8`
@@ -1149,6 +1187,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `e6b1100e2`
   - Verification: `TS: apicall.test.ts pins requestBody non-enumerable (out of JSON.stringify, spread, Object.keys, toString, stack) when includeRequestBodyInErrors is false and serialized by default. AxIR: @ai_error_request builds every error request (the normalizer and the ai.error auth/timeout/status intrinsics use it); axai/provider-error-request-view (9 view cases) and provider-error-normalizer-drops-headers (normalizer given a raw call with Authorization, x-api-key and x-goog-api-key) pass in all five ports; Go and C++ AxError keep url and body (the part-1 provider-error fixtures now check them there); intrinsic.url.encode_component encodes the Gemini Live key (axai/gemini-live-ws-url-encodes-key); the ports and IR drop api_key_query and the profile generator rejects api-key-query; Go stream 4xx errors carry the provider message (TestStreamHTTPErrorCarriesProviderMessage); the Go and Rust ai_error runners enforce transport expectations (perturbed fixtures fail) and every runner passes fixture options as call options. axai 435/435 in each port; verify --mode release.`
+- `axir-2026-09-27-put-typescript-s-customlabels-on-the-ai-and-axgen-metrics-in-the` [axai] Put TypeScript's customLabels on the AI and AxGen metrics in the ports
+  - Status: done
+  - Source commit: `4867ffe31e2ea7176ce7f9bbf1275f64a122c4c3`
+  - TS paths: `src/ax/ai/metrics.ts`, `src/ax/ai/base.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript merges an AI service's customLabels with a call's, key by key, onto every AI metric, and an AxGen passes its constructor's labels with the call's over them and puts the service's labels under those on its own metrics; the request duration, errors and AxGen metrics cut each value to 100 characters, the AI request counter does not. No port read customLabels.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `4867ffe31`
+  - Verification: `The TS golden axai/ai-custom-labels-merge (axai-goldens.ts: a meter's labels for a chat with service and call labels and for an AxGen forward with service, constructor and call labels, one 120 characters long) passes in all five ports. IR mutants (no key-by-key merge, no cut) and one host mutant per port (a cut request count, no service labels on the AxGen metrics, no AxGen labels, no call labels) fail it; based on main at b780a14a3, the full suites pass (1570 of 1570 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports` [axgen] Render AxGen audio output fields through speak() in the ports
   - Status: done
   - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
@@ -1167,6 +1214,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `f95ab33cf`
   - Verification: `Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures.`
+- `axir-2026-09-27-report-an-agent-run-s-tool-errors-as-typescript-s-failure-report` [axagent] Report an agent run's tool errors as TypeScript's failure report does in the ports
+  - Status: done
+  - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
+  - TS paths: `src/ax/agent/agentInternal/failureReport.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`
+  - Impact: TypeScript's failure report gives a tool_error signal the turn of the step that made the call, the signature '<name>: <first 60 characters of the error line>', the detail '<name> failed: <error line>' with the error collapsed to one line and cut to 120 characters with an ellipsis, the JSON arguments cut to 240 as its code, and one signal per signature with its occurrences counted. The ports gave turn 0, 'name:error' signatures, raw multi-line details cut without an ellipsis, a native rendering of the arguments, and one signal per failed call.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `43512f21c`
+  - Verification: `The TS golden eval-prediction-tool-error-signals (optimize-goldens.ts: a long, multi-line tool error from two calls) fails on main's packages in all five ports (turn 0, raw detail, one signal per call) and passes in all five. Mutants (truncateInline keeping max characters, no merging, the step turn counted after the step is logged) fail it; based on main at b780a14a3, the full suites pass (1573 of 1573 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-responses-prompt-cache-key-every-request` [axai] Every OpenAI Responses request sends prompt_cache_key in the ports
   - Status: done
   - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
@@ -1176,6 +1232,15 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `46b4182cc`
   - Verification: `Seven axai openai-responses-prompt-cache-key-* fixtures (six send a key, one pins its absence) fail on origin/main in all five ports where a key is expected and pass in all five; openai-responses-prompt-cache-disabled now expects the key. src/ax/ai/call_options.test.ts pins TypeScript, including the GPT-6 cache path test that fails before the TypeScript fix. Live: the Responses API accepts prompt_cache_key on gpt-5.4-mini, gpt-6-luna and gpt-6-astra (HTTP 200, key echoed).`
+- `axir-2026-09-27-run-flow-nodes-at-parent-node-and-report-a-flow-s-own-lifecycle-` [axflow] Run flow nodes at <parent>/<node> and report a flow's own lifecycle to its run control in the ports
+  - Status: done
+  - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
+  - TS paths: `src/ax/flow/flow.ts`, `src/ax/flow/executor.ts`
+  - Impact: TypeScript's executor runs every node at <parent>/<node>, with or without a flow control, so a node's own run control (an AxGen constructor control) reports the node's path; and AxFlow.forward emits the flow's own started, completed or failed at its path. The ports set a node's path only under a flow control (a node's own control reported root) and never emitted the flow's lifecycle, so a flow control heard only its nodes.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `b5130b835`
+  - Verification: `TS goldens from tools/axir/extractors/flow-goldens.ts (a node's own run control alone and under a flow control, both inside a nested flow too) fail on main's packages in all five ports (root paths, no flow events) and pass in all five. A fifth, a node that fails under a flow control, passes in all five; the flow runners now check expected_control_events and expected_node_control_events on an expected error too, and dropping the flow's failed event, or giving the node's control a failed event, fails it in all five. Mutants (the node path only under a flow control; Python without the flow's completed or failed) fail their goldens; based on main at b780a14a3, the full suites pass (1573 of 1573 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
   - Status: done
   - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
@@ -1230,3 +1295,48 @@ No entries.
   - Completed at: 2026-09-27
   - Completed by: `c1fc65ba7`
   - Verification: `TS: src/ax/ai/transport_errors.test.ts pins fetch's failures against loopback servers (a refused or dropped connection is AxAIServiceNetworkError 'Network Error: ...', which apiCall retries; a timeout is AxAIServiceTimeoutError after one request; a dropped started stream is a network error; AxGen at maxRetries 1 sends both failures twice; the Typesafe client retries a network error and not a timeout). Ports: the transport_errors_http_roundtrip example (refused, closed without a response, never answering and a dropped started stream through the real HTTP client; stream retries; the Typesafe client; AxGen's retries; Java's default JDK exceptions and typedTransportErrors; Python's IncompleteRead base) fails on #761's head in all five ports and passes in all five. Before the fix AxGen sent a non-streaming network failure once in Go, Java, C++ and Rust (TS twice at maxRetries 1), and Rust's streams too. Full conformance passes in python, go and java; verify --mode release passes in all five.`
+- `axir-2026-09-27-match-ts-s-auto-promoted-context-value-previews-in-the-ports-age` [axagent] Match TS's auto-promoted context value previews in the ports' agent prompts
+  - Status: done
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/agent/agentInternal/runtimeInputState.ts`, `src/ax/agent/runtime.ts`
+  - Impact: autoUpgrade.contextFields with promoteAboveChars 20 and previewChars 8 and a 52-char document: TS's actor field reads 'Document: ABCDEFGH...[truncated 44 chars]' and the responder gets the same preview; the ports' actor field reads '[runtime-only context: 54 chars available as inputs.document; preview]' then 'ABCDEFGH' (54 is the JSON length with quotes), and the ports' responder gets the full value. The Context Metadata line already matches TS after 3a2 PR A. The port-only fixture auto-upgrade-discovery-and-context-promotion pins the ports' current preview.
+  - Suggested AxIR work: Port TS's promotion decision (string length for strings and the preview and omit modes); Render TS's truncated preview in the actor and responder prompts; Replace the port-only promotion fixture with TS-derived goldens
+  - Completed at: 2026-09-27
+  - Completed by: `1c20db2fa68af33ebeebcf55b8d533947fa5db7c`
+  - Verification: `TS's decideAutoPromotion and truncated preview in all five ports (preview, stringifiedPreview and omit modes, UTF-16 sizes), the Context Metadata mode, and the responder's preview (finalizeResponderNonContextValues). TS goldens axagent/agent-first-requests-auto-promotion and -auto-promotion-modes pin every stage's first request; the port-only auto-upgrade-discovery-and-context-promotion now pins TS's preview. Both goldens fail on the base Python (the modes golden with 'input.<field> must be an array': the old preview turned an optional array into a string).`
+- `axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents` [axagent] Honor a flat function's own namespace in the ports' agents
+  - Status: done
+  - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
+  - TS paths: `src/ax/agent/agentInternal/runtimeGlobals.ts`, `src/ax/agent/agentInternal/runtimeExecution.ts`
+  - Impact: TS lists and runs fn('query').namespace('warehouse') passed flat in an agent's functions as warehouse.query (probe on this worktree: the executor lists warehouse.query(args: { region?: string }), the runtime has warehouse.query and no tools.query, and the call reaches the handler). The Python port lists and runs the same tool as tools.query (@agent_callable_implementation files every flat item under 'tools'; seen in the executor prompt and live runs). Go's and Java's Tool have no namespace field. Rust and C++ namespace tools only through with_tool_module and add_tool_module.
+  - Suggested AxIR work: Keep a flat tool's namespace in the callable inventory and in @agent_callable_implementation; Add the fn namespace API where a port's Tool lacks it; Pin a TS golden with a flat namespaced tool listed and called under its namespace
+  - Completed at: 2026-09-27
+  - Completed by: `51f5419cf393032e8809209006a0005a260ca9dd`
+  - Verification: `25.0.0 (the major): the agent option flatFunctionNamespace defaults to 'own', which files a flat function under its own namespace as TS does (TS's error for a reserved one); 'tools' is the permanent opt-out that keeps tools.<name>. Go Tool.WithNamespace and Java fn(...).namespace(...) added. TS golden axagent/agent-first-requests-flat-namespace, real-engine axagent-real/agent-runtime-real-flat-namespace-call, and seven port-only axagent/agent-flat-function-namespace-* fixtures; all but the two 'tools' fixtures fail on #766's Python. axagent+axmcp pass in all five ports; the real-engine antidote passes in goja, QuickJS, the quickjs wheel, rquickjs and quickjs4j.`
+- `axir-2026-09-27-restore-each-agent-stage-s-own-action-log-and-ts-s-runtime-resto` [axagent] Restore each agent stage's own action log and TS's Runtime Restore notice on a later forward in the ports
+  - Status: done
+  - Source commit: `5c9264235f25a2dad916f35e0d6271308de1f19a`
+  - TS paths: `src/ax/agent/agentInternal/actorLoop.ts`, `src/ax/agent/state.ts`
+  - Impact: TS keeps each actor stage's state across forward calls (actorLoop.ts restores s.state): on a second forward of the same agent the distiller's first request shows 'Summarized Actor Log: Runtime Restore:' (state.ts buildRuntimeRestoreNotice), its own earlier actions (a finished final() turn renders as the code and 'Result: (no output)') and the live runtime state, and the executor shows the same notice (not the shared-session one) with its own earlier actions. Main's ports showed both stages' earlier actions plus the runtime-session records; after 3a2 PR A the ports show none ('(no actions yet)') and no restore notice. Reproduced with two forwards on one agent (scripted model and runtime) in TS and the Python port.
+  - Suggested AxIR work: Keep each stage's action log across forwards and render finished turns as TS does; Render TS's Runtime Restore notice on a later forward and keep it over the shared-session notice; Pin a two-forward TS golden with each stage's first request of the second run
+  - Completed at: 2026-09-27
+  - Completed by: `1c20db2fa68af33ebeebcf55b8d533947fa5db7c`
+  - Verification: `Each stage keeps its own action log across forwards and opens with TS's Runtime Restore notice on its first turn (its own notice wins over the shared-session one); a finished final() turn renders as its code and '(no output)'; evaluation runs start without the stages' earlier actions (TS forwardPipelineForEvaluation). The two-forward TS golden axagent/agent-first-requests-second-forward pins each run's first request of each stage and fails on the base Python.`
+- `axir-2026-09-27-match-typescript-s-agent-run-end-learning-evaluation-evolve-reco` [axagent] Match TypeScript's agent run-end learning, evaluation, evolve records, clarifications and input checks in the ports
+  - Status: done
+  - Source commit: `15030d75894567084a2049e78f419860154398cf`
+  - TS paths: `src/ax/agent/agentInternal/failureReport.ts`, `src/ax/agent/agentInternal/pipelineForwardForEvaluation.ts`, `src/ax/agent/agentInternal/playbookEvolve/evalHarness.ts`, `src/ax/agent/completion.ts`, `src/ax/agent/agentInternal/runtimeInputState.ts`
+  - Impact: TypeScript's run-end learning takes tool errors from the run's own calls (an earlier run's error turn carries through the agent state, its tool calls do not); its evaluation path runs no playbook learning; its evolve harness scores a thrown run 0 without a metric call, records it as error and quotes it to the miner ('Run threw: ...'); its clarification error carries normalizeClarificationForError's {question, ...} form; and it checks an agent run's inputs before any request (a required context field first, then a required input without a value). The ports learned earlier runs' tool errors again, learned during evaluation, scored thrown runs through the metric, carried the raw askClarification payload (C++ flattened an object payload to its question), and sent the distiller and executor requests before the responder rejected a missing input (a missing context field ran on). Rust's evaluate_optimization aborted the dataset on the first thrown task, hidden by a runner that built evaluations from the fixture.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `15030d75894567084a2049e78f419860154398cf`
+  - Verification: `TS goldens from tools/axir/extractors/optimize-goldens.ts and agent-streaming-goldens.ts (two-run learning, evaluation without learning, the thrown-run miner, clarifications at evaluation, forward and streaming forward, the input checks) and port-only fixtures (raw clarifications, the context-field default and lenient runs, the call-level override, unknown option values), 30 in all, fail on main's packages as described and pass in python, go, java, cpp and rust (150 of 150); expected_deprecations pins the one-time warnings; 33 perturbed copies fail in all five (165 of 165); a Rust mutant whose evaluate_optimization lets a thrown task's Err through fails candidate-evaluation-runtime-error; merged with main at ccee3bda2, the full suites pass (1554 of 1554 in each of the five) and the perturbation gates pass in all five; the generated examples pass in all five.`
+- `axir-2026-09-27-check-a-model-response-s-function-calls-as-typescript-does-in-th` [axgen] Check a model response's function calls as TypeScript does in the ports (id, type, function object, params, null calls)
+  - Status: done
+  - Source commit: `1c83032daba575846bae2d85eb88e74a4605b6ed`
+  - TS paths: `src/ax/ai/validate.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript checks every part of a response's function calls before any function runs (AxMemory.addResponse for a forward, the merged calls for a stream): a null call, a missing or non-string id, a type other than 'function', no function object, no name, or params that are not a string or an object fail the run at once with its message. The ports checked only the name (#754), under functionCallValidation: a call with a bad id, type or params ran as given, and a null call or one without a function object got the nameless correction. TypeScript's forward itself threw a TypeError ('Cannot read properties of null') for a null call or one without a function object, because the chat log read the call before the check; a stream failed with the check's message.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `1c83032daba575846bae2d85eb88e74a4605b6ed`
+  - Verification: `20 TS goldens (tools/axir/extractors/axgen-streaming-goldens.ts: a missing, empty, blank or number id, a missing or wrong type, no function object, number params in the first or second call, and a null call, forward and streamed) fail on main's packages in python, go, java, cpp and rust and pass here with functionCallValidation: 'fail'; port-only fixtures pin the default (the call runs, or is corrected, with the exact one-time warning) and 'correct'; src/ax/dsp/generate.streamParity.test.ts fails on main (a TypeError) and passes here; 21 perturbed copies fail in all five; the full suites pass (1574 in each of the five); npm run test --workspace=@ax-llm/ax passes.`

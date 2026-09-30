@@ -1,0 +1,23 @@
+{
+  "expected_error_contains": "Value for input field 'question' is required.",
+  "expected_request_count": 0,
+  "expected_request_roles": [],
+  "expected_transcript": [],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {},
+  "kind": "agent_forward",
+  "name": "agent-forward-input-missing",
+  "options": {
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [],
+  "runtime_script": [],
+  "signature": "question:string -> answer:string"
+}

@@ -256,6 +256,21 @@ module @ax.gen version "0.1" {
         core.call intrinsic.map.delete(%runtime_options, "model_config")
         core.set %runtime_options["modelConfig"] = %merged
       }
+      // customLabels merge key by key as well: TS's AxGen passes the AI its
+      // constructor's labels with the call's over them.
+      %gen_labels_snake = core.get %gen_options["custom_labels"] default %empty
+      %gen_labels_camel = core.get %gen_options["customLabels"] default %empty
+      %call_labels_snake = core.get %call_options["custom_labels"] default %empty
+      %call_labels_camel = core.get %call_options["customLabels"] default %empty
+      %gen_labels = core.call intrinsic.map.merge(%gen_labels_snake, %gen_labels_camel)
+      %call_labels = core.call intrinsic.map.merge(%call_labels_snake, %call_labels_camel)
+      %labels = core.call intrinsic.map.merge(%gen_labels, %call_labels)
+      %labels_count = core.call intrinsic.len(%labels)
+      %has_labels = core.call intrinsic.gt(%labels_count, 0)
+      core.if %has_labels {
+        core.call intrinsic.map.delete(%runtime_options, "custom_labels")
+        core.set %runtime_options["customLabels"] = %labels
+      }
       core.return
     }
   }
@@ -451,8 +466,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "axgen-indexed-multi-sample-parse"
-    type signature = "(AxGen, list<Field>, json, bool, string, string, bool, bool) -> json throws"
-    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool, %strict_mode: bool) {
+    type signature = "(AxGen, list<Field>, json, bool, string, string, bool, bool, json) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool, %thought_field: string, %thought_prefix: string, %text_contract: bool, %strict_mode: bool, %parse_state: json) {
       %empty_results = core.list
       %completions = core.get %response["results"] default %empty_results
       %completion_count = core.call intrinsic.len(%completions)
@@ -507,6 +522,9 @@ module @ax.gen version "0.1" {
             core.call @stream_text_required_check_impl(%validated, %output_fields)
           }
         }
+        // The answer's values parsed: TS's memory cleanup runs here, before
+        // the field processors and assertions (response/nonStreaming.ts).
+        core.set %parse_state["parsed"] = true
         // TS field processors see the parsed values and feed back text for
         // another step.
         %processor_state = core.map
@@ -653,11 +671,18 @@ module @ax.gen version "0.1" {
       // rung puts the exact JSON shape and the rung's formatting rule in the
       // system prompt, and no instruction turn follows the user message.
       %render_options = core.call @structured_output_render_options_impl(%selection)
+      core.call @include_optional_render_option_impl(%render_options, %options)
+      %cache_snake = core.get %runtime_options["context_cache"]
+      %cache = core.get %runtime_options["contextCache"] default %cache_snake
+      core.set %render_options["contextCache"] = %cache
+      %caching_features = core.get %features["caching"]
+      %breakpoints = core.get %caching_features["cacheBreakpoints"] default true
+      %ignore_breakpoints = core.call intrinsic.eq(%breakpoints, false)
+      core.set %render_options["ignoreBreakpoints"] = %ignore_breakpoints
       %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
       %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
-      %user_message = core.call intrinsic.list.get(%messages, 1, %messages)
       %ordered_messages = core.list
       core.append %ordered_messages, %system_message
       core.for %example_message in %example_messages {
@@ -666,7 +691,14 @@ module @ax.gen version "0.1" {
       core.for %demo_message in %demo_messages {
         core.append %ordered_messages, %demo_message
       }
-      core.append %ordered_messages, %user_message
+      %message_index = core.let 0
+      core.for %message in %messages {
+        %after_system = core.call intrinsic.gt(%message_index, 0)
+        core.if %after_system {
+          core.append %ordered_messages, %message
+        }
+        %message_index = core.call intrinsic.add(%message_index, 1)
+      }
       %output_fields = core.get %signature["output_fields"]
       %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
@@ -700,6 +732,14 @@ module @ax.gen version "0.1" {
       %thought_prefix = core.let ""
       %max_steps_snake = core.get %runtime_options["max_steps"] default 25
       %max_steps = core.get %runtime_options["maxSteps"] default %max_steps_snake
+      // TS keeps a failed answer and its correction in memory until a later
+      // answer parses or calls tools, and then drops them
+      // (response/nonStreaming.ts): a retry after an assertion failure sends
+      // only the latest failed answer, while parse and validation failures
+      // pile up. %failed_messages holds the failed attempts since the last
+      // such answer; disableMemoryCleanup keeps them all, as in TS.
+      %failed_messages = core.list
+      %memory_cleanup = core.call @memory_cleanup_option_impl(%runtime_options)
       %step = core.let 0
       %control_step = core.let -1
       core.loop {
@@ -719,7 +759,8 @@ module @ax.gen version "0.1" {
           %control_updates = core.call intrinsic.ai.control_take_pending(%client)
           %messages = core.call @apply_control_updates_impl(%gen, %messages, %runtime_options, %control_updates)
         }
-        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection, %step)
+        %request_messages = core.call @settle_failed_attempts_impl(%messages, %failed_messages, false)
+        %request = core.call @build_gen_chat_request(%gen, %request_messages, %runtime_options, %selection, %step)
         %response = core.map
         core.try {
           %completed = core.call intrinsic.ai.complete_once(%client, %request, %runtime_options)
@@ -765,14 +806,13 @@ module @ax.gen version "0.1" {
           }
           core.continue
         }
-        // With functionCallValidation: 'fail', a call without a name fails
-        // the forward before the response is kept or any function runs, as
-        // TS's AxMemory does; the default corrects it.
+        // Reject malformed calls before keeping the response or running any
+        // function, as TypeScript's AxMemory does. Explicit 'correct' opts out.
         core.try {
-          core.call @check_completion_function_call_names(%response, %runtime_options)
-        } catch %unnamed_call_error {
-          %unnamed_call_failure = core.call @generate_failed_impl(%unnamed_call_error)
-          core.raise %unnamed_call_failure
+          core.call @check_completion_function_calls(%response, %runtime_options)
+        } catch %call_check_error {
+          %call_check_failure = core.call @generate_failed_impl(%call_check_error)
+          core.raise %call_check_failure
         }
         // A native chat session's turns before its final response (tool
         // calls and results, continued responses) belong in the prompt of any
@@ -825,8 +865,10 @@ module @ax.gen version "0.1" {
               %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
               %attempt = core.let %structured_next_attempt
               %thought_prefix = core.let ""
-              %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%messages, %response, %structured_call, %structured_validation_error, %structured_stage)
-              %messages = core.let %structured_retry_messages
+              // As in TS, a failed __axOutput call keeps the failed attempts
+              // before it.
+              %structured_retry_messages = core.call @append_structured_output_retry_messages_impl(%failed_messages, %response, %structured_call, %structured_validation_error, %structured_stage)
+              %failed_messages = core.let %structured_retry_messages
               core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
               core.continue
             }
@@ -844,6 +886,11 @@ module @ax.gen version "0.1" {
             %structured_fatal = core.call @generate_failed_impl(%structured_failure)
             core.raise %structured_fatal
           }
+          // As in TS, an answer that calls tools drops the failed attempts
+          // before it.
+          %settled_for_tools = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+          %messages = core.let %settled_for_tools
+          %failed_messages = core.list
           %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %calls)
           %messages = core.let %updated_messages
           %tool_messages = core.call @run_tool_calls_impl(%gen, %functions, %messages, %calls, %runtime_options)
@@ -874,8 +921,9 @@ module @ax.gen version "0.1" {
           }
         } else {
           %parsed_bundle = core.map
+          %parse_state = core.map
           core.try {
-            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode)
+            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
@@ -887,8 +935,17 @@ module @ax.gen version "0.1" {
             %next_attempt = core.call intrinsic.add(%attempt, 1)
             %attempt = core.let %next_attempt
             %thought_prefix = core.let ""
-            %retry_messages = core.call @append_assertion_retry_messages(%messages, %response, %validation_error)
-            %messages = core.let %retry_messages
+            // As in TS, an answer whose values parsed (its field processors
+            // or assertions failed) drops the failed attempts before it; a
+            // parse or validation failure keeps them.
+            %answer_parsed = core.get %parse_state["parsed"] default false
+            core.if %answer_parsed {
+              %settled_for_retry = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+              %messages = core.let %settled_for_retry
+              %failed_messages = core.list
+            }
+            %retry_messages = core.call @append_assertion_retry_messages(%failed_messages, %response, %validation_error)
+            %failed_messages = core.let %retry_messages
             core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
             core.continue
           }
@@ -913,7 +970,11 @@ module @ax.gen version "0.1" {
           core.if %fed_back {
             // As in TS, field processor feedback goes to the model after its
             // answer and the run takes another step; the answer is replaced
-            // and the thought joins across steps.
+            // and the thought joins across steps. The failed attempts before
+            // the answer are dropped.
+            %settled_for_feedback = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+            %messages = core.let %settled_for_feedback
+            %failed_messages = core.list
             %answer_content = core.get %response["content"] default ""
             %answer_message = core.map
             core.set %answer_message["role"] = "assistant"
@@ -942,6 +1003,9 @@ module @ax.gen version "0.1" {
           %control_pending = core.call intrinsic.ai.control_pending_count(%client)
           %steered = core.call intrinsic.gt(%control_pending, 0)
           core.if %steered {
+            %settled_for_steer = core.call @settle_failed_attempts_impl(%messages, %failed_messages, %memory_cleanup)
+            %messages = core.let %settled_for_steer
+            %failed_messages = core.list
             %steered_content = core.get %response["content"] default ""
             %steered_message = core.map
             core.set %steered_message["role"] = "assistant"
@@ -1912,11 +1976,18 @@ module @ax.gen version "0.1" {
       // rung puts the exact JSON shape and the rung's formatting rule in the
       // system prompt, and no instruction turn follows the user message.
       %render_options = core.call @structured_output_render_options_impl(%selection)
+      core.call @include_optional_render_option_impl(%render_options, %options)
+      %cache_snake = core.get %runtime_options["context_cache"]
+      %cache = core.get %runtime_options["contextCache"] default %cache_snake
+      core.set %render_options["contextCache"] = %cache
+      %caching_features = core.get %features["caching"]
+      %breakpoints = core.get %caching_features["cacheBreakpoints"] default true
+      %ignore_breakpoints = core.call intrinsic.eq(%breakpoints, false)
+      core.set %render_options["ignoreBreakpoints"] = %ignore_breakpoints
       %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
       %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
-      %user_message = core.call intrinsic.list.get(%messages, 1, %messages)
       %ordered_messages = core.list
       core.append %ordered_messages, %system_message
       core.for %example_message in %example_messages {
@@ -1925,7 +1996,14 @@ module @ax.gen version "0.1" {
       core.for %demo_message in %demo_messages {
         core.append %ordered_messages, %demo_message
       }
-      core.append %ordered_messages, %user_message
+      %message_index = core.let 0
+      core.for %message in %messages {
+        %after_system = core.call intrinsic.gt(%message_index, 0)
+        core.if %after_system {
+          core.append %ordered_messages, %message
+        }
+        %message_index = core.call intrinsic.add(%message_index, 1)
+      }
       %output_fields = core.get %signature["output_fields"]
       %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
@@ -2247,11 +2325,10 @@ module @ax.gen version "0.1" {
               %messages = core.call @stream_session_add_turns_impl(%messages, %session_stream)
               %folded = core.call @fold_chat_response_stream(%events)
               %response = core.call @chat_response_to_completion(%folded)
-              // The merged calls get the forward's check: with
-              // functionCallValidation: 'fail', a call without a name fails
-              // the run without a retry.
+              // Merged calls receive the same strict checks as a forward.
+              // Invalid calls fail without a retry unless 'correct' opts out.
               %stage = core.let "fatal"
-              core.call @check_completion_function_call_names(%response, %runtime_options)
+              core.call @check_completion_function_calls(%response, %runtime_options)
               %stage = core.let "validation"
               core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
               core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
@@ -2944,88 +3021,95 @@ module @ax.gen version "0.1" {
     }
   }
 
-  op ax.gen.semantic @validate_completion_function_call_names {
+  op ax.gen.semantic @completion_function_call_problems {
     attr core_kind = "func"
     attr emit_module = "gen"
     attr private = true
     tag "source:src/ax/ai/validate.ts#validateChatResponseFunctionCalls"
-    type signature = "(json) -> void throws"
+    type signature = "(json) -> json"
     body @entry(%response: json) {
-      // TS checks a model response's function calls before any runs (a
-      // forward's in AxMemory.addResponse, a stream's merged calls when it
-      // ends): a call whose name is missing, not a string, empty or blank
-      // fails with "Function call at index <call> in result <result> must
-      // have a non-empty function name, received: <JSON.stringify(name, null,
-      // 2)>", undefined for a missing name. The caller fails the forward
-      // without a retry. A complete()-only client's answer without results
-      // is result 0.
-      %empty = core.list
+      // TS's function-call checks over a response's results (see
+      // @chat_result_function_call_problems): {first, unnamed, call} with
+      // the first failure of each, or null. A result the chat response was
+      // converted from carries its checks (the conversion keeps only the
+      // flat call); they are taken off it here, so they never reach the
+      // memory, the chat log or a cache. A complete()-only client's answer
+      // without results is result 0.
       %results = core.get %response["results"]
       %no_results = core.call intrinsic.is_none(%results)
       core.if %no_results {
         %results = core.list
         core.append %results, %response
       }
+      %first = core.call intrinsic.none()
+      %unnamed = core.call intrinsic.none()
+      %call_problem = core.call intrinsic.none()
       %result_index = core.let 0
       core.for %result in %results {
-        %calls = core.get %result["function_calls"] default %empty
-        %call_index = core.let 0
-        core.for %call in %calls {
-          // The flat {id, name, params} call, or TS's nested {function:
-          // {name, params}} one.
-          %has_name = core.call intrinsic.map.contains(%call, "name")
-          %name = core.get %call["name"]
-          %fn = core.get %call["function"]
-          %fn_is_map = core.type_is %fn type "object"
-          core.if %fn_is_map {
-            %fn_has_name = core.call intrinsic.map.contains(%fn, "name")
-            core.if %fn_has_name {
-              %has_name = core.let true
-              %name = core.get %fn["name"]
+        %result_is_map = core.type_is %result type "object"
+        core.if %result_is_map {
+          %recorded = core.call intrinsic.map.contains(%result, "function_call_problems")
+          %problems = core.call intrinsic.none()
+          core.if %recorded {
+            %problems = core.get %result["function_call_problems"]
+            core.call intrinsic.map.delete(%result, "function_call_problems")
+          } else {
+            %problems = core.call @chat_result_function_call_problems(%result, %result_index)
+          }
+          %has_problems = core.call intrinsic.is_not_none(%problems)
+          core.if %has_problems {
+            %result_first = core.get %problems["first"]
+            %result_unnamed = core.get %problems["unnamed"]
+            %result_call = core.get %problems["call"]
+            %first_unset = core.call intrinsic.is_none(%first)
+            core.if %first_unset {
+              %first = core.let %result_first
+            }
+            %unnamed_unset = core.call intrinsic.is_none(%unnamed)
+            core.if %unnamed_unset {
+              %unnamed = core.let %result_unnamed
+            }
+            %call_unset = core.call intrinsic.is_none(%call_problem)
+            core.if %call_unset {
+              %call_problem = core.let %result_call
             }
           }
-          %name_is_text = core.type_is %name type "string"
-          %named = core.let false
-          core.if %name_is_text {
-            %trimmed = core.string_trim %name
-            %named = core.call intrinsic.ne(%trimmed, "")
-          }
-          %unnamed = core.call intrinsic.not(%named)
-          core.if %unnamed {
-            %received = core.let "undefined"
-            core.if %has_name {
-              %received = core.call intrinsic.json.pretty(%name)
-            }
-            %message = core.call intrinsic.string.format("Function call at index {} in result {} must have a non-empty function name, received: {}", %call_index, %result_index, %received)
-            %error = core.call intrinsic.error.runtime(%message)
-            core.raise %error
-          }
-          %next_call_index = core.call intrinsic.add(%call_index, 1)
-          %call_index = core.let %next_call_index
         }
         %next_result_index = core.call intrinsic.add(%result_index, 1)
         %result_index = core.let %next_result_index
       }
-      core.return
+      // The response's own first-result calls, when it has them, are the
+      // first result's; their checks go with it.
+      %top_recorded = core.call intrinsic.map.contains(%response, "function_call_problems")
+      core.if %top_recorded {
+        core.call intrinsic.map.delete(%response, "function_call_problems")
+      }
+      %none_failed = core.call intrinsic.is_none(%first)
+      core.if %none_failed {
+        %nothing = core.call intrinsic.none()
+        core.return %nothing
+      }
+      %out = core.map
+      core.set %out["first"] = %first
+      core.set %out["unnamed"] = %unnamed
+      core.set %out["call"] = %call_problem
+      core.return %out
     }
   }
 
-  op ax.gen.semantic @check_completion_function_call_names {
+  op ax.gen.semantic @check_completion_function_calls {
     attr core_kind = "func"
     attr emit_module = "gen"
     attr private = true
     tag "source:src/ax/ai/validate.ts#validateChatResponseFunctionCalls"
     type signature = "(json, json) -> void throws"
     body @entry(%response: json, %options: json) {
-      // functionCallValidation says what a forward does with a model function
-      // call that has no usable name. 'fail' fails it at once with TS's
-      // message, as TypeScript does. 'correct', this release's default, runs
-      // it as an unknown function, so the model gets a correction and another
-      // request. Left unset, the correction warns once that the next major
-      // version fails such a call.
+      // Match TypeScript by rejecting malformed function calls before a tool
+      // runs. Explicit 'correct' retains the pre-25 correction behavior.
       %mode_snake = core.get %options["function_call_validation"]
       %mode = core.get %options["functionCallValidation"] default %mode_snake
       %mode_set = core.call intrinsic.is_not_none(%mode)
+      %is_fail = core.let true
       core.if %mode_set {
         %is_fail = core.call intrinsic.eq(%mode, "fail")
         %is_correct = core.call intrinsic.eq(%mode, "correct")
@@ -3037,21 +3121,89 @@ module @ax.gen version "0.1" {
           %mode_error = core.call intrinsic.error.validation(%mode_message)
           core.raise %mode_error
         }
+      }
+      %problems = core.call @completion_function_call_problems(%response)
+      %has_problems = core.call intrinsic.is_not_none(%problems)
+      core.if %has_problems {
         core.if %is_fail {
-          core.call @validate_completion_function_call_names(%response)
+          %message = core.get %problems["first"]
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
         }
-        core.return
-      }
-      %unnamed = core.let false
-      core.try {
-        core.call @validate_completion_function_call_names(%response)
-      } catch %unnamed_error {
-        %unnamed = core.let true
-      }
-      core.if %unnamed {
-        core.call intrinsic.axgen.deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+
       }
       core.return
+    }
+  }
+  op ax.gen.semantic @include_optional_render_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/generate.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%render_options: json, %options: json) {
+      // TS: a forward's includeOptionalInputFieldsInSystemPrompt wins over
+      // the constructor's, which the prompt template holds.
+      %snake = core.get %options["include_optional_input_fields_in_system_prompt"] default null
+      %value = core.get %options["includeOptionalInputFieldsInSystemPrompt"] default %snake
+      %given = core.call intrinsic.is_not_none(%value)
+      core.if %given {
+        %flag = core.call intrinsic.truthy(%value)
+        core.set %render_options["include_optional_input_fields_in_system_prompt"] = %flag
+      }
+      core.return
+    }
+  }
+  op ax.gen.semantic @memory_cleanup_option_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(json) -> bool"
+    body @entry(%options: json) {
+      // TS's disableMemoryCleanup keeps every failed attempt and its
+      // correction.
+      %disabled_snake = core.get %options["disable_memory_cleanup"] default false
+      %disabled_value = core.get %options["disableMemoryCleanup"] default %disabled_snake
+      %disabled = core.call intrinsic.truthy(%disabled_value)
+      %cleanup = core.call intrinsic.not(%disabled)
+      core.return %cleanup
+    }
+  }
+
+  op ax.gen.semantic @settle_failed_attempts_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/response/nonStreaming.ts"
+    type signature = "(list<json>, list<json>, bool) -> list<json>"
+    body @entry(%messages: list<json>, %failed: list<json>, %cleanup: bool) {
+      // The messages followed by the failed attempts. With cleanup, the
+      // messages TS tags and drops are left out: a failed answer and every
+      // correction ('error' and 'correction'). A failed __axOutput call's
+      // assistant turn and its "done" result carry no tag, so they stay.
+      %failed_count = core.call intrinsic.len(%failed)
+      %none_failed = core.call intrinsic.eq(%failed_count, 0)
+      core.if %none_failed {
+        core.return %messages
+      }
+      %settled = core.list
+      core.for %message in %messages {
+        core.append %settled, %message
+      }
+      core.for %failed_message in %failed {
+        %keep = core.call intrinsic.not(%cleanup)
+        %role = core.get %failed_message["role"] default ""
+        %is_result = core.call intrinsic.eq(%role, "function")
+        %keep = core.call intrinsic.or(%keep, %is_result)
+        %calls = core.get %failed_message["function_calls"]
+        %has_calls = core.call intrinsic.truthy(%calls)
+        %keep = core.call intrinsic.or(%keep, %has_calls)
+        core.if %keep {
+          core.append %settled, %failed_message
+        }
+      }
+      core.return %settled
     }
   }
 
@@ -3127,7 +3279,7 @@ module @ax.gen version "0.1" {
         %tool_ok = core.let false
         %tool_result = core.call intrinsic.none()
         core.try {
-          %executed = core.call @execute_tool_call(%functions, %call)
+          %executed = core.call @execute_tool_call(%functions, %call, %options)
           %tool_result = core.let %executed
           %tool_ok = core.let true
         } catch %tool_error {

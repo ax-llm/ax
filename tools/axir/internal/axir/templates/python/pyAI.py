@@ -436,7 +436,9 @@ def _runtime_hook_scope(
     span_kind: str = "internal",
     attributes: dict[str, Any] | None = None,
     metric_prefix: str = "ax_gen_generation",
+    metric_labels: dict[str, Any] | None = None,
 ):
+    # metric_labels (TS's custom labels) go on the metrics, not the span.
     parent = _runtime_frame.get()
     hooks = _merge_runtime_hooks(
         _coerce_runtime_hooks(call_hooks),
@@ -447,18 +449,19 @@ def _runtime_hook_scope(
     effective = _merge_runtime_hooks(hooks, globals_snapshot)
     attrs = dict(attributes or {})
     span = _start_runtime_span(effective, span_name, span_kind, attrs)
+    metric_attrs = {**attrs, **(metric_labels or {})}
     token = _runtime_frame.set(_AxRuntimeFrame(hooks, globals_snapshot, span or (parent.span if parent else None)))
     started = time.perf_counter()
     error = None
-    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, attrs)
+    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, metric_attrs)
     try:
         yield effective
     except BaseException as exc:
         error = exc
-        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, attrs)
+        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, metric_attrs)
         raise
     finally:
-        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, attrs)
+        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, metric_attrs)
         _finish_runtime_span(span, error)
         _runtime_frame.reset(token)
 
@@ -526,6 +529,23 @@ def _invoke_rate_limiter(limiter: AxRateLimiter | None, next_request: Callable[[
     if callable(run):
         return run(next_request, info)
     return limiter(next_request, info)
+
+
+def _labeled(attributes: dict[str, Any], service_options: Any, call_options: Any, sanitize: bool) -> dict[str, Any]:
+    # A metric's attributes with TS's custom labels: the service's, then the
+    # call's (ai_custom_labels). TS cuts their values for the request
+    # duration and errors (sanitize) but not for the request counter.
+    labels = ai_custom_labels(service_options or {}, call_options or {}, sanitize)
+    return {**attributes, **labels} if labels else attributes
+
+
+def _gen_metric_labels(client: Any, gen_options: Any, call_options: Any) -> dict[str, Any]:
+    # An AxGen run's custom labels, as TS's getMergedCustomLabels: the AI
+    # service's, then the AxGen constructor's with the call's over them, each
+    # value cut to 100 characters.
+    run_labels = ai_custom_labels(gen_options or {}, call_options or {}, False)
+    service_options = getattr(client, "options", None)
+    return ai_custom_labels(service_options if isinstance(service_options, dict) else {}, {"customLabels": run_labels}, True)
 
 
 def _runtime_observed_stream(
@@ -1142,13 +1162,13 @@ class AxBaseAI(AIClient):
             streaming = bool(model_config.get("stream"))
             attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": streaming}
             span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
             info = AxRateLimitInfo("chat", self.name, str(model), streaming, copy.deepcopy(self.last_model_usage))
             response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._chat(req, merged_options), info)
             if isinstance(response, dict):
                 self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage"))
                 _emit_usage_event("chat", response, merged_options, False)
-                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
                 _finish_runtime_span(span)
                 return response
             stream_returned = True
@@ -1157,8 +1177,8 @@ class AxBaseAI(AIClient):
             is_error = True
             if span is not None:
                 attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(self.last_used_chat_model or self.model), "ax.streaming": bool((options or {}).get("stream"))}
-                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
                 _finish_runtime_span(span, exc)
             raise
         finally:
@@ -1183,19 +1203,19 @@ class AxBaseAI(AIClient):
             merged_options = self._merged_options(options)
             attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(embed_model), "ax.streaming": False}
             span = _start_runtime_span(hooks, "ax_llm_embed", "client", attributes)
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
             info = AxRateLimitInfo("embed", self.name, str(embed_model), False, copy.deepcopy(self.last_model_usage))
             response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._embed(req, merged_options), info)
             self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage")) if isinstance(response, dict) else None
             _emit_usage_event("embed", response, merged_options, False)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span)
             return response
         except Exception as exc:
             is_error = True
             attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(self.last_used_embed_model or self.embed_model or ""), "ax.streaming": False}
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span, exc)
             raise
         finally:
@@ -1525,17 +1545,17 @@ class ProviderOperationClient(AxBaseAI):
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": True}
         span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
-        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
         started = time.perf_counter()
         info = AxRateLimitInfo("chat", self.name, str(model), True, copy.deepcopy(self.last_model_usage))
         try:
             result = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._stream_chat(payload, req, merged_options), info)
         except BaseException as exc:
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span, exc)
             raise
-        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, attributes, started)
+        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, _labeled(attributes, self.options, options, True), started)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request, options)
@@ -1910,6 +1930,12 @@ class ProviderOperationClient(AxBaseAI):
             call["timeout_ms"] = timeout_ms
         # The request this call's provider errors keep (Core owns the view).
         error_request = _ai_error_request(call, self.options if error_options is None else error_options)
+        # As TS's apiCall, a verbose call (the call's verbose, else the
+        # client's) logs the request, then the JSON response or the stream's
+        # start.
+        verbose = bool((self.options if error_options is None else error_options).get("verbose"))
+        if verbose:
+            _verbose_log(ai_verbose_request_log(request_url, method, headers, payload))
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
@@ -1918,7 +1944,10 @@ class ProviderOperationClient(AxBaseAI):
                 if cancellation is not None: cancellation.throw_if_cancelled()
                 if binary_response:
                     return _binary_transport_result(result, error_request)
-                return _transport_result(result, error_request)
+                value = _transport_result(result, error_request)
+                if verbose:
+                    _verbose_log(ai_verbose_stream_log(_transport_status(result)) if stream else ai_verbose_response_log(_transport_status(result), value))
+                return value
             except AxAIServiceAbortedError:
                 raise
             except AxAIServiceError:
@@ -1954,6 +1983,8 @@ class ProviderOperationClient(AxBaseAI):
             if cancellation is not None: cancellation.throw_if_cancelled()
             res, stop_open = self._open_http_response(req, cancellation, timeout_ms)
             opened = True
+            if stream and verbose:
+                _verbose_log(ai_verbose_stream_log(int(getattr(res, "status", 200) or 200)))
             if stream:
                 # A generator cannot be closed while another thread is reading it.
                 # Own the response explicitly so cancellation can interrupt that read.
@@ -2029,6 +2060,8 @@ class ProviderOperationClient(AxBaseAI):
                             value = json.loads(response_text)
                         except json.JSONDecodeError:
                             value = response_text
+                        if verbose:
+                            _verbose_log(ai_verbose_response_log(int(getattr(res, "status", 200) or 200), value))
                     if cancellation is not None: cancellation.throw_if_cancelled()
                     return value
             finally:
@@ -3658,6 +3691,24 @@ def _binary_transport_result(result: Any, request: dict[str, Any]):
             return json.loads(body)
         return _BinaryBody(body, content_type)
     return body
+
+
+# Where verbose blocks go: print, as TS's apiCall uses console.log (the
+# conformance runner collects them instead).
+_verbose_sink = None
+
+
+def _verbose_log(text: str) -> None:
+    (_verbose_sink or print)(text)
+
+
+def _transport_status(result: Any) -> int:
+    # A transport result's HTTP status.
+    if isinstance(result, tuple):
+        return int(result[0])
+    if isinstance(result, dict) and "status" in result:
+        return int(result.get("status") or 200)
+    return 200
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

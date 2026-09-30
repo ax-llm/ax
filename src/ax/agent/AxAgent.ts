@@ -250,7 +250,7 @@ export class ActorAgentRLM<
       hasInspectRuntime: Boolean(opts?.hasInspectRuntime),
       hasAgentStatusCallback: Boolean(opts?.hasAgentStatusCallback),
       discoveryMode: Boolean(opts?.discoveryMode),
-      skillsMode: Boolean(opts?.skillsMode),
+      skillsMode: Boolean(opts?.skillsDiscoveryMode ?? opts?.skillsMode),
       memoriesMode: Boolean(opts?.memoriesMode),
       memoryUsageMode: Boolean(opts?.memoryUsageMode),
       skillUsageMode: Boolean(opts?.skillUsageMode),
