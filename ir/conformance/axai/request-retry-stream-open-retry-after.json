@@ -1,0 +1,41 @@
+{
+  "description": "A stream's request honors Retry-After. TS request count and delays from src/ax/util/apicall.ts.",
+  "expected_retry_delays_ms": [3000],
+  "expected_transport_request_count": 2,
+  "kind": "ai_stream",
+  "model": "gpt-5.4-mini",
+  "name": "request-retry-stream-open-retry-after",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "retry_now_ms": 1800000000000,
+  "retry_random": 0.5,
+  "service_options": {},
+  "transport_responses": [
+    {
+      "headers": {
+        "Retry-After": "3"
+      },
+      "json": {
+        "error": {
+          "message": "upstream 429",
+          "type": "server_error"
+        }
+      },
+      "status": 429
+    },
+    {
+      "body": "data: {\"id\":\"chatcmpl_retry\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

@@ -290,6 +290,98 @@ static Value get_key(const Value& object, const std::string& key, Value fallback
   return fallback;
 }
 
+// Function result formatters the AxGen IR reaches through
+// {"__function_result_formatter_id"} markers, as caching functions are: the
+// registry holds each handle's state weakly, and a handle (the caller's or an
+// AxGen's) keeps it registered.
+struct AxFunctionResultFormatterHandle::State {
+  std::string id;
+  AxFunctionResultFormatter fn;
+};
+
+struct FunctionResultFormatterRegistry {
+  std::mutex mutex;
+  std::uint64_t next_id = 0;
+  std::map<std::string, std::weak_ptr<AxFunctionResultFormatterHandle::State>> handles;
+  // The process-wide formatter (set_function_result_formatter).
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> global;
+};
+
+static FunctionResultFormatterRegistry& function_result_formatter_registry() {
+  static FunctionResultFormatterRegistry registry;
+  return registry;
+}
+
+// Calls the formatter a marker names, outside the registry lock. The
+// process-wide marker calls the formatter set when the call runs, as TS reads
+// axGlobals at each call; if it was cleared meanwhile, the result gets the
+// default text.
+static Value call_function_result_formatter(const Value& marker, const Value& result) {
+  if (Core::truthy(get_key(marker, "__function_result_formatter_global"))) {
+    std::shared_ptr<AxFunctionResultFormatterHandle::State> global;
+    {
+      auto& registry = function_result_formatter_registry();
+      std::lock_guard<std::mutex> lock(registry.mutex);
+      global = registry.global;
+    }
+    if (global) return Value(global->fn(result));
+    if (result.is_string()) return result;
+    if (result.is_null()) return Value("");
+    return Core::json_pretty(result);
+  }
+  std::string id = str(get_key(marker, "__function_result_formatter_id"));
+  if (id.empty()) {
+    throw AxError("validation", "The functionResultFormatter option must be an axllm::function_result_formatter() handle value");
+  }
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> state;
+  {
+    auto& registry = function_result_formatter_registry();
+    std::lock_guard<std::mutex> lock(registry.mutex);
+    auto it = registry.handles.find(id);
+    if (it != registry.handles.end()) state = it->second.lock();
+  }
+  if (!state) throw AxError("validation", "Function result formatter handle has expired");
+  return Value(state->fn(result));
+}
+
+AxFunctionResultFormatterHandle::AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn) : state_(std::make_shared<State>()) {
+  if (!fn) throw AxError("validation", "Function result formatter must be callable");
+  state_->fn = std::move(fn);
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  state_->id = "__function_result_formatter_" + std::to_string(++registry.next_id);
+  for (auto it = registry.handles.begin(); it != registry.handles.end();) {
+    if (it->second.expired()) it = registry.handles.erase(it);
+    else ++it;
+  }
+  registry.handles[state_->id] = state_;
+}
+
+Value AxFunctionResultFormatterHandle::value() const { return object({{"__function_result_formatter_id", state_->id}}); }
+
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn) {
+  return AxFunctionResultFormatterHandle(std::move(fn));
+}
+
+void set_function_result_formatter(AxFunctionResultFormatter fn) {
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> next;
+  if (fn) {
+    next = std::make_shared<AxFunctionResultFormatterHandle::State>();
+    next->id = "__function_result_formatter_global";
+    next->fn = std::move(fn);
+  }
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  registry.global.swap(next);
+}
+
+Value Core::axgen_function_result_formatter() {
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  if (!registry.global) return Value();
+  return object({{"__function_result_formatter_global", true}});
+}
+
 static bool has_key(const Value& object, const std::string& key) {
   const auto& obj = object_ref(object);
   if (obj.count(key) > 0) return true;
@@ -463,6 +555,12 @@ void HttpTransport::stream_cancellable(Value request, AxTransportStreamHandler h
   stream_impl(std::move(request), std::move(handler), nullptr, std::move(cancelled));
 }
 
+// The last request's Retry-After on a status response, and whether its
+// response had begun when the transfer failed. TS reads a stream's body after
+// apiCall returns, so a failure after the response began is not retried.
+thread_local std::string ax_transport_retry_after;
+thread_local bool ax_transport_response_started = false;
+
 #if defined(AXLLM_ENABLE_CURL)
 static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled);
 
@@ -565,6 +663,23 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
     }
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+  std::string retry_after;
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+    std::string line(ptr, size * nmemb);
+    auto colon = line.find(':');
+    if (colon != std::string::npos) {
+      std::string name = line.substr(0, colon);
+      for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (name == "retry-after") {
+        std::string value = line.substr(colon + 1);
+        auto begin = value.find_first_not_of(" \t");
+        auto end = value.find_last_not_of(" \t\r\n");
+        *static_cast<std::string*>(userdata) = begin == std::string::npos ? std::string() : value.substr(begin, end - begin + 1);
+      }
+    }
+    return size * nmemb;
+  });
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_after);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* context=static_cast<StreamContext*>(userdata);return (context->cancellation&&context->cancellation->is_cancelled()) || (context->session_cancelled&&context->session_cancelled->load())?1:0;});
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
@@ -583,6 +698,8 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
+  ax_transport_retry_after = status >= 400 ? retry_after : std::string();
+  ax_transport_response_started = status >= 200 && status < 400;
   if (context.exception) std::rethrow_exception(context.exception);
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   // Returning false is the transport seam's normal cancellation signal. libcurl
@@ -746,6 +863,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
   if (deadline.timed_out) throw ax_call_timeout_error(Core::get(request, "timeout_ms"));
+  ax_transport_response_started = rc != CURLE_OK && status >= 200 && status < 400;
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -2103,6 +2221,7 @@ Value Core::object_call_method(Value target, Value method_name, Value arg, Value
     }
     return render_prompt(get_key(target, "signature"), arg, functions, render_options);
   }
+  if (str(method_name) == "format_result") return call_function_result_formatter(target, arg);
   if (str(method_name) == "call") {
     std::string picker_id = str(get_key(target, "__result_picker_id"));
     auto picker = result_picker_registry().find(picker_id);
@@ -3390,10 +3509,13 @@ Value Core::axgen_memory_add_response(Value gen, Value request, Value response) 
   set(gen, "memory", memory);
   return Value();
 }
-Value Core::axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok) {
+// `result` and `result_text` both keep the text the model got.
+Value Core::axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok, Value result_text) {
   Value memory = get(gen, "memory", Value::object());
   Value items = get_key(memory, "items", Value::array());
-  append(items, Value(Object{{"role", "function"}, {"results", Value(Array{Value(Object{{"call", call}, {"result", result}, {"ok", Value(truthy(ok))}})})}, {"tags", Value::array()}}));
+  Object entry{{"call", call}, {"result", result}, {"ok", Value(truthy(ok))}};
+  if (!result_text.is_null()) entry["result_text"] = result_text;
+  append(items, Value(Object{{"role", "function"}, {"results", Value(Array{Value(std::move(entry))})}, {"tags", Value::array()}}));
   set(memory, "items", items);
   set(gen, "memory", memory);
   return Value();
@@ -5079,6 +5201,55 @@ static void attach_error_request(AxError& error, const Value& call, const Value&
   error.request_body = Core::get(view, "json", Core::get(view, "data"));
 }
 
+static std::function<void(double)> ax_request_retry_sleep_hook;
+static std::function<double()> ax_request_retry_random_hook;
+static std::function<double()> ax_request_retry_now_hook;
+
+void set_request_retry_hooks(std::function<void(double)> sleep, std::function<double()> random, std::function<double()> now_ms) {
+  ax_request_retry_sleep_hook = std::move(sleep);
+  ax_request_retry_random_hook = std::move(random);
+  ax_request_retry_now_hook = std::move(now_ms);
+}
+
+static void ax_request_retry_sleep(double delay) {
+  auto token = current_cancellation_token();
+  if (ax_request_retry_sleep_hook) {
+    if (token) token->throw_if_cancelled();
+    ax_request_retry_sleep_hook(delay);
+    return;
+  }
+  if (delay <= 0) return;
+  auto duration = std::chrono::milliseconds(static_cast<long>(delay));
+  if (token && token->wait_for(duration)) token->throw_if_cancelled();
+  else if (!token) std::this_thread::sleep_for(duration);
+}
+
+// TS apiCall's view of a failed request: its HTTP status (with its
+// Retry-After) or a network failure. Anything else is null and not retried.
+static Value ax_request_retry_failure(const AxError& error, const std::string& retry_after) {
+  if (error.type == "AxAIServiceAuthenticationError" || error.type == "AxAIServiceAbortedError") return Value();
+  if (error.status > 0) {
+    Value failure = object({{"status", error.status}});
+    if (!retry_after.empty()) Core::set(failure, "retry_after", retry_after);
+    return failure;
+  }
+  if (error.type == "AxAIServiceNetworkError") return object({{"network", true}});
+  return Value();
+}
+
+// Waits before the failed request goes out again, as TS apiCall does, and
+// says whether it does.
+static bool ax_request_retry_wait(const Value& config, int attempt, const AxError& error, const std::string& retry_after) {
+  Value failure = ax_request_retry_failure(error, retry_after);
+  if (failure.is_null()) return false;
+  double now = ax_request_retry_now_hook ? ax_request_retry_now_hook() : static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+  double random = ax_request_retry_random_hook ? ax_request_retry_random_hook() : static_cast<double>(std::rand()) / (static_cast<double>(RAND_MAX) + 1.0);
+  Value delay = Core::request_retry_delay(config, attempt, failure, now, random);
+  if (delay.is_null()) return false;
+  ax_request_retry_sleep(num(delay));
+  return true;
+}
+
 // A transport's untyped network failure, as TS apiCall reports what fetch
 // throws: AxAIServiceNetworkError, "Network Error: " and the transport's text,
 // with the request a provider error keeps and the failure as its cause.
@@ -5097,7 +5268,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   std::string explicit_name = str(Core::get(cfg, "name", Core::get(cfg, "cacheName", Core::get(cfg, "cache_name", ""))));
   if (!explicit_name.empty()) {
     Value cached = payload; Core::set(cached, "cachedContent", explicit_name);
-    return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options);
+    return request_json_retried(endpoint, cached, operation_method("chat"), options);
   }
   Value prompts = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Core::get(request, "messages", Value::array())));
   std::size_t non_system = 0, cached_count = 0;
@@ -5129,7 +5300,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
     std::string endpoint = str(Core::get(op, "path"));
     Value op_base = Core::get(op, "base_url");
     if (!op_base.is_null()) endpoint = strip_trailing_slashes(str(op_base)) + endpoint;
-    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")), options);
+    return request_json_retried(endpoint, Core::get(op, "request", Value::object()), str(Core::get(op, "method", "POST")), options);
   };
   auto create = [&]() {
     try {
@@ -5145,14 +5316,14 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body, options); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
       if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
-    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options); }
+    } catch (const AxError&) { if (!create()) return request_json_retried(endpoint, payload, operation_method("chat"), options); }
   } else if (action == "create") {
-    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
+    if (!create()) return request_json_retried(endpoint, payload, operation_method("chat"), options);
   } else if (action == "none") return Value();
   if (cache_name.empty()) return Value();
   Value cached = payload; object_mut(cached).erase("systemInstruction"); object_mut(cached).erase("tools"); object_mut(cached).erase("toolConfig");
   Value suffix = Value::array(); for (std::size_t i = std::min(cached_count, contents.size()); i < contents.size(); ++i) Core::append(suffix, contents[i]); Core::set(cached, "contents", suffix); Core::set(cached, "cachedContent", cache_name);
-  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options); }
+  try { return request_json_retried(endpoint, cached, operation_method("chat"), options); }
   catch (const AxError& error) {
     if (!Core::truthy(Core::ai_context_cache_rejection(error.status, error.response_body))) throw;
     Value recovery = Core::ai_context_cache_recovery(get_entry(), cache_name, external);
@@ -5160,7 +5331,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       if (external) context_cache_registry_->set(tenant_namespace, cache_key, Core::get(recovery, "externalEntry", Value::object()));
       else if (Core::truthy(Core::get(recovery, "deleteInMemory", false))) object_mut(context_cache_entries_).erase(cache_key);
     }
-    return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
+    return request_json_retried(endpoint, payload, operation_method("chat"), options);
   }
 }
 
@@ -5184,16 +5355,15 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
     double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
     double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
     double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
-    int attempt = 0;
+    int start_attempt = 0;
     while (true) {
-      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"), options);
+      Value raw = request_json_retried(operation_path("stream_chat", model), payload, operation_method("stream_chat"), options, true);
       std::vector<Value> events = iter_sse_json(raw);
       if (!events.empty()) {
         Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
-        if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
-          ++attempt;
-          double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-          if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+        if (!status.is_null() && Core::truthy(Core::retry_status_listed(retry_cfg, status)) && start_attempt < max_retries) {
+          ++start_attempt;
+          ax_request_retry_sleep(std::min(initial_delay * std::pow(backoff, start_attempt - 1), max_delay));
           continue;
         }
       }
@@ -5208,7 +5378,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
-  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
+  if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
   return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : payload);
 }
 
@@ -5228,7 +5398,7 @@ Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
-  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"), options);
+  Value raw = request_json_retried(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, operation_method("embed"), options);
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
@@ -5360,7 +5530,8 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
       double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
       double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
       double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
-      int attempt = 0;
+      int start_attempt = 0;
+      int open_attempt = 0;
       while (true) {
         Value results = Value::array();
         Value state = Value::object();
@@ -5370,13 +5541,19 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         bool delivered = false;
         bool provider_error = false;
         bool retry_requested = false;
+        bool response_started = false;
+        std::string retry_after;
+        ax_transport_response_started = false;
+        ax_transport_retry_after.clear();
         Value call = build_request(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
         IncrementalSSEDecoder decoder([&](Value event) {
           received_event = true;
           if (first_event) {
             first_event = false;
+            // TS retryTransientStreamStart: a first event with a listed
+            // status goes out again, with its own budget and without jitter.
             Value status = Core::provider_classify_stream_error_status(profile_, event);
-            if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+            if (!status.is_null() && Core::truthy(Core::retry_status_listed(retry_cfg, status)) && start_attempt < max_retries) {
               retry_requested = true;
               return false;
             }
@@ -5401,7 +5578,17 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         auto consume = [&](Value chunk) {
           Value raw = chunk;
           Value status = transport_status(chunk);
-          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call, merged_options);
+          if (raw.is_object() && has_key(raw, "status")) {
+            if (num(Core::get(raw, "status", 200)) >= 400) {
+              for (const auto& entry : object_ref(Core::get(raw, "headers", Value::object()))) {
+                std::string name = entry.first;
+                for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (name == "retry-after") retry_after = display(entry.second);
+              }
+            }
+            raw = transport_result(raw, call, merged_options);
+          }
+          response_started = true;
           if (verbose && !stream_logged) {
             stream_logged = true;
             verbose_log(Core::ai_verbose_stream_log(status));
@@ -5419,33 +5606,35 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         try {
           transport_->stream(call, consume, current_cancellation_token());
           if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
-        } catch (AxError& error) {
-          if (error.type == "AxAIServiceAbortedError") throw;
+        } catch (AxError& caught) {
+          if (caught.type == "AxAIServiceAbortedError") throw;
           if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
           if (provider_error) throw;
-          // The HTTP transport's own status, network and timeout errors keep
-          // the request as TypeScript's do.
+          // A custom transport's untyped network failure is TS's network
+          // error, as request_json makes it. The HTTP transport's own status,
+          // network and timeout errors keep the request as TypeScript's do.
+          AxError error = caught.category == "network" && caught.type.empty() ? ax_transport_network_error(caught, call, merged_options) : caught;
           attach_error_request(error, call, merged_options);
-          // Retry transport/open failures before any SSE event. Once a provider
-          // event exists, its normalized error is authoritative unless the
-          // explicit transient-status classifier above requested a retry.
-          // As in TS apiCall, a timeout the request ran out of is not retried
-          // here; a 408 or 504 response, typed as a timeout, is retried by its
-          // status.
-          bool timed_out = error.type == "AxAIServiceTimeoutError" && error.status == 0;
-          if (!received_event && !delivered && stream_error_retryable(error) && !timed_out && attempt < max_retries) retry_requested = true;
-          else if (delivered) {
+          // The stream's request goes through apiCall's request-layer retry.
+          // Once its response began, a failure to read it surfaces, as TS
+          // reads a stream's body after apiCall returns.
+          bool started = response_started || received_event || delivered || ax_transport_response_started;
+          if (retry_after.empty()) retry_after = ax_transport_retry_after;
+          if (!started && ax_request_retry_wait(retry_cfg, open_attempt, error, retry_after)) {
+            ++open_attempt;
+            continue;
+          }
+          if (delivered) {
             AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
             terminated.url = error.url;
             terminated.request_body = error.request_body;
             throw terminated;
           }
-          else throw;
+          throw error;
         }
         if (retry_requested) {
-          ++attempt;
-          double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-          if (delay > 0) {auto token=current_cancellation_token();auto duration=std::chrono::milliseconds(static_cast<long>(delay));if(token&&token->wait_for(duration))token->throw_if_cancelled();else if(!token)std::this_thread::sleep_for(duration);}
+          ++start_attempt;
+          ax_request_retry_sleep(std::min(initial_delay * std::pow(backoff, start_attempt - 1), max_delay));
           continue;
         }
         Value response = object({{"results", results}});
@@ -5878,6 +6067,10 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options) {
+  return request_json_attempt(endpoint, std::move(payload), stream, body_key, binary_response, method, std::move(error_options), nullptr);
+}
+
+Value OpenAICompatibleClient::request_json_attempt(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options, std::string* retry_after) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
   if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
   // As TS's apiCall, a verbose call logs the request, then its JSON response
@@ -5885,6 +6078,7 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   bool verbose = verbose_enabled(error_options.is_object() ? error_options : options_);
   if (verbose) log_verbose_request(call);
   Value raw;
+  ax_transport_response_started = false;
   try {
     raw = transport_->call(call, current_cancellation_token());
   } catch (AxError& error) {
@@ -5894,9 +6088,36 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
     if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, error_options);
     throw;
   }
+  if (retry_after != nullptr) {
+    for (const auto& entry : object_ref(Core::get(raw, "headers", Value::object()))) {
+      std::string name = entry.first;
+      for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (name == "retry-after") *retry_after = display(entry.second);
+    }
+  }
   Value result = transport_result(raw, call, error_options);
   if (verbose) verbose_log(stream ? Core::ai_verbose_stream_log(transport_status(raw)) : Core::ai_verbose_response_log(transport_status(raw), result));
   return result;
+}
+
+// TS apiCall's request-layer retry around one request: a listed status or a
+// network failure goes out again after its jittered backoff (or its
+// Retry-After), under the call's retry options, else the client's. Each
+// retry builds the request again, as apiCall resolves its headers again. A
+// stream whose response began before its body failed is not retried: TS
+// reads a stream's body after apiCall returns.
+Value OpenAICompatibleClient::request_json_retried(const std::string& endpoint, Value payload, const std::string& method, Value error_options, bool stream) {
+  Value config = Core::resolve_stream_retry(error_options);
+  for (int attempt = 0; ; ++attempt) {
+    std::string retry_after;
+    try {
+      return request_json_attempt(endpoint, payload, stream, "json", false, method, error_options, &retry_after);
+    } catch (const AxError& error) {
+      if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw;
+      if (stream && ax_transport_response_started) throw;
+      if (!ax_request_retry_wait(config, attempt, error, retry_after)) throw;
+    }
+  }
 }
 
 // The call's options can move the provider's base URL (a Vertex beta selects
@@ -6217,6 +6438,20 @@ AxGen& AxGen::set_sample_count(int sample_count) {
   Value options = Core::get(state_, "options", Value::object());
   Core::set(options, "sampleCount", sample_count);
   Core::set(state_, "options", options);
+  return *this;
+}
+
+// The program's tool result formatter, as TS's functionResultFormatter
+// option; options another AxGen shares are copied, not changed.
+AxGen& AxGen::set_function_result_formatter(AxFunctionResultFormatter formatter) {
+  std::optional<AxFunctionResultFormatterHandle> handle;
+  if (formatter) handle.emplace(std::move(formatter));
+  Value options(object_ref(Core::get(state_, "options", Value::object())));
+  Core::map_delete(options, "functionResultFormatter");
+  Core::map_delete(options, "function_result_formatter");
+  if (handle) Core::set(options, "functionResultFormatter", handle->value());
+  Core::set(state_, "options", options);
+  function_result_formatter_ = std::move(handle);
   return *this;
 }
 
@@ -9505,22 +9740,9 @@ Value AxAITypesafeClient::call(const std::string& method, const std::string& pat
   AxCancellationScope scope(cancellation);
   Value resolved = Core::map_merge(options_, options);
   OpenAICompatibleClient client("typesafe", "Typesafe", resolved, transport_, "jev-latest", "", credential_provider_);
-  Value retry = Core::resolve_stream_retry(resolved);
-  int retries = static_cast<int>(num(Core::get(retry, "max_retries")));
-  for (int attempt = 0; ; ++attempt) {
-    if (cancellation) cancellation->throw_if_cancelled();
-    try {
-      return client.request_json(path, payload, false, "json", false, method);
-    } catch (const AxError& error) {
-      // As in TS apiCall, a timeout the request ran out of is not retried
-      // here; a 408 or 504 response, typed as a timeout, is retried.
-      if (!error.retryable || (error.type == "AxAIServiceTimeoutError" && error.status == 0) || attempt >= retries) throw;
-      double delay = std::min(num(Core::get(retry, "initial_delay_ms")) * std::pow(num(Core::get(retry, "backoff_factor")), attempt), num(Core::get(retry, "max_delay_ms")));
-      auto duration = std::chrono::milliseconds(static_cast<long>(delay));
-      if (cancellation) { cancellation->wait_for(duration); cancellation->throw_if_cancelled(); }
-      else std::this_thread::sleep_for(duration);
-    }
-  }
+  if (cancellation) cancellation->throw_if_cancelled();
+  // TS apiCall's request-layer retry, as the client's chat requests use.
+  return client.request_json_retried(path, payload, method, resolved);
 }
 AxAITypesafeClient typesafe(Value options, Transport* transport, AxCredentialProvider credential_provider) {
   return AxAITypesafeClient(std::move(options), transport, std::move(credential_provider));

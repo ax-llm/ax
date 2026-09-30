@@ -5227,6 +5227,16 @@ module @ax.provider version "0.1" {
       core.set %config["initial_delay_ms"] = 1000
       core.set %config["max_delay_ms"] = 60000
       core.set %config["backoff_factor"] = 2
+      // TS defaultRetryConfig.retryableStatusCodes, in its order.
+      %codes = core.list
+      core.append %codes, 500
+      core.append %codes, 408
+      core.append %codes, 429
+      core.append %codes, 502
+      core.append %codes, 503
+      core.append %codes, 504
+      core.append %codes, 529
+      core.set %config["retryable_status_codes"] = %codes
       core.return %config
     }
   }
@@ -5267,11 +5277,14 @@ module @ax.provider version "0.1" {
       %initial = core.call @retry_opt_value(%retry, "initialDelayMs", "initial_delay_ms", %def_initial)
       %max_delay = core.call @retry_opt_value(%retry, "maxDelayMs", "max_delay_ms", %def_max_delay)
       %backoff = core.call @retry_opt_value(%retry, "backoffFactor", "backoff_factor", %def_backoff)
+      %def_codes = core.get %cfg["retryable_status_codes"]
+      %codes = core.call @retry_opt_value(%retry, "retryableStatusCodes", "retryable_status_codes", %def_codes)
       %out = core.map
       core.set %out["max_retries"] = %max_retries
       core.set %out["initial_delay_ms"] = %initial
       core.set %out["max_delay_ms"] = %max_delay
       core.set %out["backoff_factor"] = %backoff
+      core.set %out["retryable_status_codes"] = %codes
       core.return %out
     }
   }
@@ -6126,7 +6139,8 @@ module @ax.provider version "0.1" {
       core.if %is_function {
         %message_id = core.get %message["id"]
         %message_content = core.get %message["content"]
-        %call_id_snake = core.get %message["function_call_id"]
+        %call_id_legacy = core.get %message["function_call_id"]
+        %call_id_snake = core.get %message["function_id"] default %call_id_legacy
         %call_id_camel = core.get %message["functionId"] default %call_id_snake
         %call_id = core.call intrinsic.coalesce(%call_id_camel, %message_id)
         %result = core.get %message["result"] default %message_content
@@ -11835,6 +11849,400 @@ module @ax.provider version "0.1" {
         }
       }
       core.return %view
+    }
+  }
+
+  // TS apiCall's request-layer retry (src/ax/util/apicall.ts): whether a
+  // failed request goes out again, and after how long. The host describes the
+  // failure as {status, retry_after} for an HTTP status response or
+  // {network: true} for a failure to connect, send or read, and passes its
+  // clock and a random number in [0, 1).
+
+  // A status is retried when the retry config lists it (retryableStatusCodes,
+  // TS's defaultRetryConfig order: 500, 408, 429, 502, 503, 504, 529).
+  op ax.provider.semantic @retry_status_listed {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json, json) -> bool"
+    body @entry(%config: json, %status: json) {
+      %codes = core.get %config["retryable_status_codes"]
+      %no_codes = core.call intrinsic.is_none(%codes)
+      core.if %no_codes {
+        %defaults = core.call @default_retry_config()
+        %codes = core.get %defaults["retryable_status_codes"]
+      }
+      core.for %code in %codes {
+        %same = core.call intrinsic.eq(%code, %status)
+        core.if %same {
+          core.return true
+        }
+      }
+      core.return false
+    }
+  }
+
+  // TS calculateRetryDelay: min(maxDelayMs, initialDelayMs * backoffFactor **
+  // attempt), times a jitter of 0.75 to 1.25. attempt counts the retries
+  // already sent.
+  op ax.provider.semantic @retry_backoff_ms {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%config: json, %attempt: json, %random: json) {
+      %initial = core.get %config["initial_delay_ms"] default 1000
+      %max_delay = core.get %config["max_delay_ms"] default 60000
+      %factor = core.get %config["backoff_factor"] default 2
+      %scale = core.call intrinsic.math.pow(%factor, %attempt)
+      %base = core.call intrinsic.mul(%initial, %scale)
+      %capped = core.call intrinsic.gt(%base, %max_delay)
+      core.if %capped {
+        %base = core.let %max_delay
+      }
+      %spread = core.call intrinsic.mul(%random, 0.5)
+      %jitter = core.call intrinsic.add(%spread, 0.75)
+      %delay = core.call intrinsic.mul(%base, %jitter)
+      core.return %delay
+    }
+  }
+
+  // The value of a string of ASCII digits, or none.
+  op ax.provider.semantic @retry_digits_value {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      %none = core.call intrinsic.none()
+      %count = core.call intrinsic.len(%text)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        core.return %none
+      }
+      %digits = core.map
+      core.set %digits["0"] = 0
+      core.set %digits["1"] = 1
+      core.set %digits["2"] = 2
+      core.set %digits["3"] = 3
+      core.set %digits["4"] = 4
+      core.set %digits["5"] = 5
+      core.set %digits["6"] = 6
+      core.set %digits["7"] = 7
+      core.set %digits["8"] = 8
+      core.set %digits["9"] = 9
+      %total = core.let 0
+      %cursor = core.let 0
+      core.loop {
+        %done = core.call intrinsic.gte(%cursor, %count)
+        core.if %done {
+          core.break
+        }
+        %next = core.call intrinsic.add(%cursor, 1)
+        %ch = core.call intrinsic.string.slice(%text, %cursor, %next)
+        %digit = core.get %digits[%ch]
+        %not_digit = core.call intrinsic.is_none(%digit)
+        core.if %not_digit {
+          core.return %none
+        }
+        %scaled = core.call intrinsic.mul(%total, 10)
+        %total = core.call intrinsic.add(%scaled, %digit)
+        %cursor = core.let %next
+      }
+      core.return %total
+    }
+  }
+
+  // JS Number(text) for a decimal literal after a trim (Retry-After in
+  // seconds, which TS reads with Number): "5", "1.5", ".5", "5.", "+5", "5e1".
+  // Whitespace alone is 0, as in JS. Other text is none.
+  op ax.provider.semantic @retry_after_seconds {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      %none = core.call intrinsic.none()
+      %trimmed = core.string_trim %text
+      %blank = core.call intrinsic.eq(%trimmed, "")
+      core.if %blank {
+        core.return 0
+      }
+      %decimal = core.regex_match %trimmed pattern "^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
+      %not_decimal = core.call intrinsic.not(%decimal)
+      core.if %not_decimal {
+        core.return %none
+      }
+      // Rewrite it as JSON: no plus sign, no extra leading zeros, digits on
+      // both sides of a decimal point.
+      %sign = core.let ""
+      %body = core.let %trimmed
+      %plus = core.call intrinsic.string.starts_with(%body, "+")
+      core.if %plus {
+        %body = core.call intrinsic.string.slice(%body, 1)
+      }
+      %minus = core.call intrinsic.string.starts_with(%body, "-")
+      core.if %minus {
+        %sign = core.let "-"
+        %body = core.call intrinsic.string.slice(%body, 1)
+      }
+      %lower = core.call intrinsic.string.lower(%body)
+      %exponent = core.let ""
+      %exponent_split = core.call intrinsic.string.split_once(%lower, "e")
+      %has_exponent = core.get %exponent_split["found"] default false
+      core.if %has_exponent {
+        %exponent_digits = core.get %exponent_split["right"]
+        %exponent = core.call intrinsic.string.format("e{}", %exponent_digits)
+        %lower = core.get %exponent_split["left"]
+      }
+      %whole = core.let %lower
+      %fraction = core.let ""
+      %point_split = core.call intrinsic.string.split_once(%lower, ".")
+      %has_point = core.get %point_split["found"] default false
+      core.if %has_point {
+        %whole = core.get %point_split["left"]
+        %fraction = core.get %point_split["right"]
+      }
+      core.loop {
+        %whole_length = core.call intrinsic.len(%whole)
+        %many_digits = core.call intrinsic.gt(%whole_length, 1)
+        %leading_zero = core.call intrinsic.string.starts_with(%whole, "0")
+        %strip = core.call intrinsic.and(%many_digits, %leading_zero)
+        %keep = core.call intrinsic.not(%strip)
+        core.if %keep {
+          core.break
+        }
+        %whole = core.call intrinsic.string.slice(%whole, 1)
+      }
+      %no_whole = core.call intrinsic.eq(%whole, "")
+      core.if %no_whole {
+        %whole = core.let "0"
+      }
+      %literal = core.call intrinsic.string.format("{}{}", %sign, %whole)
+      %fraction_length = core.call intrinsic.len(%fraction)
+      %has_fraction = core.call intrinsic.gt(%fraction_length, 0)
+      core.if %has_fraction {
+        %literal = core.call intrinsic.string.format("{}.{}", %literal, %fraction)
+      }
+      %literal = core.call intrinsic.string.format("{}{}", %literal, %exponent)
+      %value = core.call intrinsic.json.parse(%literal)
+      core.return %value
+    }
+  }
+
+  // Days since 1970-01-01 of a proleptic Gregorian date (month 1-12).
+  op ax.provider.semantic @retry_days_from_civil {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json, json, json) -> json"
+    body @entry(%year: json, %month: json, %day: json) {
+      %year_of_era = core.let %year
+      %early = core.call intrinsic.lte(%month, 2)
+      core.if %early {
+        %year_of_era = core.call intrinsic.add(%year, -1)
+      }
+      %era_ratio = core.call intrinsic.div(%year_of_era, 400)
+      %era = core.call intrinsic.math.floor(%era_ratio)
+      %era_years = core.call intrinsic.mul(%era, -400)
+      %yoe = core.call intrinsic.add(%year_of_era, %era_years)
+      %shifted = core.call intrinsic.add(%month, 9)
+      %month_ratio = core.call intrinsic.div(%shifted, 12)
+      %month_wraps = core.call intrinsic.math.floor(%month_ratio)
+      %month_wraps = core.call intrinsic.mul(%month_wraps, -12)
+      %month_index = core.call intrinsic.add(%shifted, %month_wraps)
+      %month_days = core.call intrinsic.mul(%month_index, 153)
+      %month_days = core.call intrinsic.add(%month_days, 2)
+      %month_days_ratio = core.call intrinsic.div(%month_days, 5)
+      %month_days = core.call intrinsic.math.floor(%month_days_ratio)
+      %doy = core.call intrinsic.add(%month_days, %day)
+      %doy = core.call intrinsic.add(%doy, -1)
+      %doe = core.call intrinsic.mul(%yoe, 365)
+      %leap4_ratio = core.call intrinsic.div(%yoe, 4)
+      %leap4 = core.call intrinsic.math.floor(%leap4_ratio)
+      %leap100_ratio = core.call intrinsic.div(%yoe, 100)
+      %leap100 = core.call intrinsic.math.floor(%leap100_ratio)
+      %doe = core.call intrinsic.add(%doe, %leap4)
+      %leap100_negated = core.call intrinsic.mul(%leap100, -1)
+      %doe = core.call intrinsic.add(%doe, %leap100_negated)
+      %doe = core.call intrinsic.add(%doe, %doy)
+      %days = core.call intrinsic.mul(%era, 146097)
+      %days = core.call intrinsic.add(%days, %doe)
+      %days = core.call intrinsic.add(%days, -719468)
+      core.return %days
+    }
+  }
+
+  // An HTTP date in the IMF-fixdate form ("Sun, 06 Nov 1994 08:49:37 GMT",
+  // RFC 9110, which senders must use) as epoch milliseconds, or none. TS reads
+  // Retry-After with Date.parse, which also takes other forms.
+  op ax.provider.semantic @retry_http_date_ms {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json) -> json"
+    body @entry(%text: json) {
+      %none = core.call intrinsic.none()
+      %trimmed = core.string_trim %text
+      %fixdate = core.regex_match %trimmed pattern "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$"
+      %not_fixdate = core.call intrinsic.not(%fixdate)
+      core.if %not_fixdate {
+        core.return %none
+      }
+      %day_text = core.call intrinsic.string.slice(%trimmed, 5, 7)
+      %month_text = core.call intrinsic.string.slice(%trimmed, 8, 11)
+      %year_text = core.call intrinsic.string.slice(%trimmed, 12, 16)
+      %hour_text = core.call intrinsic.string.slice(%trimmed, 17, 19)
+      %minute_text = core.call intrinsic.string.slice(%trimmed, 20, 22)
+      %second_text = core.call intrinsic.string.slice(%trimmed, 23, 25)
+      %day = core.call @retry_digits_value(%day_text)
+      %year = core.call @retry_digits_value(%year_text)
+      %hour = core.call @retry_digits_value(%hour_text)
+      %minute = core.call @retry_digits_value(%minute_text)
+      %second = core.call @retry_digits_value(%second_text)
+      %months = core.map
+      core.set %months["Jan"] = 1
+      core.set %months["Feb"] = 2
+      core.set %months["Mar"] = 3
+      core.set %months["Apr"] = 4
+      core.set %months["May"] = 5
+      core.set %months["Jun"] = 6
+      core.set %months["Jul"] = 7
+      core.set %months["Aug"] = 8
+      core.set %months["Sep"] = 9
+      core.set %months["Oct"] = 10
+      core.set %months["Nov"] = 11
+      core.set %months["Dec"] = 12
+      %month = core.get %months[%month_text]
+      %day_low = core.call intrinsic.lt(%day, 1)
+      %day_high = core.call intrinsic.gt(%day, 31)
+      %hour_high = core.call intrinsic.gt(%hour, 23)
+      %minute_high = core.call intrinsic.gt(%minute, 59)
+      %second_high = core.call intrinsic.gt(%second, 59)
+      %bad_day = core.call intrinsic.or(%day_low, %day_high)
+      %bad_clock = core.call intrinsic.or(%hour_high, %minute_high)
+      %bad_clock = core.call intrinsic.or(%bad_clock, %second_high)
+      %bad = core.call intrinsic.or(%bad_day, %bad_clock)
+      core.if %bad {
+        core.return %none
+      }
+      %days = core.call @retry_days_from_civil(%year, %month, %day)
+      %millis = core.call intrinsic.mul(%days, 86400000)
+      %hour_ms = core.call intrinsic.mul(%hour, 3600000)
+      %minute_ms = core.call intrinsic.mul(%minute, 60000)
+      %second_ms = core.call intrinsic.mul(%second, 1000)
+      %millis = core.call intrinsic.add(%millis, %hour_ms)
+      %millis = core.call intrinsic.add(%millis, %minute_ms)
+      %millis = core.call intrinsic.add(%millis, %second_ms)
+      core.return %millis
+    }
+  }
+
+  // TS parseRetryAfter: a number of seconds, else an HTTP date less the
+  // current time (never below 0), else none. An empty or missing header is
+  // none.
+  op ax.provider.semantic @retry_after_ms {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%header: json, %now_ms: json) {
+      %none = core.call intrinsic.none()
+      %is_string = core.type_is %header type "string"
+      %not_string = core.call intrinsic.not(%is_string)
+      core.if %not_string {
+        core.return %none
+      }
+      %empty = core.call intrinsic.eq(%header, "")
+      core.if %empty {
+        core.return %none
+      }
+      %seconds = core.call @retry_after_seconds(%header)
+      %has_seconds = core.call intrinsic.is_not_none(%seconds)
+      core.if %has_seconds {
+        %seconds_ms = core.call intrinsic.mul(%seconds, 1000)
+        core.return %seconds_ms
+      }
+      %date_ms = core.call @retry_http_date_ms(%header)
+      %has_date = core.call intrinsic.is_not_none(%date_ms)
+      core.if %has_date {
+        %negative_now = core.call intrinsic.mul(%now_ms, -1)
+        %wait = core.call intrinsic.add(%date_ms, %negative_now)
+        %past = core.call intrinsic.lt(%wait, 0)
+        core.if %past {
+          core.return 0
+        }
+        core.return %wait
+      }
+      core.return %none
+    }
+  }
+
+  // TS apiCall's retry decision (shouldRetry, calculateRetryDelay,
+  // parseRetryAfter): the delay in milliseconds before the failed request goes
+  // out again, or none. attempt counts the retries already sent; config is
+  // @resolve_stream_retry's.
+  // - A status response is retried when the config lists its status, after
+  //   the jittered backoff, or after its Retry-After when that is no longer
+  //   than maxDelayMs. 401 and 403 are never retried: apiCall raises them
+  //   first.
+  // - A network failure is retried after the jittered backoff.
+  // - Anything else (a timeout the request ran out of, an abort, a response
+  //   error) is not retried.
+  op ax.provider.semantic @request_retry_delay {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/util/apicall.ts"
+    type signature = "(json, json, json, json, json) -> json"
+    body @entry(%config: json, %attempt: json, %failure: json, %now_ms: json, %random: json) {
+      %none = core.call intrinsic.none()
+      %max_retries = core.get %config["max_retries"] default 3
+      %spent = core.call intrinsic.gte(%attempt, %max_retries)
+      core.if %spent {
+        core.return %none
+      }
+      %status = core.get %failure["status"]
+      %has_status = core.call intrinsic.is_not_none(%status)
+      core.if %has_status {
+        %is_401 = core.call intrinsic.eq(%status, 401)
+        %is_403 = core.call intrinsic.eq(%status, 403)
+        %auth = core.call intrinsic.or(%is_401, %is_403)
+        core.if %auth {
+          core.return %none
+        }
+        %listed = core.call @retry_status_listed(%config, %status)
+        %not_listed = core.call intrinsic.not(%listed)
+        core.if %not_listed {
+          core.return %none
+        }
+        %delay = core.call @retry_backoff_ms(%config, %attempt, %random)
+        %header = core.get %failure["retry_after"]
+        %after = core.call @retry_after_ms(%header, %now_ms)
+        %has_after = core.call intrinsic.is_not_none(%after)
+        core.if %has_after {
+          %max_delay = core.get %config["max_delay_ms"] default 60000
+          %within = core.call intrinsic.lte(%after, %max_delay)
+          core.if %within {
+            %delay = core.let %after
+          }
+        }
+        %negative = core.call intrinsic.lt(%delay, 0)
+        core.if %negative {
+          core.return 0
+        }
+        core.return %delay
+      }
+      %network = core.get %failure["network"] default false
+      %is_network = core.call intrinsic.truthy(%network)
+      core.if %is_network {
+        %network_delay = core.call @retry_backoff_ms(%config, %attempt, %random)
+        core.return %network_delay
+      }
+      core.return %none
     }
   }
 }

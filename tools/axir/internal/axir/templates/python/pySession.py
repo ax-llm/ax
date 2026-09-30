@@ -420,14 +420,14 @@ class _SessionClient:
         except Exception as error:
             core.chat_session_register_call(self.state, call, "blocking")
             message = core._tool_error_message_impl(call, error)
-            core.chat_session_record_result(self.gen, self.state, call, message.get("result", str(error)), False)
+            core.chat_session_record_result(self.gen, self.state, call, message.get("result", str(error)), False, self.options)
             return
         # As TS's session does, a call whose arguments fail the tool's schema
         # does not run: its result is TS's fixing instructions.
         fixing = core.chat_session_tool_argument_error(name, tool.parameters, args)
         if fixing is not None:
             core.chat_session_register_call(self.state, call, "blocking")
-            core.chat_session_record_result(self.gen, self.state, call, fixing, False)
+            core.chat_session_record_result(self.gen, self.state, call, fixing, False, self.options)
             return
         call = {**call, "params": args, "function": {**call["function"], "params": args}}
         core.chat_session_register_call(self.state, call, tool.execution)
@@ -563,7 +563,7 @@ class _SessionClient:
                     if error:
                         message = core._tool_error_message_impl(call, error)
                         result = message.get("result", str(error))
-                    if not core.chat_session_record_result(self.gen, self.state, call, result, error is None):
+                    if not core.chat_session_record_result(self.gen, self.state, call, result, error is None, self.options):
                         continue
                     self._emit("tool.completed", call_id=call["id"])
                     if self.state["pending"][call["id"]]["execution"] != "background":

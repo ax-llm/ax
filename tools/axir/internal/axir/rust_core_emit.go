@@ -103,6 +103,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.axgen.caching_function":                "core_axgen_caching_function",
 	"intrinsic.axgen.cache_read":                      "core_axgen_cache_read",
 	"intrinsic.axgen.cache_write":                     "core_axgen_cache_write",
+	"intrinsic.axgen.function_result_formatter":       "core_axgen_function_result_formatter",
 	"intrinsic.string.str":                            "core_string_str",
 	"intrinsic.string.join":                           "core_string_join_intrinsic",
 	"intrinsic.ai.error.auth":                         "core_ai_error_auth",

@@ -1,0 +1,61 @@
+{
+  "description": "A Retry-After that is neither seconds nor an HTTP date keeps the backoff. TS request count and delays from src/ax/util/apicall.ts.",
+  "expected_retry_delays_ms": [1000],
+  "expected_transport_request_count": 2,
+  "kind": "ai_chat",
+  "model": "gpt-5.4-mini",
+  "name": "request-retry-after-unparsed",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "retry_now_ms": 1800000000000,
+  "retry_random": 0.5,
+  "service_options": {},
+  "transport_responses": [
+    {
+      "headers": {
+        "Retry-After": "soon"
+      },
+      "json": {
+        "error": {
+          "message": "upstream 503",
+          "type": "server_error"
+        }
+      },
+      "status": 503
+    },
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_retry",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

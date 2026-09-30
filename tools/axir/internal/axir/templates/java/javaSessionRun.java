@@ -149,12 +149,12 @@ final class SessionRun implements AiClient,AutoCloseable {
         if(tool==null) throw new IllegalArgumentException("Function '"+name+"' not found");
       } catch(RuntimeException error) {
         Core.chat_session_register_call(state,call,"blocking");
-        Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false);return;
+        Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false,options);return;
       }
       // As TS's session does, a call whose arguments fail the tool's schema
       // does not run: its result is TS's fixing instructions.
       Object fixing=Core.chat_session_tool_argument_error(name,tool.schema(),args);
-      if(fixing!=null){Core.chat_session_register_call(state,call,"blocking");Core.chat_session_record_result(gen,state,call,fixing,false);return;}
+      if(fixing!=null){Core.chat_session_register_call(state,call,"blocking");Core.chat_session_record_result(gen,state,call,fixing,false,options);return;}
       Core.chat_session_register_call(state,call,execution);blocking=!"background".equals(execution);
       emit("tool.started",Map.of("call_id",id));
       final Map<String,Object> values=new LinkedHashMap<>(Core.asMap(args));
@@ -197,7 +197,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       if("tool".equals(delivery.type())) {
         var call=Core.asMap(delivery.value());String id=String.valueOf(call.get("id"));Object result=delivery.result();
         if(delivery.error()!=null) result=Core.get(Core._tool_error_message_impl(call,delivery.error()),"result",delivery.error().toString());
-        if(!Core.truthy(Core.chat_session_record_result(gen,state,call,result,delivery.error()==null)))return null;emit("tool.completed",Map.of("call_id",id));
+        if(!Core.truthy(Core.chat_session_record_result(gen,state,call,result,delivery.error()==null,options)))return null;emit("tool.completed",Map.of("call_id",id));
         if(!"background".equals(Core.get(Core.asMap(state.get("pending")).get(id),"execution","blocking"))) {blocking=false;var queued=new ArrayList<>(waiting);waiting.clear();for(var item:queued)start(item);}
         return null;
       }
