@@ -1016,6 +1016,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-30
   - Completed by: `285e7b045`
   - Verification: `TypeScript conformance synchronization and generated-package freshness pass; axir verify --mode dev --jobs 2 passes Python, Java, C++, Go, and Rust, each with 1567 conformance fixtures. Main Python reproduced the eleven-response failure; all three new budget fixtures pass in every port.`
+- `axir-2026-09-27-give-an-axgen-a-constructor-cancellation-token-in-go-c-and-rust-` [axgen] Give an AxGen a constructor cancellation token in Go, C++ and Rust, as TypeScript's constructor abortSignal
+  - Status: done
+  - Source commit: `4867ffe31e2ea7176ce7f9bbf1275f64a122c4c3`
+  - TS paths: `src/ax/dsp/generate.ts`
+  - Impact: TypeScript's AxGen takes an abortSignal in its constructor as the default for every forward, which a call's own abortSignal replaces. Python and Java honored a constructor cancellation token that way; Go, C++ and Rust took cancellation per call only (a ctx or a token), so a program could not carry one.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `d0cbdaca8`
+  - Verification: `TS goldens from tools/axir/extractors/axgen-streaming-goldens.ts (a cancelled constructor abortSignal stops a forward and a streaming forward before any request; a live call signal wins over a cancelled constructor one; a live constructor signal changes nothing; a cancelled call signal wins over a live constructor one) pass in all five ports (Go: a context under the cancellation option; Rust: AxGen::with_cancellation; C++: AxGen::set_cancellation). Mutants (Go's constructor token winning, Rust without the program scope, C++ without the forward scope) fail them; C++'s AxCancellationScope no longer leaves a cancelled token current (reproduced on main's package, pinned by the C++ cancellation runner, and the old order fails it); based on main at b780a14a3, the full suites pass (1570 of 1570 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-js-text-for-string-format-chat-message-and-nameless-call-checks` [axai] string.format and string.str write JavaScript's text in the ports; chat messages and nameless function calls fail with TypeScript's checks
   - Status: done
   - Source commit: `521b7a6258dec05b8281c69e0ad8ea0c8ebfa8b8`
@@ -1169,6 +1178,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `e6b1100e2`
   - Verification: `TS: apicall.test.ts pins requestBody non-enumerable (out of JSON.stringify, spread, Object.keys, toString, stack) when includeRequestBodyInErrors is false and serialized by default. AxIR: @ai_error_request builds every error request (the normalizer and the ai.error auth/timeout/status intrinsics use it); axai/provider-error-request-view (9 view cases) and provider-error-normalizer-drops-headers (normalizer given a raw call with Authorization, x-api-key and x-goog-api-key) pass in all five ports; Go and C++ AxError keep url and body (the part-1 provider-error fixtures now check them there); intrinsic.url.encode_component encodes the Gemini Live key (axai/gemini-live-ws-url-encodes-key); the ports and IR drop api_key_query and the profile generator rejects api-key-query; Go stream 4xx errors carry the provider message (TestStreamHTTPErrorCarriesProviderMessage); the Go and Rust ai_error runners enforce transport expectations (perturbed fixtures fail) and every runner passes fixture options as call options. axai 435/435 in each port; verify --mode release.`
+- `axir-2026-09-27-put-typescript-s-customlabels-on-the-ai-and-axgen-metrics-in-the` [axai] Put TypeScript's customLabels on the AI and AxGen metrics in the ports
+  - Status: done
+  - Source commit: `4867ffe31e2ea7176ce7f9bbf1275f64a122c4c3`
+  - TS paths: `src/ax/ai/metrics.ts`, `src/ax/ai/base.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript merges an AI service's customLabels with a call's, key by key, onto every AI metric, and an AxGen passes its constructor's labels with the call's over them and puts the service's labels under those on its own metrics; the request duration, errors and AxGen metrics cut each value to 100 characters, the AI request counter does not. No port read customLabels.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `4867ffe31`
+  - Verification: `The TS golden axai/ai-custom-labels-merge (axai-goldens.ts: a meter's labels for a chat with service and call labels and for an AxGen forward with service, constructor and call labels, one 120 characters long) passes in all five ports. IR mutants (no key-by-key merge, no cut) and one host mutant per port (a cut request count, no service labels on the AxGen metrics, no AxGen labels, no call labels) fail it; based on main at b780a14a3, the full suites pass (1570 of 1570 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-render-axgen-audio-output-fields-through-speak-in-the-ports` [axgen] Render AxGen audio output fields through speak() in the ports
   - Status: done
   - Source commit: `de478da3e9660d6cf727dc38ab6b43b6a0b88c4c`
