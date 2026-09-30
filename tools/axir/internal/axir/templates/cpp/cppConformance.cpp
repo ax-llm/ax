@@ -302,6 +302,9 @@ struct ScriptedTransport : Transport {
     if (responses.empty()) throw AxError("fixture", "scripted transport exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
+    // {"network_error": message} stands for a request that failed to connect,
+    // send or read, as the HTTP client reports it.
+    if (out.is_object() && !Core::get(out, "network_error").is_null()) throw AxError("network", display(Core::get(out, "network_error")));
     return out;
   }
   Value call(Value request, const AxCancellationToken* cancellation) override { cancellations.push_back(cancellation); return call(std::move(request)); }
@@ -4263,7 +4266,42 @@ static void run_kind(Value fixture);
 
 // expected_deprecations pins the one-time deprecation warnings the run gives
 // (the ones already shown are forgotten first).
+static void run_with_deprecations(Value fixture);
+
+// The request-layer retry records its delays instead of waiting, and a
+// fixture can fix its jitter (retry_random) and clock (retry_now_ms) and pin
+// the delays (expected_retry_delays_ms). An ai_cancellation fixture checks
+// that a cancellation ends the wait, so it waits for real.
 static void run(Value fixture) {
+  auto delays = std::make_shared<std::vector<double>>();
+  Value random = Core::get(fixture, "retry_random");
+  Value now = Core::get(fixture, "retry_now_ms");
+  Value kind = Core::get(fixture, "kind");
+  bool real_wait = kind.is_string() && display(kind) == "ai_cancellation";
+  set_request_retry_hooks(
+      real_wait ? std::function<void(double)>() : std::function<void(double)>([delays](double delay) { delays->push_back(delay); }),
+      random.is_null() ? std::function<double()>() : std::function<double()>([random] { return Core::number(random); }),
+      now.is_null() ? std::function<double()>() : std::function<double()>([now] { return Core::number(now); }));
+  try {
+    run_with_deprecations(fixture);
+  } catch (...) {
+    set_request_retry_hooks({}, {}, {});
+    throw;
+  }
+  set_request_retry_hooks({}, {}, {});
+  Value expected = Core::get(fixture, "expected_retry_delays_ms");
+  if (expected.is_null()) return;
+  const Array& want = as_array(expected);
+  bool matches = want.size() == delays->size();
+  for (std::size_t index = 0; matches && index < want.size(); ++index) matches = std::abs(Core::number(want[index]) - (*delays)[index]) <= 1e-6;
+  if (!matches) {
+    std::string got = "[";
+    for (std::size_t index = 0; index < delays->size(); ++index) got += (index ? "," : "") + display(Value((*delays)[index]));
+    throw std::runtime_error("retry delays: expected " + stringify(expected) + ", got " + got + "]");
+  }
+}
+
+static void run_with_deprecations(Value fixture) {
   Value expected = Core::get(fixture, "expected_deprecations");
   if (expected.is_null()) {
     run_kind(fixture);

@@ -22037,13 +22037,24 @@ func is_retryable_status(args ...Value) (Value, error) {
 
 func default_retry_config(args ...Value) (Value, error) {
 	axirCoverageMark("default_retry_config")
+	var v_codes Value
 	var v_config Value
+	_ = v_codes
 	_ = v_config
 	v_config = Object()
 	if err := coreSet(v_config, "max_retries", 3); err != nil { return nil, err }
 	if err := coreSet(v_config, "initial_delay_ms", 1000); err != nil { return nil, err }
 	if err := coreSet(v_config, "max_delay_ms", 60000); err != nil { return nil, err }
 	if err := coreSet(v_config, "backoff_factor", 2); err != nil { return nil, err }
+	v_codes = MutableArray()
+	v_codes = coreAppend(v_codes, 500)
+	v_codes = coreAppend(v_codes, 408)
+	v_codes = coreAppend(v_codes, 429)
+	v_codes = coreAppend(v_codes, 502)
+	v_codes = coreAppend(v_codes, 503)
+	v_codes = coreAppend(v_codes, 504)
+	v_codes = coreAppend(v_codes, 529)
+	if err := coreSet(v_config, "retryable_status_codes", v_codes); err != nil { return nil, err }
 	return v_config, nil
 }
 
@@ -22091,7 +22102,9 @@ func resolve_stream_retry(args ...Value) (Value, error) {
 	var v_options Value
 	var v_backoff Value
 	var v_cfg Value
+	var v_codes Value
 	var v_def_backoff Value
+	var v_def_codes Value
 	var v_def_initial Value
 	var v_def_max Value
 	var v_def_max_delay Value
@@ -22104,7 +22117,9 @@ func resolve_stream_retry(args ...Value) (Value, error) {
 	_ = v_options
 	_ = v_backoff
 	_ = v_cfg
+	_ = v_codes
 	_ = v_def_backoff
+	_ = v_def_codes
 	_ = v_def_initial
 	_ = v_def_max
 	_ = v_def_max_delay
@@ -22123,11 +22138,14 @@ func resolve_stream_retry(args ...Value) (Value, error) {
 	{ v, err := retry_opt_value(v_retry, "initialDelayMs", "initial_delay_ms", v_def_initial); if err != nil { return nil, err }; v_initial = v }
 	{ v, err := retry_opt_value(v_retry, "maxDelayMs", "max_delay_ms", v_def_max_delay); if err != nil { return nil, err }; v_max_delay = v }
 	{ v, err := retry_opt_value(v_retry, "backoffFactor", "backoff_factor", v_def_backoff); if err != nil { return nil, err }; v_backoff = v }
+	v_def_codes = coreGet(v_cfg, "retryable_status_codes", nil)
+	{ v, err := retry_opt_value(v_retry, "retryableStatusCodes", "retryable_status_codes", v_def_codes); if err != nil { return nil, err }; v_codes = v }
 	v_out = Object()
 	if err := coreSet(v_out, "max_retries", v_max_retries); err != nil { return nil, err }
 	if err := coreSet(v_out, "initial_delay_ms", v_initial); err != nil { return nil, err }
 	if err := coreSet(v_out, "max_delay_ms", v_max_delay); err != nil { return nil, err }
 	if err := coreSet(v_out, "backoff_factor", v_backoff); err != nil { return nil, err }
+	if err := coreSet(v_out, "retryable_status_codes", v_codes); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -34067,6 +34085,709 @@ func _ai_error_request(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_view, nil
+}
+
+func retry_status_listed(args ...Value) (Value, error) {
+	axirCoverageMark("retry_status_listed")
+	var v_config Value
+	var v_status Value
+	var v_code Value
+	var v_codes Value
+	var v_defaults Value
+	var v_no_codes Value
+	var v_same Value
+	if len(args) > 0 { v_config = args[0] }
+	_ = v_config
+	if len(args) > 1 { v_status = args[1] }
+	_ = v_status
+	_ = v_code
+	_ = v_codes
+	_ = v_defaults
+	_ = v_no_codes
+	_ = v_same
+	v_codes = coreGet(v_config, "retryable_status_codes", nil)
+	v_no_codes = _core_is_none(v_codes)
+	if coreTruthy(v_no_codes) {
+		{ v, err := default_retry_config(); if err != nil { return nil, err }; v_defaults = v }
+		v_codes = coreGet(v_defaults, "retryable_status_codes", nil)
+	} else {
+	// empty
+	}
+	for _, v_code = range coreIter(v_codes) {
+		v_same = _core_eq(v_code, v_status)
+		if coreTruthy(v_same) {
+			return true, nil
+		} else {
+		// empty
+		}
+	}
+	return false, nil
+}
+
+func retry_backoff_ms(args ...Value) (Value, error) {
+	axirCoverageMark("retry_backoff_ms")
+	var v_config Value
+	var v_attempt Value
+	var v_random Value
+	var v_base Value
+	var v_capped Value
+	var v_delay Value
+	var v_factor Value
+	var v_initial Value
+	var v_jitter Value
+	var v_max_delay Value
+	var v_scale Value
+	var v_spread Value
+	if len(args) > 0 { v_config = args[0] }
+	_ = v_config
+	if len(args) > 1 { v_attempt = args[1] }
+	_ = v_attempt
+	if len(args) > 2 { v_random = args[2] }
+	_ = v_random
+	_ = v_base
+	_ = v_capped
+	_ = v_delay
+	_ = v_factor
+	_ = v_initial
+	_ = v_jitter
+	_ = v_max_delay
+	_ = v_scale
+	_ = v_spread
+	v_initial = coreGet(v_config, "initial_delay_ms", 1000)
+	v_max_delay = coreGet(v_config, "max_delay_ms", 60000)
+	v_factor = coreGet(v_config, "backoff_factor", 2)
+	v_scale = _core_math_pow(v_factor, v_attempt)
+	v_base = _core_mul(v_initial, v_scale)
+	v_capped = _core_gt(v_base, v_max_delay)
+	if coreTruthy(v_capped) {
+		v_base = v_max_delay
+	} else {
+	// empty
+	}
+	v_spread = _core_mul(v_random, 0.5)
+	v_jitter = _core_add(v_spread, 0.75)
+	v_delay = _core_mul(v_base, v_jitter)
+	return v_delay, nil
+}
+
+func _retry_digits_value(args ...Value) (Value, error) {
+	axirCoverageMark("_retry_digits_value")
+	var v_text Value
+	var v_ch Value
+	var v_count Value
+	var v_cursor Value
+	var v_digit Value
+	var v_digits Value
+	var v_done Value
+	var v_empty Value
+	var v_next Value
+	var v_none Value
+	var v_not_digit Value
+	var v_scaled Value
+	var v_total Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_ch
+	_ = v_count
+	_ = v_cursor
+	_ = v_digit
+	_ = v_digits
+	_ = v_done
+	_ = v_empty
+	_ = v_next
+	_ = v_none
+	_ = v_not_digit
+	_ = v_scaled
+	_ = v_total
+	v_none = _core_none()
+	v_count = _core_len(v_text)
+	v_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_empty) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_digits = Object()
+	if err := coreSet(v_digits, "0", 0); err != nil { return nil, err }
+	if err := coreSet(v_digits, "1", 1); err != nil { return nil, err }
+	if err := coreSet(v_digits, "2", 2); err != nil { return nil, err }
+	if err := coreSet(v_digits, "3", 3); err != nil { return nil, err }
+	if err := coreSet(v_digits, "4", 4); err != nil { return nil, err }
+	if err := coreSet(v_digits, "5", 5); err != nil { return nil, err }
+	if err := coreSet(v_digits, "6", 6); err != nil { return nil, err }
+	if err := coreSet(v_digits, "7", 7); err != nil { return nil, err }
+	if err := coreSet(v_digits, "8", 8); err != nil { return nil, err }
+	if err := coreSet(v_digits, "9", 9); err != nil { return nil, err }
+	v_total = 0
+	v_cursor = 0
+	for {
+		v_done = _core_gte(v_cursor, v_count)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_next = _core_add(v_cursor, 1)
+		v_ch = _core_string_slice(v_text, v_cursor, v_next)
+		v_digit = coreGet(v_digits, v_ch, nil)
+		v_not_digit = _core_is_none(v_digit)
+		if coreTruthy(v_not_digit) {
+			return v_none, nil
+		} else {
+		// empty
+		}
+		v_scaled = _core_mul(v_total, 10)
+		v_total = _core_add(v_scaled, v_digit)
+		v_cursor = v_next
+	}
+	return v_total, nil
+}
+
+func _retry_after_seconds(args ...Value) (Value, error) {
+	axirCoverageMark("_retry_after_seconds")
+	var v_text Value
+	var v_blank Value
+	var v_body Value
+	var v_decimal Value
+	var v_exponent Value
+	var v_exponent_digits Value
+	var v_exponent_split Value
+	var v_fraction Value
+	var v_fraction_length Value
+	var v_has_exponent Value
+	var v_has_fraction Value
+	var v_has_point Value
+	var v_keep Value
+	var v_leading_zero Value
+	var v_literal Value
+	var v_lower Value
+	var v_many_digits Value
+	var v_minus Value
+	var v_no_whole Value
+	var v_none Value
+	var v_not_decimal Value
+	var v_plus Value
+	var v_point_split Value
+	var v_sign Value
+	var v_strip Value
+	var v_trimmed Value
+	var v_value Value
+	var v_whole Value
+	var v_whole_length Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_blank
+	_ = v_body
+	_ = v_decimal
+	_ = v_exponent
+	_ = v_exponent_digits
+	_ = v_exponent_split
+	_ = v_fraction
+	_ = v_fraction_length
+	_ = v_has_exponent
+	_ = v_has_fraction
+	_ = v_has_point
+	_ = v_keep
+	_ = v_leading_zero
+	_ = v_literal
+	_ = v_lower
+	_ = v_many_digits
+	_ = v_minus
+	_ = v_no_whole
+	_ = v_none
+	_ = v_not_decimal
+	_ = v_plus
+	_ = v_point_split
+	_ = v_sign
+	_ = v_strip
+	_ = v_trimmed
+	_ = v_value
+	_ = v_whole
+	_ = v_whole_length
+	v_none = _core_none()
+	v_trimmed = coreStringTrim(v_text)
+	v_blank = _core_eq(v_trimmed, "")
+	if coreTruthy(v_blank) {
+		return 0, nil
+	} else {
+	// empty
+	}
+	v_decimal = coreRegexMatch("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$", v_trimmed)
+	v_not_decimal = _core_not(v_decimal)
+	if coreTruthy(v_not_decimal) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_sign = ""
+	v_body = v_trimmed
+	v_plus = _core_string_starts_with(v_body, "+")
+	if coreTruthy(v_plus) {
+		v_body = _core_string_slice(v_body, 1)
+	} else {
+	// empty
+	}
+	v_minus = _core_string_starts_with(v_body, "-")
+	if coreTruthy(v_minus) {
+		v_sign = "-"
+		v_body = _core_string_slice(v_body, 1)
+	} else {
+	// empty
+	}
+	v_lower = _core_string_lower(v_body)
+	v_exponent = ""
+	v_exponent_split = _core_string_split_once(v_lower, "e")
+	v_has_exponent = coreGet(v_exponent_split, "found", false)
+	if coreTruthy(v_has_exponent) {
+		v_exponent_digits = coreGet(v_exponent_split, "right", nil)
+		v_exponent = _core_string_format("e{}", v_exponent_digits)
+		v_lower = coreGet(v_exponent_split, "left", nil)
+	} else {
+	// empty
+	}
+	v_whole = v_lower
+	v_fraction = ""
+	v_point_split = _core_string_split_once(v_lower, ".")
+	v_has_point = coreGet(v_point_split, "found", false)
+	if coreTruthy(v_has_point) {
+		v_whole = coreGet(v_point_split, "left", nil)
+		v_fraction = coreGet(v_point_split, "right", nil)
+	} else {
+	// empty
+	}
+	for {
+		v_whole_length = _core_len(v_whole)
+		v_many_digits = _core_gt(v_whole_length, 1)
+		v_leading_zero = _core_string_starts_with(v_whole, "0")
+		v_strip = _core_and(v_many_digits, v_leading_zero)
+		v_keep = _core_not(v_strip)
+		if coreTruthy(v_keep) {
+			break
+		} else {
+		// empty
+		}
+		v_whole = _core_string_slice(v_whole, 1)
+	}
+	v_no_whole = _core_eq(v_whole, "")
+	if coreTruthy(v_no_whole) {
+		v_whole = "0"
+	} else {
+	// empty
+	}
+	v_literal = _core_string_format("{}{}", v_sign, v_whole)
+	v_fraction_length = _core_len(v_fraction)
+	v_has_fraction = _core_gt(v_fraction_length, 0)
+	if coreTruthy(v_has_fraction) {
+		v_literal = _core_string_format("{}.{}", v_literal, v_fraction)
+	} else {
+	// empty
+	}
+	v_literal = _core_string_format("{}{}", v_literal, v_exponent)
+	{ v, err := _core_json_parse(v_literal); if err != nil { return nil, err }; v_value = v }
+	return v_value, nil
+}
+
+func _retry_days_from_civil(args ...Value) (Value, error) {
+	axirCoverageMark("_retry_days_from_civil")
+	var v_year Value
+	var v_month Value
+	var v_day Value
+	var v_days Value
+	var v_doe Value
+	var v_doy Value
+	var v_early Value
+	var v_era Value
+	var v_era_ratio Value
+	var v_era_years Value
+	var v_leap100 Value
+	var v_leap100_negated Value
+	var v_leap100_ratio Value
+	var v_leap4 Value
+	var v_leap4_ratio Value
+	var v_month_days Value
+	var v_month_days_ratio Value
+	var v_month_index Value
+	var v_month_ratio Value
+	var v_month_wraps Value
+	var v_shifted Value
+	var v_year_of_era Value
+	var v_yoe Value
+	if len(args) > 0 { v_year = args[0] }
+	_ = v_year
+	if len(args) > 1 { v_month = args[1] }
+	_ = v_month
+	if len(args) > 2 { v_day = args[2] }
+	_ = v_day
+	_ = v_days
+	_ = v_doe
+	_ = v_doy
+	_ = v_early
+	_ = v_era
+	_ = v_era_ratio
+	_ = v_era_years
+	_ = v_leap100
+	_ = v_leap100_negated
+	_ = v_leap100_ratio
+	_ = v_leap4
+	_ = v_leap4_ratio
+	_ = v_month_days
+	_ = v_month_days_ratio
+	_ = v_month_index
+	_ = v_month_ratio
+	_ = v_month_wraps
+	_ = v_shifted
+	_ = v_year_of_era
+	_ = v_yoe
+	v_year_of_era = v_year
+	v_early = _core_lte(v_month, 2)
+	if coreTruthy(v_early) {
+		v_year_of_era = _core_add(v_year, -1)
+	} else {
+	// empty
+	}
+	v_era_ratio = _core_div(v_year_of_era, 400)
+	v_era = _core_math_floor(v_era_ratio)
+	v_era_years = _core_mul(v_era, -400)
+	v_yoe = _core_add(v_year_of_era, v_era_years)
+	v_shifted = _core_add(v_month, 9)
+	v_month_ratio = _core_div(v_shifted, 12)
+	v_month_wraps = _core_math_floor(v_month_ratio)
+	v_month_wraps = _core_mul(v_month_wraps, -12)
+	v_month_index = _core_add(v_shifted, v_month_wraps)
+	v_month_days = _core_mul(v_month_index, 153)
+	v_month_days = _core_add(v_month_days, 2)
+	v_month_days_ratio = _core_div(v_month_days, 5)
+	v_month_days = _core_math_floor(v_month_days_ratio)
+	v_doy = _core_add(v_month_days, v_day)
+	v_doy = _core_add(v_doy, -1)
+	v_doe = _core_mul(v_yoe, 365)
+	v_leap4_ratio = _core_div(v_yoe, 4)
+	v_leap4 = _core_math_floor(v_leap4_ratio)
+	v_leap100_ratio = _core_div(v_yoe, 100)
+	v_leap100 = _core_math_floor(v_leap100_ratio)
+	v_doe = _core_add(v_doe, v_leap4)
+	v_leap100_negated = _core_mul(v_leap100, -1)
+	v_doe = _core_add(v_doe, v_leap100_negated)
+	v_doe = _core_add(v_doe, v_doy)
+	v_days = _core_mul(v_era, 146097)
+	v_days = _core_add(v_days, v_doe)
+	v_days = _core_add(v_days, -719468)
+	return v_days, nil
+}
+
+func _retry_http_date_ms(args ...Value) (Value, error) {
+	axirCoverageMark("_retry_http_date_ms")
+	var v_text Value
+	var v_bad Value
+	var v_bad_clock Value
+	var v_bad_day Value
+	var v_day Value
+	var v_day_high Value
+	var v_day_low Value
+	var v_day_text Value
+	var v_days Value
+	var v_fixdate Value
+	var v_hour Value
+	var v_hour_high Value
+	var v_hour_ms Value
+	var v_hour_text Value
+	var v_millis Value
+	var v_minute Value
+	var v_minute_high Value
+	var v_minute_ms Value
+	var v_minute_text Value
+	var v_month Value
+	var v_month_text Value
+	var v_months Value
+	var v_none Value
+	var v_not_fixdate Value
+	var v_second Value
+	var v_second_high Value
+	var v_second_ms Value
+	var v_second_text Value
+	var v_trimmed Value
+	var v_year Value
+	var v_year_text Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_bad
+	_ = v_bad_clock
+	_ = v_bad_day
+	_ = v_day
+	_ = v_day_high
+	_ = v_day_low
+	_ = v_day_text
+	_ = v_days
+	_ = v_fixdate
+	_ = v_hour
+	_ = v_hour_high
+	_ = v_hour_ms
+	_ = v_hour_text
+	_ = v_millis
+	_ = v_minute
+	_ = v_minute_high
+	_ = v_minute_ms
+	_ = v_minute_text
+	_ = v_month
+	_ = v_month_text
+	_ = v_months
+	_ = v_none
+	_ = v_not_fixdate
+	_ = v_second
+	_ = v_second_high
+	_ = v_second_ms
+	_ = v_second_text
+	_ = v_trimmed
+	_ = v_year
+	_ = v_year_text
+	v_none = _core_none()
+	v_trimmed = coreStringTrim(v_text)
+	v_fixdate = coreRegexMatch("^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$", v_trimmed)
+	v_not_fixdate = _core_not(v_fixdate)
+	if coreTruthy(v_not_fixdate) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_day_text = _core_string_slice(v_trimmed, 5, 7)
+	v_month_text = _core_string_slice(v_trimmed, 8, 11)
+	v_year_text = _core_string_slice(v_trimmed, 12, 16)
+	v_hour_text = _core_string_slice(v_trimmed, 17, 19)
+	v_minute_text = _core_string_slice(v_trimmed, 20, 22)
+	v_second_text = _core_string_slice(v_trimmed, 23, 25)
+	{ v, err := _retry_digits_value(v_day_text); if err != nil { return nil, err }; v_day = v }
+	{ v, err := _retry_digits_value(v_year_text); if err != nil { return nil, err }; v_year = v }
+	{ v, err := _retry_digits_value(v_hour_text); if err != nil { return nil, err }; v_hour = v }
+	{ v, err := _retry_digits_value(v_minute_text); if err != nil { return nil, err }; v_minute = v }
+	{ v, err := _retry_digits_value(v_second_text); if err != nil { return nil, err }; v_second = v }
+	v_months = Object()
+	if err := coreSet(v_months, "Jan", 1); err != nil { return nil, err }
+	if err := coreSet(v_months, "Feb", 2); err != nil { return nil, err }
+	if err := coreSet(v_months, "Mar", 3); err != nil { return nil, err }
+	if err := coreSet(v_months, "Apr", 4); err != nil { return nil, err }
+	if err := coreSet(v_months, "May", 5); err != nil { return nil, err }
+	if err := coreSet(v_months, "Jun", 6); err != nil { return nil, err }
+	if err := coreSet(v_months, "Jul", 7); err != nil { return nil, err }
+	if err := coreSet(v_months, "Aug", 8); err != nil { return nil, err }
+	if err := coreSet(v_months, "Sep", 9); err != nil { return nil, err }
+	if err := coreSet(v_months, "Oct", 10); err != nil { return nil, err }
+	if err := coreSet(v_months, "Nov", 11); err != nil { return nil, err }
+	if err := coreSet(v_months, "Dec", 12); err != nil { return nil, err }
+	v_month = coreGet(v_months, v_month_text, nil)
+	v_day_low = _core_lt(v_day, 1)
+	v_day_high = _core_gt(v_day, 31)
+	v_hour_high = _core_gt(v_hour, 23)
+	v_minute_high = _core_gt(v_minute, 59)
+	v_second_high = _core_gt(v_second, 59)
+	v_bad_day = _core_or(v_day_low, v_day_high)
+	v_bad_clock = _core_or(v_hour_high, v_minute_high)
+	v_bad_clock = _core_or(v_bad_clock, v_second_high)
+	v_bad = _core_or(v_bad_day, v_bad_clock)
+	if coreTruthy(v_bad) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := _retry_days_from_civil(v_year, v_month, v_day); if err != nil { return nil, err }; v_days = v }
+	v_millis = _core_mul(v_days, 86400000)
+	v_hour_ms = _core_mul(v_hour, 3600000)
+	v_minute_ms = _core_mul(v_minute, 60000)
+	v_second_ms = _core_mul(v_second, 1000)
+	v_millis = _core_add(v_millis, v_hour_ms)
+	v_millis = _core_add(v_millis, v_minute_ms)
+	v_millis = _core_add(v_millis, v_second_ms)
+	return v_millis, nil
+}
+
+func retry_after_ms(args ...Value) (Value, error) {
+	axirCoverageMark("retry_after_ms")
+	var v_header Value
+	var v_now_ms Value
+	var v_date_ms Value
+	var v_empty Value
+	var v_has_date Value
+	var v_has_seconds Value
+	var v_is_string Value
+	var v_negative_now Value
+	var v_none Value
+	var v_not_string Value
+	var v_past Value
+	var v_seconds Value
+	var v_seconds_ms Value
+	var v_wait Value
+	if len(args) > 0 { v_header = args[0] }
+	_ = v_header
+	if len(args) > 1 { v_now_ms = args[1] }
+	_ = v_now_ms
+	_ = v_date_ms
+	_ = v_empty
+	_ = v_has_date
+	_ = v_has_seconds
+	_ = v_is_string
+	_ = v_negative_now
+	_ = v_none
+	_ = v_not_string
+	_ = v_past
+	_ = v_seconds
+	_ = v_seconds_ms
+	_ = v_wait
+	v_none = _core_none()
+	v_is_string = coreTypeIs(v_header, "string")
+	v_not_string = _core_not(v_is_string)
+	if coreTruthy(v_not_string) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_empty = _core_eq(v_header, "")
+	if coreTruthy(v_empty) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := _retry_after_seconds(v_header); if err != nil { return nil, err }; v_seconds = v }
+	v_has_seconds = _core_is_not_none(v_seconds)
+	if coreTruthy(v_has_seconds) {
+		v_seconds_ms = _core_mul(v_seconds, 1000)
+		return v_seconds_ms, nil
+	} else {
+	// empty
+	}
+	{ v, err := _retry_http_date_ms(v_header); if err != nil { return nil, err }; v_date_ms = v }
+	v_has_date = _core_is_not_none(v_date_ms)
+	if coreTruthy(v_has_date) {
+		v_negative_now = _core_mul(v_now_ms, -1)
+		v_wait = _core_add(v_date_ms, v_negative_now)
+		v_past = _core_lt(v_wait, 0)
+		if coreTruthy(v_past) {
+			return 0, nil
+		} else {
+		// empty
+		}
+		return v_wait, nil
+	} else {
+	// empty
+	}
+	return v_none, nil
+}
+
+func request_retry_delay(args ...Value) (Value, error) {
+	axirCoverageMark("request_retry_delay")
+	var v_config Value
+	var v_attempt Value
+	var v_failure Value
+	var v_now_ms Value
+	var v_random Value
+	var v_after Value
+	var v_auth Value
+	var v_delay Value
+	var v_has_after Value
+	var v_has_status Value
+	var v_header Value
+	var v_is_401 Value
+	var v_is_403 Value
+	var v_is_network Value
+	var v_listed Value
+	var v_max_delay Value
+	var v_max_retries Value
+	var v_negative Value
+	var v_network Value
+	var v_network_delay Value
+	var v_none Value
+	var v_not_listed Value
+	var v_spent Value
+	var v_status Value
+	var v_within Value
+	if len(args) > 0 { v_config = args[0] }
+	_ = v_config
+	if len(args) > 1 { v_attempt = args[1] }
+	_ = v_attempt
+	if len(args) > 2 { v_failure = args[2] }
+	_ = v_failure
+	if len(args) > 3 { v_now_ms = args[3] }
+	_ = v_now_ms
+	if len(args) > 4 { v_random = args[4] }
+	_ = v_random
+	_ = v_after
+	_ = v_auth
+	_ = v_delay
+	_ = v_has_after
+	_ = v_has_status
+	_ = v_header
+	_ = v_is_401
+	_ = v_is_403
+	_ = v_is_network
+	_ = v_listed
+	_ = v_max_delay
+	_ = v_max_retries
+	_ = v_negative
+	_ = v_network
+	_ = v_network_delay
+	_ = v_none
+	_ = v_not_listed
+	_ = v_spent
+	_ = v_status
+	_ = v_within
+	v_none = _core_none()
+	v_max_retries = coreGet(v_config, "max_retries", 3)
+	v_spent = _core_gte(v_attempt, v_max_retries)
+	if coreTruthy(v_spent) {
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_status = coreGet(v_failure, "status", nil)
+	v_has_status = _core_is_not_none(v_status)
+	if coreTruthy(v_has_status) {
+		v_is_401 = _core_eq(v_status, 401)
+		v_is_403 = _core_eq(v_status, 403)
+		v_auth = _core_or(v_is_401, v_is_403)
+		if coreTruthy(v_auth) {
+			return v_none, nil
+		} else {
+		// empty
+		}
+		{ v, err := retry_status_listed(v_config, v_status); if err != nil { return nil, err }; v_listed = v }
+		v_not_listed = _core_not(v_listed)
+		if coreTruthy(v_not_listed) {
+			return v_none, nil
+		} else {
+		// empty
+		}
+		{ v, err := retry_backoff_ms(v_config, v_attempt, v_random); if err != nil { return nil, err }; v_delay = v }
+		v_header = coreGet(v_failure, "retry_after", nil)
+		{ v, err := retry_after_ms(v_header, v_now_ms); if err != nil { return nil, err }; v_after = v }
+		v_has_after = _core_is_not_none(v_after)
+		if coreTruthy(v_has_after) {
+			v_max_delay = coreGet(v_config, "max_delay_ms", 60000)
+			v_within = _core_lte(v_after, v_max_delay)
+			if coreTruthy(v_within) {
+				v_delay = v_after
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_negative = _core_lt(v_delay, 0)
+		if coreTruthy(v_negative) {
+			return 0, nil
+		} else {
+		// empty
+		}
+		return v_delay, nil
+	} else {
+	// empty
+	}
+	v_network = coreGet(v_failure, "network", false)
+	v_is_network = _core_truthy(v_network)
+	if coreTruthy(v_is_network) {
+		{ v, err := retry_backoff_ms(v_config, v_attempt, v_random); if err != nil { return nil, err }; v_network_delay = v }
+		return v_network_delay, nil
+	} else {
+	// empty
+	}
+	return v_none, nil
 }
 
 func chat_session_mode_enabled(args ...Value) (Value, error) {
@@ -94917,6 +95638,9 @@ type Transport interface {
 type AxHTTPStreamResponse struct {
 	Status int
 	Body   io.ReadCloser
+	// Headers holds response headers the client reads, such as Retry-After on
+	// a status response. It may be nil.
+	Headers map[string]string
 }
 
 type StreamingTransport interface {
@@ -94941,6 +95665,11 @@ func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, err
 	}
 	out := t.Responses[0]
 	t.Responses = t.Responses[1:]
+	// {"network_error": message} stands for a request that failed to connect,
+	// send or read, as the HTTP client reports it.
+	if message := coreGet(out, "network_error", nil); message != nil {
+		return nil, errors.New(display(message))
+	}
 	return out, nil
 }
 
@@ -95135,6 +95864,127 @@ func chatTransportError(ctx context.Context, err error, call Value, options map[
 	return ended
 }
 
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources.
+var (
+	requestRetrySleepHook  func(ms float64)
+	requestRetryRandomHook func() float64
+	requestRetryNowHook    func() float64
+)
+
+// requestRetryFailure is TS apiCall's view of a failed request: its HTTP
+// status (with its Retry-After) or a network failure. Anything else is nil and
+// is not retried.
+func requestRetryFailure(err error, retryAfter string) Value {
+	typed, ok := AsAxError(err)
+	if !ok || typed.Type == "AxAIServiceAuthenticationError" || typed.Type == "AxAIServiceAbortedError" {
+		return nil
+	}
+	if typed.Status > 0 {
+		failure := Object("status", float64(typed.Status))
+		if retryAfter != "" {
+			coreSet(failure, "retry_after", retryAfter)
+		}
+		return failure
+	}
+	if typed.Type == "AxAIServiceNetworkError" {
+		return Object("network", true)
+	}
+	return nil
+}
+
+// retryWait is requestRetryWait for the Typesafe client.
+func (c *OpenAICompatibleClient) retryWait(ctx context.Context, config Value, attempt int, err error, retryAfter string) (bool, error) {
+	return requestRetryWait(ctx, config, attempt, err, retryAfter)
+}
+
+// requestRetryWait waits before the failed request goes out again, as TS
+// apiCall does, and reports whether it does.
+func requestRetryWait(ctx context.Context, config Value, attempt int, err error, retryAfter string) (bool, error) {
+	failure := requestRetryFailure(err, retryAfter)
+	if failure == nil {
+		return false, nil
+	}
+	now := float64(time.Now().UnixMilli())
+	if requestRetryNowHook != nil {
+		now = requestRetryNowHook()
+	}
+	random := rand.Float64()
+	if requestRetryRandomHook != nil {
+		random = requestRetryRandomHook()
+	}
+	delay := mustCore(request_retry_delay(config, float64(attempt), failure, now, random))
+	if delay == nil {
+		return false, nil
+	}
+	return true, requestRetrySleep(ctx, num(delay))
+}
+
+func requestRetrySleep(ctx context.Context, ms float64) error {
+	if requestRetrySleepHook != nil {
+		if err := contextCancellationError(ctx); err != nil {
+			return err
+		}
+		requestRetrySleepHook(ms)
+		return nil
+	}
+	return waitStreamRetry(ctx, ms)
+}
+
+// transportRetryAfter is a transport result's Retry-After header.
+func transportRetryAfter(raw Value) string {
+	headers := asMap(coreGet(raw, "headers", Object()))
+	for _, key := range orderedKeys(headers) {
+		if strings.EqualFold(key, "Retry-After") {
+			return display(headers[key])
+		}
+	}
+	return ""
+}
+
+// transportCallOnce sends one request and returns the provider's body, or the
+// error and the status response's Retry-After.
+func (c *OpenAICompatibleClient) transportCallOnce(ctx context.Context, call Value, options map[string]Value) (Value, string, error) {
+	raw, err := c.Transport.Call(ctx, call)
+	if err != nil {
+		return nil, "", chatTransportError(ctx, err, call, options)
+	}
+	body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
+	if statusErr != nil {
+		return nil, transportRetryAfter(raw), statusErr
+	}
+	return body, "", nil
+}
+
+// retriedTransportCall is TS apiCall's request-layer retry around one
+// request: a listed status or a network failure goes out again after its
+// jittered backoff (or its Retry-After), under the call's retry options, else
+// the client's. Each retry rebuilds the request, as apiCall resolves its
+// headers again; a nil rebuild sends the same request.
+func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first Value, rebuild func() Value, options map[string]Value) (Value, error) {
+	config := mustCore(resolve_stream_retry(Value(options)))
+	call := first
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 && rebuild != nil {
+			call = rebuild()
+		}
+		body, retryAfter, err := c.transportCallOnce(ctx, call, options)
+		if err == nil {
+			return body, nil
+		}
+		if ctx.Err() != nil {
+			return nil, normalizeContextError(ctx, err)
+		}
+		retry, waitErr := requestRetryWait(ctx, config, attempt, err, retryAfter)
+		if waitErr != nil {
+			return nil, waitErr
+		}
+		if !retry {
+			return nil, err
+		}
+	}
+}
+
 // warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
 // ignores it until the next major version and warns once, naming timeoutMs.
 func warnCallTimeout(options map[string]Value) {
@@ -95183,6 +96033,9 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 		return nil, normalizeContextError(ctx, err)
 	}
 	out := Object("status", float64(resp.StatusCode))
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" && resp.StatusCode >= 400 {
+		coreSet(out, "headers", Object("Retry-After", retryAfter))
+	}
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
 		// be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
@@ -95236,10 +96089,14 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 		}
 		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
-	if timer == nil {
-		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	var headers map[string]string
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+		headers = map[string]string{"Retry-After": retryAfter}
 	}
-	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}}, nil
+	if timer == nil {
+		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body, Headers: headers}, nil
+	}
+	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}, Headers: headers}, nil
 }
 
 // TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
@@ -95304,29 +96161,46 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
     opts := mergeAIOptions(c.client.optionsSnapshot(), options)
-    parent := ctx
     timeout := num(coreGet(opts, "timeout", 0))
-    if timeout > 0 { var cancel context.CancelFunc; ctx,cancel=context.WithTimeout(ctx,time.Duration(timeout*float64(time.Second)));defer cancel() }
-    retries,initial,maxDelay,factor := streamRetryParams(opts)
-    for attempt:=0;;attempt++ {
-        if err:=ctx.Err();err!=nil{return nil,normalizeContextError(ctx,err)}
-        result,err:=safeValue(func() Value {
-            call:=c.client.requestJSON(ctx,operation,Object(),false,opts,payload)
-            raw,err:=c.client.Transport.Call(ctx,call)
-            if err!=nil {
-                // The client's own timeout, not the caller's deadline, ended it.
-                if timeout > 0 && parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-                    panic(clientTimeoutError(timeout, err, call, opts))
-                }
-                panic(chatTransportError(ctx, err, call, opts))
-            }
-            return normalizeTransportPayload(raw, call, opts)
-        })
-        if err==nil{return result,nil}
-        // As in TS apiCall, a timeout is not retried here.
-        if !IsRetryable(err)||isTransportTimeout(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
-        if err=waitStreamRetry(ctx,math.Min(initial*math.Pow(factor,float64(attempt)),maxDelay));err!=nil{return nil,err}
+    config := mustCore(resolve_stream_retry(Value(opts)))
+    for attempt := 0; ; attempt++ {
+        if err := ctx.Err(); err != nil { return nil, normalizeContextError(ctx, err) }
+        result, retryAfter, err := c.requestOnce(ctx, operation, payload, opts, timeout)
+        if err == nil { return result, nil }
+        if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+        // TS apiCall's request-layer retry: a listed status or a network
+        // failure, never a timeout the request ran out of.
+        retry, waitErr := c.client.retryWait(ctx, config, attempt, err, retryAfter)
+        if waitErr != nil { return nil, waitErr }
+        if !retry { return nil, err }
     }
+}
+
+// requestOnce sends one request under the client's timeout (seconds), which
+// TS arms for each attempt, and returns the body, or the error and the status
+// response's Retry-After.
+func (c *AxAITypesafeClient) requestOnce(ctx context.Context, operation string, payload map[string]Value, opts map[string]Value, timeout float64) (Value, string, error) {
+    attemptCtx := ctx
+    if timeout > 0 {
+        var cancel context.CancelFunc
+        attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeout*float64(time.Second)))
+        defer cancel()
+    }
+    var call Value
+    if _, buildErr := safeValue(func() Value { call = c.client.requestJSON(attemptCtx, operation, Object(), false, opts, payload); return nil }); buildErr != nil {
+        return nil, "", buildErr
+    }
+    raw, err := c.client.Transport.Call(attemptCtx, call)
+    if err != nil {
+        // The client's own timeout, not the caller's deadline, ended it.
+        if timeout > 0 && ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+            return nil, "", clientTimeoutError(timeout, err, call, opts)
+        }
+        return nil, "", chatTransportError(ctx, err, call, opts)
+    }
+    body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, opts) })
+    if statusErr != nil { return nil, transportRetryAfter(raw), statusErr }
+    return body, "", nil
 }
 
 type OpenAICompatibleClient struct {
@@ -95622,11 +96496,10 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
                 return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 			}
-			raw, err := c.Transport.Call(ctx, transportReq)
+			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "chat", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
-				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
+				panic(err)
 			}
-			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 		})
 	}
@@ -95673,12 +96546,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	payload := cloneMap(asMap(coreGet(fullCall, "json", Object())))
 	explicit := display(coreGet(cfg, "name", coreGet(cfg, "cacheName", coreGet(cfg, "cache_name", ""))))
 	tryCall := func(call Value) (Value, error) {
-		raw, err := c.Transport.Call(ctx, call)
-		if err != nil {
-			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, transportCallError(err, call, options)
-		}
-		return safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
+		return c.retriedTransportCall(ctx, call, nil, options)
 	}
 	if explicit != "" {
 		coreSet(payload, "cachedContent", explicit)
@@ -95878,11 +96746,11 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
 			c.setLastEmbed(model)
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
-			raw, err := c.Transport.Call(ctx, transportReq)
+			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "embed", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
-				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
+				panic(err)
 			}
-			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
+			return mustCore(provider_normalize_embed_response(c.Profile, body, c.Name, model))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
@@ -95926,20 +96794,33 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 }
 
 func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, error) {
+	stream, _, err := c.openProviderStreamOnce(ctx, request, errorOptions)
+	return stream, err
+}
+
+// openProviderStreamOnce opens the stream once, and on a status response also
+// returns its Retry-After.
+func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, string, error) {
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
-			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, transportCallError(err, request, errorOptions)
+			if ctx.Err() != nil { return nil, "", normalizeContextError(ctx, err) }
+			return nil, "", transportCallError(err, request, errorOptions)
 		}
 		if response.Body == nil {
-			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
+			return nil, "", AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
 		}
 		if response.Status >= 400 {
+			retryAfter := ""
+			for key, value := range response.Headers {
+				if strings.EqualFold(key, "Retry-After") {
+					retryAfter = value
+				}
+			}
 			data, readErr := io.ReadAll(response.Body)
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, providerNetworkError(readErr, request, errorOptions)
+				return nil, "", providerNetworkError(readErr, request, errorOptions)
 			}
 			// A JSON error body is parsed so the error carries the provider's
 			// message, as the chat path's does; anything else stays text.
@@ -95951,27 +96832,27 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 				return normalizeTransportPayload(Object("status", float64(response.Status), "json", body), request, errorOptions)
 			})
 			if normalizedErr != nil {
-				return nil, normalizedErr
+				return nil, retryAfter, normalizedErr
 			}
-			return nil, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
+			return nil, retryAfter, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
 		}
-		return newSSEJSONStream(response.Body, response.Body), nil
+		return newSSEJSONStream(response.Body, response.Body), "", nil
 	}
 
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
-		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-		return nil, transportCallError(err, request, errorOptions)
+		if ctx.Err() != nil { return nil, "", normalizeContextError(ctx, err) }
+		return nil, "", transportCallError(err, request, errorOptions)
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw, request, errorOptions) })
 	if normalizedErr != nil {
-		return nil, normalizedErr
+		return nil, transportRetryAfter(raw), normalizedErr
 	}
 	switch body.(type) {
 	case []any, *AxArray:
-		return &sliceProviderStream{values: asSlice(body)}, nil
+		return &sliceProviderStream{values: asSlice(body)}, "", nil
 	default:
-		return newSSEJSONStream(strings.NewReader(display(body)), nil), nil
+		return newSSEJSONStream(strings.NewReader(display(body)), nil), "", nil
 	}
 }
 
@@ -96029,35 +96910,38 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 			model := coreGet(req, "model", coreGet(opts, "model", nil))
 			config := coreGet(req, "model_config", Object())
 			c.setLastChat(model, config)
+			retryConfig := mustCore(resolve_stream_retry(Value(mergedOptions)))
 			maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
-			attempt := 0
+			startAttempt := 0
 			for {
-				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
-				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
-				if err != nil {
-					// As in TS apiCall, a timeout is not retried here.
-					if IsRetryable(err) && !isTransportTimeout(err) && attempt < maxRetries {
-						attempt++
-						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
-							panic(waitErr)
-						}
-						continue
+				// The stream's request goes through apiCall's request-layer
+				// retry; its first event is read once, as TS reads it after
+				// apiCall returns, and a failure to read it surfaces.
+				var raw rawProviderStream
+				var transportReq Value
+				for openAttempt := 0; ; openAttempt++ {
+					transportReq = c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
+					opened, retryAfter, err := c.openProviderStreamOnce(ctx, transportReq, mergedOptions)
+					if err == nil {
+						raw = opened
+						break
 					}
-					panic(err)
+					if ctx.Err() != nil {
+						panic(normalizeContextError(ctx, err))
+					}
+					retry, waitErr := requestRetryWait(ctx, retryConfig, openAttempt, err, retryAfter)
+					if waitErr != nil {
+						panic(waitErr)
+					}
+					if !retry {
+						panic(err)
+					}
 				}
 				firstRaw, firstErr := raw.Next()
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
 					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
-					wrapped := providerNetworkError(firstErr, transportReq, mergedOptions)
-					if attempt < maxRetries {
-						attempt++
-						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
-							panic(waitErr)
-						}
-						continue
-					}
-					panic(wrapped)
+					panic(transportCallError(firstErr, transportReq, mergedOptions))
 				}
 				if errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
@@ -96070,19 +96954,22 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 					_ = raw.Close()
 					panic(classifyErr)
 				}
+				// TS retryTransientStreamStart: a first event that carries a
+				// listed status (Anthropic's overloaded_error) goes out again,
+				// with its own budget and without jitter.
 				retryableStatus := false
 				if status != nil {
-					value, statusErr := safeValue(func() Value { return mustCore(is_retryable_status(status)) })
+					value, statusErr := safeValue(func() Value { return mustCore(retry_status_listed(retryConfig, status)) })
 					if statusErr != nil {
 						_ = raw.Close()
 						panic(statusErr)
 					}
 					retryableStatus = coreTruthy(value)
 				}
-				if retryableStatus && attempt < maxRetries {
+				if retryableStatus && startAttempt < maxRetries {
 					_ = raw.Close()
-					attempt++
-					if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
+					startAttempt++
+					if waitErr := requestRetrySleep(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, startAttempt)); waitErr != nil {
 						panic(waitErr)
 					}
 					continue
@@ -104003,12 +104890,39 @@ func RunConformanceFixture(fixture Value) error {
 	if ConformanceSkipReason(fixture) != "" {
 		return nil
 	}
+	// The request-layer retry records its delays instead of waiting, and a
+	// fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+	// pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+	// checks that a cancellation ends the wait, so it waits for real.
+	delays := []float64{}
+	if display(coreGet(fixture, "kind", "")) != "ai_cancellation" {
+		requestRetrySleepHook = func(ms float64) { delays = append(delays, ms) }
+	}
+	if random := coreGet(fixture, "retry_random", nil); random != nil {
+		requestRetryRandomHook = func() float64 { return num(random) }
+	}
+	if now := coreGet(fixture, "retry_now_ms", nil); now != nil {
+		requestRetryNowHook = func() float64 { return num(now) }
+	}
+	defer func() {
+		requestRetrySleepHook, requestRetryRandomHook, requestRetryNowHook = nil, nil, nil
+	}()
 	_, err := safeValue(func() Value {
 		runConformanceFixture(asMap(fixture))
 		return nil
 	})
 	if err != nil {
 		return FixtureError{Message: display(coreGet(fixture, "name", "fixture")) + ": " + err.Error()}
+	}
+	if expected := coreGet(fixture, "expected_retry_delays_ms", nil); expected != nil {
+		want := asSlice(expected)
+		matches := len(want) == len(delays)
+		for index := 0; matches && index < len(want); index++ {
+			matches = math.Abs(num(want[index])-delays[index]) <= 1e-6
+		}
+		if !matches {
+			return FixtureError{Message: fmt.Sprintf("%s: retry delays: expected %v, got %v", display(coreGet(fixture, "name", "fixture")), stableStringify(expected), delays)}
+		}
 	}
 	return nil
 }

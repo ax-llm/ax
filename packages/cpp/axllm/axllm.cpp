@@ -553,6 +553,12 @@ void HttpTransport::stream_cancellable(Value request, AxTransportStreamHandler h
   stream_impl(std::move(request), std::move(handler), nullptr, std::move(cancelled));
 }
 
+// The last request's Retry-After on a status response, and whether its
+// response had begun when the transfer failed. TS reads a stream's body after
+// apiCall returns, so a failure after the response began is not retried.
+thread_local std::string ax_transport_retry_after;
+thread_local bool ax_transport_response_started = false;
+
 #if defined(AXLLM_ENABLE_CURL)
 static CURLcode ax_curl_perform(CURL* curl,const std::function<bool()>& cancelled);
 
@@ -655,6 +661,23 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
     }
   });
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+  std::string retry_after;
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+    std::string line(ptr, size * nmemb);
+    auto colon = line.find(':');
+    if (colon != std::string::npos) {
+      std::string name = line.substr(0, colon);
+      for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (name == "retry-after") {
+        std::string value = line.substr(colon + 1);
+        auto begin = value.find_first_not_of(" \t");
+        auto end = value.find_last_not_of(" \t\r\n");
+        *static_cast<std::string*>(userdata) = begin == std::string::npos ? std::string() : value.substr(begin, end - begin + 1);
+      }
+    }
+    return size * nmemb;
+  });
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_after);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {auto* context=static_cast<StreamContext*>(userdata);return (context->cancellation&&context->cancellation->is_cancelled()) || (context->session_cancelled&&context->session_cancelled->load())?1:0;});
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &context);
@@ -673,6 +696,8 @@ void HttpTransport::stream_impl(Value request, AxTransportStreamHandler handler,
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
+  ax_transport_retry_after = status >= 400 ? retry_after : std::string();
+  ax_transport_response_started = status >= 200 && status < 400;
   if (context.exception) std::rethrow_exception(context.exception);
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   // Returning false is the transport seam's normal cancellation signal. libcurl
@@ -836,6 +861,7 @@ Value HttpTransport::call_impl(Value request,const AxCancellationToken* cancella
   if (cancellation && cancellation->is_cancelled()) throw AxAIServiceAbortedError(cancellation->reason());
   if(cancelled&&cancelled())throw AxAIServiceAbortedError("MCP invocation cancelled");
   if (deadline.timed_out) throw ax_call_timeout_error(Core::get(request, "timeout_ms"));
+  ax_transport_response_started = rc != CURLE_OK && status >= 200 && status < 400;
 
   if (rc != CURLE_OK) {
     std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
@@ -12409,6 +12435,15 @@ Value Core::default_retry_config() {
   Core::set(config, Value("initial_delay_ms"), Value(1000));
   Core::set(config, Value("max_delay_ms"), Value(60000));
   Core::set(config, Value("backoff_factor"), Value(2));
+  Value codes = Value::array();
+  Core::append(codes, Value(500));
+  Core::append(codes, Value(408));
+  Core::append(codes, Value(429));
+  Core::append(codes, Value(502));
+  Core::append(codes, Value(503));
+  Core::append(codes, Value(504));
+  Core::append(codes, Value(529));
+  Core::set(config, Value("retryable_status_codes"), codes);
   return config;
 }
 
@@ -12439,11 +12474,14 @@ Value Core::resolve_stream_retry(Value options) {
   Value initial = Core::retry_opt_value(retry, Value("initialDelayMs"), Value("initial_delay_ms"), def_initial);
   Value max_delay = Core::retry_opt_value(retry, Value("maxDelayMs"), Value("max_delay_ms"), def_max_delay);
   Value backoff = Core::retry_opt_value(retry, Value("backoffFactor"), Value("backoff_factor"), def_backoff);
+  Value def_codes = Core::get(cfg, Value("retryable_status_codes"), Value());
+  Value codes = Core::retry_opt_value(retry, Value("retryableStatusCodes"), Value("retryable_status_codes"), def_codes);
   Value out = Value::object();
   Core::set(out, Value("max_retries"), max_retries);
   Core::set(out, Value("initial_delay_ms"), initial);
   Core::set(out, Value("max_delay_ms"), max_delay);
   Core::set(out, Value("backoff_factor"), backoff);
+  Core::set(out, Value("retryable_status_codes"), codes);
   return out;
 }
 
@@ -18252,6 +18290,321 @@ Value Core::_ai_error_request(Value request, Value options) {
     }
   }
   return view;
+}
+
+Value Core::retry_status_listed(Value config, Value status) {
+  axir_coverage_mark("retry_status_listed");
+  Value codes = Core::get(config, Value("retryable_status_codes"), Value());
+  Value no_codes = Core::is_none(codes);
+  if (Core::truthy(no_codes)) {
+    Value defaults = Core::default_retry_config();
+    codes = Core::get(defaults, Value("retryable_status_codes"), Value());
+  }
+  for (auto code : Core::iter(codes)) {
+    Value same = Core::eq(code, status);
+    if (Core::truthy(same)) {
+      return Value(true);
+    }
+  }
+  return Value(false);
+}
+
+Value Core::retry_backoff_ms(Value config, Value attempt, Value random) {
+  axir_coverage_mark("retry_backoff_ms");
+  Value initial = Core::get(config, Value("initial_delay_ms"), Value(1000));
+  Value max_delay = Core::get(config, Value("max_delay_ms"), Value(60000));
+  Value factor = Core::get(config, Value("backoff_factor"), Value(2));
+  Value scale = Core::math_pow(factor, attempt);
+  Value base = Core::mul(initial, scale);
+  Value capped = Core::gt(base, max_delay);
+  if (Core::truthy(capped)) {
+    base = max_delay;
+  }
+  Value spread = Core::mul(random, Value(0.5));
+  Value jitter = Core::add(spread, Value(0.75));
+  Value delay = Core::mul(base, jitter);
+  return delay;
+}
+
+Value Core::_retry_digits_value(Value text) {
+  axir_coverage_mark("_retry_digits_value");
+  Value none = Core::none();
+  Value count = Core::len(text);
+  Value empty = Core::eq(count, Value(0));
+  if (Core::truthy(empty)) {
+    return none;
+  }
+  Value digits = Value::object();
+  Core::set(digits, Value("0"), Value(0));
+  Core::set(digits, Value("1"), Value(1));
+  Core::set(digits, Value("2"), Value(2));
+  Core::set(digits, Value("3"), Value(3));
+  Core::set(digits, Value("4"), Value(4));
+  Core::set(digits, Value("5"), Value(5));
+  Core::set(digits, Value("6"), Value(6));
+  Core::set(digits, Value("7"), Value(7));
+  Core::set(digits, Value("8"), Value(8));
+  Core::set(digits, Value("9"), Value(9));
+  Value total = Value(0);
+  Value cursor = Value(0);
+  while (true) {
+    Value done = Core::gte(cursor, count);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value next = Core::add(cursor, Value(1));
+    Value ch = Core::string_slice(text, cursor, next);
+    Value digit = Core::get(digits, ch, Value());
+    Value not_digit = Core::is_none(digit);
+    if (Core::truthy(not_digit)) {
+      return none;
+    }
+    Value scaled = Core::mul(total, Value(10));
+    total = Core::add(scaled, digit);
+    cursor = next;
+  }
+  return total;
+}
+
+Value Core::_retry_after_seconds(Value text) {
+  axir_coverage_mark("_retry_after_seconds");
+  Value none = Core::none();
+  Value trimmed = Core::string_trim(text);
+  Value blank = Core::eq(trimmed, Value(""));
+  if (Core::truthy(blank)) {
+    return Value(0);
+  }
+  Value decimal = Core::regex_match(Value("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"), trimmed);
+  Value not_decimal = Core::not_(decimal);
+  if (Core::truthy(not_decimal)) {
+    return none;
+  }
+  Value sign = Value("");
+  Value body = trimmed;
+  Value plus = Core::string_starts_with(body, Value("+"));
+  if (Core::truthy(plus)) {
+    body = Core::string_slice(body, Value(1));
+  }
+  Value minus = Core::string_starts_with(body, Value("-"));
+  if (Core::truthy(minus)) {
+    sign = Value("-");
+    body = Core::string_slice(body, Value(1));
+  }
+  Value lower = Core::string_lower(body);
+  Value exponent = Value("");
+  Value exponent_split = Core::string_split_once(lower, Value("e"));
+  Value has_exponent = Core::get(exponent_split, Value("found"), Value(false));
+  if (Core::truthy(has_exponent)) {
+    Value exponent_digits = Core::get(exponent_split, Value("right"), Value());
+    exponent = Core::string_format(Value("e{}"), exponent_digits);
+    lower = Core::get(exponent_split, Value("left"), Value());
+  }
+  Value whole = lower;
+  Value fraction = Value("");
+  Value point_split = Core::string_split_once(lower, Value("."));
+  Value has_point = Core::get(point_split, Value("found"), Value(false));
+  if (Core::truthy(has_point)) {
+    whole = Core::get(point_split, Value("left"), Value());
+    fraction = Core::get(point_split, Value("right"), Value());
+  }
+  while (true) {
+    Value whole_length = Core::len(whole);
+    Value many_digits = Core::gt(whole_length, Value(1));
+    Value leading_zero = Core::string_starts_with(whole, Value("0"));
+    Value strip = Core::and_(many_digits, leading_zero);
+    Value keep = Core::not_(strip);
+    if (Core::truthy(keep)) {
+      break;
+    }
+    whole = Core::string_slice(whole, Value(1));
+  }
+  Value no_whole = Core::eq(whole, Value(""));
+  if (Core::truthy(no_whole)) {
+    whole = Value("0");
+  }
+  Value literal = Core::string_format(Value("{}{}"), sign, whole);
+  Value fraction_length = Core::len(fraction);
+  Value has_fraction = Core::gt(fraction_length, Value(0));
+  if (Core::truthy(has_fraction)) {
+    literal = Core::string_format(Value("{}.{}"), literal, fraction);
+  }
+  literal = Core::string_format(Value("{}{}"), literal, exponent);
+  Value value = Core::json_parse(literal);
+  return value;
+}
+
+Value Core::_retry_days_from_civil(Value year, Value month, Value day) {
+  axir_coverage_mark("_retry_days_from_civil");
+  Value year_of_era = year;
+  Value early = Core::lte(month, Value(2));
+  if (Core::truthy(early)) {
+    year_of_era = Core::add(year, Value(-1));
+  }
+  Value era_ratio = Core::div(year_of_era, Value(400));
+  Value era = Core::math_floor(era_ratio);
+  Value era_years = Core::mul(era, Value(-400));
+  Value yoe = Core::add(year_of_era, era_years);
+  Value shifted = Core::add(month, Value(9));
+  Value month_ratio = Core::div(shifted, Value(12));
+  Value month_wraps = Core::math_floor(month_ratio);
+  month_wraps = Core::mul(month_wraps, Value(-12));
+  Value month_index = Core::add(shifted, month_wraps);
+  Value month_days = Core::mul(month_index, Value(153));
+  month_days = Core::add(month_days, Value(2));
+  Value month_days_ratio = Core::div(month_days, Value(5));
+  month_days = Core::math_floor(month_days_ratio);
+  Value doy = Core::add(month_days, day);
+  doy = Core::add(doy, Value(-1));
+  Value doe = Core::mul(yoe, Value(365));
+  Value leap4_ratio = Core::div(yoe, Value(4));
+  Value leap4 = Core::math_floor(leap4_ratio);
+  Value leap100_ratio = Core::div(yoe, Value(100));
+  Value leap100 = Core::math_floor(leap100_ratio);
+  doe = Core::add(doe, leap4);
+  Value leap100_negated = Core::mul(leap100, Value(-1));
+  doe = Core::add(doe, leap100_negated);
+  doe = Core::add(doe, doy);
+  Value days = Core::mul(era, Value(146097));
+  days = Core::add(days, doe);
+  days = Core::add(days, Value(-719468));
+  return days;
+}
+
+Value Core::_retry_http_date_ms(Value text) {
+  axir_coverage_mark("_retry_http_date_ms");
+  Value none = Core::none();
+  Value trimmed = Core::string_trim(text);
+  Value fixdate = Core::regex_match(Value("^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$"), trimmed);
+  Value not_fixdate = Core::not_(fixdate);
+  if (Core::truthy(not_fixdate)) {
+    return none;
+  }
+  Value day_text = Core::string_slice(trimmed, Value(5), Value(7));
+  Value month_text = Core::string_slice(trimmed, Value(8), Value(11));
+  Value year_text = Core::string_slice(trimmed, Value(12), Value(16));
+  Value hour_text = Core::string_slice(trimmed, Value(17), Value(19));
+  Value minute_text = Core::string_slice(trimmed, Value(20), Value(22));
+  Value second_text = Core::string_slice(trimmed, Value(23), Value(25));
+  Value day = Core::_retry_digits_value(day_text);
+  Value year = Core::_retry_digits_value(year_text);
+  Value hour = Core::_retry_digits_value(hour_text);
+  Value minute = Core::_retry_digits_value(minute_text);
+  Value second = Core::_retry_digits_value(second_text);
+  Value months = Value::object();
+  Core::set(months, Value("Jan"), Value(1));
+  Core::set(months, Value("Feb"), Value(2));
+  Core::set(months, Value("Mar"), Value(3));
+  Core::set(months, Value("Apr"), Value(4));
+  Core::set(months, Value("May"), Value(5));
+  Core::set(months, Value("Jun"), Value(6));
+  Core::set(months, Value("Jul"), Value(7));
+  Core::set(months, Value("Aug"), Value(8));
+  Core::set(months, Value("Sep"), Value(9));
+  Core::set(months, Value("Oct"), Value(10));
+  Core::set(months, Value("Nov"), Value(11));
+  Core::set(months, Value("Dec"), Value(12));
+  Value month = Core::get(months, month_text, Value());
+  Value day_low = Core::lt(day, Value(1));
+  Value day_high = Core::gt(day, Value(31));
+  Value hour_high = Core::gt(hour, Value(23));
+  Value minute_high = Core::gt(minute, Value(59));
+  Value second_high = Core::gt(second, Value(59));
+  Value bad_day = Core::or_(day_low, day_high);
+  Value bad_clock = Core::or_(hour_high, minute_high);
+  bad_clock = Core::or_(bad_clock, second_high);
+  Value bad = Core::or_(bad_day, bad_clock);
+  if (Core::truthy(bad)) {
+    return none;
+  }
+  Value days = Core::_retry_days_from_civil(year, month, day);
+  Value millis = Core::mul(days, Value(86400000));
+  Value hour_ms = Core::mul(hour, Value(3600000));
+  Value minute_ms = Core::mul(minute, Value(60000));
+  Value second_ms = Core::mul(second, Value(1000));
+  millis = Core::add(millis, hour_ms);
+  millis = Core::add(millis, minute_ms);
+  millis = Core::add(millis, second_ms);
+  return millis;
+}
+
+Value Core::retry_after_ms(Value header, Value now_ms) {
+  axir_coverage_mark("retry_after_ms");
+  Value none = Core::none();
+  Value is_string = Core::type_is(header, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
+    return none;
+  }
+  Value empty = Core::eq(header, Value(""));
+  if (Core::truthy(empty)) {
+    return none;
+  }
+  Value seconds = Core::_retry_after_seconds(header);
+  Value has_seconds = Core::is_not_none(seconds);
+  if (Core::truthy(has_seconds)) {
+    Value seconds_ms = Core::mul(seconds, Value(1000));
+    return seconds_ms;
+  }
+  Value date_ms = Core::_retry_http_date_ms(header);
+  Value has_date = Core::is_not_none(date_ms);
+  if (Core::truthy(has_date)) {
+    Value negative_now = Core::mul(now_ms, Value(-1));
+    Value wait = Core::add(date_ms, negative_now);
+    Value past = Core::lt(wait, Value(0));
+    if (Core::truthy(past)) {
+      return Value(0);
+    }
+    return wait;
+  }
+  return none;
+}
+
+Value Core::request_retry_delay(Value config, Value attempt, Value failure, Value now_ms, Value random) {
+  axir_coverage_mark("request_retry_delay");
+  Value none = Core::none();
+  Value max_retries = Core::get(config, Value("max_retries"), Value(3));
+  Value spent = Core::gte(attempt, max_retries);
+  if (Core::truthy(spent)) {
+    return none;
+  }
+  Value status = Core::get(failure, Value("status"), Value());
+  Value has_status = Core::is_not_none(status);
+  if (Core::truthy(has_status)) {
+    Value is_401 = Core::eq(status, Value(401));
+    Value is_403 = Core::eq(status, Value(403));
+    Value auth = Core::or_(is_401, is_403);
+    if (Core::truthy(auth)) {
+      return none;
+    }
+    Value listed = Core::retry_status_listed(config, status);
+    Value not_listed = Core::not_(listed);
+    if (Core::truthy(not_listed)) {
+      return none;
+    }
+    Value delay = Core::retry_backoff_ms(config, attempt, random);
+    Value header = Core::get(failure, Value("retry_after"), Value());
+    Value after = Core::retry_after_ms(header, now_ms);
+    Value has_after = Core::is_not_none(after);
+    if (Core::truthy(has_after)) {
+      Value max_delay = Core::get(config, Value("max_delay_ms"), Value(60000));
+      Value within = Core::lte(after, max_delay);
+      if (Core::truthy(within)) {
+        delay = after;
+      }
+    }
+    Value negative = Core::lt(delay, Value(0));
+    if (Core::truthy(negative)) {
+      return Value(0);
+    }
+    return delay;
+  }
+  Value network = Core::get(failure, Value("network"), Value(false));
+  Value is_network = Core::truthy_value(network);
+  if (Core::truthy(is_network)) {
+    Value network_delay = Core::retry_backoff_ms(config, attempt, random);
+    return network_delay;
+  }
+  return none;
 }
 
 Value Core::chat_session_mode_enabled(Value options) {
@@ -48182,6 +48535,55 @@ static void attach_error_request(AxError& error, const Value& call, const Value&
   error.request_body = Core::get(view, "json", Core::get(view, "data"));
 }
 
+static std::function<void(double)> ax_request_retry_sleep_hook;
+static std::function<double()> ax_request_retry_random_hook;
+static std::function<double()> ax_request_retry_now_hook;
+
+void set_request_retry_hooks(std::function<void(double)> sleep, std::function<double()> random, std::function<double()> now_ms) {
+  ax_request_retry_sleep_hook = std::move(sleep);
+  ax_request_retry_random_hook = std::move(random);
+  ax_request_retry_now_hook = std::move(now_ms);
+}
+
+static void ax_request_retry_sleep(double delay) {
+  auto token = current_cancellation_token();
+  if (ax_request_retry_sleep_hook) {
+    if (token) token->throw_if_cancelled();
+    ax_request_retry_sleep_hook(delay);
+    return;
+  }
+  if (delay <= 0) return;
+  auto duration = std::chrono::milliseconds(static_cast<long>(delay));
+  if (token && token->wait_for(duration)) token->throw_if_cancelled();
+  else if (!token) std::this_thread::sleep_for(duration);
+}
+
+// TS apiCall's view of a failed request: its HTTP status (with its
+// Retry-After) or a network failure. Anything else is null and not retried.
+static Value ax_request_retry_failure(const AxError& error, const std::string& retry_after) {
+  if (error.type == "AxAIServiceAuthenticationError" || error.type == "AxAIServiceAbortedError") return Value();
+  if (error.status > 0) {
+    Value failure = object({{"status", error.status}});
+    if (!retry_after.empty()) Core::set(failure, "retry_after", retry_after);
+    return failure;
+  }
+  if (error.type == "AxAIServiceNetworkError") return object({{"network", true}});
+  return Value();
+}
+
+// Waits before the failed request goes out again, as TS apiCall does, and
+// says whether it does.
+static bool ax_request_retry_wait(const Value& config, int attempt, const AxError& error, const std::string& retry_after) {
+  Value failure = ax_request_retry_failure(error, retry_after);
+  if (failure.is_null()) return false;
+  double now = ax_request_retry_now_hook ? ax_request_retry_now_hook() : static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+  double random = ax_request_retry_random_hook ? ax_request_retry_random_hook() : static_cast<double>(std::rand()) / (static_cast<double>(RAND_MAX) + 1.0);
+  Value delay = Core::request_retry_delay(config, attempt, failure, now, random);
+  if (delay.is_null()) return false;
+  ax_request_retry_sleep(num(delay));
+  return true;
+}
+
 // A transport's untyped network failure, as TS apiCall reports what fetch
 // throws: AxAIServiceNetworkError, "Network Error: " and the transport's text,
 // with the request a provider error keeps and the failure as its cause.
@@ -48200,7 +48602,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   std::string explicit_name = str(Core::get(cfg, "name", Core::get(cfg, "cacheName", Core::get(cfg, "cache_name", ""))));
   if (!explicit_name.empty()) {
     Value cached = payload; Core::set(cached, "cachedContent", explicit_name);
-    return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options);
+    return request_json_retried(endpoint, cached, operation_method("chat"), options);
   }
   Value prompts = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Core::get(request, "messages", Value::array())));
   std::size_t non_system = 0, cached_count = 0;
@@ -48232,7 +48634,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
     std::string endpoint = str(Core::get(op, "path"));
     Value op_base = Core::get(op, "base_url");
     if (!op_base.is_null()) endpoint = strip_trailing_slashes(str(op_base)) + endpoint;
-    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")), options);
+    return request_json_retried(endpoint, Core::get(op, "request", Value::object()), str(Core::get(op, "method", "POST")), options);
   };
   auto create = [&]() {
     try {
@@ -48248,14 +48650,14 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body, options); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
       if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
-    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options); }
+    } catch (const AxError&) { if (!create()) return request_json_retried(endpoint, payload, operation_method("chat"), options); }
   } else if (action == "create") {
-    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
+    if (!create()) return request_json_retried(endpoint, payload, operation_method("chat"), options);
   } else if (action == "none") return Value();
   if (cache_name.empty()) return Value();
   Value cached = payload; object_mut(cached).erase("systemInstruction"); object_mut(cached).erase("tools"); object_mut(cached).erase("toolConfig");
   Value suffix = Value::array(); for (std::size_t i = std::min(cached_count, contents.size()); i < contents.size(); ++i) Core::append(suffix, contents[i]); Core::set(cached, "contents", suffix); Core::set(cached, "cachedContent", cache_name);
-  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat"), options); }
+  try { return request_json_retried(endpoint, cached, operation_method("chat"), options); }
   catch (const AxError& error) {
     if (!Core::truthy(Core::ai_context_cache_rejection(error.status, error.response_body))) throw;
     Value recovery = Core::ai_context_cache_recovery(get_entry(), cache_name, external);
@@ -48263,7 +48665,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
       if (external) context_cache_registry_->set(tenant_namespace, cache_key, Core::get(recovery, "externalEntry", Value::object()));
       else if (Core::truthy(Core::get(recovery, "deleteInMemory", false))) object_mut(context_cache_entries_).erase(cache_key);
     }
-    return request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
+    return request_json_retried(endpoint, payload, operation_method("chat"), options);
   }
 }
 
@@ -48287,16 +48689,15 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
     double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
     double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
     double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
-    int attempt = 0;
+    int start_attempt = 0;
     while (true) {
-      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"), options);
+      Value raw = request_json_retried(operation_path("stream_chat", model), payload, operation_method("stream_chat"), options, true);
       std::vector<Value> events = iter_sse_json(raw);
       if (!events.empty()) {
         Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
-        if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
-          ++attempt;
-          double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-          if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+        if (!status.is_null() && Core::truthy(Core::retry_status_listed(retry_cfg, status)) && start_attempt < max_retries) {
+          ++start_attempt;
+          ax_request_retry_sleep(std::min(initial_delay * std::pow(backoff, start_attempt - 1), max_delay));
           continue;
         }
       }
@@ -48311,7 +48712,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
-  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"), options);
+  if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
   return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : payload);
 }
 
@@ -48331,7 +48732,7 @@ Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   std::string embed_url = str(Core::provider_embed_url(profile_, model, options));
-  Value raw = request_json(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, false, "json", false, operation_method("embed"), options);
+  Value raw = request_json_retried(embed_url.empty() ? operation_path("embed", model) : embed_url, payload, operation_method("embed"), options);
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
@@ -48462,7 +48863,8 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
       double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
       double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
       double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
-      int attempt = 0;
+      int start_attempt = 0;
+      int open_attempt = 0;
       while (true) {
         Value results = Value::array();
         Value state = Value::object();
@@ -48472,13 +48874,19 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         bool delivered = false;
         bool provider_error = false;
         bool retry_requested = false;
+        bool response_started = false;
+        std::string retry_after;
+        ax_transport_response_started = false;
+        ax_transport_retry_after.clear();
         Value call = build_request(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
         IncrementalSSEDecoder decoder([&](Value event) {
           received_event = true;
           if (first_event) {
             first_event = false;
+            // TS retryTransientStreamStart: a first event with a listed
+            // status goes out again, with its own budget and without jitter.
             Value status = Core::provider_classify_stream_error_status(profile_, event);
-            if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+            if (!status.is_null() && Core::truthy(Core::retry_status_listed(retry_cfg, status)) && start_attempt < max_retries) {
               retry_requested = true;
               return false;
             }
@@ -48498,7 +48906,17 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         });
         auto consume = [&](Value chunk) {
           Value raw = chunk;
-          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call, merged_options);
+          if (raw.is_object() && has_key(raw, "status")) {
+            if (num(Core::get(raw, "status", 200)) >= 400) {
+              for (const auto& entry : object_ref(Core::get(raw, "headers", Value::object()))) {
+                std::string name = entry.first;
+                for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (name == "retry-after") retry_after = display(entry.second);
+              }
+            }
+            raw = transport_result(raw, call, merged_options);
+          }
+          response_started = true;
           if (raw.is_array()) {
             for (const auto& event : array_ref(raw)) {
               if (display(event) == "[DONE]") return false;
@@ -48512,33 +48930,35 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         try {
           transport_->stream(call, consume, current_cancellation_token());
           if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
-        } catch (AxError& error) {
-          if (error.type == "AxAIServiceAbortedError") throw;
+        } catch (AxError& caught) {
+          if (caught.type == "AxAIServiceAbortedError") throw;
           if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw AxAIServiceAbortedError(token->reason());
           if (provider_error) throw;
-          // The HTTP transport's own status, network and timeout errors keep
-          // the request as TypeScript's do.
+          // A custom transport's untyped network failure is TS's network
+          // error, as request_json makes it. The HTTP transport's own status,
+          // network and timeout errors keep the request as TypeScript's do.
+          AxError error = caught.category == "network" && caught.type.empty() ? ax_transport_network_error(caught, call, merged_options) : caught;
           attach_error_request(error, call, merged_options);
-          // Retry transport/open failures before any SSE event. Once a provider
-          // event exists, its normalized error is authoritative unless the
-          // explicit transient-status classifier above requested a retry.
-          // As in TS apiCall, a timeout the request ran out of is not retried
-          // here; a 408 or 504 response, typed as a timeout, is retried by its
-          // status.
-          bool timed_out = error.type == "AxAIServiceTimeoutError" && error.status == 0;
-          if (!received_event && !delivered && stream_error_retryable(error) && !timed_out && attempt < max_retries) retry_requested = true;
-          else if (delivered) {
+          // The stream's request goes through apiCall's request-layer retry.
+          // Once its response began, a failure to read it surfaces, as TS
+          // reads a stream's body after apiCall returns.
+          bool started = response_started || received_event || delivered || ax_transport_response_started;
+          if (retry_after.empty()) retry_after = ax_transport_retry_after;
+          if (!started && ax_request_retry_wait(retry_cfg, open_attempt, error, retry_after)) {
+            ++open_attempt;
+            continue;
+          }
+          if (delivered) {
             AxError terminated("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
             terminated.url = error.url;
             terminated.request_body = error.request_body;
             throw terminated;
           }
-          else throw;
+          throw error;
         }
         if (retry_requested) {
-          ++attempt;
-          double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-          if (delay > 0) {auto token=current_cancellation_token();auto duration=std::chrono::milliseconds(static_cast<long>(delay));if(token&&token->wait_for(duration))token->throw_if_cancelled();else if(!token)std::this_thread::sleep_for(duration);}
+          ++start_attempt;
+          ax_request_retry_sleep(std::min(initial_delay * std::pow(backoff, start_attempt - 1), max_delay));
           continue;
         }
         Value response = object({{"results", results}});
@@ -48971,9 +49391,14 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options) {
+  return request_json_attempt(endpoint, std::move(payload), stream, body_key, binary_response, method, std::move(error_options), nullptr);
+}
+
+Value OpenAICompatibleClient::request_json_attempt(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options, std::string* retry_after) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
   if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
   Value raw;
+  ax_transport_response_started = false;
   try {
     raw = transport_->call(call, current_cancellation_token());
   } catch (AxError& error) {
@@ -48983,7 +49408,34 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
     if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, error_options);
     throw;
   }
+  if (retry_after != nullptr) {
+    for (const auto& entry : object_ref(Core::get(raw, "headers", Value::object()))) {
+      std::string name = entry.first;
+      for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (name == "retry-after") *retry_after = display(entry.second);
+    }
+  }
   return transport_result(raw, call, error_options);
+}
+
+// TS apiCall's request-layer retry around one request: a listed status or a
+// network failure goes out again after its jittered backoff (or its
+// Retry-After), under the call's retry options, else the client's. Each
+// retry builds the request again, as apiCall resolves its headers again. A
+// stream whose response began before its body failed is not retried: TS
+// reads a stream's body after apiCall returns.
+Value OpenAICompatibleClient::request_json_retried(const std::string& endpoint, Value payload, const std::string& method, Value error_options, bool stream) {
+  Value config = Core::resolve_stream_retry(error_options);
+  for (int attempt = 0; ; ++attempt) {
+    std::string retry_after;
+    try {
+      return request_json_attempt(endpoint, payload, stream, "json", false, method, error_options, &retry_after);
+    } catch (const AxError& error) {
+      if (auto token = current_cancellation_token(); token && token->is_cancelled()) throw;
+      if (stream && ax_transport_response_started) throw;
+      if (!ax_request_retry_wait(config, attempt, error, retry_after)) throw;
+    }
+  }
 }
 
 // The call's options can move the provider's base URL (a Vertex beta selects
@@ -52550,22 +53002,9 @@ Value AxAITypesafeClient::call(const std::string& method, const std::string& pat
   AxCancellationScope scope(cancellation);
   Value resolved = Core::map_merge(options_, options);
   OpenAICompatibleClient client("typesafe", "Typesafe", resolved, transport_, "jev-latest", "", credential_provider_);
-  Value retry = Core::resolve_stream_retry(resolved);
-  int retries = static_cast<int>(num(Core::get(retry, "max_retries")));
-  for (int attempt = 0; ; ++attempt) {
-    if (cancellation) cancellation->throw_if_cancelled();
-    try {
-      return client.request_json(path, payload, false, "json", false, method);
-    } catch (const AxError& error) {
-      // As in TS apiCall, a timeout the request ran out of is not retried
-      // here; a 408 or 504 response, typed as a timeout, is retried.
-      if (!error.retryable || (error.type == "AxAIServiceTimeoutError" && error.status == 0) || attempt >= retries) throw;
-      double delay = std::min(num(Core::get(retry, "initial_delay_ms")) * std::pow(num(Core::get(retry, "backoff_factor")), attempt), num(Core::get(retry, "max_delay_ms")));
-      auto duration = std::chrono::milliseconds(static_cast<long>(delay));
-      if (cancellation) { cancellation->wait_for(duration); cancellation->throw_if_cancelled(); }
-      else std::this_thread::sleep_for(duration);
-    }
-  }
+  if (cancellation) cancellation->throw_if_cancelled();
+  // TS apiCall's request-layer retry, as the client's chat requests use.
+  return client.request_json_retried(path, payload, method, resolved);
 }
 AxAITypesafeClient typesafe(Value options, Transport* transport, AxCredentialProvider credential_provider) {
   return AxAITypesafeClient(std::move(options), transport, std::move(credential_provider));

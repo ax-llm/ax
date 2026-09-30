@@ -2659,6 +2659,25 @@
       "verification": "AxAgent::with_playbook_student(Rc<RefCell<C>>) names the client that runs the run-end reflector and curator calls; without one they run on the forward's client, and a student that is already borrowed (for example because it is also the forward's client) is not borrowed again. Four Rust tests (agent_playbook_student_tests) run a failing agent run end to end: the named student gets the 2 learning requests and the forward client only the 4 run requests, the student survives with_tool_module and with_runtime, the forward client learns without a student, and a student that is the forward client does not panic. A mutant that ignores the student fails 2 of them, one that borrows the student while the forward holds it fails 1. Rust lib tests 62/62 and the Rust conformance suites (1215 fixtures) pass."
     },
     {
+      "id": "axir-2026-09-27-non-stream-request-retry",
+      "status": "done",
+      "title": "The ports' request layer retries requests as TypeScript's apiCall does, streaming or not",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "6b9f5659470a0fd756101b79acc5a6fb52ce9748",
+      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/ai/base.ts"],
+      "portableSurface": "axai",
+      "impact": "TypeScript's apiCall sends a request again after a network error or a status in retryableStatusCodes (500, 408, 429, 502, 503, 504, 529 by default), streaming or not, under the call's retry options, else the client's. It waits min(maxDelayMs, initialDelayMs * backoffFactor^attempt) times a 0.75-1.25 jitter, or a status response's Retry-After when that is no longer than maxDelayMs, and never retries a timeout, an abort, a 401 or a 403. The ports sent non-streaming chat, embed and context-cache requests once, and retried a stream's open with their own wait (no jitter, no Retry-After, a fixed status list), also for AxAIServiceResponseError, AxAIServiceStreamTerminatedError and a stream whose first event fails to read, which apiCall does not retry.",
+      "suggestedAxirWork": [
+        "Port apiCall's request-layer retry to chat and embed and context-cache and Typesafe requests and a stream's open",
+        "Honor Retry-After and TypeScript's jitter",
+        "Stop retrying a stream's failed first read and response and terminated-stream errors"
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "6b9f56594",
+      "verification": "TS: src/ax/ai/request_retry.test.ts pins apiCall at maxRetries 2 (a non-streaming chat is sent 3 times for each of 408, 429, 500, 502, 503, 504 and 529 and for a network error; an embed and a stream's open are retried on a 503; 400, 404, 422, 501 and 401 are sent once; the call's retry wins over the client's; a stream whose first event fails to read is sent once). Ports: 23 request-retry fixtures from the axai extractor pin TypeScript's request counts and waits (statuses, network errors, 401, Retry-After in seconds and as HTTP dates, jitter, maxDelayMs, call over client options, retryableStatusCodes, embed, a Gemini context-cache create, a stream's open) and pass in all five ports; 19 of those 25 (with the two updated fixtures) fail on main's packages in every port. transport_errors_http_roundtrip checks a closed non-streaming chat (3 requests), a stream dropped before its first event (1 request) and Rust's 504 stream open (3 requests) in all five ports. Full conformance (all suites but axagent-real) passes in all five ports."
+    },
+    {
       "id": "axir-2026-09-27-open-a-fresh-native-chat-session-for-each-axgen-request-in-the-p",
       "status": "done",
       "title": "Open a fresh native chat session for each AxGen request in the ports, as TypeScript does, instead of steering the open session with a correction",

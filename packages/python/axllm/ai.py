@@ -644,6 +644,64 @@ def _client_timeout_error(timeout_seconds: Any, exc: BaseException, request: Any
     return error_type(provider_call_timeout_message(round(float(timeout_seconds) * 1000)), request=request, retryable=True)
 
 
+# Conformance hooks for the request-layer retry: a sleep that records the
+# delay instead of waiting, and fixed random and clock sources.
+_REQUEST_RETRY_HOOKS: dict[str, Any] = {"sleep": None, "random": None, "now_ms": None}
+
+
+def _retry_after_header(headers: Any) -> Any:
+    if not isinstance(headers, dict):
+        getter = getattr(headers, "get", None)
+        return getter("Retry-After") if callable(getter) else None
+    for key, value in headers.items():
+        if str(key).lower() == "retry-after":
+            return value
+    return None
+
+
+def _retry_failure(error: BaseException) -> dict[str, Any] | None:
+    # TS apiCall's view of a failed request: its HTTP status (with its
+    # Retry-After) or a network failure. Anything else is not retried.
+    if isinstance(error, (AxAIServiceAuthenticationError, AxAIServiceAbortedError)):
+        return None
+    status = getattr(error, "status", None)
+    if isinstance(status, int) and not isinstance(status, bool):
+        return {"status": status, "retry_after": getattr(error, "retry_after", None)}
+    if isinstance(error, AxAIServiceNetworkError):
+        return {"network": True}
+    return None
+
+
+def _request_retry_sleep(delay_ms: float, cancellation: AxCancellationToken | None) -> None:
+    sleep = _REQUEST_RETRY_HOOKS["sleep"]
+    if sleep is not None:
+        if cancellation is not None: cancellation.throw_if_cancelled()
+        sleep(delay_ms)
+        return
+    _wait_backoff(delay_ms, cancellation)
+
+
+def _request_retry_wait(config: dict[str, Any], attempt: int, error: BaseException, cancellation: AxCancellationToken | None) -> bool:
+    # Wait before the failed request goes out again, as TS apiCall does, and
+    # say whether it does.
+    failure = _retry_failure(error)
+    if failure is None:
+        return False
+    now_ms = _REQUEST_RETRY_HOOKS["now_ms"]
+    rand = _REQUEST_RETRY_HOOKS["random"]
+    delay = request_retry_delay(
+        config,
+        attempt,
+        failure,
+        now_ms() if now_ms is not None else time.time() * 1000,
+        rand() if rand is not None else random.random(),
+    )
+    if delay is None:
+        return False
+    _request_retry_sleep(delay, cancellation)
+    return True
+
+
 def _is_transport_timeout(error: BaseException) -> bool:
     # A timeout the request itself ran out of (the client's own, a call's
     # timeoutMs). TS apiCall does not retry it. A 408 or 504 response, which
@@ -1329,7 +1387,7 @@ class ProviderOperationClient(AxBaseAI):
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, timeout_ms=self._call_timeout_ms(options))
+            raw = self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, retry_options=options, timeout_ms=self._call_timeout_ms(options))
         return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else payload)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -1348,7 +1406,7 @@ class ProviderOperationClient(AxBaseAI):
         if explicit:
             cached_payload = copy.deepcopy(payload)
             cached_payload["cachedContent"] = explicit
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+            return self._request_json_retried(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
 
         prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
         non_system_seen = 0
@@ -1411,14 +1469,14 @@ class ProviderOperationClient(AxBaseAI):
         try:
             if plan.get("action") == "refresh":
                 ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+                refreshed = self._request_json_retried(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"), cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
                 ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+                created = self._request_json_retried(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -1430,7 +1488,7 @@ class ProviderOperationClient(AxBaseAI):
             if plan.get("action") == "refresh":
                 try:
                     ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+                    created = self._request_json_retried(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"), cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -1439,9 +1497,9 @@ class ProviderOperationClient(AxBaseAI):
                 except AxAIServiceAbortedError:
                     raise
                 except AxAIServiceError:
-                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+                    return self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
             else:
-                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+                return self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
         if not cache_name:
             return None
         cached_payload = copy.deepcopy(payload)
@@ -1451,7 +1509,7 @@ class ProviderOperationClient(AxBaseAI):
         cached_payload.pop("toolConfig", None)
         cached_payload["cachedContent"] = cache_name
         try:
-            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+            return self._request_json_retried(endpoint, cached_payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
         except AxAIServiceError as error:
             if not ai_context_cache_rejection(error.status or 0, error.response_body):
                 raise
@@ -1462,7 +1520,7 @@ class ProviderOperationClient(AxBaseAI):
                     registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
                 elif recovery.get("deleteInMemory"):
                     self._context_cache_entries.pop(cache_key, None)
-            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
+            return self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         provider_warn_call_timeout(_strip_runtime_hooks(options), False)
@@ -1507,7 +1565,7 @@ class ProviderOperationClient(AxBaseAI):
         # The client pops base_url out of its options; the embed route still honors an explicit one.
         route_options = {**options, "base_url": self.base_url_override} if self.base_url_override else options
         endpoint = provider_embed_url(self.profile, str(model or ""), route_options) or self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, timeout_ms=self._call_timeout_ms(options))
+        raw = self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed", base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, retry_options=options, timeout_ms=self._call_timeout_ms(options))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1521,35 +1579,28 @@ class ProviderOperationClient(AxBaseAI):
         initial_delay = float(cfg["initial_delay_ms"])
         max_delay = float(cfg["max_delay_ms"])
         backoff = float(cfg["backoff_factor"])
-        attempt = 0
+        start_attempt = 0
         sentinel = object()
         while True:
-            # Pre-content streaming retry: peek the first raw SSE event before any stateful
+            # The stream's request goes through apiCall's request-layer retry.
+            # Its first event is read once, as TS reads it after apiCall
+            # returns: a failure to read it surfaces.
+            raw = self._request_json_retried(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
+            events = _iter_sse_json(raw)
+            first = next(events, sentinel)
+            # TS retryTransientStreamStart: peek the first raw SSE event before any stateful
             # normalize runs (so peeking has no side effects). If the provider classifies it as
-            # a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
-            # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
-            events = None
-            try:
-                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat", base_url=call_base_url, cancellation=cancellation, error_options=options, timeout_ms=timeout_ms)
-                events = _iter_sse_json(raw)
-                first = next(events, sentinel)
-            except AxAIServiceError as error:
-                # As in TS apiCall, a timeout is not retried here.
-                if _is_retryable_ai_error(error) and not _is_transport_timeout(error) and attempt < max_retries:
-                    attempt += 1
-                    delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
-                    _wait_backoff(delay, cancellation)
-                    continue
-                raise
+            # a listed transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
+            # re-issue it with its own budget and backoff, without jitter.
             if first is not sentinel:
                 status = provider_classify_stream_error_status(self.profile, first)
-                if status is not None and is_retryable_status(status) and attempt < max_retries:
+                if status is not None and retry_status_listed(cfg, status) and start_attempt < max_retries:
                     close = getattr(events, "close", None)
                     if callable(close):
                         close()
-                    attempt += 1
-                    delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
-                    _wait_backoff(delay, cancellation)
+                    start_attempt += 1
+                    delay = min(initial_delay * (backoff ** (start_attempt - 1)), max_delay)
+                    _request_retry_sleep(delay, cancellation)
                     continue
             state: dict[str, Any] = {}
             try:
@@ -1830,6 +1881,23 @@ class ProviderOperationClient(AxBaseAI):
             for connection in connections: connection.close()
             raise
 
+    def _request_json_retried(self, endpoint: str, payload: dict[str, Any], *, retry_options: dict[str, Any] | None, **kwargs):
+        # TS apiCall's request-layer retry around one request: a listed status
+        # or a network failure goes out again after its jittered backoff (or its
+        # Retry-After), under the call's retry options, else the client's.
+        config = resolve_stream_retry(retry_options if retry_options is not None else self.options)
+        cancellation = kwargs.get("cancellation")
+        attempt = 0
+        while True:
+            try:
+                return self._request_json(endpoint, payload, **kwargs)
+            except AxAIServiceError as error:
+                if cancellation is not None and cancellation.cancelled:
+                    raise
+                if not _request_retry_wait(config, attempt, error, cancellation):
+                    raise
+                attempt += 1
+
     def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat", accept: str | None = None, cancellation: AxCancellationToken | None = None, error_options: dict[str, Any] | None = None, timeout_ms: float | None = None):
         if cancellation is not None: cancellation.throw_if_cancelled()
         method = str(method or "POST").upper()
@@ -2006,7 +2074,9 @@ class ProviderOperationClient(AxBaseAI):
                 parsed = json.loads(body)
             except json.JSONDecodeError:
                 parsed = body
-            raise openai_normalize_error(exc.code, parsed, error_request) from exc
+            error = openai_normalize_error(exc.code, parsed, error_request)
+            error.retry_after = _retry_after_header(exc.headers)
+            raise error from exc
         except OSError as exc:
             if cancellation is not None and cancellation.cancelled: cancellation.throw_if_cancelled()
             # urllib reports a connect that ran out of the call's timeoutMs, or
@@ -2120,22 +2190,7 @@ class AxAITypesafeClient:
     def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
         client = copy.copy(self._client)
         client.timeout = float(opts.get("timeout", client.timeout))
-        retry = resolve_stream_retry(opts)
-        attempt = 0
-        while True:
-            try:
-                return client._request_json(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts)
-            except AxAIServiceError as error:
-                # As in TS apiCall, a timeout is not retried here.
-                if not _is_retryable_ai_error(error) or _is_transport_timeout(error) or attempt >= int(retry["max_retries"]):
-                    raise
-                delay = min(float(retry["initial_delay_ms"]) * float(retry["backoff_factor"]) ** attempt, float(retry["max_delay_ms"])) / 1000
-                attempt += 1
-                if cancellation is not None:
-                    cancellation.wait(delay)
-                    cancellation.throw_if_cancelled()
-                else:
-                    time.sleep(delay)
+        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts)
 
 
 def typesafe(**options) -> AxAITypesafeClient:
@@ -10247,6 +10302,15 @@ def default_retry_config() -> Any:
     config["initial_delay_ms"] = 1000
     config["max_delay_ms"] = 60000
     config["backoff_factor"] = 2
+    codes = []
+    codes.append(500)
+    codes.append(408)
+    codes.append(429)
+    codes.append(502)
+    codes.append(503)
+    codes.append(504)
+    codes.append(529)
+    config["retryable_status_codes"] = codes
     return config
 
 
@@ -10279,11 +10343,14 @@ def resolve_stream_retry(options: Any) -> Any:
     initial = retry_opt_value(retry, "initialDelayMs", "initial_delay_ms", def_initial)
     max_delay = retry_opt_value(retry, "maxDelayMs", "max_delay_ms", def_max_delay)
     backoff = retry_opt_value(retry, "backoffFactor", "backoff_factor", def_backoff)
+    def_codes = _core_get(cfg, "retryable_status_codes", None)
+    codes = retry_opt_value(retry, "retryableStatusCodes", "retryable_status_codes", def_codes)
     out = {}
     out["max_retries"] = max_retries
     out["initial_delay_ms"] = initial
     out["max_delay_ms"] = max_delay
     out["backoff_factor"] = backoff
+    out["retryable_status_codes"] = codes
     return out
 
 
@@ -16337,6 +16404,349 @@ def _ai_error_request(request: Any = None, options: Any = None) -> Any:
         pass
     return view
 
+
+def retry_status_listed(config: Any, status: Any) -> bool:
+    _core_coverage_mark("retry_status_listed")
+    codes = _core_get(config, "retryable_status_codes", None)
+    no_codes = _core_is_none(codes)
+    if no_codes:
+        defaults = default_retry_config()
+        codes = _core_get(defaults, "retryable_status_codes", None)
+    else:
+        pass
+    for code in codes:
+        same = _core_eq(code, status)
+        if same:
+            return True
+        else:
+            pass
+    return False
+
+
+def retry_backoff_ms(config: Any, attempt: Any, random: Any) -> Any:
+    _core_coverage_mark("retry_backoff_ms")
+    initial = _core_get(config, "initial_delay_ms", 1000)
+    max_delay = _core_get(config, "max_delay_ms", 60000)
+    factor = _core_get(config, "backoff_factor", 2)
+    scale = _core_math_pow(factor, attempt)
+    base = _core_mul(initial, scale)
+    capped = _core_gt(base, max_delay)
+    if capped:
+        base = max_delay
+    else:
+        pass
+    spread = _core_mul(random, 0.5)
+    jitter = _core_add(spread, 0.75)
+    delay = _core_mul(base, jitter)
+    return delay
+
+
+def _retry_digits_value(text: Any) -> Any:
+    _core_coverage_mark("_retry_digits_value")
+    none = _core_none()
+    count = _core_len(text)
+    empty = _core_eq(count, 0)
+    if empty:
+        return none
+    else:
+        pass
+    digits = {}
+    digits["0"] = 0
+    digits["1"] = 1
+    digits["2"] = 2
+    digits["3"] = 3
+    digits["4"] = 4
+    digits["5"] = 5
+    digits["6"] = 6
+    digits["7"] = 7
+    digits["8"] = 8
+    digits["9"] = 9
+    total = 0
+    cursor = 0
+    while True:
+        done = _core_gte(cursor, count)
+        if done:
+            break
+        else:
+            pass
+        next = _core_add(cursor, 1)
+        ch = _core_string_slice(text, cursor, next)
+        digit = _core_get(digits, ch, None)
+        not_digit = _core_is_none(digit)
+        if not_digit:
+            return none
+        else:
+            pass
+        scaled = _core_mul(total, 10)
+        total = _core_add(scaled, digit)
+        cursor = next
+    return total
+
+
+def _retry_after_seconds(text: Any) -> Any:
+    _core_coverage_mark("_retry_after_seconds")
+    none = _core_none()
+    trimmed = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    blank = _core_eq(trimmed, "")
+    if blank:
+        return 0
+    else:
+        pass
+    decimal = _core_regex_match("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$", trimmed)
+    not_decimal = _core_not(decimal)
+    if not_decimal:
+        return none
+    else:
+        pass
+    sign = ""
+    body = trimmed
+    plus = _core_string_starts_with(body, "+")
+    if plus:
+        body = _core_string_slice(body, 1)
+    else:
+        pass
+    minus = _core_string_starts_with(body, "-")
+    if minus:
+        sign = "-"
+        body = _core_string_slice(body, 1)
+    else:
+        pass
+    lower = _core_string_lower(body)
+    exponent = ""
+    exponent_split = _core_string_split_once(lower, "e")
+    has_exponent = _core_get(exponent_split, "found", False)
+    if has_exponent:
+        exponent_digits = _core_get(exponent_split, "right", None)
+        exponent = _core_string_format("e{}", exponent_digits)
+        lower = _core_get(exponent_split, "left", None)
+    else:
+        pass
+    whole = lower
+    fraction = ""
+    point_split = _core_string_split_once(lower, ".")
+    has_point = _core_get(point_split, "found", False)
+    if has_point:
+        whole = _core_get(point_split, "left", None)
+        fraction = _core_get(point_split, "right", None)
+    else:
+        pass
+    while True:
+        whole_length = _core_len(whole)
+        many_digits = _core_gt(whole_length, 1)
+        leading_zero = _core_string_starts_with(whole, "0")
+        strip = _core_and(many_digits, leading_zero)
+        keep = _core_not(strip)
+        if keep:
+            break
+        else:
+            pass
+        whole = _core_string_slice(whole, 1)
+    no_whole = _core_eq(whole, "")
+    if no_whole:
+        whole = "0"
+    else:
+        pass
+    literal = _core_string_format("{}{}", sign, whole)
+    fraction_length = _core_len(fraction)
+    has_fraction = _core_gt(fraction_length, 0)
+    if has_fraction:
+        literal = _core_string_format("{}.{}", literal, fraction)
+    else:
+        pass
+    literal = _core_string_format("{}{}", literal, exponent)
+    value = _core_json_parse(literal)
+    return value
+
+
+def _retry_days_from_civil(year: Any, month: Any, day: Any) -> Any:
+    _core_coverage_mark("_retry_days_from_civil")
+    year_of_era = year
+    early = _core_lte(month, 2)
+    if early:
+        year_of_era = _core_add(year, -1)
+    else:
+        pass
+    era_ratio = _core_div(year_of_era, 400)
+    era = _core_math_floor(era_ratio)
+    era_years = _core_mul(era, -400)
+    yoe = _core_add(year_of_era, era_years)
+    shifted = _core_add(month, 9)
+    month_ratio = _core_div(shifted, 12)
+    month_wraps = _core_math_floor(month_ratio)
+    month_wraps = _core_mul(month_wraps, -12)
+    month_index = _core_add(shifted, month_wraps)
+    month_days = _core_mul(month_index, 153)
+    month_days = _core_add(month_days, 2)
+    month_days_ratio = _core_div(month_days, 5)
+    month_days = _core_math_floor(month_days_ratio)
+    doy = _core_add(month_days, day)
+    doy = _core_add(doy, -1)
+    doe = _core_mul(yoe, 365)
+    leap4_ratio = _core_div(yoe, 4)
+    leap4 = _core_math_floor(leap4_ratio)
+    leap100_ratio = _core_div(yoe, 100)
+    leap100 = _core_math_floor(leap100_ratio)
+    doe = _core_add(doe, leap4)
+    leap100_negated = _core_mul(leap100, -1)
+    doe = _core_add(doe, leap100_negated)
+    doe = _core_add(doe, doy)
+    days = _core_mul(era, 146097)
+    days = _core_add(days, doe)
+    days = _core_add(days, -719468)
+    return days
+
+
+def _retry_http_date_ms(text: Any) -> Any:
+    _core_coverage_mark("_retry_http_date_ms")
+    none = _core_none()
+    trimmed = str(text).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    fixdate = _core_regex_match("^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$", trimmed)
+    not_fixdate = _core_not(fixdate)
+    if not_fixdate:
+        return none
+    else:
+        pass
+    day_text = _core_string_slice(trimmed, 5, 7)
+    month_text = _core_string_slice(trimmed, 8, 11)
+    year_text = _core_string_slice(trimmed, 12, 16)
+    hour_text = _core_string_slice(trimmed, 17, 19)
+    minute_text = _core_string_slice(trimmed, 20, 22)
+    second_text = _core_string_slice(trimmed, 23, 25)
+    day = _retry_digits_value(day_text)
+    year = _retry_digits_value(year_text)
+    hour = _retry_digits_value(hour_text)
+    minute = _retry_digits_value(minute_text)
+    second = _retry_digits_value(second_text)
+    months = {}
+    months["Jan"] = 1
+    months["Feb"] = 2
+    months["Mar"] = 3
+    months["Apr"] = 4
+    months["May"] = 5
+    months["Jun"] = 6
+    months["Jul"] = 7
+    months["Aug"] = 8
+    months["Sep"] = 9
+    months["Oct"] = 10
+    months["Nov"] = 11
+    months["Dec"] = 12
+    month = _core_get(months, month_text, None)
+    day_low = _core_lt(day, 1)
+    day_high = _core_gt(day, 31)
+    hour_high = _core_gt(hour, 23)
+    minute_high = _core_gt(minute, 59)
+    second_high = _core_gt(second, 59)
+    bad_day = _core_or(day_low, day_high)
+    bad_clock = _core_or(hour_high, minute_high)
+    bad_clock = _core_or(bad_clock, second_high)
+    bad = _core_or(bad_day, bad_clock)
+    if bad:
+        return none
+    else:
+        pass
+    days = _retry_days_from_civil(year, month, day)
+    millis = _core_mul(days, 86400000)
+    hour_ms = _core_mul(hour, 3600000)
+    minute_ms = _core_mul(minute, 60000)
+    second_ms = _core_mul(second, 1000)
+    millis = _core_add(millis, hour_ms)
+    millis = _core_add(millis, minute_ms)
+    millis = _core_add(millis, second_ms)
+    return millis
+
+
+def retry_after_ms(header: Any, now_ms: Any) -> Any:
+    _core_coverage_mark("retry_after_ms")
+    none = _core_none()
+    is_string = _core_type_is(header, "string")
+    not_string = _core_not(is_string)
+    if not_string:
+        return none
+    else:
+        pass
+    empty = _core_eq(header, "")
+    if empty:
+        return none
+    else:
+        pass
+    seconds = _retry_after_seconds(header)
+    has_seconds = _core_is_not_none(seconds)
+    if has_seconds:
+        seconds_ms = _core_mul(seconds, 1000)
+        return seconds_ms
+    else:
+        pass
+    date_ms = _retry_http_date_ms(header)
+    has_date = _core_is_not_none(date_ms)
+    if has_date:
+        negative_now = _core_mul(now_ms, -1)
+        wait = _core_add(date_ms, negative_now)
+        past = _core_lt(wait, 0)
+        if past:
+            return 0
+        else:
+            pass
+        return wait
+    else:
+        pass
+    return none
+
+
+def request_retry_delay(config: Any, attempt: Any, failure: Any, now_ms: Any, random: Any) -> Any:
+    _core_coverage_mark("request_retry_delay")
+    none = _core_none()
+    max_retries = _core_get(config, "max_retries", 3)
+    spent = _core_gte(attempt, max_retries)
+    if spent:
+        return none
+    else:
+        pass
+    status = _core_get(failure, "status", None)
+    has_status = _core_is_not_none(status)
+    if has_status:
+        is_401 = _core_eq(status, 401)
+        is_403 = _core_eq(status, 403)
+        auth = _core_or(is_401, is_403)
+        if auth:
+            return none
+        else:
+            pass
+        listed = retry_status_listed(config, status)
+        not_listed = _core_not(listed)
+        if not_listed:
+            return none
+        else:
+            pass
+        delay = retry_backoff_ms(config, attempt, random)
+        header = _core_get(failure, "retry_after", None)
+        after = retry_after_ms(header, now_ms)
+        has_after = _core_is_not_none(after)
+        if has_after:
+            max_delay = _core_get(config, "max_delay_ms", 60000)
+            within = _core_lte(after, max_delay)
+            if within:
+                delay = after
+            else:
+                pass
+        else:
+            pass
+        negative = _core_lt(delay, 0)
+        if negative:
+            return 0
+        else:
+            pass
+        return delay
+    else:
+        pass
+    network = _core_get(failure, "network", False)
+    is_network = _core_truthy(network)
+    if is_network:
+        network_delay = retry_backoff_ms(config, attempt, random)
+        return network_delay
+    else:
+        pass
+    return none
+
 # END AXIR CORE EMITTED FUNCTIONS
 
 for _axir_provider_public_name in (
@@ -16447,7 +16857,9 @@ def _transport_result(result: Any, request: dict[str, Any]):
         status = int(result.get("status") or 200)
         body = result.get("json", result.get("body", result.get("data")))
         if status >= 400:
-            raise openai_normalize_error(status, body, request)
+            error = openai_normalize_error(status, body, request)
+            error.retry_after = _retry_after_header(result.get("headers"))
+            raise error
         return body
     return result
 

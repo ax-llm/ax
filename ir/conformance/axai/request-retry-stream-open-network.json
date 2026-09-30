@@ -1,0 +1,32 @@
+{
+  "description": "A stream's request goes out again after a network failure. TS request count and delays from src/ax/util/apicall.ts.",
+  "expected_retry_delays_ms": [1000],
+  "expected_transport_request_count": 2,
+  "kind": "ai_stream",
+  "model": "gpt-5.4-mini",
+  "name": "request-retry-stream-open-network",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true
+    }
+  },
+  "retry_now_ms": 1800000000000,
+  "retry_random": 0.5,
+  "service_options": {},
+  "transport_responses": [
+    {
+      "network_error": "fetch failed"
+    },
+    {
+      "body": "data: {\"id\":\"chatcmpl_retry\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

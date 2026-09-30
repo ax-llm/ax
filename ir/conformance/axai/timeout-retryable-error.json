@@ -18,9 +18,39 @@
           "code": "timeout"
         }
       }
+    },
+    {
+      "status": 504,
+      "json": {
+        "error": {
+          "message": "gateway timeout",
+          "code": "timeout"
+        }
+      }
+    },
+    {
+      "status": 504,
+      "json": {
+        "error": {
+          "message": "gateway timeout",
+          "code": "timeout"
+        }
+      }
+    },
+    {
+      "status": 504,
+      "json": {
+        "error": {
+          "message": "gateway timeout",
+          "code": "timeout"
+        }
+      }
     }
   ],
   "expected_error_type": "AxAIServiceTimeoutError",
   "expected_error_contains": "gateway timeout",
-  "expected_status": 504
+  "expected_status": 504,
+  "retry_random": 0.5,
+  "expected_transport_request_count": 4,
+  "expected_retry_delays_ms": [1000, 2000, 4000]
 }

@@ -1,0 +1,73 @@
+{
+  "description": "A Gemini context-cache create goes through the same retry. TS request count and delays from src/ax/util/apicall.ts.",
+  "expected_retry_delays_ms": [1000],
+  "expected_transport_request_count": 3,
+  "kind": "ai_chat",
+  "model": "gemini-3.8-flash",
+  "name": "request-retry-context-cache-create",
+  "options": {
+    "contextCache": {
+      "minTokens": 0
+    }
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "Cache this",
+        "role": "system"
+      },
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "retry_now_ms": 1800000000000,
+  "retry_random": 0.5,
+  "service_options": {},
+  "transport_responses": [
+    {
+      "json": {
+        "error": {
+          "code": 503,
+          "message": "upstream 503"
+        }
+      },
+      "status": 503
+    },
+    {
+      "json": {
+        "expireTime": "2099-01-01T00:00:00Z",
+        "name": "cachedContents/retry-cache"
+      },
+      "status": 200
+    },
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "candidatesTokenCount": 1,
+          "promptTokenCount": 1,
+          "totalTokenCount": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

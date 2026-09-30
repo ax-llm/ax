@@ -1,0 +1,61 @@
+{
+  "description": "A status the retry config does not list surfaces at once. TS request count and delays from src/ax/util/apicall.ts.",
+  "expected_error_type": "AxAIServiceStatusError",
+  "expected_retry_delays_ms": [],
+  "expected_status": 501,
+  "expected_transport_request_count": 1,
+  "kind": "ai_error",
+  "method": "chat",
+  "model": "gpt-5.4-mini",
+  "name": "request-retry-unlisted-status-not-retried",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "retry_now_ms": 1800000000000,
+  "retry_random": 0.5,
+  "service_options": {},
+  "transport_responses": [
+    {
+      "json": {
+        "error": {
+          "message": "upstream 501",
+          "type": "server_error"
+        }
+      },
+      "status": 501
+    },
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_retry",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}
