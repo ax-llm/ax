@@ -1002,8 +1002,8 @@ describe('thought on the native and function rungs', () => {
   });
 });
 
-describe('deprecated responseFormatWithFunctions flag', () => {
-  it('is ignored: auto keeps the native rung beside callable tools', async () => {
+describe('auto structured output beside callable tools', () => {
+  it('keeps the native rung beside callable tools', async () => {
     const sig = f()
       .input('question', f.string())
       .output('user', f.object({ name: f.string(), age: f.number() }))
@@ -1029,7 +1029,6 @@ describe('deprecated responseFormatWithFunctions flag', () => {
         functions: true,
         streaming: true,
         structuredOutputs: true,
-        responseFormatWithFunctions: false,
       },
       chatResponse: async (req) => {
         sent = req as AxChatRequest;

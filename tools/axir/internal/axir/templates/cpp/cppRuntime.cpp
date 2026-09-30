@@ -10439,11 +10439,7 @@ Value MultiServiceRouter::embed(Value request, Value options) {
   auto it = services_.find(display(model_key));
   if (it == services_.end()) throw AxError("runtime", "No service found for embed model key: " + display(model_key));
   last_used_service_ = it->second.service;
-  Value req(object_ref(request));
-  if (it->second.model.is_null()) {
-    Core::map_delete(req, "embedModel");
-    Core::map_delete(req, "embed_model");
-  }
+  Value req = Core::router_embed_request(request, it->second.model, it->second.embed_model);
   return last_used_service_->embed(req, options);
 }
 
