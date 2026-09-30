@@ -7782,6 +7782,7 @@ Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value
 Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   axir_coverage_mark("_chat_result_to_completion");
   Value content = Core::get(result, Value("content"), Value(""));
+  Value call_problems = Core::_chat_result_function_call_problems(result, fallback_index);
   Value calls = Value::array();
   Value empty_calls = Value::array();
   Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
@@ -7837,6 +7838,10 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   Value has_finish = Core::is_not_none(finish);
   if (Core::truthy(has_finish)) {
     Core::set(completion, Value("finish_reason"), finish);
+  }
+  Value has_call_problems = Core::is_not_none(call_problems);
+  if (Core::truthy(has_call_problems)) {
+    Core::set(completion, Value("function_call_problems"), call_problems);
   }
   return completion;
 }
@@ -8064,18 +8069,6 @@ Value Core::_openai_finish_reason_impl(Value value) {
   return none;
 }
 
-Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
-  axir_coverage_mark("ai_context_cache_expiry");
-  Value is_number = Core::type_is(provider_expire_time, Value("number"));
-  if (Core::truthy(is_number)) {
-    Value future = Core::gt(provider_expire_time, now);
-    if (Core::truthy(future)) {
-      return provider_expire_time;
-    }
-  }
-  return Value(0);
-}
-
 Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("openai_normalize_embed_response");
   Value embeddings = Value::array();
@@ -8096,6 +8089,18 @@ Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value mode
   Core::set(out, Value("remote_id"), remote_id);
   Core::set(out, Value("model_usage"), model_usage);
   return out;
+}
+
+Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
+  axir_coverage_mark("ai_context_cache_expiry");
+  Value is_number = Core::type_is(provider_expire_time, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value future = Core::gt(provider_expire_time, now);
+    if (Core::truthy(future)) {
+      return provider_expire_time;
+    }
+  }
+  return Value(0);
 }
 
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
@@ -8465,6 +8470,14 @@ Value Core::openai_normalize_error(Value status, Value body, Value request, Valu
   return error;
 }
 
+Value Core::provider_normalize_profile(Value profile) {
+  axir_coverage_mark("provider_normalize_profile");
+  Value normalized = Core::string_lower(profile);
+  Value aliases = Core::json_parse(Value("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n"));
+  Value provider_id = Core::get(aliases, normalized, Value(""));
+  return provider_id;
+}
+
 Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
   axir_coverage_mark("_fold_chat_stream_chunk_impl");
   Value content = Core::get(chunk, Value("content"), Value());
@@ -8552,14 +8565,6 @@ Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
   return Value();
 }
 
-Value Core::provider_normalize_profile(Value profile) {
-  axir_coverage_mark("provider_normalize_profile");
-  Value normalized = Core::string_lower(profile);
-  Value aliases = Core::json_parse(Value("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n"));
-  Value provider_id = Core::get(aliases, normalized, Value(""));
-  return provider_id;
-}
-
 Value Core::provider_profile_registry() {
   axir_coverage_mark("provider_profile_registry");
   Value registry = Core::json_parse(Value("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n"));
@@ -8622,6 +8627,187 @@ Value Core::provider_model_catalog(Value options) {
     selected = Core::get(registry, Value("all"), Value());
   }
   return selected;
+}
+
+Value Core::_chat_result_function_call_problems(Value result, Value result_index) {
+  axir_coverage_mark("_chat_result_function_call_problems");
+  Value empty = Value::array();
+  Value calls = Core::get(result, Value("function_calls"), empty);
+  Value calls_is_list = Core::type_is(calls, Value("list"));
+  if (Core::truthy(calls_is_list)) {
+    // empty
+  }
+  if (!Core::truthy(calls_is_list)) {
+    calls = empty;
+  }
+  Value first = Core::none();
+  Value unnamed = Core::none();
+  Value call_problem = Core::none();
+  Value call_index = Value(0);
+  for (auto call : Core::iter(calls)) {
+    Value problem = Value("");
+    Value kind = Value("");
+    Value is_map = Core::type_is(call, Value("object"));
+    if (Core::truthy(is_map)) {
+      Value has_function = Core::map_contains(call, Value("function"));
+      Value has_type = Core::map_contains(call, Value("type"));
+      Value nested = Core::or_(has_function, has_type);
+      Value has_id = Core::map_contains(call, Value("id"));
+      Value id = Core::get(call, Value("id"), Value());
+      Value id_ok = Value(false);
+      Value id_is_text = Core::type_is(id, Value("string"));
+      if (Core::truthy(id_is_text)) {
+        Value id_trimmed = Core::string_trim(id);
+        id_ok = Core::ne(id_trimmed, Value(""));
+      }
+      Value id_bad = Core::not_(id_ok);
+      if (Core::truthy(id_bad)) {
+        Value id_received = Value("undefined");
+        if (Core::truthy(has_id)) {
+          id_received = Core::json_pretty(id);
+        }
+        problem = Core::string_format(Value("Function call at index {} in result {} must have a non-empty string id, received: {}"), call_index, result_index, id_received);
+        kind = Value("call");
+      }
+      Value fn = Core::get(call, Value("function"), Value());
+      Value fn_is_map = Core::type_is(fn, Value("object"));
+      Value check_nested = Core::eq(problem, Value(""));
+      check_nested = Core::and_(check_nested, nested);
+      if (Core::truthy(check_nested)) {
+        Value type = Core::get(call, Value("type"), Value());
+        Value type_ok = Core::eq(type, Value("function"));
+        Value type_bad = Core::not_(type_ok);
+        if (Core::truthy(type_bad)) {
+          Value type_received = Value("undefined");
+          if (Core::truthy(has_type)) {
+            type_received = Core::json_pretty(type);
+          }
+          problem = Core::string_format(Value("Function call at index {} in result {} must have type 'function', received: {}"), call_index, result_index, type_received);
+          kind = Value("call");
+        }
+        if (!Core::truthy(type_bad)) {
+          Value fn_falsy = Core::is_none(fn);
+          Value fn_false = Core::eq(fn, Value(false));
+          Value fn_zero = Core::eq(fn, Value(0));
+          Value fn_empty = Core::eq(fn, Value(""));
+          fn_falsy = Core::or_(fn_falsy, fn_false);
+          fn_falsy = Core::or_(fn_falsy, fn_zero);
+          fn_falsy = Core::or_(fn_falsy, fn_empty);
+          if (Core::truthy(fn_falsy)) {
+            Value fn_received = Value("undefined");
+            if (Core::truthy(has_function)) {
+              fn_received = Core::json_pretty(fn);
+            }
+            problem = Core::string_format(Value("Function call at index {} in result {} must have a function object, received: {}"), call_index, result_index, fn_received);
+            kind = Value("unnamed");
+          }
+        }
+      }
+      Value check_name = Core::eq(problem, Value(""));
+      if (Core::truthy(check_name)) {
+        Value has_name = Value(false);
+        Value name = Core::none();
+        if (Core::truthy(nested)) {
+          if (Core::truthy(fn_is_map)) {
+            has_name = Core::map_contains(fn, Value("name"));
+            name = Core::get(fn, Value("name"), Value());
+          }
+        }
+        if (!Core::truthy(nested)) {
+          has_name = Core::map_contains(call, Value("name"));
+          name = Core::get(call, Value("name"), Value());
+        }
+        Value named = Value(false);
+        Value name_is_text = Core::type_is(name, Value("string"));
+        if (Core::truthy(name_is_text)) {
+          Value name_trimmed = Core::string_trim(name);
+          named = Core::ne(name_trimmed, Value(""));
+        }
+        Value unnamed_call = Core::not_(named);
+        if (Core::truthy(unnamed_call)) {
+          Value name_received = Value("undefined");
+          if (Core::truthy(has_name)) {
+            name_received = Core::json_pretty(name);
+          }
+          problem = Core::string_format(Value("Function call at index {} in result {} must have a non-empty function name, received: {}"), call_index, result_index, name_received);
+          kind = Value("unnamed");
+        }
+      }
+      Value check_params = Core::eq(problem, Value(""));
+      if (Core::truthy(check_params)) {
+        Value has_params = Value(false);
+        Value params = Core::none();
+        if (Core::truthy(nested)) {
+          if (Core::truthy(fn_is_map)) {
+            has_params = Core::map_contains(fn, Value("params"));
+            params = Core::get(fn, Value("params"), Value());
+          }
+        }
+        if (!Core::truthy(nested)) {
+          has_params = Core::map_contains(call, Value("params"));
+          params = Core::get(call, Value("params"), Value());
+        }
+        Value params_number = Core::type_is(params, Value("number"));
+        Value params_bool = Core::type_is(params, Value("boolean"));
+        Value params_bad = Core::or_(params_number, params_bool);
+        params_bad = Core::and_(params_bad, has_params);
+        if (Core::truthy(params_bad)) {
+          Value params_received = Core::json_pretty(params);
+          problem = Core::string_format(Value("Function call params at index {} in result {} must be a string or object, received: {}"), call_index, result_index, params_received);
+          kind = Value("call");
+        }
+      }
+    }
+    if (!Core::truthy(is_map)) {
+      Value call_null = Core::is_none(call);
+      Value call_false = Core::eq(call, Value(false));
+      Value call_zero = Core::eq(call, Value(0));
+      Value call_empty = Core::eq(call, Value(""));
+      Value call_falsy = Core::or_(call_null, call_false);
+      call_falsy = Core::or_(call_falsy, call_zero);
+      call_falsy = Core::or_(call_falsy, call_empty);
+      if (Core::truthy(call_falsy)) {
+        Value call_received = Core::json_pretty(call);
+        problem = Core::string_format(Value("Function call at index {} in result {} cannot be null or undefined, received: {}"), call_index, result_index, call_received);
+      }
+      if (!Core::truthy(call_falsy)) {
+        problem = Core::string_format(Value("Function call at index {} in result {} must have a non-empty string id, received: undefined"), call_index, result_index);
+      }
+      kind = Value("unnamed");
+    }
+    Value failed = Core::ne(problem, Value(""));
+    if (Core::truthy(failed)) {
+      Value first_unset = Core::is_none(first);
+      if (Core::truthy(first_unset)) {
+        first = problem;
+      }
+      Value is_unnamed = Core::eq(kind, Value("unnamed"));
+      if (Core::truthy(is_unnamed)) {
+        Value unnamed_unset = Core::is_none(unnamed);
+        if (Core::truthy(unnamed_unset)) {
+          unnamed = problem;
+        }
+      }
+      if (!Core::truthy(is_unnamed)) {
+        Value call_unset = Core::is_none(call_problem);
+        if (Core::truthy(call_unset)) {
+          call_problem = problem;
+        }
+      }
+    }
+    Value next_call_index = Core::add(call_index, Value(1));
+    call_index = next_call_index;
+  }
+  Value none_failed = Core::is_none(first);
+  if (Core::truthy(none_failed)) {
+    Value nothing = Core::none();
+    return nothing;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("first"), first);
+  Core::set(out, Value("unnamed"), unnamed);
+  Core::set(out, Value("call"), call_problem);
+  return out;
 }
 
 Value Core::provider_estimate_cost(Value model_usage, Value model_info_overrides) {
@@ -21236,11 +21422,11 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
       continue;
     }
     try {
-      Core::_check_completion_function_call_names(response, runtime_options);
+      Core::_check_completion_function_calls(response, runtime_options);
     } catch (const std::exception& e) {
-      Value unnamed_call_error = Core::exception_value(e);
-      Value unnamed_call_failure = Core::_generate_failed_impl(unnamed_call_error);
-      Core::raise_error(unnamed_call_failure);
+      Value call_check_error = Core::exception_value(e);
+      Value call_check_failure = Core::_generate_failed_impl(call_check_error);
+      Core::raise_error(call_check_failure);
     }
     Value session_turns = Core::get(response, Value("session_turns"), Value());
     Value has_session_turns = Core::is_not_none(session_turns);
@@ -23337,6 +23523,12 @@ Value Core::_set_demos(Value gen, Value demos) {
   return gen;
 }
 
+Value Core::_render_examples(Value gen) {
+  axir_coverage_mark("_render_examples");
+  Value messages = Core::axgen_render_examples(gen);
+  return messages;
+}
+
 Value Core::_stream_convert_value_impl(Value field, Value value, Value required) {
   axir_coverage_mark("_stream_convert_value_impl");
   Value out = Value::object();
@@ -23430,12 +23622,6 @@ Value Core::_stream_convert_value_impl(Value field, Value value, Value required)
     return date_out;
   }
   return out;
-}
-
-Value Core::_render_examples(Value gen) {
-  axir_coverage_mark("_render_examples");
-  Value messages = Core::axgen_render_examples(gen);
-  return messages;
 }
 
 Value Core::_render_demos(Value gen) {
@@ -24050,6 +24236,23 @@ Value Core::chat_session_queue_update(Value state, Value update) {
   return Value(true);
 }
 
+Value Core::_is_flexible_json_field(Value typ) {
+  axir_coverage_mark("_is_flexible_json_field");
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_json = Core::eq(type_name, Value("json"));
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value fields = Core::get(typ, Value("fields"), Value());
+  Value has_fields = Core::truthy_value(fields);
+  Value no_fields = Core::not_(has_fields);
+  Value flexible = is_json;
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(no_fields)) {
+      flexible = Value(true);
+    }
+  }
+  return flexible;
+}
+
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
   axir_coverage_mark("_ace_prune_section_for_addition");
   Value candidate_index = Value(-1);
@@ -24129,23 +24332,6 @@ Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) 
   Core::set(out, Value("pruned"), null_pruned);
   Core::set(out, Value("section"), section);
   return out;
-}
-
-Value Core::_is_flexible_json_field(Value typ) {
-  axir_coverage_mark("_is_flexible_json_field");
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_json = Core::eq(type_name, Value("json"));
-  Value is_object = Core::eq(type_name, Value("object"));
-  Value fields = Core::get(typ, Value("fields"), Value());
-  Value has_fields = Core::truthy_value(fields);
-  Value no_fields = Core::not_(has_fields);
-  Value flexible = is_json;
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(no_fields)) {
-      flexible = Value(true);
-    }
-  }
-  return flexible;
 }
 
 Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
@@ -24711,6 +24897,25 @@ Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
   return bounds;
 }
 
+Value Core::_parse_json_string_fields(Value output_fields, Value values) {
+  axir_coverage_mark("_parse_json_string_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  for (auto field : Core::iter(output_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
+}
+
 Value Core::_regex_member(Value n, Value c) {
   axir_coverage_mark("_regex_member");
   Value e = Core::none();
@@ -24830,25 +25035,6 @@ Value Core::_regex_member(Value n, Value c) {
     return yes;
   }
   return Value(false);
-}
-
-Value Core::_parse_json_string_fields(Value output_fields, Value values) {
-  axir_coverage_mark("_parse_json_string_fields");
-  Value values_is_map = Core::type_is(values, Value("object"));
-  Value not_map = Core::not_(values_is_map);
-  if (Core::truthy(not_map)) {
-    return values;
-  }
-  for (auto field : Core::iter(output_fields)) {
-    Value name = Core::get(field, Value("name"), Value());
-    Value has_key = Core::map_contains(values, name);
-    if (Core::truthy(has_key)) {
-      Value value = Core::get(values, name, Value());
-      Value parsed = Core::_parse_json_string_for_field(field, value);
-      Core::set(values, name, parsed);
-    }
-  }
-  return values;
 }
 
 Value Core::_date_skip_space_impl(Value units, Value start, Value end) {
@@ -25040,6 +25226,23 @@ Value Core::_date_ascii_letter_impl(Value unit) {
   return letter;
 }
 
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
+  Value background = Core::eq(execution, Value("background"));
+  if (Core::truthy(background)) {
+    Core::set(spec, Value("execution"), execution);
+  }
+  return spec;
+}
+
 Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options) {
   axir_coverage_mark("_stream_text_extract_impl");
   Value field_count = Core::len(fields);
@@ -25169,23 +25372,6 @@ Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content,
     Core::_stream_text_note_field_impl(xstate, chosen_field, Value(true));
   }
   return Value(false);
-}
-
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
-  Value background = Core::eq(execution, Value("background"));
-  if (Core::truthy(background)) {
-    Core::set(spec, Value("execution"), execution);
-  }
-  return spec;
 }
 
 Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value word) {
@@ -27776,7 +27962,7 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           Value folded = Core::fold_chat_response_stream(events);
           response = Core::chat_response_to_completion(folded);
           stage = Value("fatal");
-          Core::_check_completion_function_call_names(response, runtime_options);
+          Core::_check_completion_function_calls(response, runtime_options);
           stage = Value("validation");
           Core::axgen_memory_add_response(gen, request, response);
           Core::axgen_record_chat_log(gen, request, response);
@@ -29930,6 +30116,16 @@ Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
   return Value();
 }
 
+Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
+  axir_coverage_mark("_cache_store_streamed_impl");
+  Value output_count = Core::len(output);
+  Value yielded = Core::gt(output_count, Value(0));
+  if (Core::truthy(yielded)) {
+    Core::_cache_store_impl(cache_fn, key, output);
+  }
+  return Value();
+}
+
 Value Core::_stream_json_string_value_impl(Value field, Value value) {
   axir_coverage_mark("_stream_json_string_value_impl");
   Value is_string = Core::type_is(value, Value("string"));
@@ -29949,16 +30145,6 @@ Value Core::_stream_json_string_value_impl(Value field, Value value) {
     Core::raise_error(invalid);
   }
   return parsed;
-}
-
-Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
-  axir_coverage_mark("_cache_store_streamed_impl");
-  Value output_count = Core::len(output);
-  Value yielded = Core::gt(output_count, Value(0));
-  if (Core::truthy(yielded)) {
-    Core::_cache_store_impl(cache_fn, key, output);
-  }
-  return Value();
 }
 
 Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors) {
@@ -30143,54 +30329,66 @@ Value Core::_structured_output_render_options_impl(Value selection) {
   return render_options;
 }
 
-Value Core::_validate_completion_function_call_names(Value response) {
-  axir_coverage_mark("_validate_completion_function_call_names");
-  Value empty = Value::array();
+Value Core::_completion_function_call_problems(Value response) {
+  axir_coverage_mark("_completion_function_call_problems");
   Value results = Core::get(response, Value("results"), Value());
   Value no_results = Core::is_none(results);
   if (Core::truthy(no_results)) {
     results = Value::array();
     Core::append(results, response);
   }
+  Value first = Core::none();
+  Value unnamed = Core::none();
+  Value call_problem = Core::none();
   Value result_index = Value(0);
   for (auto result : Core::iter(results)) {
-    Value calls = Core::get(result, Value("function_calls"), empty);
-    Value call_index = Value(0);
-    for (auto call : Core::iter(calls)) {
-      Value has_name = Core::map_contains(call, Value("name"));
-      Value name = Core::get(call, Value("name"), Value());
-      Value fn = Core::get(call, Value("function"), Value());
-      Value fn_is_map = Core::type_is(fn, Value("object"));
-      if (Core::truthy(fn_is_map)) {
-        Value fn_has_name = Core::map_contains(fn, Value("name"));
-        if (Core::truthy(fn_has_name)) {
-          has_name = Value(true);
-          name = Core::get(fn, Value("name"), Value());
+    Value result_is_map = Core::type_is(result, Value("object"));
+    if (Core::truthy(result_is_map)) {
+      Value recorded = Core::map_contains(result, Value("function_call_problems"));
+      Value problems = Core::none();
+      if (Core::truthy(recorded)) {
+        problems = Core::get(result, Value("function_call_problems"), Value());
+        Core::map_delete(result, Value("function_call_problems"));
+      }
+      if (!Core::truthy(recorded)) {
+        problems = Core::_chat_result_function_call_problems(result, result_index);
+      }
+      Value has_problems = Core::is_not_none(problems);
+      if (Core::truthy(has_problems)) {
+        Value result_first = Core::get(problems, Value("first"), Value());
+        Value result_unnamed = Core::get(problems, Value("unnamed"), Value());
+        Value result_call = Core::get(problems, Value("call"), Value());
+        Value first_unset = Core::is_none(first);
+        if (Core::truthy(first_unset)) {
+          first = result_first;
+        }
+        Value unnamed_unset = Core::is_none(unnamed);
+        if (Core::truthy(unnamed_unset)) {
+          unnamed = result_unnamed;
+        }
+        Value call_unset = Core::is_none(call_problem);
+        if (Core::truthy(call_unset)) {
+          call_problem = result_call;
         }
       }
-      Value name_is_text = Core::type_is(name, Value("string"));
-      Value named = Value(false);
-      if (Core::truthy(name_is_text)) {
-        Value trimmed = Core::string_trim(name);
-        named = Core::ne(trimmed, Value(""));
-      }
-      Value unnamed = Core::not_(named);
-      if (Core::truthy(unnamed)) {
-        Value received = Value("undefined");
-        if (Core::truthy(has_name)) {
-          received = Core::json_pretty(name);
-        }
-        Value message = Core::string_format(Value("Function call at index {} in result {} must have a non-empty function name, received: {}"), call_index, result_index, received);
-        Value error = Core::runtime_error(message);
-        Core::raise_error(error);
-      }
-      Value next_call_index = Core::add(call_index, Value(1));
-      call_index = next_call_index;
     }
     Value next_result_index = Core::add(result_index, Value(1));
     result_index = next_result_index;
   }
-  return Value();
+  Value top_recorded = Core::map_contains(response, Value("function_call_problems"));
+  if (Core::truthy(top_recorded)) {
+    Core::map_delete(response, Value("function_call_problems"));
+  }
+  Value none_failed = Core::is_none(first);
+  if (Core::truthy(none_failed)) {
+    Value nothing = Core::none();
+    return nothing;
+  }
+  Value out = Value::object();
+  Core::set(out, Value("first"), first);
+  Core::set(out, Value("unnamed"), unnamed);
+  Core::set(out, Value("call"), call_problem);
+  return out;
 }
 
 Value Core::_stream_state_impl(Value index) {
@@ -30312,13 +30510,14 @@ Value Core::_stream_commit_delta_impl(Value committed, Value current, Value delt
   return effective;
 }
 
-Value Core::_check_completion_function_call_names(Value response, Value options) {
-  axir_coverage_mark("_check_completion_function_call_names");
+Value Core::_check_completion_function_calls(Value response, Value options) {
+  axir_coverage_mark("_check_completion_function_calls");
   Value mode_snake = Core::get(options, Value("function_call_validation"), Value());
   Value mode = Core::get(options, Value("functionCallValidation"), mode_snake);
   Value mode_set = Core::is_not_none(mode);
+  Value is_fail = Value(true);
   if (Core::truthy(mode_set)) {
-    Value is_fail = Core::eq(mode, Value("fail"));
+    is_fail = Core::eq(mode, Value("fail"));
     Value is_correct = Core::eq(mode, Value("correct"));
     Value known = Core::or_(is_fail, is_correct);
     Value unknown = Core::not_(known);
@@ -30328,20 +30527,15 @@ Value Core::_check_completion_function_call_names(Value response, Value options)
       Value mode_error = Core::validation_error(mode_message);
       Core::raise_error(mode_error);
     }
+  }
+  Value problems = Core::_completion_function_call_problems(response);
+  Value has_problems = Core::is_not_none(problems);
+  if (Core::truthy(has_problems)) {
     if (Core::truthy(is_fail)) {
-      Core::_validate_completion_function_call_names(response);
+      Value message = Core::get(problems, Value("first"), Value());
+      Value error = Core::runtime_error(message);
+      Core::raise_error(error);
     }
-    return Value();
-  }
-  Value unnamed = Value(false);
-  try {
-    Core::_validate_completion_function_call_names(response);
-  } catch (const std::exception& e) {
-    Value unnamed_error = Core::exception_value(e);
-    unnamed = Value(true);
-  }
-  if (Core::truthy(unnamed)) {
-    Core::axgen_deprecation(Value("function-call-validation"), Value("A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."));
   }
   return Value();
 }

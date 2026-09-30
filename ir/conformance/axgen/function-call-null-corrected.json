@@ -1,29 +1,29 @@
 {
-  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: null",
-  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: null",
-  "expected_request_count": 1,
+  "description": "Port-only: explicit correction mode retries a call with no name.",
+  "expected_deprecations": [],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_contains": [
+    "Function not found: null. Available functions: lookup. Call one of these exact function names."
+  ],
+  "expected_request_count": 2,
   "expected_tool_calls": [],
+  "forward_options": {
+    "function_call_validation": "correct"
+  },
   "input": {
     "question": "Status?"
   },
   "kind": "forward",
-  "name": "function-call-null-name",
+  "name": "function-call-null-corrected",
   "responses": [
     {
       "results": [
         {
           "content": "",
           "finish_reason": "function_call",
-          "function_calls": [
-            {
-              "function": {
-                "name": null,
-                "params": "{\"key\":\"a\"}"
-              },
-              "id": "call_1",
-              "type": "function"
-            }
-          ],
+          "function_calls": [null],
           "index": 0
         }
       ]

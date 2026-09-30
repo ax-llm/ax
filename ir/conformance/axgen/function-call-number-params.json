@@ -1,13 +1,13 @@
 {
-  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: null",
-  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: null",
+  "expected_error_cause_contains": "Function call params at index 0 in result 0 must be a string or object, received: 42",
+  "expected_error_contains": "Generate failed: Function call params at index 0 in result 0 must be a string or object, received: 42",
   "expected_request_count": 1,
   "expected_tool_calls": [],
   "input": {
     "question": "Status?"
   },
   "kind": "forward",
-  "name": "function-call-null-name",
+  "name": "function-call-number-params",
   "responses": [
     {
       "results": [
@@ -17,8 +17,8 @@
           "function_calls": [
             {
               "function": {
-                "name": null,
-                "params": "{\"key\":\"a\"}"
+                "name": "lookup",
+                "params": 42
               },
               "id": "call_1",
               "type": "function"

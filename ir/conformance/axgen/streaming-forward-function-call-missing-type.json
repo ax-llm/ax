@@ -1,14 +1,14 @@
 {
   "expected_deltas": [],
-  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
-  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
+  "expected_error_cause_contains": "Function call at index 0 in result 0 must have type 'function', received: undefined",
+  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have type 'function', received: undefined",
   "expected_request_count": 1,
   "expected_tool_calls": [],
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-function-call-missing-name",
+  "name": "streaming-forward-function-call-missing-type",
   "responses": [
     {
       "stream": [
@@ -19,10 +19,10 @@
               "function_calls": [
                 {
                   "function": {
+                    "name": "lookup",
                     "params": "{\"key\":\"a\"}"
                   },
-                  "id": "call_1",
-                  "type": "function"
+                  "id": "call_1"
                 }
               ],
               "index": 0

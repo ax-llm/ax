@@ -1,14 +1,14 @@
 {
   "expected_deltas": [],
-  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
-  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
+  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a function object, received: undefined",
+  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a function object, received: undefined",
   "expected_request_count": 1,
   "expected_tool_calls": [],
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-function-call-missing-name",
+  "name": "streaming-forward-function-call-missing-function",
   "responses": [
     {
       "stream": [
@@ -18,9 +18,6 @@
               "finish_reason": "function_call",
               "function_calls": [
                 {
-                  "function": {
-                    "params": "{\"key\":\"a\"}"
-                  },
                   "id": "call_1",
                   "type": "function"
                 }

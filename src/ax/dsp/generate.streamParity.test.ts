@@ -232,6 +232,36 @@ describe('AxGen stream and non-stream parity', () => {
     }
   });
 
+  it('fails a null call or one without a function object the same way streamed or not', async () => {
+    const cases: [unknown, string][] = [
+      [
+        null,
+        'Function call at index 0 in result 0 cannot be null or undefined, received: null',
+      ],
+      [
+        { id: 'c1', type: 'function' },
+        'Function call at index 0 in result 0 must have a function object, received: undefined',
+      ],
+    ];
+    for (const [call, message] of cases) {
+      const malformed: Chunk = {
+        index: 0,
+        functionCalls: [call as never],
+        finishReason: 'function_call',
+      };
+      for (const stream of [false, true]) {
+        const gen = ax('question:string -> answer:string', {
+          functions: [tool('lookup', 'data')],
+        });
+        const ai = scriptedAI([[malformed], [content('Answer: done')]]);
+
+        await expect(
+          gen.forward(ai, { question: 'q' }, { stream })
+        ).rejects.toThrow(message);
+      }
+    }
+  });
+
   it('stores a streamed result in the cache with or without a result picker', async () => {
     for (const withPicker of [false, true]) {
       const stored: unknown[] = [];

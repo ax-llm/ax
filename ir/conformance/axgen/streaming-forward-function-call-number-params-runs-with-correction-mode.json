@@ -1,14 +1,27 @@
 {
-  "expected_deltas": [],
-  "expected_error_cause_contains": "Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
-  "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: undefined",
-  "expected_request_count": 1,
-  "expected_tool_calls": [],
+  "description": "Port-only: explicit correction mode runs a malformed streamed call as given.",
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "done"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_deprecations": [],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 2,
+  "forward_options": {
+    "function_call_validation": "correct"
+  },
   "input": {
     "question": "Status?"
   },
   "kind": "streaming_forward",
-  "name": "streaming-forward-function-call-missing-name",
+  "name": "streaming-forward-function-call-number-params-runs-with-correction-mode",
   "responses": [
     {
       "stream": [
@@ -19,7 +32,8 @@
               "function_calls": [
                 {
                   "function": {
-                    "params": "{\"key\":\"a\"}"
+                    "name": "lookup",
+                    "params": 42
                   },
                   "id": "call_1",
                   "type": "function"
