@@ -10,10 +10,10 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"Ax is a framework.\"}"
+      "content": "Answer: Ax is a framework."
     },
     {
-      "content": "{\"answer\":\"Ax is a framework.\",\"notes\":\"validated internally\"}"
+      "content": "Answer: Ax is a framework.\nNotes: validated internally"
     }
   ],
   "expected_output": {

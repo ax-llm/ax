@@ -33,10 +33,10 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"from left\"}"
+      "content": "Answer: from left"
     },
     {
-      "content": "{\"answer\":\"from right\"}"
+      "content": "Answer: from right"
     }
   ],
   "expected_output": {

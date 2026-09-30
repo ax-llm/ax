@@ -963,7 +963,7 @@ writeFixture('eval-prediction-final', {
       content:
         '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
     },
-    { content: '{"answer":"Paris"}' },
+    { content: 'Answer: Paris' },
   ],
   expected_prediction_subset: {
     completionType: 'final',
@@ -1096,7 +1096,7 @@ writeFixture('candidate-evaluation-final-rollback', {
       content:
         '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
     },
-    { content: '{"answer":"Paris"}' },
+    { content: 'Answer: Paris' },
   ],
   expected_evaluation_subset: {
     avg: 1,
@@ -1702,7 +1702,7 @@ writeFixture('flow-evaluate-rollback', {
       score: 1,
     },
   ],
-  responses: [{ content: '{"answer":"Paris"}' }],
+  responses: [{ content: 'Answer: Paris' }],
   expected_evaluation_subset: {
     avg: 1,
     count: 1,
@@ -3304,7 +3304,7 @@ await (async () => {
           content:
             '{"completion":{"type":"final","args":["Answer",{"answer":"the live evidence"}]}}',
         },
-        { content: '{"answer":"the live evidence"}' },
+        { content: 'Answer: the live evidence' },
       ],
       expected_output: { answer: 'the live evidence' },
       expected_request_contains: [bullet],

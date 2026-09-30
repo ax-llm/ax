@@ -19,7 +19,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"Synthesize from the gathered evidence\\\", { gatheredValue: 'rlm-evidence-marker-7' })\"}"
     },
     {
-      "content": "{\"answer\":\"ok\"}"
+      "content": "Answer: ok"
     }
   ],
   "expected_output": {

@@ -67,7 +67,7 @@ func TestAstraSessionBackgroundOverlapAndFinalIncorporation(t *testing.T) {
 					_ = writer.CloseWithError(ctx.Err())
 					return
 				}
-				sessionSSE(writer, sessionCompleted("r1", "{\"answer\":\"provisional\"}"))
+				sessionSSE(writer, sessionCompleted("r1", "Answer: provisional"))
 			}()
 			return AxHTTPStreamResponse{Status: 200, Body: reader}, nil
 		}
@@ -82,7 +82,7 @@ func TestAstraSessionBackgroundOverlapAndFinalIncorporation(t *testing.T) {
 			return AxHTTPStreamResponse{}, fmt.Errorf("result not incorporated exactly once: %v", items)
 		}
 		var body strings.Builder
-		sessionSSE(&body, sessionCompleted("r2", "{\"answer\":\"REF-42\"}"))
+		sessionSSE(&body, sessionCompleted("r2", "Answer: REF-42"))
 		return AxHTTPStreamResponse{Status: 200, Body: io.NopCloser(strings.NewReader(body.String()))}, nil
 	}
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport, "model_config", Object("thinkingTokenBudget", "low")))
@@ -220,7 +220,7 @@ func TestAstraFlowSessionIsolationAndFutureRootUpdates(t *testing.T) {
 			if len(input) != 2 || coreGet(input[0], "role", "") != "user" || coreGet(input[1], "call_id", "") != "same-call" || coreGet(input[1], "output", "") != "REF-42" {
 				return AxHTTPStreamResponse{}, fmt.Errorf("lost scoped update or result: %v", input)
 			}
-			event = sessionCompleted("node-final", "{\"answer\":\"REF-42\"}")
+			event = sessionCompleted("node-final", "Answer: REF-42")
 		}
 		var bodyStream strings.Builder
 		sessionSSE(&bodyStream, event)
@@ -295,7 +295,7 @@ func (s *steeringTestSocket) Send(event Value) {
 		s.inbound <- ack
 		s.inbound <- Object("type", "response.incomplete", "response", Object("id", "parent", "model", "gpt-6-astra", "incomplete_details", Object("reason", "steered"), "output", Array(), "usage", Object("input_tokens", 3, "output_tokens", 2)))
 		s.inbound <- Object("type", "response.created", "response", Object("id", "successor"))
-		s.inbound <- sessionCompleted("successor", "{\"answer\":\"CORRECTED\"}")
+		s.inbound <- sessionCompleted("successor", "Answer: CORRECTED")
 	}
 }
 func (s *steeringTestSocket) Recv() (Value, bool) {
@@ -384,14 +384,14 @@ func (t *agentSessionTransport) Call(ctx context.Context, request Value) (Value,
 	if n != 4 || !strings.Contains(stableStringify(body), "REF-42") {
 		return nil, fmt.Errorf("responder ran before final result incorporation: %d", n)
 	}
-	return coreGet(sessionCompleted("responder", "{\"answer\":\"REF-42\"}"), "response", nil), nil
+	return coreGet(sessionCompleted("responder", "Answer: REF-42"), "response", nil), nil
 }
 func (t *agentSessionTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamResponse, error) {
 	n := t.next(request)
 	body := coreGet(request, "json", Object())
     if n==1||n==2||n==5||n==6 {
         for _,tool:=range asSlice(coreGet(body,"tools",Array())){if coreTruthy(coreGet(tool,"async",false)){return AxHTTPStreamResponse{},fmt.Errorf("Actor authority leaked")}}
-        stage:="distiller";text:="{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";if n>=5{stage="responder";text="{\"answer\":\"REF-42\"}"}
+        stage:="distiller";text:="{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}";if n>=5{stage="responder";text="Answer: REF-42"}
         suffix:="-start";if n==2||n==6 {suffix="-final";input:=stableStringify(coreGet(body,"input",nil));if coreGet(body,"previous_response_id","")!=stage+"-start"||!strings.Contains(input,"ROOT-GUIDANCE")||strings.Contains(input,"RESPONDER-ONLY")!=(n==6){return AxHTTPStreamResponse{},fmt.Errorf("Scoped stage update mismatch: %v",body)}}
         if n==5&&!strings.Contains(stableStringify(body),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("Responder started before incorporation")}
         var out strings.Builder;sessionSSE(&out,sessionCompleted(stage+suffix,text));return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(out.String()))},nil
@@ -478,7 +478,7 @@ func (s *balancedChatOnlyService) Chat(ctx context.Context,request,options map[s
     if s.unused{return nil,fmt.Errorf("pinned run changed providers")};s.calls++
     if s.calls==1{return Object("results",Array(Object("function_calls",Array(Object("id","balanced-call","type","function","function",Object("name","lookup","params",Object())))))),nil}
     if s.calls!=2||s.tools.Load()!=1||!strings.Contains(display(request),"FALLBACK")||!strings.Contains(display(request),"balanced-call"){return nil,fmt.Errorf("lost tool continuation: %v",request)}
-    return Object("results",Array(Object("content","{\"answer\":\"FALLBACK\"}"))),nil
+    return Object("results",Array(Object("content","Answer: FALLBACK"))),nil
 }
 func TestAstraMixedBalancerPinsChatOnlyFallback(t *testing.T) {
     var called atomic.Int32
@@ -522,7 +522,7 @@ func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
 type nativeFileTransport struct { requests []Value }
 func (t *nativeFileTransport) Call(_ context.Context, request Value) (Value,error) {
     t.requests=append(t.requests,coreGet(request,"json",nil))
-    return Object("status",200,"json",Object("id","file-response","choices",Array(Object("index",0,"message",Object("role","assistant","content","{\"summary\":\"Read\"}"))))),nil
+    return Object("status",200,"json",Object("id","file-response","choices",Array(Object("index",0,"message",Object("role","assistant","content","Summary: Read"))))),nil
 }
 func TestNativeFileRouterBalancerHistory(t *testing.T) {
     transport:=&nativeFileTransport{}
@@ -571,7 +571,7 @@ func TestOwnedFlowWorkersOverlap(t *testing.T) {
         if started.Add(1)==2 {close(release)}
         select {case <-release: case <-r.Context().Done(): return; case <-time.After(3*time.Second): http.Error(w,"parallel nodes did not overlap",500);return}
         w.Header().Set("Content-Type","application/json")
-        fmt.Fprint(w,`{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"DONE\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+        fmt.Fprint(w,`{"id":"reply","choices":[{"index":0,"message":{"role":"assistant","content":"Answer: DONE"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
     }))
     defer server.Close()
     client := NewAI("openai",Object("api_key","worker-test","model","gpt-5.6","base_url",server.URL))

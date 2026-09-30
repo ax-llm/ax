@@ -10,7 +10,7 @@
       "content": " \n "
     },
     {
-      "content": "{\"answer\":\"recovered\"}"
+      "content": "Answer: recovered"
     }
   ],
   "expected_output": {
@@ -24,7 +24,7 @@
     {
       "role": "assistant",
       "response": {
-        "content": "{\"answer\":\"recovered\"}"
+        "content": "Answer: recovered"
       }
     }
   ],

@@ -42,28 +42,28 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\": \"plan\"}"
+      "content": "Javascript Code: plan"
     },
     {
-      "content": "{\"javascriptCode\": \"lookup\"}"
+      "content": "Javascript Code: lookup"
     },
     {
-      "content": "{\"javascriptCode\": \"delegate\"}"
-    },
-    {
-      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
+      "content": "Javascript Code: delegate"
     },
     {
       "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
     },
     {
-      "content": "{\"answer\": \"REF-42\"}"
+      "content": "{\"completion\": {\"type\": \"final\", \"args\": [\"Find reference\", {\"answer\": \"REF-42\"}]}}"
     },
     {
-      "content": "{\"javascriptCode\": \"finish\"}"
+      "content": "Answer: REF-42"
     },
     {
-      "content": "{\"answer\": \"LOCAL-17 and REF-42\"}"
+      "content": "Javascript Code: finish"
+    },
+    {
+      "content": "Answer: LOCAL-17 and REF-42"
     }
   ],
   "runtime_script": [

@@ -33,7 +33,7 @@
       ]
     },
     {
-      "content": "{\"answer\":\"No lookup tool is registered.\"}"
+      "content": "Answer: No lookup tool is registered."
     }
   ],
   "expected_output": {

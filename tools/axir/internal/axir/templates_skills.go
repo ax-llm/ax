@@ -667,17 +667,7 @@ func skillErrorsText(target string) string {
 }
 
 func skillTextContractText(target string) string {
-	warning := map[string]string{
-		"python": "raises a `DeprecationWarning` once",
-		"go":     "logs a deprecation warning once",
-		"java":   "logs a deprecation warning once",
-		"rust":   "prints a deprecation warning once",
-		"cpp":    "prints a deprecation warning once",
-	}[target]
-	if warning == "" {
-		warning = "warns once"
-	}
-	return "Text-contract answers are parsed as TypeScript's `extractValues` parses them: `Label: value` lines, a single-field answer without a label, JavaScript `Number()` coercion, a JSON array or markdown list for list fields, fenced code and JSON blocks, and `null` for an optional field, with TypeScript's validation messages. For compatibility an answer that is exactly one JSON object whose keys are all output fields is still read as those fields; that fallback " + warning + " and is removed in the next major version, when such an answer is read as text, as in TypeScript."
+    return "Text-contract answers follow TypeScript extractValues: Label: value lines, a single-field answer without a label, JavaScript Number() coercion, JSON arrays or markdown lists, fenced code and JSON blocks, and null for an optional field. A bare JSON object is text, not a substitute for labeled output fields. Use a structured-output rung when an object response is required."
 }
 
 func skillNumberFormatText(target string) string {

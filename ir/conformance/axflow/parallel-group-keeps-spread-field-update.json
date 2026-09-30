@@ -34,10 +34,10 @@
   },
   "responses": [
     {
-      "content": "{\"summary\":\"new summary\"}"
+      "content": "Summary: new summary"
     },
     {
-      "content": "{\"title\":\"title\"}"
+      "content": "Title: title"
     }
   ],
   "expected_output": {

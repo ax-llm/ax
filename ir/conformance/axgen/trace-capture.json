@@ -19,7 +19,7 @@
   "name": "trace-capture",
   "responses": [
     {
-      "content": "{\"answer\":\"traced\"}"
+      "content": "Answer: traced"
     }
   ],
   "signature": "question:string -> answer:string"

@@ -33,10 +33,10 @@
       "content": "{\"javascriptCode\": \"final(\\\"Find reference\\\", {});\"}"
     },
     {
-      "content": "{\"answer\": \"REF-42\"}"
+      "content": "Answer: REF-42"
     },
     {
-      "content": "{\"answer\": \"REF-42\"}"
+      "content": "Answer: REF-42"
     }
   ],
   "expected_output": {

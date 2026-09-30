@@ -49,7 +49,7 @@
       "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"the live evidence\"}]}}"
     },
     {
-      "content": "{\"answer\":\"the live evidence\"}"
+      "content": "Answer: the live evidence"
     }
   ],
   "expected_output": {

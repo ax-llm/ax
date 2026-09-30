@@ -27,7 +27,7 @@
   "name": "examples-message-pairs-exact",
   "responses": [
     {
-      "content": "{\"answer\":\"Live answer\"}"
+      "content": "Answer: Live answer"
     }
   ],
   "signature": "question:string -> answer:string"

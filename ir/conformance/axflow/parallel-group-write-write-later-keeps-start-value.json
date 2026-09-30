@@ -34,10 +34,10 @@
   },
   "responses": [
     {
-      "content": "{\"answer\":\"different\"}"
+      "content": "Answer: different"
     },
     {
-      "content": "{\"answer\":\"same\"}"
+      "content": "Answer: same"
     }
   ],
   "expected_output": {

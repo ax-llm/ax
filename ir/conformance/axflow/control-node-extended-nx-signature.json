@@ -1,9 +1,27 @@
 {
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "userInput": "why?"
+  },
   "kind": "flow",
   "name": "control-node-extended-nx-signature",
+  "responses": [
+    {
+      "content": "Reasoning: because\nAnswer: ok"
+    }
+  ],
+  "returns": {
+    "answer": "reasonerResult.answer"
+  },
   "source": {
-    "tsDerived": true,
     "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "name": "control-node-extended-nx-signature",
+    "observed": {
+      "signature": "reasonerUserInput:string -> reasonerReasoning!:string \"Reasoning\", reasonerAnswer:string"
+    },
     "reference": [
       "src/ax/flow/flow.ts",
       "src/ax/flow/steps.ts",
@@ -13,31 +31,13 @@
       "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
-    "name": "control-node-extended-nx-signature",
-    "observed": {
-      "signature": "reasonerUserInput:string -> reasonerReasoning!:string \"Reasoning\", reasonerAnswer:string"
-    }
-  },
-  "input": {
-    "userInput": "why?"
+    "tsDerived": true
   },
   "steps": [
     {
+      "extended_signature": "userInput:string -> reasoning!:string, answer:string",
       "kind": "execute",
-      "name": "reasoner",
-      "extended_signature": "userInput:string -> reasoning!:string, answer:string"
+      "name": "reasoner"
     }
-  ],
-  "returns": {
-    "answer": "reasonerResult.answer"
-  },
-  "responses": [
-    {
-      "content": "{\"reasoning\":\"because\",\"answer\":\"ok\"}"
-    }
-  ],
-  "expected_output": {
-    "answer": "ok"
-  },
-  "expected_request_count": 1
+  ]
 }

@@ -69,13 +69,13 @@
   },
   "responses": [
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Forward promoted document\\\", {})\"}"
+      "content": "Javascript Code: final(\"Forward promoted document\", {})"
     },
     {
-      "content": "{\"javascriptCode\":\"final(\\\"Answer after promotion\\\", {\\\"answer\\\":\\\"promoted\\\"})\"}"
+      "content": "Javascript Code: final(\"Answer after promotion\", {\"answer\":\"promoted\"})"
     },
     {
-      "content": "{\"answer\":\"promoted\"}"
+      "content": "Answer: promoted"
     }
   ],
   "runtime_script": [

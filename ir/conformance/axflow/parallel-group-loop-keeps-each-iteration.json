@@ -17,16 +17,16 @@
   "name": "parallel-group-loop-keeps-each-iteration",
   "responses": [
     {
-      "content": "{\"summary\":\"s1\"}"
+      "content": "Summary: s1"
     },
     {
-      "content": "{\"title\":\"t1\"}"
+      "content": "Title: t1"
     },
     {
-      "content": "{\"summary\":\"s2\"}"
+      "content": "Summary: s2"
     },
     {
-      "content": "{\"title\":\"t2\"}"
+      "content": "Title: t2"
     }
   ],
   "returns": {

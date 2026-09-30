@@ -27,7 +27,7 @@
   "name": "examples-zero-false-values",
   "responses": [
     {
-      "content": "{\"answer\":\"ok\"}"
+      "content": "Answer: ok"
     }
   ],
   "signature": "count:number, enabled:boolean -> answer:string"

@@ -32,7 +32,7 @@
       ]
     },
     {
-      "content": "{\"answer\":\"The search backend is unavailable.\"}"
+      "content": "Answer: The search backend is unavailable."
     }
   ],
   "expected_output": {

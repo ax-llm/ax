@@ -321,31 +321,31 @@
   ],
   "responses": [
     {
-      "content": "{\"javascriptCode\": \"plan\"}"
+      "content": "Javascript Code: plan"
     },
     {
-      "content": "{\"javascriptCode\": \"delegate\"}"
+      "content": "Javascript Code: delegate"
     },
     {
-      "content": "{\"javascriptCode\": \"childplan\"}"
+      "content": "Javascript Code: childplan"
     },
     {
-      "content": "{\"javascriptCode\": \"inventory\"}"
+      "content": "Javascript Code: inventory"
     },
     {
-      "content": "{\"javascriptCode\": \"orders\"}"
+      "content": "Javascript Code: orders"
     },
     {
-      "content": "{\"javascriptCode\": \"childfinish\"}"
+      "content": "Javascript Code: childfinish"
     },
     {
-      "content": "{\"answer\": \"inventory\"}"
+      "content": "Answer: inventory"
     },
     {
-      "content": "{\"javascriptCode\": \"finish\"}"
+      "content": "Javascript Code: finish"
     },
     {
-      "content": "{\"answer\": \"inventory\"}"
+      "content": "Answer: inventory"
     }
   ],
   "input": {

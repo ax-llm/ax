@@ -36,13 +36,13 @@
   },
   "responses": [
     {
-      "content": "{\"pythonCode\": \"final(\\\"Execute runtime code\\\", {})\"}"
+      "content": "Python Code: final(\"Execute runtime code\", {})"
     },
     {
-      "content": "{\"pythonCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
+      "content": "Python Code: final(\"Answer\", {\"answer\": \"from runtime\"})"
     },
     {
-      "content": "{\"answer\":\"from runtime\"}"
+      "content": "Answer: from runtime"
     }
   ],
   "runtime_script": [

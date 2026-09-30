@@ -655,27 +655,23 @@ async function writeSemanticParityLifecycleOracle(): Promise<void> {
     },
     responses: [
       {
-        content:
-          '{"javascriptCode":"final(\\"execute\\", {\\"context\\":\\"ready\\"})"}',
+        content: 'Javascript Code: final("execute", {"context":"ready"})',
+      },
+      {
+        content: 'Javascript Code: discover({"skills":["release"]})',
+      },
+      { content: 'Javascript Code: recall(["deploy"])' },
+      {
+        content: 'Javascript Code: used("shared", "forward override used")',
       },
       {
         content:
-          '{"javascriptCode":"discover({\\"skills\\":[\\"release\\"]})"}',
-      },
-      { content: '{"javascriptCode":"recall([\\"deploy\\"])"}' },
-      {
-        content:
-          '{"javascriptCode":"used(\\"shared\\", \\"forward override used\\")"}',
+          'Javascript Code: used("mem-a", "preload then recall override used")',
       },
       {
-        content:
-          '{"javascriptCode":"used(\\"mem-a\\", \\"preload then recall override used\\")"}',
+        content: 'Javascript Code: final("done", {"answer":"oracle"})',
       },
-      {
-        content:
-          '{"javascriptCode":"final(\\"done\\", {\\"answer\\":\\"oracle\\"})"}',
-      },
-      { content: '{"answer":"oracle"}' },
+      { content: 'Answer: oracle' },
     ],
     runtime_script: [
       {
@@ -830,9 +826,9 @@ async function writeSemanticParityStaticDirectSkillOracle(): Promise<void> {
     responses: [
       {
         content:
-          '{"javascriptCode":"respond(\\"direct\\", {\\"source\\":\\"forward-skill\\"})"}',
+          'Javascript Code: respond("direct", {"source":"forward-skill"})',
       },
-      { content: '{"answer":"direct"}' },
+      { content: 'Answer: direct' },
     ],
     runtime_script: [
       {
@@ -1067,7 +1063,7 @@ async function writeSemanticParityForwardResetOracle(): Promise<void> {
       {
         content: `{"javascriptCode":"final(\\"answer-${label}\\", {\\"answer\\":\\"${label}\\"})"}`,
       },
-      { content: `{"answer":"${label}"}` },
+      { content: `Answer: ${label}` },
     ]),
     runtime_script: runLabels.flatMap((label) => [
       {
@@ -1279,7 +1275,7 @@ async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
       (content, index, values) => ({
         content:
           index === values.length - 1
-            ? '{"answer":"catalog"}'
+            ? 'Answer: catalog'
             : `{"javascriptCode":${JSON.stringify(content)}}`,
       })
     ),
@@ -1406,12 +1402,11 @@ async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
     },
     input: { query: 'zebra quokka' },
     responses: [
-      { content: '{"javascriptCode":"final(\\"execute-one\\", {})"}' },
+      { content: 'Javascript Code: final("execute-one", {})' },
       {
-        content:
-          '{"javascriptCode":"final(\\"answer-one\\", {\\"answer\\":\\"tie\\"})"}',
+        content: 'Javascript Code: final("answer-one", {"answer":"tie"})',
       },
-      { content: '{"answer":"tie"}' },
+      { content: 'Answer: tie' },
     ],
     runtime_script: [
       {
@@ -1534,7 +1529,7 @@ writeFixture('simple-pipeline', {
       content:
         '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
     },
-    { content: '{"answer":"Paris"}' },
+    { content: 'Answer: Paris' },
   ],
   expected_output: { answer: 'Paris' },
   expected_request_count: 3,
@@ -1567,7 +1562,7 @@ writeFixture('context-routing', {
       content:
         '{"completion":{"type":"final","args":["Answer from evidence",{"answer":"AxIR is portable"}]}}',
     },
-    { content: '{"answer":"AxIR is portable"}' },
+    { content: 'Answer: AxIR is portable' },
   ],
   expected_output: { answer: 'AxIR is portable' },
   expected_request_count: 3,
@@ -1625,7 +1620,7 @@ writeFixture('exclude-fields', {
       content:
         '{"completion":{"type":"final","args":["Answer safely",{"answer":"safe"}]}}',
     },
-    { content: '{"answer":"safe"}' },
+    { content: 'Answer: safe' },
   ],
   expected_output: { answer: 'safe' },
   expected_request_count: 3,
@@ -1649,7 +1644,7 @@ writeFixture('state-round-trip', {
       content:
         '{"completion":{"type":"final","args":["Answer",{"answer":"ok"}]}}',
     },
-    { content: '{"answer":"ok"}' },
+    { content: 'Answer: ok' },
   ],
   expected_output: { answer: 'ok' },
   expected_state: { session: 'alpha' },
@@ -2611,10 +2606,9 @@ writeFixture('runtime-forward-python-final', {
         '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
     },
     {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
+      content: 'Python Code: final("Answer", {"answer": "from runtime"})',
     },
-    { content: '{"answer":"from runtime"}' },
+    { content: 'Answer: from runtime' },
   ],
   runtime_script: [
     {
@@ -2648,10 +2642,9 @@ writeFixture('runtime-forward-javascript-final', {
         '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
     },
     {
-      content:
-        '{"javascriptCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
+      content: 'Javascript Code: final("Answer", {"answer": "from runtime"})',
     },
-    { content: '{"answer":"from runtime"}' },
+    { content: 'Answer: from runtime' },
   ],
   runtime_script: [
     {
@@ -2685,10 +2678,9 @@ writeFixture('trace-replay-runtime-final', {
         '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
     },
     {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"trace ok\\"})"}',
+      content: 'Python Code: final("Answer", {"answer": "trace ok"})',
     },
-    { content: '{"answer":"trace ok"}' },
+    { content: 'Answer: trace ok' },
   ],
   runtime_script: [
     {
@@ -2746,13 +2738,12 @@ writeFixture('runtime-forward-discover-continues', {
         '{"completion":{"type":"final","args":["Discover tools first",{}]}}',
     },
     {
-      content: '{"pythonCode":"discover({\\"tools\\":[\\"search\\"]})"}',
+      content: 'Python Code: discover({"tools":["search"]})',
     },
     {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Docs found\\"})"}',
+      content: 'Python Code: final("Answer", {"answer": "Docs found"})',
     },
-    { content: '{"answer":"Docs found"}' },
+    { content: 'Answer: Docs found' },
   ],
   runtime_script: [
     {
@@ -2797,12 +2788,12 @@ writeFixture('runtime-forward-recall-continues', {
       content:
         '{"completion":{"type":"final","args":["Recall preferences",{}]}}',
     },
-    { content: '{"pythonCode":"recall(\\"prefs\\")"}' },
+    { content: 'Python Code: recall("prefs")' },
     {
       content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"User likes concise docs.\\"})"}',
+        'Python Code: final("Answer", {"answer": "User likes concise docs."})',
     },
-    { content: '{"answer":"User likes concise docs."}' },
+    { content: 'Answer: User likes concise docs.' },
   ],
   runtime_script: [
     {
@@ -2848,12 +2839,11 @@ writeFixture('runtime-forward-guide-continues', {
       content:
         '{"completion":{"type":"final","args":["Guide before answering",{}]}}',
     },
-    { content: '{"pythonCode":"guideAgent(\\"Prefer concise final.\\")"}' },
+    { content: 'Python Code: guideAgent("Prefer concise final.")' },
     {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Concise\\"})"}',
+      content: 'Python Code: final("Answer", {"answer": "Concise"})',
     },
-    { content: '{"answer":"Concise"}' },
+    { content: 'Answer: Concise' },
   ],
   runtime_script: [
     {
@@ -2975,7 +2965,7 @@ writeFixture('agent-context-cache-precedence', {
       content:
         '{"completion":{"type":"final","args":["Answer with cache",{"answer":"cached"}]}}',
     },
-    { content: '{"answer":"cached"}' },
+    { content: 'Answer: cached' },
   ],
   expected_output: { answer: 'cached' },
   expected_request_count: 3,

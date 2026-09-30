@@ -45,7 +45,7 @@
       ]
     },
     {
-      "content": "{\"answer\":\"Docs\"}"
+      "content": "Answer: Docs"
     }
   ],
   "signature": "query:string -> answer:string",

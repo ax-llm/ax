@@ -152,7 +152,7 @@ class ParityTests(unittest.TestCase):
             return {'model':'jev-latest','answers':{'urgent':{'type':'noul','noul':0.9}},'usage':{'input_tokens':1,'output_tokens':1}}
         def normal(request):
             normal_calls.append(request)
-            return {'model':'gpt-5.4-mini','choices':[{'index':0,'message':{'role':'assistant','content':'{"answer":"hello"}'},'finish_reason':'stop'}],'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}}
+            return {'model':'gpt-5.4-mini','choices':[{'index':0,'message':{'role':'assistant','content':'Answer: hello'},'finish_reason':'stop'}],'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}}
         decision=ai('typesafe',api_key='test',transport=typed,models=None)
         generative=ai('openai',api_key='test',model='gpt-5.4-mini',transport=normal,models=None)
         only=AxBalancer([decision]); mixed=AxBalancer([decision,generative])

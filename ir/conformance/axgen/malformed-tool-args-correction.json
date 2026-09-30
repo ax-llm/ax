@@ -34,7 +34,7 @@
       ]
     },
     {
-      "content": "{\"answer\":\"Search args were corrected.\"}"
+      "content": "Answer: Search args were corrected."
     }
   ],
   "expected_output": {
