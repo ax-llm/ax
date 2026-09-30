@@ -6,7 +6,6 @@ The list sets out today's behavior, the flip, and the source PR. When a PR defer
 a breaking change, it appends a line here. See [RELEASE.md](RELEASE.md) for the
 release flow.
 
-- `add_field_processor` gets TypeScript's feedback semantics by default in C++. Today it transforms, so use `add_field_transform` for that (#724, #730).
 - The text-contract JSON-object fallback is removed: an answer that is one JSON object is read as text, as in TypeScript (#724).
 - The ports raise a real `AxGenerateError` type. Today only the message matches TypeScript (#729).
 - `parseDates` / `parse_dates` defaults to true in the ports (#734).

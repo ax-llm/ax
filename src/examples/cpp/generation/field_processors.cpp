@@ -21,7 +21,7 @@ int main() {
     return 2;
   }
   const char* selected = std::getenv("AX_OPENAI_MODEL");
-  std::string model = selected == nullptr || std::string(selected).empty() ? "gpt-5.4-mini" : selected;
+  std::string model = selected == nullptr || std::string(selected).empty() ? "gpt-6-luna" : selected;
   auto client = axllm::ai("openai", axllm::object({{"api_key", api_key}, {"model", model}}));
   auto summarize = axllm::ax("text:string -> summary:string");
 

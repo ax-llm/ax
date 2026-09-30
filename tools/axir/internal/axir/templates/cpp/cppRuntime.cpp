@@ -6546,14 +6546,6 @@ std::function<Value(Value, Value)> axgen_field_processor_host(AxFieldProcessor p
   };
 }
 
-void warn_field_processor_rewrite() {
-  Core::axgen_deprecation(
-      Value("cpp-add-field-processor-rewrite"),
-      Value("AxGen::add_field_processor(field, op) rewrites the field value; use add_field_transform(field, op) for that. "
-            "In the next major version add_field_processor follows TypeScript: a non-empty result goes back to the model "
-            "as a user message for another step. Opt in now with add_field_processor(field, processor, AxFieldProcessorMode::Feedback)."));
-}
-
 }  // namespace
 
 // As TypeScript addStreamingAssert, the field must be a string or code output
@@ -6595,16 +6587,6 @@ AxGen& AxGen::add_field_transform(std::string field, std::function<Value(Value)>
   Core::append(processors, spec);
   Core::set(state_, "field_processors", processors);
   return *this;
-}
-
-AxGen& AxGen::add_field_processor(std::string field, std::string op) {
-  warn_field_processor_rewrite();
-  return add_field_transform(std::move(field), std::move(op));
-}
-
-AxGen& AxGen::add_field_processor(std::string field, std::function<Value(Value)> processor) {
-  warn_field_processor_rewrite();
-  return add_field_transform(std::move(field), std::move(processor));
 }
 
 // As TypeScript addFieldProcessor, the field must be an output field.

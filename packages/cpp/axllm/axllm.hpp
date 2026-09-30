@@ -2349,18 +2349,13 @@ class AxGen : public AxProgram {
   // sends it once, transformed.
   AxGen& add_field_transform(std::string field, std::string op);
   AxGen& add_field_transform(std::string field, std::function<Value(Value)> transform);
-  // Deprecated: rewrites the field like add_field_transform and warns once.
-  // In the next major version add_field_processor follows TypeScript (the
-  // Feedback mode below).
-  AxGen& add_field_processor(std::string field, std::string op);
-  AxGen& add_field_processor(std::string field, std::function<Value(Value)> processor);
   // Feedback: TypeScript's addFieldProcessor. processor runs on the field's
   // final value, and a non-empty result is sent to the model as a user
   // message for another step, whose answer replaces the earlier one.
   // Transform: the result replaces the field value, as add_field_transform.
   // An exception processor throws ends the forward without a retry. Throws
   // AxError when field is not an output field.
-  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode);
+  AxGen& add_field_processor(std::string field, AxFieldProcessor processor, AxFieldProcessorMode mode = AxFieldProcessorMode::Feedback);
   // TypeScript's addStreamingFieldProcessor: processor runs on each streamed
   // chunk of a string or code field with the field's text so far, and a
   // non-empty result goes back to the model as in Feedback mode. Throws
