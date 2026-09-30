@@ -6412,6 +6412,8 @@ impl AxAgent {
 
     fn learn_playbook_failures_with<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
         if self.playbook_config.is_null() || self.playbook_config.as_bool() == Some(false) { return; }
+        // An evaluated run learns nothing, as TS's evaluation path.
+        if self.state_json("playbook_learning_paused").as_bool() == Some(true) { return; }
         let _ = (|| -> AxResult<()> {
             let config = self.playbook_config.as_object().cloned().unwrap_or_default();
             if config.get("learn").and_then(Value::as_bool) == Some(false) { return Ok(()); }
@@ -6668,24 +6670,46 @@ impl AxAgent {
         ])?))
     }
 
+    /// Run one task and return its prediction. A run that asks for
+    /// clarification is an askClarification prediction. A run that throws
+    /// currently returns that error (Err), unlike the other ports, whose
+    /// prediction for it has completionType 'error'; Rust returns that
+    /// prediction at the next major version.
     pub fn evaluate_optimization_task<C: AxAIClient>(
         &mut self,
         client: &mut C,
         task: Value,
         options: Value,
     ) -> AxResult<Value> {
+        self.evaluate_optimization_task_with(client, task, options, false)
+    }
+
+    // thrown_as_prediction: a run that throws is a completionType 'error'
+    // prediction, as the other ports' evaluate_optimization_task returns it.
+    fn evaluate_optimization_task_with<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        task: Value,
+        options: Value,
+        thrown_as_prediction: bool,
+    ) -> AxResult<Value> {
         let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
         let forward_options = options.get("forward_options").cloned().unwrap_or_else(|| json!({}));
         // As TS evaluates each task from a fresh state, the prediction carries
         // only this run's share of the agent's logs.
         let marks = _agent_eval_marks(&[self.state.clone()])?;
-        let completion = match self.forward_with_options(client, input, forward_options) {
+        // TS's evaluation path runs no playbook run-end learning.
+        core_set(&self.state, CoreValue::from("playbook_learning_paused"), CoreValue::Bool(true))?;
+        let forwarded = self.forward_with_options(client, input, forward_options);
+        let _ = core_map_delete(&[self.state.clone(), CoreValue::from("playbook_learning_paused")]);
+        let completion = match forwarded {
             Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
                 Some(detail) => json!({
                     "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
                 }),
+                None if thrown_as_prediction => json!({"type": "error", "message": error.message}),
                 None => return Err(error),
             },
         };
@@ -6903,7 +6927,9 @@ impl AxAgent {
                 } else {
                     json!({"input": raw_task})
                 };
-                let prediction = self.evaluate_optimization_task(client, task.clone(), opts.clone())?;
+                // A task that throws is a completionType 'error' row scored
+                // 0, and the evaluation goes on, as in the other ports.
+                let prediction = self.evaluate_optimization_task_with(client, task.clone(), opts.clone(), true)?;
                 let error = prediction.get("error").cloned().unwrap_or(Value::Null);
                 let score_task = if raw_task.is_object() { raw_task.clone() } else { json!({}) };
                 let (scores, scalar) = score_optimization_prediction(&score_task, &prediction, &opts)?;
@@ -7370,6 +7396,47 @@ impl AxFlow {
         Ok(core_value_to_json(&_flow_get_optimizable_components(&[
             self.state.clone(),
         ])?))
+    }
+
+    /// Evaluate a candidate component map over a dataset: each task runs the
+    /// flow on the client and is scored, and the flow's components are
+    /// restored afterwards, as `evaluate_optimization` does in the other
+    /// ports (the flow's Core evaluation).
+    pub fn evaluate_optimization<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        dataset: &Value,
+        candidate_map: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
+            if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
+            if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
+            } else {
+                client.chat_with_options(request, options)
+            }
+        };
+        let options = if options.is_object() { options.clone() } else { json!({}) };
+        let result = with_core_client(&mut chat, || {
+            _flow_evaluate_optimization(&[
+                self.state.clone(),
+                CoreValue::Null,
+                core_value_from_json(dataset),
+                core_value_from_json(candidate_map),
+                core_value_from_json(&options),
+            ])
+        })?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
@@ -8989,6 +9056,10 @@ fn playbook_error_signature(value: &str) -> String {
 }
 
 fn playbook_record_signature(record: &Value) -> String {
+    // TS's record of a thrown run has only its error.
+    if let Some(error) = record.get("error").and_then(Value::as_str).filter(|error| !error.is_empty()) {
+        return playbook_error_signature(error);
+    }
     let prediction = record.get("prediction").unwrap_or(&Value::Null);
     let mut counts: Vec<(String, u64)> = Vec::new();
     for signal in prediction.get("failureSignals").and_then(Value::as_array).cloned().unwrap_or_default() {
@@ -9038,6 +9109,7 @@ fn run_agent_playbook_batch<C: AxAIClient>(
     for (task_index, raw) in tasks.iter().enumerate() {
         let task = if raw.is_object() { raw.clone() } else { json!({"input":raw}) };
         let mut prediction = Value::Null;
+        let mut error_prediction = Value::Null;
         let mut last_error: Option<String> = None;
         let mut score_sum = 0.0;
         let mut completed_runs = 0usize;
@@ -9045,6 +9117,19 @@ fn run_agent_playbook_batch<C: AxAIClient>(
             if remaining.get() == 0 { exhausted = true; break; }
             remaining.set(remaining.get() - 1);
             let score = match agent.evaluate_optimization_task(client, task.clone(), options.clone()) {
+                // TS's harness sees a thrown run: a zero score with no metric
+                // call, and its message as the error.
+                Ok(value) if value.get("completionType").and_then(Value::as_str) == Some("error") => {
+                    let error = value.get("error").cloned().unwrap_or(Value::Null);
+                    last_error = Some(match &error {
+                        Value::Object(map) => map.get("message").and_then(Value::as_str).unwrap_or("").to_string(),
+                        Value::String(text) => text.clone(),
+                        Value::Null => String::new(),
+                        other => other.to_string(),
+                    });
+                    error_prediction = value;
+                    0.0
+                }
                 Ok(value) => {
                     prediction = value;
                     let raw_score = task.get("metric_score").or_else(|| task.get("scores")).or_else(|| task.get("score")).cloned().unwrap_or_else(|| if prediction.get("completionType").and_then(Value::as_str) == Some("error") { json!(0) } else { json!(1) });
@@ -9069,7 +9154,12 @@ fn run_agent_playbook_batch<C: AxAIClient>(
         weight_sum += weight;
         let mut record = json!({"task":task,"index":task_index,"score":score,"passed":score >= threshold && prediction.get("completionType").and_then(Value::as_str)==Some("final")});
         if !prediction.is_null() { record["prediction"] = prediction; }
-        else if let Some(error) = last_error { record["error"] = json!(error); }
+        else if let Some(error) = last_error {
+            record["error"] = json!(error);
+            // Kept this release for compatibility; TS's record has no
+            // prediction (dropped at the next major).
+            if !error_prediction.is_null() { record["prediction"] = error_prediction; }
+        }
         records.push(record);
         if completed_runs < runs_per_task { break; }
     }
@@ -15658,15 +15748,9 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "evaluate" => {
-            if fixture
-                .get("eval_options")
-                .and_then(|options| options.get("maxMetricCalls"))
-                .and_then(Value::as_f64)
-                .is_some_and(|value| value <= 0.0)
-            {
-                return Err(AxError::runtime("max metric calls exceeded"));
-            }
-            let result = conformance_evaluation_result(fixture);
+            // The program's own evaluate_optimization on the fixture's
+            // scripted client, as the other runners do.
+            let (result, components_after) = conformance_evaluation_result(fixture)?;
             if let Some(expected) = fixture.get("expected_evaluation_subset") {
                 expect_json_subset("optimization evaluation", &result, expected)?;
             }
@@ -15678,11 +15762,7 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
                 )?;
             }
             if let Some(expected) = fixture.get("expected_components_subset_after").and_then(Value::as_array) {
-                expect_json_list_subset(
-                    "post-eval components",
-                    &Value::Array(conformance_optimizable_components(fixture)),
-                    expected,
-                )?;
+                expect_json_list_subset("post-eval components", &components_after, expected)?;
             }
         }
         "engine" => {
@@ -16399,61 +16479,56 @@ fn build_optimizer_evidence_batch(eval_result: &Value, components: &[Value]) -> 
     ]).unwrap_or_else(|_| core_value_from_json(&json!({}))))
 }
 
-fn conformance_evaluation_result(fixture: &Value) -> Value {
-    let dataset = normalize_optimization_dataset(fixture.get("dataset").unwrap_or(&json!([])));
-    let rows = dataset
-        .get("train")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|task| {
-            let prediction = conformance_optimization_prediction_for_task(fixture, &task);
-            let (scores, scalar) = score_optimization_prediction(
-                &task,
-                &prediction,
-                fixture.get("eval_options").unwrap_or(&json!({})),
-            )
-            .unwrap_or_else(|_| {
-                let scalar = if prediction.get("completionType").and_then(Value::as_str) == Some("error") {
-                    0.0
-                } else {
-                    task.get("score").and_then(Value::as_f64).unwrap_or(1.0)
-                };
-                (json!({"score": scalar}), scalar)
-            });
-            let trace = prediction.get("trace").cloned().unwrap_or_else(|| json!({}));
-            let error = prediction
-                .get("error")
-                .cloned()
-                .unwrap_or(Value::Null);
-            core_value_to_json(&_build_optimization_eval_row(&[
-                core_value_from_json(&task),
-                core_value_from_json(&prediction),
-                core_value_from_json(&scores),
-                CoreValue::Num(scalar),
-                core_value_from_json(&trace),
-                core_value_from_json(&error),
-            ]).unwrap_or_else(|_| core_value_from_json(&json!({
-                "input": task.get("input").cloned().unwrap_or_else(|| json!({})),
-                "prediction": prediction,
-                "scalar": scalar,
-                "scores": scores,
-            }))))
-        })
-        .collect::<Vec<_>>();
-    let phase = fixture
-        .get("eval_options")
-        .and_then(|options| options.get("phase"))
+// The optimize evaluate operation: the fixture's program (agent, flow or
+// AxGen) evaluates the dataset with the candidate map on the fixture's
+// scripted client, and the program's components after the evaluation come
+// back with the result.
+fn conformance_evaluation_result(fixture: &Value) -> AxResult<(Value, Value)> {
+    let signature = fixture
+        .get("signature")
         .and_then(Value::as_str)
-        .unwrap_or("train");
-    let mut result = core_value_to_json(&_build_optimization_eval_result(&[
-        core_value_from_json(&Value::Array(rows)),
-        core_value_from_json(&fixture.get("candidate_map").cloned().unwrap_or_else(|| json!({}))),
-        CoreValue::from(phase),
-    ]).unwrap_or_else(|_| core_value_from_json(&json!({}))));
-    result["contractVersion"] = json!("axir-optimization-eval-v1");
-    result
+        .unwrap_or("question:string -> answer:string");
+    let dataset = fixture.get("dataset").cloned().unwrap_or_else(|| json!([]));
+    let candidate_map = fixture.get("candidate_map").cloned().unwrap_or_else(|| json!({}));
+    let eval_options = fixture.get("eval_options").cloned().unwrap_or_else(|| json!({}));
+    let responses = fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
+    let mut result = match fixture.get("program").and_then(Value::as_str).unwrap_or("agent") {
+        "flow" => {
+            let mut flow = AxFlow {
+                state: conformance_build_flow_state(fixture)?,
+                execution_context: None,
+                runtime_hooks: AxRuntimeHooks::default(),
+            };
+            let result = flow.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, flow.get_optimizable_components()?)
+        }
+        "axgen" => {
+            let mut gen = ax(signature)?;
+            let result = gen.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, Value::Array(gen.get_optimizable_components()))
+        }
+        _ => {
+            let mut program = agent_with_options(signature, fixture.get("options").cloned().unwrap_or_else(|| json!({})))?;
+            if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+                let language = fixture
+                    .get("runtime_language")
+                    .and_then(Value::as_str)
+                    .unwrap_or("JavaScript")
+                    .to_string();
+                program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(script.clone(), language, String::new())))?;
+            }
+            let result = program.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, Value::Array(program.get_optimizable_components()?))
+        }
+    };
+    if result.0.get("contractVersion").is_none() {
+        result.0["contractVersion"] = json!("axir-optimization-eval-v1");
+    }
+    Ok(result)
 }
 
 // The optimize eval operation runs the agent's evaluate_optimization_task on
@@ -16482,58 +16557,19 @@ fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
         .get("task")
         .cloned()
         .unwrap_or_else(|| json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}));
-    program.evaluate_optimization_task(
+    let prediction = program.evaluate_optimization_task(
         &mut client,
         task,
         fixture.get("eval_options").cloned().unwrap_or_else(|| json!({})),
-    )
+    )?;
+    if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
+        if client.requests.len() != expected as usize {
+            return Err(AxError::new("fixture", format!("expected {expected} eval requests, got {}", client.requests.len())));
+        }
+    }
+    Ok(prediction)
 }
 
-fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {
-    if fixture
-        .get("expected_evaluation_rows_subset")
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter().any(|row| {
-                row.get("prediction")
-                    .and_then(|prediction| prediction.get("completionType"))
-                    .and_then(Value::as_str)
-                    == Some("error")
-            })
-        })
-        .unwrap_or(false)
-    {
-        return json!({"completionType": "error", "error": "runtime error"});
-    }
-    if fixture
-        .get("responses")
-        .and_then(Value::as_array)
-        .map(|responses| {
-            responses.iter().any(|response| {
-                response
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .contains("runtime error")
-            })
-        })
-        .unwrap_or(false)
-    {
-        return json!({"completionType": "error", "error": "runtime error"});
-    }
-    let output = task
-        .get("expectedOutput")
-        .or_else(|| task.get("expected"))
-        .cloned()
-        .or_else(|| fixture.get("expected_prediction_subset").and_then(|value| value.get("output")).cloned())
-        .unwrap_or_else(|| json!({"answer": "Paris"}));
-    json!({
-        "completionType": "final",
-        "output": output,
-        "functionCalls": [],
-        "turnCount": 2,
-    })
-}
 
 fn optimizer_engine_request(fixture: &Value, components: &[Value]) -> Value {
     let uses_evaluator = fixture.get("engine_uses_evaluator").and_then(Value::as_bool).unwrap_or(false);
@@ -16590,7 +16626,10 @@ fn engine_evaluations(fixture: &Value) -> Vec<Value> {
             if let Some(obj) = fixture_copy.as_object_mut() {
                 obj.insert("candidate_map".to_string(), candidate_map.clone());
             }
-            let result = conformance_evaluation_result(&fixture_copy);
+            // An evaluation that fails scores nothing, as before.
+            let result = conformance_evaluation_result(&fixture_copy)
+                .map(|(result, _)| result)
+                .unwrap_or_else(|_| json!({"count": 0, "avg": 0}));
             json!({
                 "candidateMap": candidate_map,
                 "count": result.get("count").cloned().unwrap_or_else(|| json!(0)),

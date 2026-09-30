@@ -6,7 +6,7 @@
 // callbacks, the run-control events, the chat-log shape, and the error.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
+import { AxAgentClarificationError } from '../../../src/ax/agent/agentInternal/agentStateTypes.js';
 import {
   AX_HOST_SNIPPET_MARKER,
   AX_INPUTS_PATCH_GLOBAL,
@@ -218,6 +218,9 @@ type Case = {
   // Agent options the fixture spells as JSON; the runtime is always the
   // scripted one.
   options?: JsonMap;
+  // Port-only agent options, added to the fixture's options but not passed
+  // to TS: a port's opt-in to what TS always does.
+  port_options?: JsonMap;
   forward_options?: JsonMap;
   features?: JsonMap;
   responses: ResponseSpec[];
@@ -241,6 +244,8 @@ type Case = {
   stop_after_deltas?: number;
   // Pin the chat log's {name, stage} shape.
   chat_log_shape?: boolean;
+  // Pin the clarification the run's AxAgentClarificationError carries.
+  pin_clarification?: boolean;
   // Substrings every port's request JSON must contain (ASCII only).
   request_contains?: string[];
   // Port-only: the ports keep the model's text for date fields without
@@ -386,6 +391,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const runStarts: number[] = [];
   let output: Json | undefined;
   let error: string | undefined;
+  let clarification: Json | undefined;
   try {
     if (kind === 'agent_forward' && spec.forward_runs !== undefined) {
       // Several forwards on the one agent; the output is each run's.
@@ -419,6 +425,10 @@ async function record(name: string, spec: Case): Promise<void> {
     }
   } catch (e) {
     error = (e as Error).message.split('\n')[0];
+    if (spec.pin_clarification) {
+      if (!(e instanceof AxAgentClarificationError)) throw e;
+      clarification = clone(e.clarification) as Json;
+    }
   }
   // Fire-and-forget observers settle before the fixture is written.
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -429,8 +439,12 @@ async function record(name: string, spec: Case): Promise<void> {
     signature,
     input,
     options: spec.runtime_on_forward
-      ? clone(spec.options ?? {})
-      : { ...clone(spec.options ?? {}), runtime: { language: 'JavaScript' } },
+      ? { ...clone(spec.options ?? {}), ...clone(spec.port_options ?? {}) }
+      : {
+          ...clone(spec.options ?? {}),
+          ...clone(spec.port_options ?? {}),
+          runtime: { language: 'JavaScript' },
+        },
     features,
     responses: spec.responses,
     ...(spec.real_runtime ? {} : { runtime_script: spec.runtime_script }),
@@ -554,6 +568,9 @@ async function record(name: string, spec: Case): Promise<void> {
   }
   if (error !== undefined) {
     fixture.expected_error_contains = error;
+  }
+  if (clarification !== undefined) {
+    fixture.expected_clarification = clarification;
   }
   writeFixture(name, fixture, spec.real_runtime ? realOutDir : outDir);
 }
@@ -1172,6 +1189,27 @@ const cases: Record<string, Case> = {
       step(CLARIFY, 'askClarification', 'Which order do you mean?'),
     ],
   },
+  // TS's clarification error carries the {question, ...} form; the ports
+  // carry it with clarificationShape: 'structured'.
+  'agent-streaming-forward-clarification-structured': {
+    options: { directResponse: 'off' },
+    port_options: { clarificationShape: 'structured' },
+    responses: [actor(CLARIFY)],
+    runtime_script: [
+      step(CLARIFY, 'askClarification', 'Which order do you mean?'),
+    ],
+    pin_clarification: true,
+  },
+  'agent-forward-clarification-structured': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    port_options: { clarificationShape: 'structured' },
+    responses: [actor(CLARIFY)],
+    runtime_script: [
+      step(CLARIFY, 'askClarification', 'Which order do you mean?'),
+    ],
+    pin_clarification: true,
+  },
   'agent-streaming-forward-citations': {
     options: { directResponse: 'off', citations: {} },
     observers: ['citations'],
@@ -1425,4 +1463,101 @@ const cases: Record<string, Case> = {
 
 for (const [name, spec] of Object.entries(cases)) {
   await record(name, spec);
+}
+
+// ----- the run's inputs -----
+// TS checks an agent run's inputs before any request: a required context
+// field missing from the values fails first ('RLM contextField "<name>" is
+// missing from input values'), then a required input without a value
+// (missing, null, '' or []) fails as TS renders the distiller's inputs
+// ("Value for input field '<name>' is required."); whitespace is a value. The
+// ports always check the required inputs; they check the context fields with
+// inputValidation: 'fail'.
+const CONTEXTUAL = 'question:string, doc:string -> answer:string';
+const plainAnswer = (): ResponseSpec => ({
+  content: 'Answer: Refunds take 30 days.',
+});
+const inputCases: Record<string, Case> = {
+  'agent-forward-input-missing': {
+    kind: 'agent_forward',
+    input: {},
+    options: { directResponse: 'off' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-input-empty-string': {
+    kind: 'agent_forward',
+    input: { question: '' },
+    options: { directResponse: 'off' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-input-context-field-missing': {
+    kind: 'agent_forward',
+    signature: CONTEXTUAL,
+    input: {},
+    options: { directResponse: 'off', contextFields: ['doc'] },
+    port_options: { inputValidation: 'fail' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-input-context-field-only-missing': {
+    kind: 'agent_forward',
+    signature: CONTEXTUAL,
+    input: { question: 'How long do refunds take?' },
+    options: { directResponse: 'off', contextFields: ['doc'] },
+    port_options: { inputValidation: 'fail' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-input-context-field-empty-is-a-value': {
+    kind: 'agent_forward',
+    signature: CONTEXTUAL,
+    input: { question: 'How long do refunds take?', doc: '' },
+    options: { directResponse: 'off', contextFields: ['doc'] },
+    port_options: { inputValidation: 'fail' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-input-whitespace-is-a-value': {
+    kind: 'agent_forward',
+    input: { question: '   ' },
+    options: { directResponse: 'off' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+};
+for (const [name, spec] of Object.entries(inputCases)) {
+  await record(name, spec);
+}
+
+// Port-only: without inputValidation a port run without its context field
+// goes on and succeeds, as this release does (the run warns once with TS's
+// message, naming the option); with 'lenient' it runs on silently. TS always
+// fails these runs (above).
+for (const [name, portOptions] of [
+  ['agent-forward-input-context-field-missing-runs-by-default', {}],
+  [
+    'agent-forward-input-context-field-missing-lenient',
+    { inputValidation: 'lenient' },
+  ],
+] as const) {
+  writeFixture(name, {
+    kind: 'agent_forward',
+    description:
+      "Port-only: an agent run without its required context field goes on without inputValidation: 'fail', as this release does. TS fails it before any request.",
+    signature: CONTEXTUAL,
+    input: { question: 'How long do refunds take?' },
+    options: {
+      directResponse: 'off',
+      contextFields: ['doc'],
+      ...portOptions,
+      runtime: { language: 'JavaScript' },
+    },
+    features: { functions: false, streaming: true, structured_outputs: false },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+    expected_output: { answer: 'Refunds take 30 days.' },
+    expected_request_count: 3,
+  });
 }

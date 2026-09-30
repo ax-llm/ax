@@ -2031,9 +2031,14 @@ def _run_optimize(fixture):
             "evaluator": {"available": True, "contractVersion": "axir-optimizer-evaluator-v1"},
         }
 
-    def build_program():
+    def build_program(playbook_student=None):
         sig = fixture.get("signature", "question:string -> answer:string")
         options = copy.deepcopy(fixture.get("options") or {})
+        # As the agent fixtures do, a playbook without studentAI learns
+        # through the fixture's scripted client.
+        if playbook_student is not None and isinstance(options.get("playbook"), dict):
+            options["playbook"] = {**options["playbook"]}
+            options["playbook"].setdefault("studentAI", playbook_student)
         tools, _ = _build_tools(fixture.get("tools") or [])
         if tools:
             options["functions"] = tools
@@ -2049,8 +2054,13 @@ def _run_optimize(fixture):
             )
         return agent(sig, options)
 
-    program = build_program()
     operation = fixture.get("operation", "components")
+    # The eval operation's scripted client; as the agent fixtures do, a
+    # playbook without studentAI learns through it.
+    eval_client = None
+    if operation == "eval":
+        eval_client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+    program = build_program(playbook_student=eval_client)
     try:
         if operation == "verification":
             actual = _verification_instruments_summary()
@@ -2225,13 +2235,15 @@ def _run_optimize(fixture):
         if operation == "eval":
             if not isinstance(program, AxAgent):
                 raise FixtureError("eval operation requires agent program")
-            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+            client = eval_client
             prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
             if "expected_prediction_subset" in fixture:
                 _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
             # Fields that must match exactly: a list compares in full.
             for key, value in (fixture.get("expected_prediction_fields") or {}).items():
                 _assert_equal(prediction.get(key), value, f"eval prediction {key}")
+            if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
+                raise FixtureError(f"expected {fixture['expected_request_count']} eval requests, got {len(client.requests)}")
             return
     except Exception as exc:
         expected = fixture.get("expected_error_contains")

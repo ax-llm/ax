@@ -1857,6 +1857,18 @@ static void run_optimize(Value fixture) {
           "");
       Core::set(options, "runtime", Core::code_runtime_ref(*scripted_runtime));
     }
+    // The eval operation's scripted client; as the agent fixtures do, a
+    // playbook without studentAI learns through it.
+    std::unique_ptr<ConformanceScriptedAI> eval_client;
+    if (op == "eval") {
+      eval_client = std::make_unique<ConformanceScriptedAI>(Core::get(fixture, "responses", Value::array()));
+      Value playbook_config = Core::get(options, "playbook");
+      if (playbook_config.is_object() && Core::get(playbook_config, "studentAI").is_null()) {
+        Value with_student = Core::map_merge(Value::object(), playbook_config);
+        Core::set(with_student, "studentAI", Core::client_ref(*eval_client));
+        Core::set(options, "playbook", with_student);
+      }
+    }
     AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), options);
     if (op == "components") {
       Value components = ag.get_optimizable_components();
@@ -1927,13 +1939,17 @@ static void run_optimize(Value fixture) {
       return;
     }
     if (op == "eval") {
-      ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+      ConformanceScriptedAI& client = *eval_client;
       Value prediction = ag.evaluate_optimization_task(client, Core::get(fixture, "task", object({{"input", Core::get(fixture, "input", Value::object())}})), Core::get(fixture, "eval_options", Value::object()));
       if (!Core::get(fixture, "expected_prediction_subset").is_null()) assert_subset(prediction, Core::get(fixture, "expected_prediction_subset"), "eval prediction");
       // Fields that must match exactly: a list compares in full.
       for (const auto& kv : as_object(Core::get(fixture, "expected_prediction_fields", Value::object()))) {
         if (kv.first == "__order") continue;
         assert_equal(Core::get(prediction, kv.first), kv.second, "eval prediction " + kv.first);
+      }
+      Value expected_count = Core::get(fixture, "expected_request_count");
+      if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
+        throw AxError("fixture", "expected " + display(expected_count) + " eval requests, got " + std::to_string(client.requests.size()));
       }
       return;
     }
@@ -2518,6 +2534,11 @@ static void run_agent_forward(Value fixture) {
     Value expected = Core::get(fixture, "expected_error_contains");
     if (expected.is_null()) throw;
     if (std::string(error.what()).find(display(expected)) == std::string::npos) throw AxError("fixture", std::string("expected error containing ") + display(expected) + ", got " + error.what());
+    if (!Core::get(fixture, "expected_clarification").is_null()) {
+      const auto* clarification = dynamic_cast<const AxAgentClarificationError*>(&error);
+      if (!clarification) throw AxError("fixture", std::string("expected a clarification error, got ") + error.what());
+      assert_subset(clarification->clarification, Core::get(fixture, "expected_clarification"), "clarification");
+    }
     if (ag) assert_agent_trace(*ag, fixture);
     assert_agent_run_projections(fixture, ag.get(), client.requests, stream_deltas, control_events(), observer_calls, observer_marks);
     assert_request_roles(fixture, client);

@@ -3055,7 +3055,9 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 			if !ok || len(cases) == 0 {
 				t.Fatalf("%s missing playbook evolve cases", file)
 			}
-			if responses, ok := fixture["responses"].([]any); !ok || len(responses) == 0 {
+			// Empty when every run throws before its first request (a task
+			// without its required input).
+			if _, ok := fixture["responses"].([]any); !ok {
 				t.Fatalf("%s missing responses", file)
 			}
 			if _, ok := fixture["runtime_script"]; !ok {

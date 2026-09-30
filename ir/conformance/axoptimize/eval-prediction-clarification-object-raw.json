@@ -1,29 +1,17 @@
 {
+  "description": "Port-only: without clarificationShape: 'structured', the evaluated clarification is the askClarification payload as given, as this release carries it.",
   "expected_prediction_fields": {
     "clarification": {
+      "choices": ["API", "Guides"],
       "question": "Which docs do you mean?"
-    },
-    "functionCalls": [
-      {
-        "arguments": {
-          "query": "ax"
-        },
-        "name": "search",
-        "qualifiedName": "tools.search",
-        "result": {
-          "title": "Docs"
-        }
-      }
-    ],
-    "toolErrors": [],
-    "turnCount": 2
+    }
   },
   "expected_prediction_subset": {
     "completionType": "askClarification"
   },
   "expected_request_count": 3,
   "kind": "optimize",
-  "name": "eval-prediction-clarification-function-calls",
+  "name": "eval-prediction-clarification-object-raw",
   "operation": "eval",
   "options": {
     "callable_results": {
@@ -33,7 +21,6 @@
         }
       }
     },
-    "clarificationShape": "structured",
     "contextFields": [],
     "functions": [
       {
@@ -67,7 +54,7 @@
       "content": "{\"javascriptCode\":\"search\"}"
     },
     {
-      "content": "{\"javascriptCode\":\"askClarification('Which docs do you mean?')\"}"
+      "content": "{\"javascriptCode\":\"askClarification({question: 'Which docs do you mean?', choices: ['API', 'Guides']})\"}"
     }
   ],
   "runtime_language": "JavaScript",
@@ -97,9 +84,14 @@
       }
     },
     {
-      "expected_code": "askClarification('Which docs do you mean?')",
+      "expected_code": "askClarification({question: 'Which docs do you mean?', choices: ['API', 'Guides']})",
       "result": {
-        "args": ["Which docs do you mean?"],
+        "args": [
+          {
+            "choices": ["API", "Guides"],
+            "question": "Which docs do you mean?"
+          }
+        ],
         "type": "askClarification"
       }
     }

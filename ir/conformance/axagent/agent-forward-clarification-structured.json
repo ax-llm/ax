@@ -1,0 +1,40 @@
+{
+  "expected_clarification": {
+    "question": "Which order do you mean?"
+  },
+  "expected_error_contains": "Which order do you mean?",
+  "expected_request_count": 1,
+  "expected_transcript": ["request:distiller"],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "kind": "agent_forward",
+  "name": "agent-forward-clarification-structured",
+  "options": {
+    "clarificationShape": "structured",
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"askClarification(\\\"Which order do you mean?\\\")\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "askClarification(\"Which order do you mean?\")",
+      "result": {
+        "args": ["Which order do you mean?"],
+        "type": "askClarification"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}
