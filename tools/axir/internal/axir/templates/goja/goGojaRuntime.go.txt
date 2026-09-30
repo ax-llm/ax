@@ -44,7 +44,20 @@ type Session struct {
 	// results already in hand. Reset each Execute; the TS, Python and C++
 	// runtimes all surface per-turn logs this way.
 	turnLogs []string
+	// baseline names the globals present before the agent's code ran; the
+	// snapshot entries leave them out, as TS's AxJSRuntime does.
+	baseline []string
+	// protectedJSON holds the current reserved values behind their getters.
+	protectedJSON map[string]gojavm.Value
 }
+
+// usageInstructions is TypeScript's AxJSRuntime.getUsageInstructions() in its
+// default stdout mode.
+const usageInstructions = "- Don't wrap async code in (async()=>{ ... })() \u2014 the runtime automatically handles async execution.\n" +
+	"- State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.\n" +
+	"- Bare assignment (e.g. `x = 1`) also persists via `globalThis`.\n" +
+	"- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`."
+
 
 func NewRuntime(options ...Option) *Runtime {
 	r := &Runtime{
@@ -100,7 +113,7 @@ func (r *Runtime) RegisterHostCallable(name string, handler func(ax.Value) (ax.V
 func (r *Runtime) Language() string { return "JavaScript" }
 
 func (r *Runtime) UsageInstructions() string {
-	return "JavaScript goja runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), reportFailure(...), and guideAgent(...). Filesystem, network, process, module loading, and native host objects are not exposed by default."
+	return usageInstructions
 }
 
 func (r *Runtime) RuntimePolicy() map[string]ax.Value {
@@ -171,7 +184,54 @@ func (r *Runtime) CreateSession(globals map[string]ax.Value, options map[string]
     if _, err := session.vm.RunString({{AX_HOST_NAMESPACES_QUOTED}}); err != nil { return nil, err }
     if _, err := session.vm.RunString("__ax_bind_host_namespaces()"); err != nil { return nil, err }
     for name := range hostCallables { if strings.Contains(name, ".") { session.reserved[strings.SplitN(name,".",2)[0]]=true } }
+	// TypeScript's action-log code analysis and snapshot entries, shared by
+	// the ports' JavaScript runtimes (scripts/axir-runtime-support.mjs).
+	if _, err := session.vm.RunString({{AX_RUNTIME_SUPPORT_QUOTED}}); err != nil {
+		return nil, err
+	}
+	if names, err := session.vm.RunString("JSON.stringify(Object.getOwnPropertyNames(globalThis))"); err == nil {
+		_ = json.Unmarshal([]byte(names.String()), &session.baseline)
+	}
 	return session, nil
+}
+
+// codeAnalysis is TS's analysis of a turn's code: the top-level variables it
+// writes and reads, and its qualified calls.
+func (s *Session) codeAnalysis(code string) ax.Value {
+	codeJSON, err := json.Marshal(code)
+	if err != nil {
+		return nil
+	}
+	value, err := s.vm.RunString("__ax_analyze_code(" + string(codeJSON) + ")")
+	if err != nil || value == nil || gojavm.IsUndefined(value) {
+		return nil
+	}
+	var parsed any
+	if json.Unmarshal([]byte(value.String()), &parsed) != nil {
+		return nil
+	}
+	return parsed
+}
+
+// inspectEntries is TS's AxJSRuntime snapshot entries of the user globals.
+func (s *Session) inspectEntries() ax.Value {
+	skip := append([]string{}, s.baseline...)
+	for name := range s.reserved {
+		skip = append(skip, name)
+	}
+	skipJSON, err := json.Marshal(skip)
+	if err != nil {
+		return []ax.Value{}
+	}
+	value, err := s.vm.RunString("__ax_inspect_entries(" + string(skipJSON) + ")")
+	if err != nil || value == nil || gojavm.IsUndefined(value) {
+		return []ax.Value{}
+	}
+	var parsed []any
+	if json.Unmarshal([]byte(value.String()), &parsed) != nil {
+		return []ax.Value{}
+	}
+	return parsed
 }
 
 func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
@@ -180,9 +240,21 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 	if s.closed {
 		return runtimeError("session closed", "session_closed")
 	}
+	analysis := s.codeAnalysis(code)
+	result := s.executeLocked(code, options)
+	if payload, ok := result.(map[string]ax.Value); ok && analysis != nil {
+		payload["analysis"] = analysis
+	}
+	return result
+}
+
+func (s *Session) executeLocked(code string, options map[string]ax.Value) ax.Value {
 	s.completion = nil
 	s.turnLogs = nil
 	s.installBuiltins()
+	// final is a protected global here, so TS's distiller final (the
+	// evidence kept as distilledContext) is the primitive's own
+	// (keepFinalEvidence), not the support script's wrapper.
 	timeoutMs := intOption(valueFromMap(options, "timeoutMs"), intOption(valueFromMap(s.runtimePolicy, "timeoutMs"), 5000))
 	var timer *time.Timer
 	if timeoutMs > 0 {
@@ -281,6 +353,7 @@ func (s *Session) SnapshotGlobals(options map[string]ax.Value) ax.Value {
 	bindings := s.snapshotBindings(true)
 	return map[string]ax.Value{
 		"version":  1,
+		"entries":  s.inspectEntries(),
 		"bindings": bindings,
 		"globals":  bindings,
 		"closed":   false,
@@ -293,23 +366,40 @@ func (s *Session) PatchGlobals(snapshot ax.Value, options map[string]ax.Value) a
 	if s.closed {
 		return runtimeError("session closed", "session_closed")
 	}
+	// A merge patch (the agent's own globals for the executor, as TS's
+	// patchGlobals) keeps the session's variables and updates its protected
+	// values; any other patch replaces the user globals.
+	merge := asMap(snapshot)["merge"] == true
 	next := asMap(snapshot)
 	if _, ok := next["bindings"]; ok {
 		next = asMap(valueFromMap(next, "bindings"))
 	}
 	global := s.vm.GlobalObject()
-	for _, key := range global.Keys() {
-		if s.reserved[key] || strings.HasPrefix(key, "__ax_") {
-			continue
+	if merge {
+		// The executor phase: the distiller's final no longer keeps evidence.
+		_, _ = s.vm.RunString("globalThis.__ax_phase = 'executor'")
+	}
+	if !merge {
+		for _, key := range global.Keys() {
+			if s.reserved[key] || strings.HasPrefix(key, "__ax_") {
+				continue
+			}
+			_ = global.Delete(key)
 		}
-		_ = global.Delete(key)
 	}
 	for key, value := range next {
-		if s.reserved[key] || strings.HasPrefix(key, "__ax_") || hostCallableMarker(value) != nil {
+		if strings.HasPrefix(key, "__ax_") || hostCallableMarker(value) != nil {
 			continue
 		}
 		safe, ok := jsonSafe(value)
 		if !ok {
+			continue
+		}
+		if s.reserved[key] {
+			if merge {
+				s.reservedValues[key] = safe
+				s.defineProtectedJSON(key, safe)
+			}
 			continue
 		}
 		_ = s.vm.Set(key, safe)
@@ -319,6 +409,7 @@ func (s *Session) PatchGlobals(snapshot ax.Value, options map[string]ax.Value) a
 	bindings := s.snapshotBindings(true)
 	return map[string]ax.Value{
 		"version":  1,
+		"entries":  s.inspectEntries(),
 		"bindings": bindings,
 		"globals":  bindings,
 		"closed":   false,
@@ -468,6 +559,9 @@ func axErrorCategory(err error) string {
 
 func (s *Session) setPrimitive(name string, builder func([]ax.Value) ax.Value) {
 	s.defineProtected(name, s.vm.ToValue(func(call gojavm.FunctionCall) gojavm.Value {
+		if name == "final" {
+			s.keepFinalEvidence(call.Arguments)
+		}
 		args := make([]ax.Value, 0, len(call.Arguments))
 		for _, arg := range call.Arguments {
 			args = append(args, normalizeExport(arg.Export()))
@@ -523,6 +617,11 @@ func truncateDiagnostic(line string, limit int) string {
 
 func (s *Session) restoreReservedGlobals() {
 	for name, value := range s.reservedValues {
+		// A defined reserved value is already read-only and frozen; keep its
+		// object identity across turns.
+		if _, defined := s.protectedJSON[name]; defined {
+			continue
+		}
 		s.defineProtectedJSON(name, value)
 	}
 }
@@ -600,8 +699,44 @@ func (s *Session) defineProtected(name string, value gojavm.Value) {
 	_ = s.vm.GlobalObject().DefineDataProperty(name, value, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE)
 }
 
+// defineProtectedJSON defines a reserved value (inputs and the input
+// aliases) as a getter-only global the actor's code cannot write, delete or
+// redefine. The host can still update it (the executor's merge patch): the
+// getter reads the session's current value.
 func (s *Session) defineProtectedJSON(name string, value ax.Value) {
-	s.defineProtected(name, s.deepFreezeValue(s.toJSONValue(value)))
+	if s.protectedJSON == nil {
+		s.protectedJSON = map[string]gojavm.Value{}
+	}
+	_, defined := s.protectedJSON[name]
+	s.protectedJSON[name] = s.deepFreezeValue(s.toJSONValue(value))
+	if defined {
+		return
+	}
+	key := name
+	getter := s.vm.ToValue(func(gojavm.FunctionCall) gojavm.Value {
+		return s.protectedJSON[key]
+	})
+	_ = s.vm.GlobalObject().DefineAccessorProperty(key, getter, nil, gojavm.FLAG_FALSE, gojavm.FLAG_FALSE)
+}
+
+// keepFinalEvidence is TS's distiller final: final(task, evidence) keeps
+// the evidence object as the distilledContext global the executor inherits.
+// The executor's own final does not.
+func (s *Session) keepFinalEvidence(arguments []gojavm.Value) {
+	if len(arguments) != 2 {
+		return
+	}
+	if phase := s.vm.Get("__ax_phase"); phase != nil && !gojavm.IsUndefined(phase) && phase.String() == "executor" {
+		return
+	}
+	evidence, ok := arguments[1].(*gojavm.Object)
+	if !ok || evidence.ClassName() == "Array" {
+		return
+	}
+	if _, isFunction := gojavm.AssertFunction(evidence); isFunction {
+		return
+	}
+	_ = s.vm.Set("distilledContext", evidence)
 }
 
 func (s *Session) toJSONValue(value ax.Value) gojavm.Value {

@@ -12,6 +12,41 @@ public final class Tool {
   @FunctionalInterface public interface ContextHandler {
     Object call(Map<String,Object> args, java.util.function.BooleanSupplier cancelled) throws Exception;
   }
+
+  /**
+   * What TypeScript gives a tool besides its arguments: the run's sessionId
+   * and eventContext when set (else null), under a run control its
+   * executionPath ({@code <the run's path>/<the tool's name>}, else null),
+   * and whether the call was cancelled.
+   */
+  public static final class Extras {
+    public final String sessionId;
+    public final String executionPath;
+    public final Object eventContext;
+    private final java.util.function.BooleanSupplier cancelled;
+    Extras(String sessionId, String executionPath, Object eventContext, java.util.function.BooleanSupplier cancelled) {
+      this.sessionId = sessionId;
+      this.executionPath = executionPath;
+      this.eventContext = eventContext;
+      this.cancelled = cancelled;
+    }
+    public boolean cancelled() { return cancelled != null && cancelled.getAsBoolean(); }
+
+    // A tool_call_extras map's extras.
+    static Extras from(Object raw, java.util.function.BooleanSupplier cancelled) {
+      Map<String, Object> values = raw instanceof Map<?, ?> map ? Core.asMap(map) : Map.of();
+      Object session = values.get("sessionId");
+      Object path = values.get("executionPath");
+      return new Extras(session == null ? null : String.valueOf(session), path == null ? null : String.valueOf(path), values.get("eventContext"), cancelled);
+    }
+  }
+
+  @FunctionalInterface public interface ExtrasHandler {
+    Object call(Map<String,Object> args, Extras extras) throws Exception;
+  }
+
+  // The extras of the call running on this thread (see call).
+  private static final ThreadLocal<Object> CURRENT_EXTRAS = new ThreadLocal<>();
   public final ContextHandler contextHandler;
   public final String name;
   public final String description;
@@ -20,10 +55,23 @@ public final class Tool {
   public final Handler handler;
   public final String execution;
   private Map<String,Object> parameters;
+  private String namespace;
 
   public Tool parameters(Map<String,Object> schema) {
     Tool copy = new Tool(name,description,args,returns,handler,execution,contextHandler);
     copy.parameters = Core.asMap(Json.parse(Json.stringify(schema)));
+    copy.namespace = namespace;
+    return copy;
+  }
+
+  /** The namespace an agent lists and calls this flat function under (TS fn().namespace()), or null. */
+  public String namespace() { return namespace; }
+
+  /** A copy filed under the namespace, as TS fn().namespace() does. */
+  public Tool namespace(String value) {
+    Tool copy = new Tool(name,description,args,returns,handler,execution,contextHandler);
+    copy.parameters = parameters;
+    copy.namespace = value;
     return copy;
   }
 
@@ -50,8 +98,12 @@ public final class Tool {
   }
 
   public Object call(Map<String,Object> values) {return call(values,()->Thread.currentThread().isInterrupted());}
-  public Object call(Map<String, Object> values,java.util.function.BooleanSupplier cancelled) {
+  public Object call(Map<String, Object> values,java.util.function.BooleanSupplier cancelled) {return call(values,cancelled,null);}
+  // extras: a tool_call_extras map, which an extrasHandler reads.
+  Object call(Map<String, Object> values,java.util.function.BooleanSupplier cancelled,Object extras) {
     Core.validate_fields(args, values, "tool." + name + ".args");
+    Object previous = CURRENT_EXTRAS.get();
+    CURRENT_EXTRAS.set(extras);
     try {
       Object result = contextHandler==null?handler.call(values):contextHandler.call(values,cancelled);
       if (!returns.isEmpty() && result instanceof Map<?, ?> map) Core.validate_fields(returns, map, "tool." + name + ".return");
@@ -60,6 +112,8 @@ public final class Tool {
       throw e;
     } catch (Exception e) {
       throw new RuntimeException(e.getMessage(), e);
+    } finally {
+      if (previous == null) CURRENT_EXTRAS.remove(); else CURRENT_EXTRAS.set(previous);
     }
   }
 
@@ -72,7 +126,10 @@ public final class Tool {
     private ContextHandler contextHandler;
     private String execution = "blocking";
     private Map<String,Object> parameters;
+    private String namespace;
     public Builder parameters(Map<String,Object> schema) { parameters = schema; return this; }
+    /** Files a flat agent function under the namespace, as TS fn().namespace() does. */
+    public Builder namespace(String text) { namespace = text; return this; }
 
     public Builder(String name) { this.name = name; }
     public Builder execution(String mode) {
@@ -84,12 +141,15 @@ public final class Tool {
     public Builder returnsField(String name, Field.Fluent field) { returns.add(field.toField(name)); return this; }
     public Builder handler(Handler handler) { this.handler = handler; return this; }
     public Builder contextHandler(ContextHandler handler){this.contextHandler=handler;return this;}
+    /** A handler that also gets the call's {@link Extras}, as a TypeScript tool's second argument. */
+    public Builder extrasHandler(ExtrasHandler handler){this.contextHandler=(values,cancelled)->handler.call(values,Extras.from(CURRENT_EXTRAS.get(),cancelled));return this;}
     public Tool build() {
       if (name == null || name.isBlank()) throw new IllegalArgumentException("fn() requires a non-empty function name");
       if (description == null || description.isBlank()) throw new IllegalArgumentException("Function '" + name + "' must define a description");
       if (handler == null && contextHandler==null) throw new IllegalArgumentException("Function '" + name + "' must define a handler");
       Tool tool = new Tool(name, description, args, returns, handler, execution,contextHandler);
-      return parameters == null ? tool : tool.parameters(parameters);
+      tool = parameters == null ? tool : tool.parameters(parameters);
+      return namespace == null ? tool : tool.namespace(namespace);
     }
   }
 }

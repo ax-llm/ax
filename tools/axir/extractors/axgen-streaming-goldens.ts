@@ -131,6 +131,8 @@ function scriptedAI(
 ) {
   const queue = clone(responses);
   const sessionQueue = clone(sessions ?? []);
+  // The tool results a session run submits, in order.
+  const sessionResults: JsonMap[] = [];
   // What the run did to its sessions, in order: open, steer, continue (with
   // the IDs of the tool results it submitted) and close.
   const sessionLog: JsonMap[] = [];
@@ -243,8 +245,21 @@ function scriptedAI(
                 };
             }
           },
-          async submitToolResults(results: { functionId: string }[]) {
+          async submitToolResults(
+            results: {
+              functionId: string;
+              result?: unknown;
+              isError?: boolean;
+            }[]
+          ) {
             submitted.push(...results.map((result) => result.functionId));
+            sessionResults.push(
+              ...results.map((result) => ({
+                call_id: result.functionId,
+                result: clone(result.result ?? null) as Json,
+                is_error: result.isError === true,
+              }))
+            );
           },
           async continue() {
             sessionLog.push({ op: 'continue', call_ids: submitted.splice(0) });
@@ -274,6 +289,7 @@ function scriptedAI(
     prompts: () => prompts,
     formats: () => formats,
     sessionLog: () => sessionLog,
+    sessionResults: () => sessionResults,
   };
 }
 
@@ -287,6 +303,9 @@ const optionNames: Record<string, string> = {
   thought_field_name: 'thoughtFieldName',
   function_call: 'functionCall',
   strict_mode: 'strictMode',
+  include_optional_input_fields_in_system_prompt:
+    'includeOptionalInputFieldsInSystemPrompt',
+  disable_memory_cleanup: 'disableMemoryCleanup',
 };
 
 function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
@@ -300,29 +319,60 @@ function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
 type ToolSpec = {
   name: string;
   description?: string;
-  args?: Record<string, { type: string }>;
+  args?: Record<string, { type: string; description?: string }>;
   result?: Json;
   error?: string;
+  // Record the extras TS gives the tool: sessionId, executionPath (under a
+  // run control) and eventContext, each when set.
+  record_extras?: boolean;
 };
 
-function tsTools(specs: ToolSpec[], calls: JsonMap[]) {
+function tsTools(specs: ToolSpec[], calls: JsonMap[], extrasLog?: JsonMap[]) {
   return specs.map((spec) => {
     let builder = fn(spec.name).description(spec.description ?? spec.name);
     for (const [name, arg] of Object.entries(spec.args ?? {})) {
+      const description = arg.description ?? name;
       const field =
         arg.type === 'number'
-          ? f.number(name)
+          ? f.number(description)
           : arg.type === 'boolean'
-            ? f.boolean(name)
-            : f.string(name);
+            ? f.boolean(description)
+            : f.string(description);
       builder = builder.arg(name, field) as typeof builder;
     }
+    const run = (args: Record<string, unknown>) => {
+      calls.push({ name: spec.name, args: clone(args) as Json });
+      if (spec.error) throw new Error(spec.error);
+      return clone(spec.result);
+    };
+    if (spec.record_extras) {
+      return builder
+        .handler(
+          async (
+            args: Record<string, unknown>,
+            extras?: {
+              sessionId?: string;
+              executionPath?: string;
+              eventContext?: unknown;
+            }
+          ) => {
+            const seen: JsonMap = {};
+            if (extras?.sessionId !== undefined)
+              seen.sessionId = extras.sessionId;
+            if (extras?.executionPath !== undefined) {
+              seen.executionPath = extras.executionPath;
+            }
+            if (extras?.eventContext !== undefined) {
+              seen.eventContext = clone(extras.eventContext as Json);
+            }
+            extrasLog?.push({ name: spec.name, extras: seen });
+            return run(args);
+          }
+        )
+        .build();
+    }
     return builder
-      .handler(async (args: Record<string, unknown>) => {
-        calls.push({ name: spec.name, args: clone(args) as Json });
-        if (spec.error) throw new Error(spec.error);
-        return clone(spec.result);
-      })
+      .handler(async (args: Record<string, unknown>) => run(args))
       .build();
   });
 }
@@ -437,37 +487,59 @@ type Case = {
   // SessionScript); each opened session is one request. The fixture pins
   // the session log and each request's message roles.
   native_session?: SessionScript;
+  // Pin each request's message roles, also when the forward fails.
+  pin_request_roles?: boolean;
+  // Pin the tool results the session run submits (text and error flag).
+  pin_session_results?: boolean;
   // Port-only forward options, added to the fixture's forward_options but
   // not passed to TS: a port's opt-in to what TS always does.
   port_forward_options?: JsonMap;
+  // An abort signal in the AxGen constructor's options (TS abortSignal; the
+  // ports' cancellation token), aborted with the reason when cancelled.
+  constructor_cancellation?: CancellationSpec;
+  // An abort signal in the forward call's options.
+  call_cancellation?: CancellationSpec;
   // Pin the tool results the last request sent back, each as a JSON string
   // literal, which every runner's JSON text of the request must contain.
   pin_function_results?: boolean;
   call_function_result_formatter?: { text?: string; throws?: string };
 };
 
+type CancellationSpec = { cancelled: boolean; reason?: string };
+
+function abortSignalFor(spec: CancellationSpec | undefined) {
+  if (!spec) return undefined;
+  const controller = new AbortController();
+  if (spec.cancelled) controller.abort(spec.reason ?? 'fixture-stop');
+  return controller.signal;
+}
+
 async function record(name: string, spec: Case): Promise<void> {
   const kind = spec.kind ?? 'streaming_forward';
   const input = spec.input ?? { question: 'Status?' };
   const toolCalls: JsonMap[] = [];
+  const toolExtras: JsonMap[] = [];
   const processorCalls: JsonMap[] = [];
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts, formats, sessionLog } = scriptedAI(
-    spec.responses,
-    spec.features,
-    (request) => {
-      if (steer && control && request === steer.during_request) {
-        control.steer(steer.text);
-      }
-    },
-    spec.native_session
-  );
+  const { ai, calls, prompts, formats, sessionLog, sessionResults } =
+    scriptedAI(
+      spec.responses,
+      spec.features,
+      (request) => {
+        if (steer && control && request === steer.during_request) {
+          control.steer(steer.text);
+        }
+      },
+      spec.native_session
+    );
+  const constructorSignal = abortSignalFor(spec.constructor_cancellation);
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
-    functions: tsTools(spec.tools ?? [], toolCalls),
+    functions: tsTools(spec.tools ?? [], toolCalls, toolExtras),
     ...(spec.constructor_control ? { control } : {}),
+    ...(constructorSignal ? { abortSignal: constructorSignal } : {}),
   });
   for (const assertion of spec.assertions ?? []) {
     gen.addAssert(tsAssert(assertion), assertion.message);
@@ -508,6 +580,8 @@ async function record(name: string, spec: Case): Promise<void> {
   if (spec.stop_functions) {
     forwardOptions.stopFunction = [...spec.stop_functions];
   }
+  const callSignal = abortSignalFor(spec.call_cancellation);
+  if (callSignal) forwardOptions.abortSignal = callSignal;
 
   const controlEvents: JsonMap[] = [];
   if (control) {
@@ -574,8 +648,13 @@ async function record(name: string, spec: Case): Promise<void> {
     'control_steer',
     'stop_after_deltas',
     'native_session',
+    'constructor_cancellation',
+    'call_cancellation',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
+  }
+  if (spec.native_session && spec.pin_session_results) {
+    fixture.expected_session_tool_results = sessionResults();
   }
   if (spec.call_function_result_formatter) {
     fixture.call_function_result_formatter =
@@ -603,6 +682,9 @@ async function record(name: string, spec: Case): Promise<void> {
     );
   }
   if (spec.tools) fixture.expected_tool_calls = toolCalls;
+  if (spec.tools?.some((tool) => tool.record_extras)) {
+    fixture.expected_tool_extras = toolExtras;
+  }
   if (spec.request_tail !== undefined) {
     // The runners compare each message's role and content.
     fixture.expected_last_request_tail = ((prompts().at(-1) ?? []) as JsonMap[])
@@ -640,6 +722,11 @@ async function record(name: string, spec: Case): Promise<void> {
       fixture.expected_request = { response_format: { type: format } };
     }
     fixture.expected_chat_prompt = clone(prompts()[0] ?? []);
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
+  }
+  if (spec.pin_request_roles) {
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
@@ -706,6 +793,35 @@ const lookupTool: ToolSpec = {
   description: 'Look up a key',
   args: { key: { type: 'string' } },
   result: 'status is green',
+};
+// The lookup tool with its argument's own description, which TS's fixing
+// instructions for a bad argument show.
+const describedLookupTool: ToolSpec = {
+  name: 'lookup',
+  description: 'Look up a key',
+  args: { key: { type: 'string', description: 'The key to look up' } },
+  result: 'status is green',
+};
+// The lookup tool, recording the extras TS gives it.
+const extrasLookupTool: ToolSpec = { ...lookupTool, record_extras: true };
+const lookupThenAnswer: ResponseSpec[] = [
+  {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+        finish_reason: 'function_call',
+      },
+    ],
+  },
+  { results: [{ index: 0, content: 'Answer: ok' }] },
+];
+const eventContextSample = {
+  runId: 'run-1',
+  routeId: 'orders',
+  attempt: 1,
+  identity: { subject: 'user-1' },
 };
 const finishTool: ToolSpec = {
   name: 'finish',
@@ -971,6 +1087,260 @@ const cases: Record<string, Case> = {
     ],
   },
 
+  // ----- retry memory -----
+  // TS's non-streaming forward keeps a failed answer and its correction in
+  // memory until a later answer parses or calls tools, and then drops them
+  // (response/nonStreaming.ts): a retry after an assertion fails sends only
+  // the latest failed answer, while parse and validation failures pile up.
+  // disableMemoryCleanup keeps every failed attempt, and so do a stream and
+  // a failed __axOutput call; after a failed __axOutput call, the call and
+  // its result stay once the rest is dropped.
+  'forward-retry-memory-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-assertion-exhausted': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Lille' }] },
+      { results: [{ index: 0, content: 'Answer: Metz' }] },
+    ],
+  },
+  'forward-retry-memory-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-assertion-then-missing-field': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon\nCity: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+      { results: [{ index: 0, content: 'Answer: Nice\nCity: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-tool-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    tools: [lookupTool],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-feedback-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    feedback_processors: [
+      { field: 'answer', returns: 'Name the country too.', times: 1 },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+      {
+        results: [{ index: 0, content: 'Answer: Paris, France\nCity: Paris' }],
+      },
+    ],
+  },
+  'forward-retry-memory-steer-step': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string, city:string',
+    control: true,
+    control_steer: { during_request: 2, text: 'Answer in French.' },
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+      { results: [{ index: 0, content: 'Answer: Paris\nCity: Paris' }] },
+    ],
+  },
+  'forward-retry-memory-json-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    assertions: [
+      { field: 'user', equals: { name: 'Ada' }, message: 'The user is Ada.' },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Bob"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Eve"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+    ],
+  },
+  'forward-retry-memory-json-validation': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string, age:number}',
+    features: nativeFeatures,
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada"}}' }] },
+      { results: [{ index: 0, content: '{"user":{"name":"Ada","age":36}}' }] },
+    ],
+  },
+  'forward-retry-memory-function-rung-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: { functions: true, structured_outputs: false },
+    options: { structured_output_mode: 'function' },
+    assertions: [
+      { field: 'user', equals: { name: 'Ada' }, message: 'The user is Ada.' },
+    ],
+    pin_request_roles: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_1', '__axOutput', '{"user":{"name":"Bob"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_2', '__axOutput', '{"user":{"name":"Eve"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_3', '__axOutput', '{"user":{"name":"Ada"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'forward-retry-memory-function-rung-then-assertion': {
+    kind: 'forward',
+    signature: 'question:string -> user:object{name:string}',
+    features: { functions: true, structured_outputs: false },
+    options: { structured_output_mode: 'function' },
+    assertions: [
+      { field: 'user', equals: { name: 'Ada' }, message: 'The user is Ada.' },
+    ],
+    pin_request_roles: true,
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [call('output_1', '__axOutput', '{"user":{}}')],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: '{"user":{"name":"Bob"}}' }] },
+      {
+        results: [
+          {
+            index: 0,
+            function_calls: [
+              call('output_2', '__axOutput', '{"user":{"name":"Ada"}}'),
+            ],
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ],
+  },
+  'forward-retry-memory-disable-cleanup': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { disable_memory_cleanup: true },
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      { results: [{ index: 0, content: 'Answer: Lyon' }] },
+      { results: [{ index: 0, content: 'Answer: Nice' }] },
+      { results: [{ index: 0, content: 'Answer: Paris' }] },
+    ],
+  },
+  'streaming-forward-retry-memory-assertion': {
+    signature: 'question:string -> answer:string',
+    assertions: [
+      {
+        field: 'answer',
+        contains: 'Paris',
+        message: 'The answer must be Paris.',
+      },
+    ],
+    pin_request_roles: true,
+    responses: [
+      streamed(text('Answer: Lyon'), done()),
+      streamed(text('Answer: Nice'), done()),
+      streamed(text('Answer: Paris'), done()),
+    ],
+  },
+
   // ----- JS trim -----
   // TS trims values with String.prototype.trim: JS whitespace and line
   // terminators (U+FEFF, U+00A0, U+2028, U+3000 among them) go, while
@@ -1052,6 +1422,37 @@ const cases: Record<string, Case> = {
   'forward-request-layout-text-contract': {
     kind: 'forward',
     signature: 'question:string -> answer:string',
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  // includeOptionalInputFieldsInSystemPrompt: the system prompt lists the
+  // unset optional input too; the user message still leaves it out.
+  'forward-request-layout-optional-input-listed': {
+    kind: 'forward',
+    signature:
+      'question:string, context?:string "Background notes" -> answer:string',
+    options: { include_optional_input_fields_in_system_prompt: true },
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  'forward-request-layout-optional-input-forward-option': {
+    kind: 'forward',
+    signature:
+      'question:string, context?:string "Background notes" -> answer:string',
+    forward_options: { include_optional_input_fields_in_system_prompt: true },
+    features: nativeFeatures,
+    pin_request_layout: true,
+    responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
+  },
+  // The forward's option wins over the constructor's.
+  'forward-request-layout-optional-input-forward-off': {
+    kind: 'forward',
+    signature:
+      'question:string, context?:string "Background notes" -> answer:string',
+    options: { include_optional_input_fields_in_system_prompt: true },
+    forward_options: { include_optional_input_fields_in_system_prompt: false },
     features: nativeFeatures,
     pin_request_layout: true,
     responses: [{ results: [{ index: 0, content: 'Answer: Ada' }] }],
@@ -1360,6 +1761,95 @@ const cases: Record<string, Case> = {
     signature: 'question:string -> answer:string',
     constructor_control: true,
     responses: [streamed(text('Answer: ok'), done())],
+  },
+  // An abort signal in the AxGen constructor is the default for every
+  // forward, as TS's other run options there: aborted, the run stops before
+  // any request; a call's own signal replaces it.
+  'forward-constructor-cancellation-stops-before-request': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: true, reason: 'fixture-stop' },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'streaming-forward-constructor-cancellation-stops-before-request': {
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: true, reason: 'fixture-stop' },
+    responses: [streamed(text('Answer: ok'), done())],
+  },
+  'forward-constructor-cancellation-call-signal-wins': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: true, reason: 'fixture-stop' },
+    call_cancellation: { cancelled: false },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'forward-constructor-cancellation-live': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: false },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  'forward-call-cancellation-over-live-constructor': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    constructor_cancellation: { cancelled: false },
+    call_cancellation: { cancelled: true, reason: 'call-stop' },
+    responses: [{ results: [{ index: 0, content: 'Answer: ok' }] }],
+  },
+  // A tool's extras: TS gives it the run's sessionId and eventContext, and
+  // under a run control its executionPath (<path>/<tool>); the AxGen
+  // constructor's are defaults that the call's replace.
+  'forward-tool-extras-session-and-event-context': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    forward_options: {
+      sessionId: 'session-1',
+      eventContext: eventContextSample,
+    },
+    responses: lookupThenAnswer,
+  },
+  'forward-tool-extras-none': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    responses: lookupThenAnswer,
+  },
+  'forward-tool-extras-execution-path-under-control': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    control: true,
+    forward_options: { sessionId: 'session-1', executionPath: 'root/orders' },
+    responses: lookupThenAnswer,
+  },
+  'forward-tool-extras-constructor-defaults': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    options: {
+      sessionId: 'constructor-session',
+      eventContext: eventContextSample,
+    },
+    forward_options: { sessionId: 'call-session' },
+    responses: lookupThenAnswer,
+  },
+  'streaming-forward-tool-extras-session-and-event-context': {
+    signature: 'question:string -> answer:string',
+    tools: [extrasLookupTool],
+    forward_options: {
+      sessionId: 'session-1',
+      eventContext: eventContextSample,
+    },
+    responses: [
+      streamed(
+        chunk({
+          function_calls: [call('call_1', 'lookup', '{"key":"a"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: ok'), done()),
+    ],
   },
   'forward-constructor-execution-path': {
     kind: 'forward',
@@ -2473,6 +2963,67 @@ const sessionCases: Record<string, Case> = {
     signature: 'question:string -> answer:string',
     control: true,
     tools: [lookupTool],
+    native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
+    responses: [],
+  },
+  // A call whose arguments fail the tool's JSON schema is not run: TS's
+  // axValidateToolArguments lists each bad argument, and the session gets
+  // the fixing instructions as the call's error result, then goes on.
+  'forward-native-session-tool-invalid-arguments': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [describedLookupTool],
+    native_session: [
+      [
+        [
+          sessionCompleted('r1', {
+            function_calls: [call('c1', 'lookup', '{"key":7}')],
+          }),
+        ],
+        [sessionAnswer('r2', 'Answer: green')],
+      ],
+    ],
+    responses: [],
+    pin_session_results: true,
+  },
+  'forward-native-session-tool-missing-argument': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [describedLookupTool],
+    native_session: [
+      [
+        [
+          sessionCompleted('r1', {
+            function_calls: [call('c1', 'lookup', '{}')],
+          }),
+        ],
+        [sessionAnswer('r2', 'Answer: green')],
+      ],
+    ],
+    responses: [],
+    pin_session_results: true,
+  },
+  'forward-native-session-tool-results-pinned': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
+    responses: [],
+    pin_session_results: true,
+  },
+  // A tool that runs in a native session gets the run's extras too.
+  'forward-native-session-tool-extras': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [extrasLookupTool],
+    forward_options: {
+      sessionId: 'session-1',
+      eventContext: eventContextSample,
+    },
     native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
     responses: [],
   },

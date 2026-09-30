@@ -556,8 +556,19 @@ export function axBuildDistillerDefinition(
     hasCompressedActionReplay?: boolean;
     /** Enables tool discovery (`discover`) in the prompt. */
     discoveryMode?: boolean;
-    /** Enables `discover({ skills })` runtime overload in the prompt. */
+    /**
+     * Skills are in play for this stage (a skills search, skill usage
+     * tracking, or loaded skills): renders the skills sections, and the
+     * `discover({ skills })` overload unless `skillsDiscoveryMode` says
+     * otherwise.
+     */
     skillsMode?: boolean;
+    /**
+     * Whether the runtime's `discover` takes skills (a skills search callback
+     * or catalog). Gates the `discover({ skills })` overload; defaults to
+     * `skillsMode`.
+     */
+    skillsDiscoveryMode?: boolean;
     /** Static skill catalog rendered as an `### Available Skills` index. */
     skillsCatalog?: ReadonlyArray<{
       id: string;
@@ -653,7 +664,9 @@ export function axBuildDistillerDefinition(
         {
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
           discoveryMode,
-          skillsMode: Boolean(options.skillsMode),
+          skillsMode: Boolean(
+            options.skillsDiscoveryMode ?? options.skillsMode
+          ),
           memoriesMode: Boolean(options.memoriesMode),
           usageTrackingMode: Boolean(options.usageTrackingMode),
           directRespondMode: Boolean(options.directRespondMode),
@@ -748,8 +761,19 @@ export function axBuildExecutorDefinition(
     discoveryMode?: boolean;
     /** Renders the advisory "Likely Relevant" instruction section. */
     relevanceHintsMode?: boolean;
-    /** Enables `discover({ skills })` runtime overload in the prompt. */
+    /**
+     * Skills are in play for this stage (a skills search, skill usage
+     * tracking, or loaded skills): renders the skills sections, and the
+     * `discover({ skills })` overload unless `skillsDiscoveryMode` says
+     * otherwise.
+     */
     skillsMode?: boolean;
+    /**
+     * Whether the runtime's `discover` takes skills (a skills search callback
+     * or catalog). Gates the `discover({ skills })` overload; defaults to
+     * `skillsMode`.
+     */
+    skillsDiscoveryMode?: boolean;
     /**
      * Static skill catalog rendered as an `### Available Skills` index so
      * skill discovery is targeted instead of blind. Construction-stable, so
@@ -849,7 +873,9 @@ export function axBuildExecutorDefinition(
           hasInspectRuntime: Boolean(options.hasInspectRuntime),
           hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
           discoveryMode,
-          skillsMode: Boolean(options.skillsMode),
+          skillsMode: Boolean(
+            options.skillsDiscoveryMode ?? options.skillsMode
+          ),
           memoriesMode: Boolean(options.memoriesMode),
           usageTrackingMode: Boolean(options.usageTrackingMode),
         },

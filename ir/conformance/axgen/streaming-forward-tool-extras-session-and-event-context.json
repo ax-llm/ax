@@ -1,0 +1,113 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "answer": "ok"
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "a"
+      },
+      "name": "lookup"
+    }
+  ],
+  "expected_tool_extras": [
+    {
+      "extras": {
+        "eventContext": {
+          "attempt": 1,
+          "identity": {
+            "subject": "user-1"
+          },
+          "routeId": "orders",
+          "runId": "run-1"
+        },
+        "sessionId": "session-1"
+      },
+      "name": "lookup"
+    }
+  ],
+  "forward_options": {
+    "eventContext": {
+      "attempt": 1,
+      "identity": {
+        "subject": "user-1"
+      },
+      "routeId": "orders",
+      "runId": "run-1"
+    },
+    "sessionId": "session-1"
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "streaming_forward",
+  "name": "streaming-forward-tool-extras-session-and-event-context",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"a\"}"
+                  },
+                  "id": "call_1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: ok",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "record_extras": true,
+      "result": "status is green"
+    }
+  ]
+}

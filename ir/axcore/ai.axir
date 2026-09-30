@@ -1391,6 +1391,170 @@ module @ax.ai version "0.1" {
     }
   }
 
+  op ax.ai.semantic @ai_custom_labels {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/ai/metrics.ts#mergeCustomLabels"
+    type signature = "(service_options:json, call_options:json, sanitize:bool) -> json"
+    body @entry(%service_options: json, %call_options: json, %sanitize: bool) {
+      // TS's custom labels for a metric: the service's customLabels, then
+      // the call's, key by key (mergeCustomLabels). With sanitize, as TS's
+      // sanitizeLabels does for the request duration and errors and the
+      // AxGen metrics, a null value is dropped and each value is a string cut
+      // to 100 characters; TS's AI request counter takes them as they are.
+      %empty = core.map
+      %labels = core.map
+      %sources = core.list
+      core.append %sources, %service_options
+      core.append %sources, %call_options
+      core.for %source in %sources {
+        %source_map = core.type_is %source type "object"
+        core.if %source_map {
+          %snake = core.get %source["custom_labels"] default %empty
+          %camel = core.get %source["customLabels"] default %snake
+          %camel_map = core.type_is %camel type "object"
+          core.if %camel_map {
+            %labels = core.call intrinsic.map.merge(%labels, %camel)
+          }
+        }
+      }
+      core.if %sanitize {
+      } else {
+        core.return %labels
+      }
+      %sanitized = core.map
+      %keys = core.call intrinsic.map.keys(%labels)
+      core.for %key in %keys {
+        %value = core.get %labels[%key] default null
+        %missing = core.call intrinsic.is_none(%value)
+        core.if %missing {
+        } else {
+          %text = core.call intrinsic.string.str(%value)
+          %length = core.call intrinsic.len(%text)
+          %over_limit = core.call intrinsic.gt(%length, 100)
+          core.if %over_limit {
+            %text = core.call intrinsic.string.slice(%text, 0, 100)
+          }
+          core.set %sanitized[%key] = %text
+        }
+      }
+      core.return %sanitized
+    }
+  }
+
+  op ax.ai.semantic @ai_redact_headers {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#redactHeaders"
+    type signature = "(headers:json) -> json"
+    body @entry(%headers: json) {
+      // TS's redactHeaders: the value of each sensitive header (by its name
+      // in lower case) is "***".
+      %sensitive = core.list
+      core.append %sensitive, "authorization"
+      core.append %sensitive, "proxy-authorization"
+      core.append %sensitive, "x-api-key"
+      core.append %sensitive, "api-key"
+      core.append %sensitive, "apikey"
+      core.append %sensitive, "x-goog-api-key"
+      core.append %sensitive, "x-amz-security-token"
+      core.append %sensitive, "cookie"
+      core.append %sensitive, "set-cookie"
+      %redacted = core.map
+      %headers_map = core.type_is %headers type "object"
+      core.if %headers_map {
+      } else {
+        core.return %redacted
+      }
+      %keys = core.call intrinsic.map.keys(%headers)
+      core.for %key in %keys {
+        %value = core.get %headers[%key] default null
+        %lower = core.call intrinsic.string.lower(%key)
+        %masked = core.call intrinsic.contains(%sensitive, %lower)
+        core.if %masked {
+          core.set %redacted[%key] = "***"
+        } else {
+          core.set %redacted[%key] = %value
+        }
+      }
+      core.return %redacted
+    }
+  }
+
+  op ax.ai.semantic @ai_http_status_text {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(status:i64) -> string"
+    body @entry(%status: i64) {
+      // The status text a response carries, for the common HTTP statuses.
+      %texts = core.map
+      core.set %texts["200"] = "OK"
+      core.set %texts["201"] = "Created"
+      core.set %texts["202"] = "Accepted"
+      core.set %texts["204"] = "No Content"
+      core.set %texts["400"] = "Bad Request"
+      core.set %texts["401"] = "Unauthorized"
+      core.set %texts["403"] = "Forbidden"
+      core.set %texts["404"] = "Not Found"
+      core.set %texts["408"] = "Request Timeout"
+      core.set %texts["409"] = "Conflict"
+      core.set %texts["413"] = "Payload Too Large"
+      core.set %texts["422"] = "Unprocessable Entity"
+      core.set %texts["429"] = "Too Many Requests"
+      core.set %texts["500"] = "Internal Server Error"
+      core.set %texts["502"] = "Bad Gateway"
+      core.set %texts["503"] = "Service Unavailable"
+      core.set %texts["504"] = "Gateway Timeout"
+      %key = core.call intrinsic.string.format("{}", %status)
+      %text = core.get %texts[%key] default ""
+      core.return %text
+    }
+  }
+
+  op ax.ai.semantic @ai_verbose_request_log {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(url:string, method:string, headers:json, body:json) -> string"
+    body @entry(%url: string, %method: string, %headers: json, %body: json) {
+      // What TS's apiCall logs before a verbose request: console.log joins
+      // its arguments with spaces; the headers have their secrets masked.
+      %redacted = core.call @ai_redact_headers(%headers)
+      %headers_text = core.call intrinsic.json.pretty(%redacted)
+      %body_text = core.call intrinsic.json.pretty(%body)
+      %text = core.call intrinsic.string.format("\n--- [AxAI API Request] ---\n URL: {}\n Method: {}\n Headers: {} \nBody: {} \n------------------------\n", %url, %method, %headers_text, %body_text)
+      core.return %text
+    }
+  }
+
+  op ax.ai.semantic @ai_verbose_response_log {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(status:i64, body:json) -> string"
+    body @entry(%status: i64, %body: json) {
+      // What TS's apiCall logs after a verbose request's JSON response.
+      %status_text = core.call @ai_http_status_text(%status)
+      %body_text = core.call intrinsic.json.pretty(%body)
+      %text = core.call intrinsic.string.format("\n--- [AxAI API Response] ---\n Status: {} {}\n Body: {} \n-------------------------\n", %status, %status_text, %body_text)
+      core.return %text
+    }
+  }
+
+  op ax.ai.semantic @ai_verbose_stream_log {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(status:i64) -> string"
+    body @entry(%status: i64) {
+      // What TS's apiCall logs when a verbose request's stream starts.
+      %status_text = core.call @ai_http_status_text(%status)
+      %text = core.call intrinsic.string.format("\n--- [AxAI API Streaming Response Started] ---\n Status: {} {}\n \n-------------------------------------------\n", %status, %status_text)
+      core.return %text
+    }
+  }
+
   op ax.ai.semantic @chat_result_function_call_problems {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -1594,4 +1758,75 @@ module @ax.ai version "0.1" {
       core.return %out
     }
   }
+  op ax.ai.semantic @router_embed_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/multiservice.ts"
+    type signature = "(request:json, model:json, embed_model:json) -> json"
+    body @entry(%request: json, %model: json, %embed_model: json) {
+      %empty = core.map
+      %out = core.call intrinsic.map.merge(%empty, %request)
+      %chat_key = core.call intrinsic.truthy(%model)
+      %embed_key = core.call intrinsic.truthy(%embed_model)
+      %service_key = core.call intrinsic.or(%chat_key, %embed_key)
+      core.if %service_key {
+      } else {
+        core.call intrinsic.map.delete(%out, "embedModel")
+        core.call intrinsic.map.delete(%out, "embed_model")
+      }
+      core.return %out
+    }
+  }
+
+  op ax.ai.semantic @router_embed_route {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/multiservice.ts"
+    type signature = "(request:json, entries:json) -> json throws"
+    body @entry(%request: json, %entries: json) {
+      %snake = core.get %request["embed_model"]
+      %key = core.get %request["embedModel"] default %snake
+      %has_key = core.call intrinsic.truthy(%key)
+      core.if %has_key {
+      } else {
+        %error = core.call intrinsic.error.runtime("Embed model key must be specified for multi-service")
+        core.raise %error
+      }
+      %empty = core.list
+      core.for %entry in %entries {
+        %service_key = core.get %entry["key"]
+        %models = core.get %entry["models"] default %empty
+        core.for %model in %models {
+          %model_key = core.get %model["key"]
+          %matches = core.call intrinsic.eq(%model_key, %key)
+          core.if %matches {
+            %chat_model = core.get %model["model"]
+            %embed_snake = core.get %model["embed_model"]
+            %embed_model = core.get %model["embedModel"] default %embed_snake
+            %forwarded = core.call @router_embed_request(%request, %chat_model, %embed_model)
+            %out = core.map
+            core.set %out["key"] = %service_key
+            core.set %out["request"] = %forwarded
+            core.return %out
+          }
+        }
+      }
+      core.for %entry in %entries {
+        %service_key = core.get %entry["key"]
+        %matches = core.call intrinsic.eq(%service_key, %key)
+        core.if %matches {
+          %none = core.call intrinsic.none()
+          %forwarded = core.call @router_embed_request(%request, %none, %none)
+          %out = core.map
+          core.set %out["key"] = %service_key
+          core.set %out["request"] = %forwarded
+          core.return %out
+        }
+      }
+      %message = core.call intrinsic.string.format("No service found for embed model key: {}", %key)
+      %error = core.call intrinsic.error.runtime(%message)
+      core.raise %error
+    }
+  }
+
 }

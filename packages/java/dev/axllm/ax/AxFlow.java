@@ -275,20 +275,29 @@ public final class AxFlow implements AxProgram {
     Map<String, Object> callOptions = AxRuntimeHooks.strip(options);
     Map<String, Object> cached = readCacheFirst(values == null ? Map.of() : values, callOptions);
     if (cached != null) return cached;
+    // As TypeScript's AxFlow.forward does, a run control hears the flow's own
+    // lifecycle at its path; each node reports at <path>/<node>.
+    AxRunControl control = callOptions.get("control") instanceof AxRunControl given ? given : null;
+    String runPath = String.valueOf(callOptions.getOrDefault("execution_path", callOptions.getOrDefault("executionPath", "root")));
+    if (control != null) control.emit(Map.of("type", "started", "path", runPath));
     AxGlobals.Scope scope = AxGlobals.openScope(
         hooks,
         runtimeHooks,
         "ax_gen_flow_forward",
         "ax_gen_flow",
         Map.of("ax.program.id", String.valueOf(state.getOrDefault("program_id", "root.flow")), "ax.program.type", "AxFlow"));
+    Map<String, Object> output;
     try {
-      return forwardUnscoped(client, values, callOptions);
+      output = forwardUnscoped(client, values, callOptions);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
+      if (control != null) control.emit(Map.of("type", "failed", "path", runPath, "error", String.valueOf(error.getMessage())));
       throw error;
     } finally {
       scope.close();
     }
+    if (control != null) control.emit(Map.of("type", "completed", "path", runPath));
+    return output;
   }
 
   // The flow's cache read (Core._flow_cache_lookup_impl), made before the run

@@ -438,7 +438,9 @@ def _runtime_hook_scope(
     span_kind: str = "internal",
     attributes: dict[str, Any] | None = None,
     metric_prefix: str = "ax_gen_generation",
+    metric_labels: dict[str, Any] | None = None,
 ):
+    # metric_labels (TS's custom labels) go on the metrics, not the span.
     parent = _runtime_frame.get()
     hooks = _merge_runtime_hooks(
         _coerce_runtime_hooks(call_hooks),
@@ -449,18 +451,19 @@ def _runtime_hook_scope(
     effective = _merge_runtime_hooks(hooks, globals_snapshot)
     attrs = dict(attributes or {})
     span = _start_runtime_span(effective, span_name, span_kind, attrs)
+    metric_attrs = {**attrs, **(metric_labels or {})}
     token = _runtime_frame.set(_AxRuntimeFrame(hooks, globals_snapshot, span or (parent.span if parent else None)))
     started = time.perf_counter()
     error = None
-    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, attrs)
+    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, metric_attrs)
     try:
         yield effective
     except BaseException as exc:
         error = exc
-        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, attrs)
+        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, metric_attrs)
         raise
     finally:
-        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, attrs)
+        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, metric_attrs)
         _finish_runtime_span(span, error)
         _runtime_frame.reset(token)
 
@@ -528,6 +531,23 @@ def _invoke_rate_limiter(limiter: AxRateLimiter | None, next_request: Callable[[
     if callable(run):
         return run(next_request, info)
     return limiter(next_request, info)
+
+
+def _labeled(attributes: dict[str, Any], service_options: Any, call_options: Any, sanitize: bool) -> dict[str, Any]:
+    # A metric's attributes with TS's custom labels: the service's, then the
+    # call's (ai_custom_labels). TS cuts their values for the request
+    # duration and errors (sanitize) but not for the request counter.
+    labels = ai_custom_labels(service_options or {}, call_options or {}, sanitize)
+    return {**attributes, **labels} if labels else attributes
+
+
+def _gen_metric_labels(client: Any, gen_options: Any, call_options: Any) -> dict[str, Any]:
+    # An AxGen run's custom labels, as TS's getMergedCustomLabels: the AI
+    # service's, then the AxGen constructor's with the call's over them, each
+    # value cut to 100 characters.
+    run_labels = ai_custom_labels(gen_options or {}, call_options or {}, False)
+    service_options = getattr(client, "options", None)
+    return ai_custom_labels(service_options if isinstance(service_options, dict) else {}, {"customLabels": run_labels}, True)
 
 
 def _runtime_observed_stream(
@@ -1164,13 +1184,13 @@ class AxBaseAI(AIClient):
             streaming = bool(model_config.get("stream"))
             attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": streaming}
             span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
             info = AxRateLimitInfo("chat", self.name, str(model), streaming, copy.deepcopy(self.last_model_usage))
             response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._chat(req, merged_options), info)
             if isinstance(response, dict):
                 self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage"))
                 _emit_usage_event("chat", response, merged_options, False)
-                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
                 _finish_runtime_span(span)
                 return response
             stream_returned = True
@@ -1179,8 +1199,8 @@ class AxBaseAI(AIClient):
             is_error = True
             if span is not None:
                 attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(self.last_used_chat_model or self.model), "ax.streaming": bool((options or {}).get("stream"))}
-                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
                 _finish_runtime_span(span, exc)
             raise
         finally:
@@ -1205,19 +1225,19 @@ class AxBaseAI(AIClient):
             merged_options = self._merged_options(options)
             attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(embed_model), "ax.streaming": False}
             span = _start_runtime_span(hooks, "ax_llm_embed", "client", attributes)
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
             info = AxRateLimitInfo("embed", self.name, str(embed_model), False, copy.deepcopy(self.last_model_usage))
             response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._embed(req, merged_options), info)
             self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage")) if isinstance(response, dict) else None
             _emit_usage_event("embed", response, merged_options, False)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span)
             return response
         except Exception as exc:
             is_error = True
             attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(self.last_used_embed_model or self.embed_model or ""), "ax.streaming": False}
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span, exc)
             raise
         finally:
@@ -1547,17 +1567,17 @@ class ProviderOperationClient(AxBaseAI):
         hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": True}
         span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
-        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, _labeled(attributes, self.options, options, False))
         started = time.perf_counter()
         info = AxRateLimitInfo("chat", self.name, str(model), True, copy.deepcopy(self.last_model_usage))
         try:
             result = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._stream_chat(payload, req, merged_options), info)
         except BaseException as exc:
-            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
-            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, _labeled(attributes, self.options, options, True))
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, _labeled(attributes, self.options, options, True))
             _finish_runtime_span(span, exc)
             raise
-        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, attributes, started)
+        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, _labeled(attributes, self.options, options, True), started)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request, options)
@@ -1932,6 +1952,12 @@ class ProviderOperationClient(AxBaseAI):
             call["timeout_ms"] = timeout_ms
         # The request this call's provider errors keep (Core owns the view).
         error_request = _ai_error_request(call, self.options if error_options is None else error_options)
+        # As TS's apiCall, a verbose call (the call's verbose, else the
+        # client's) logs the request, then the JSON response or the stream's
+        # start.
+        verbose = bool((self.options if error_options is None else error_options).get("verbose"))
+        if verbose:
+            _verbose_log(ai_verbose_request_log(request_url, method, headers, payload))
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
@@ -1940,7 +1966,10 @@ class ProviderOperationClient(AxBaseAI):
                 if cancellation is not None: cancellation.throw_if_cancelled()
                 if binary_response:
                     return _binary_transport_result(result, error_request)
-                return _transport_result(result, error_request)
+                value = _transport_result(result, error_request)
+                if verbose:
+                    _verbose_log(ai_verbose_stream_log(_transport_status(result)) if stream else ai_verbose_response_log(_transport_status(result), value))
+                return value
             except AxAIServiceAbortedError:
                 raise
             except AxAIServiceError:
@@ -1976,6 +2005,8 @@ class ProviderOperationClient(AxBaseAI):
             if cancellation is not None: cancellation.throw_if_cancelled()
             res, stop_open = self._open_http_response(req, cancellation, timeout_ms)
             opened = True
+            if stream and verbose:
+                _verbose_log(ai_verbose_stream_log(int(getattr(res, "status", 200) or 200)))
             if stream:
                 # A generator cannot be closed while another thread is reading it.
                 # Own the response explicitly so cancellation can interrupt that read.
@@ -2051,6 +2082,8 @@ class ProviderOperationClient(AxBaseAI):
                             value = json.loads(response_text)
                         except json.JSONDecodeError:
                             value = response_text
+                        if verbose:
+                            _verbose_log(ai_verbose_response_log(int(getattr(res, "status", 200) or 200), value))
                     if cancellation is not None: cancellation.throw_if_cancelled()
                     return value
             finally:
@@ -2430,12 +2463,8 @@ class MultiServiceRouter(AxAIService):
         if entry is None:
             raise ValueError(f"No service found for embed model key: {embed_key}")
         self.last_used_service = entry["service"]
-        if "model" not in entry:
-            req = copy.deepcopy(request)
-            req.pop("embedModel", None)
-            req.pop("embed_model", None)
-            return entry["service"].embed(req, options)
-        return entry["service"].embed(copy.deepcopy(request), options)
+        req = router_embed_request(request, entry.get("model"), entry.get("embedModel"))
+        return entry["service"].embed(req, options)
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         model_key = request.get("model")
@@ -6480,190 +6509,46 @@ def provider_model_catalog(options: Any) -> Any:
     return selected
 
 
-def _chat_result_function_call_problems(result: Any, result_index: number) -> Any:
-    _core_coverage_mark("_chat_result_function_call_problems")
-    empty = []
-    calls = _core_get(result, "function_calls", empty)
-    calls_is_list = _core_type_is(calls, "list")
-    if calls_is_list:
-        pass
-    else:
-        calls = empty
-    first = _core_none()
-    unnamed = _core_none()
-    call_problem = _core_none()
-    call_index = 0
-    for call in calls:
-        problem = ""
-        kind = ""
-        is_map = _core_type_is(call, "object")
-        if is_map:
-            has_function = _core_map_contains(call, "function")
-            has_type = _core_map_contains(call, "type")
-            nested = _core_or(has_function, has_type)
-            has_id = _core_map_contains(call, "id")
-            id = _core_get(call, "id", None)
-            id_ok = False
-            id_is_text = _core_type_is(id, "string")
-            if id_is_text:
-                id_trimmed = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                id_ok = _core_ne(id_trimmed, "")
+def ai_custom_labels(service_options: Any, call_options: Any, sanitize: bool) -> Any:
+    _core_coverage_mark("ai_custom_labels")
+    empty = {}
+    labels = {}
+    sources = []
+    sources.append(service_options)
+    sources.append(call_options)
+    for source in sources:
+        source_map = _core_type_is(source, "object")
+        if source_map:
+            snake = _core_get(source, "custom_labels", empty)
+            camel = _core_get(source, "customLabels", snake)
+            camel_map = _core_type_is(camel, "object")
+            if camel_map:
+                labels = _core_map_merge(labels, camel)
             else:
                 pass
-            id_bad = _core_not(id_ok)
-            if id_bad:
-                id_received = "undefined"
-                if has_id:
-                    id_received = _core_json_pretty(id)
-                else:
-                    pass
-                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: {}", call_index, result_index, id_received)
-                kind = "call"
-            else:
-                pass
-            fn = _core_get(call, "function", None)
-            fn_is_map = _core_type_is(fn, "object")
-            check_nested = _core_eq(problem, "")
-            check_nested = _core_and(check_nested, nested)
-            if check_nested:
-                type = _core_get(call, "type", None)
-                type_ok = _core_eq(type, "function")
-                type_bad = _core_not(type_ok)
-                if type_bad:
-                    type_received = "undefined"
-                    if has_type:
-                        type_received = _core_json_pretty(type)
-                    else:
-                        pass
-                    problem = _core_string_format("Function call at index {} in result {} must have type 'function', received: {}", call_index, result_index, type_received)
-                    kind = "call"
-                else:
-                    fn_falsy = _core_is_none(fn)
-                    fn_false = _core_eq(fn, False)
-                    fn_zero = _core_eq(fn, 0)
-                    fn_empty = _core_eq(fn, "")
-                    fn_falsy = _core_or(fn_falsy, fn_false)
-                    fn_falsy = _core_or(fn_falsy, fn_zero)
-                    fn_falsy = _core_or(fn_falsy, fn_empty)
-                    if fn_falsy:
-                        fn_received = "undefined"
-                        if has_function:
-                            fn_received = _core_json_pretty(fn)
-                        else:
-                            pass
-                        problem = _core_string_format("Function call at index {} in result {} must have a function object, received: {}", call_index, result_index, fn_received)
-                        kind = "unnamed"
-                    else:
-                        pass
-            else:
-                pass
-            check_name = _core_eq(problem, "")
-            if check_name:
-                has_name = False
-                name = _core_none()
-                if nested:
-                    if fn_is_map:
-                        has_name = _core_map_contains(fn, "name")
-                        name = _core_get(fn, "name", None)
-                    else:
-                        pass
-                else:
-                    has_name = _core_map_contains(call, "name")
-                    name = _core_get(call, "name", None)
-                named = False
-                name_is_text = _core_type_is(name, "string")
-                if name_is_text:
-                    name_trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                    named = _core_ne(name_trimmed, "")
-                else:
-                    pass
-                unnamed_call = _core_not(named)
-                if unnamed_call:
-                    name_received = "undefined"
-                    if has_name:
-                        name_received = _core_json_pretty(name)
-                    else:
-                        pass
-                    problem = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, name_received)
-                    kind = "unnamed"
-                else:
-                    pass
-            else:
-                pass
-            check_params = _core_eq(problem, "")
-            if check_params:
-                has_params = False
-                params = _core_none()
-                if nested:
-                    if fn_is_map:
-                        has_params = _core_map_contains(fn, "params")
-                        params = _core_get(fn, "params", None)
-                    else:
-                        pass
-                else:
-                    has_params = _core_map_contains(call, "params")
-                    params = _core_get(call, "params", None)
-                params_number = _core_type_is(params, "number")
-                params_bool = _core_type_is(params, "boolean")
-                params_bad = _core_or(params_number, params_bool)
-                params_bad = _core_and(params_bad, has_params)
-                if params_bad:
-                    params_received = _core_json_pretty(params)
-                    problem = _core_string_format("Function call params at index {} in result {} must be a string or object, received: {}", call_index, result_index, params_received)
-                    kind = "call"
-                else:
-                    pass
-            else:
-                pass
-        else:
-            call_null = _core_is_none(call)
-            call_false = _core_eq(call, False)
-            call_zero = _core_eq(call, 0)
-            call_empty = _core_eq(call, "")
-            call_falsy = _core_or(call_null, call_false)
-            call_falsy = _core_or(call_falsy, call_zero)
-            call_falsy = _core_or(call_falsy, call_empty)
-            if call_falsy:
-                call_received = _core_json_pretty(call)
-                problem = _core_string_format("Function call at index {} in result {} cannot be null or undefined, received: {}", call_index, result_index, call_received)
-            else:
-                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: undefined", call_index, result_index)
-            kind = "unnamed"
-        failed = _core_ne(problem, "")
-        if failed:
-            first_unset = _core_is_none(first)
-            if first_unset:
-                first = problem
-            else:
-                pass
-            is_unnamed = _core_eq(kind, "unnamed")
-            if is_unnamed:
-                unnamed_unset = _core_is_none(unnamed)
-                if unnamed_unset:
-                    unnamed = problem
-                else:
-                    pass
-            else:
-                call_unset = _core_is_none(call_problem)
-                if call_unset:
-                    call_problem = problem
-                else:
-                    pass
         else:
             pass
-        next_call_index = _core_add(call_index, 1)
-        call_index = next_call_index
-    none_failed = _core_is_none(first)
-    if none_failed:
-        nothing = _core_none()
-        return nothing
-    else:
+    if sanitize:
         pass
-    out = {}
-    out["first"] = first
-    out["unnamed"] = unnamed
-    out["call"] = call_problem
-    return out
+    else:
+        return labels
+    sanitized = {}
+    keys = _core_map_keys(labels)
+    for key in keys:
+        value = _core_get(labels, key, None)
+        missing = _core_is_none(value)
+        if missing:
+            pass
+        else:
+            text = _core_string_str(value)
+            length = _core_len(text)
+            over_limit = _core_gt(length, 100)
+            if over_limit:
+                text = _core_string_slice(text, 0, 100)
+            else:
+                pass
+            sanitized[key] = text
+    return sanitized
 
 
 def provider_estimate_cost(model_usage: Any, model_info_overrides: Any) -> number:
@@ -6848,6 +6733,271 @@ def provider_estimate_cost(model_usage: Any, model_info_overrides: Any) -> numbe
     cache_cost = _core_add(input_cost, cache_write_cost)
     total_cost = _core_add(cache_cost, completion_cost)
     return total_cost
+
+
+def ai_redact_headers(headers: Any) -> Any:
+    _core_coverage_mark("ai_redact_headers")
+    sensitive = []
+    sensitive.append("authorization")
+    sensitive.append("proxy-authorization")
+    sensitive.append("x-api-key")
+    sensitive.append("api-key")
+    sensitive.append("apikey")
+    sensitive.append("x-goog-api-key")
+    sensitive.append("x-amz-security-token")
+    sensitive.append("cookie")
+    sensitive.append("set-cookie")
+    redacted = {}
+    headers_map = _core_type_is(headers, "object")
+    if headers_map:
+        pass
+    else:
+        return redacted
+    keys = _core_map_keys(headers)
+    for key in keys:
+        value = _core_get(headers, key, None)
+        lower = _core_string_lower(key)
+        masked = _core_contains(sensitive, lower)
+        if masked:
+            redacted[key] = "***"
+        else:
+            redacted[key] = value
+    return redacted
+
+
+def ai_http_status_text(status: int) -> str:
+    _core_coverage_mark("ai_http_status_text")
+    texts = {}
+    texts["200"] = "OK"
+    texts["201"] = "Created"
+    texts["202"] = "Accepted"
+    texts["204"] = "No Content"
+    texts["400"] = "Bad Request"
+    texts["401"] = "Unauthorized"
+    texts["403"] = "Forbidden"
+    texts["404"] = "Not Found"
+    texts["408"] = "Request Timeout"
+    texts["409"] = "Conflict"
+    texts["413"] = "Payload Too Large"
+    texts["422"] = "Unprocessable Entity"
+    texts["429"] = "Too Many Requests"
+    texts["500"] = "Internal Server Error"
+    texts["502"] = "Bad Gateway"
+    texts["503"] = "Service Unavailable"
+    texts["504"] = "Gateway Timeout"
+    key = _core_string_format("{}", status)
+    text = _core_get(texts, key, "")
+    return text
+
+
+def ai_verbose_request_log(url: str, method: str, headers: Any, body: Any) -> str:
+    _core_coverage_mark("ai_verbose_request_log")
+    redacted = ai_redact_headers(headers)
+    headers_text = _core_json_pretty(redacted)
+    body_text = _core_json_pretty(body)
+    text = _core_string_format("\n--- [AxAI API Request] ---\n URL: {}\n Method: {}\n Headers: {} \nBody: {} \n------------------------\n", url, method, headers_text, body_text)
+    return text
+
+
+def ai_verbose_response_log(status: int, body: Any) -> str:
+    _core_coverage_mark("ai_verbose_response_log")
+    status_text = ai_http_status_text(status)
+    body_text = _core_json_pretty(body)
+    text = _core_string_format("\n--- [AxAI API Response] ---\n Status: {} {}\n Body: {} \n-------------------------\n", status, status_text, body_text)
+    return text
+
+
+def ai_verbose_stream_log(status: int) -> str:
+    _core_coverage_mark("ai_verbose_stream_log")
+    status_text = ai_http_status_text(status)
+    text = _core_string_format("\n--- [AxAI API Streaming Response Started] ---\n Status: {} {}\n \n-------------------------------------------\n", status, status_text)
+    return text
+
+
+def _chat_result_function_call_problems(result: Any, result_index: number) -> Any:
+    _core_coverage_mark("_chat_result_function_call_problems")
+    empty = []
+    calls = _core_get(result, "function_calls", empty)
+    calls_is_list = _core_type_is(calls, "list")
+    if calls_is_list:
+        pass
+    else:
+        calls = empty
+    first = _core_none()
+    unnamed = _core_none()
+    call_problem = _core_none()
+    call_index = 0
+    for call in calls:
+        problem = ""
+        kind = ""
+        is_map = _core_type_is(call, "object")
+        if is_map:
+            has_function = _core_map_contains(call, "function")
+            has_type = _core_map_contains(call, "type")
+            nested = _core_or(has_function, has_type)
+            has_id = _core_map_contains(call, "id")
+            id = _core_get(call, "id", None)
+            id_ok = False
+            id_is_text = _core_type_is(id, "string")
+            if id_is_text:
+                id_trimmed = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                id_ok = _core_ne(id_trimmed, "")
+            else:
+                pass
+            id_bad = _core_not(id_ok)
+            if id_bad:
+                id_received = "undefined"
+                if has_id:
+                    id_received = _core_json_pretty(id)
+                else:
+                    pass
+                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: {}", call_index, result_index, id_received)
+                kind = "call"
+            else:
+                pass
+            fn = _core_get(call, "function", None)
+            fn_is_map = _core_type_is(fn, "object")
+            check_nested = _core_eq(problem, "")
+            check_nested = _core_and(check_nested, nested)
+            if check_nested:
+                type = _core_get(call, "type", None)
+                type_ok = _core_eq(type, "function")
+                type_bad = _core_not(type_ok)
+                if type_bad:
+                    type_received = "undefined"
+                    if has_type:
+                        type_received = _core_json_pretty(type)
+                    else:
+                        pass
+                    problem = _core_string_format("Function call at index {} in result {} must have type 'function', received: {}", call_index, result_index, type_received)
+                    kind = "call"
+                else:
+                    fn_falsy = _core_is_none(fn)
+                    fn_false = _core_eq(fn, False)
+                    fn_zero = _core_eq(fn, 0)
+                    fn_empty = _core_eq(fn, "")
+                    fn_falsy = _core_or(fn_falsy, fn_false)
+                    fn_falsy = _core_or(fn_falsy, fn_zero)
+                    fn_falsy = _core_or(fn_falsy, fn_empty)
+                    if fn_falsy:
+                        fn_received = "undefined"
+                        if has_function:
+                            fn_received = _core_json_pretty(fn)
+                        else:
+                            pass
+                        problem = _core_string_format("Function call at index {} in result {} must have a function object, received: {}", call_index, result_index, fn_received)
+                        kind = "unnamed"
+                    else:
+                        pass
+            else:
+                pass
+            check_name = _core_eq(problem, "")
+            if check_name:
+                has_name = False
+                name = _core_none()
+                if nested:
+                    if fn_is_map:
+                        has_name = _core_map_contains(fn, "name")
+                        name = _core_get(fn, "name", None)
+                    else:
+                        pass
+                else:
+                    has_name = _core_map_contains(call, "name")
+                    name = _core_get(call, "name", None)
+                named = False
+                name_is_text = _core_type_is(name, "string")
+                if name_is_text:
+                    name_trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    named = _core_ne(name_trimmed, "")
+                else:
+                    pass
+                unnamed_call = _core_not(named)
+                if unnamed_call:
+                    name_received = "undefined"
+                    if has_name:
+                        name_received = _core_json_pretty(name)
+                    else:
+                        pass
+                    problem = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, name_received)
+                    kind = "unnamed"
+                else:
+                    pass
+            else:
+                pass
+            check_params = _core_eq(problem, "")
+            if check_params:
+                has_params = False
+                params = _core_none()
+                if nested:
+                    if fn_is_map:
+                        has_params = _core_map_contains(fn, "params")
+                        params = _core_get(fn, "params", None)
+                    else:
+                        pass
+                else:
+                    has_params = _core_map_contains(call, "params")
+                    params = _core_get(call, "params", None)
+                params_number = _core_type_is(params, "number")
+                params_bool = _core_type_is(params, "boolean")
+                params_bad = _core_or(params_number, params_bool)
+                params_bad = _core_and(params_bad, has_params)
+                if params_bad:
+                    params_received = _core_json_pretty(params)
+                    problem = _core_string_format("Function call params at index {} in result {} must be a string or object, received: {}", call_index, result_index, params_received)
+                    kind = "call"
+                else:
+                    pass
+            else:
+                pass
+        else:
+            call_null = _core_is_none(call)
+            call_false = _core_eq(call, False)
+            call_zero = _core_eq(call, 0)
+            call_empty = _core_eq(call, "")
+            call_falsy = _core_or(call_null, call_false)
+            call_falsy = _core_or(call_falsy, call_zero)
+            call_falsy = _core_or(call_falsy, call_empty)
+            if call_falsy:
+                call_received = _core_json_pretty(call)
+                problem = _core_string_format("Function call at index {} in result {} cannot be null or undefined, received: {}", call_index, result_index, call_received)
+            else:
+                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: undefined", call_index, result_index)
+            kind = "unnamed"
+        failed = _core_ne(problem, "")
+        if failed:
+            first_unset = _core_is_none(first)
+            if first_unset:
+                first = problem
+            else:
+                pass
+            is_unnamed = _core_eq(kind, "unnamed")
+            if is_unnamed:
+                unnamed_unset = _core_is_none(unnamed)
+                if unnamed_unset:
+                    unnamed = problem
+                else:
+                    pass
+            else:
+                call_unset = _core_is_none(call_problem)
+                if call_unset:
+                    call_problem = problem
+                else:
+                    pass
+        else:
+            pass
+        next_call_index = _core_add(call_index, 1)
+        call_index = next_call_index
+    none_failed = _core_is_none(first)
+    if none_failed:
+        nothing = _core_none()
+        return nothing
+    else:
+        pass
+    out = {}
+    out["first"] = first
+    out["unnamed"] = unnamed
+    out["call"] = call_problem
+    return out
 
 
 def provider_route_request_requirements(request: Any) -> Any:
@@ -7122,6 +7272,66 @@ def provider_route_preprocess_request(features: Any, request: Any, processing: A
     out = _core_map_merge(request_seed, request)
     out[prompt_key] = processed_prompt
     return out
+
+
+def router_embed_request(request: Any, model: Any, embed_model: Any) -> Any:
+    _core_coverage_mark("router_embed_request")
+    empty = {}
+    out = _core_map_merge(empty, request)
+    chat_key = _core_truthy(model)
+    embed_key = _core_truthy(embed_model)
+    service_key = _core_or(chat_key, embed_key)
+    if service_key:
+        pass
+    else:
+        _core_map_delete(out, "embedModel")
+        _core_map_delete(out, "embed_model")
+    return out
+
+
+def router_embed_route(request: Any, entries: Any) -> Any:
+    _core_coverage_mark("router_embed_route")
+    snake = _core_get(request, "embed_model", None)
+    key = _core_get(request, "embedModel", snake)
+    has_key = _core_truthy(key)
+    if has_key:
+        pass
+    else:
+        error = _core_runtime_error("Embed model key must be specified for multi-service")
+        raise error
+    empty = []
+    for entry in entries:
+        service_key = _core_get(entry, "key", None)
+        models = _core_get(entry, "models", empty)
+        for model in models:
+            model_key = _core_get(model, "key", None)
+            matches = _core_eq(model_key, key)
+            if matches:
+                chat_model = _core_get(model, "model", None)
+                embed_snake = _core_get(model, "embed_model", None)
+                embed_model = _core_get(model, "embedModel", embed_snake)
+                forwarded = router_embed_request(request, chat_model, embed_model)
+                out = {}
+                out["key"] = service_key
+                out["request"] = forwarded
+                return out
+            else:
+                pass
+    for entry in entries:
+        service_key = _core_get(entry, "key", None)
+        matches = _core_eq(service_key, key)
+        if matches:
+            none = _core_none()
+            forwarded = router_embed_request(request, none, none)
+            out = {}
+            out["key"] = service_key
+            out["request"] = forwarded
+            return out
+        else:
+            pass
+    message = _core_string_format("No service found for embed model key: {}", key)
+    error = _core_runtime_error(message)
+    raise error
 
 
 def _provider_route_file_content(features: Any, part: Any, processing: Any, slot: str) -> Any:
@@ -16820,6 +17030,24 @@ def _binary_transport_result(result: Any, request: dict[str, Any]):
             return json.loads(body)
         return _BinaryBody(body, content_type)
     return body
+
+
+# Where verbose blocks go: print, as TS's apiCall uses console.log (the
+# conformance runner collects them instead).
+_verbose_sink = None
+
+
+def _verbose_log(text: str) -> None:
+    (_verbose_sink or print)(text)
+
+
+def _transport_status(result: Any) -> int:
+    # A transport result's HTTP status.
+    if isinstance(result, tuple):
+        return int(result[0])
+    if isinstance(result, dict) and "status" in result:
+        return int(result.get("status") or 200)
+    return 200
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

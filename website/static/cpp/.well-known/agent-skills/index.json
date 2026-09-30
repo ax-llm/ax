@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:93a67925e3c7a55ba496fcf1e537dbacb5449affcc406000d810e54cbe2e6c53"
+      "digest": "sha256:7e235651da4af21736dd128edb4e3024bf12180c471763575724244be64cdb22"
     },
     {
       "name": "ax-cpp-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:8b0566f06e96e20b1f59fb2c94df955166014af70a2773e30b82ddd85c0108b8"
+      "digest": "sha256:0aa50501c6e46d7cb5465d52a052433c0dfdec1c02402ac04218b2b428baa38b"
     },
     {
       "name": "ax-cpp-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:b292e9561b241fe75a842e0d33ec775df334e254ca4bbcdd6e1f4cf18e92df80"
+      "digest": "sha256:3fe9adb0bdc4374d7a60febb06b740b9b3296f4df37b4f714f216c20bc9c4aeb"
     },
     {
       "name": "ax-cpp-agent-rlm",
@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-cpp-agent-memory-skills/SKILL.md",
-      "digest": "sha256:8346556b0daebe674e7bad1f81b897fe55bb8c8f8a4a834457f1bb41c3dfa80a"
+      "digest": "sha256:b312b4468c28853a0c5e43f826d67ca6ef1c82e32f01c1502eff53bd2578f624"
     },
     {
       "name": "ax-cpp-agent-observability",

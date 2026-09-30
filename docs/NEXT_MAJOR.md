@@ -13,9 +13,7 @@ release flow.
 - Rust `AxError` gains `cause`, `source()`, request info (url and body, as TypeScript's `AxAIServiceError` keeps them) and `#[non_exhaustive]`. Adding fields to its public struct breaks callers that build it with a struct literal (#729, #747).
 - The Rust caching function moves onto `AxForwardOptions` (#733).
 - `playbook.seed` means TypeScript's numeric seed, and snapshot seeds go in `playbook.playbook` (#739).
-- TypeScript's deprecated, ignored `responseFormatWithFunctions` is removed (#721).
 - An agent without runtime config builds TypeScript's JavaScript actor stages by default, and the runtime-less completion mode becomes opt-in (pending PR).
-- TypeScript `AxAIProfileAuthentication.type` drops `'api-key-query'`. No profile uses it and TypeScript never implemented query-key auth (such a profile fell through to a Bearer header), so it is deprecated until then (#747).
 - Per-call `timeout` is read in milliseconds, as in TypeScript. Today Python, Go, Java and C++ ignore it and Rust reads it in seconds, and each warns once when a call gives it without `timeoutMs`, which works now. Python's and Go's Typesafe native calls also read it in seconds today (#761).
 - The ports' agent stops passing a forward `timeout` / `timeout_ms` into the runtime's options. As in TypeScript, the runtime timeout is set on the runtime, and a forward `timeout` is the per-call AI timeout (#761).
 - Java chat and embed throw `AxAIServiceNetworkError` / `AxAIServiceTimeoutError` for a failed connection or the client's timeout, with the JDK exception as the cause, as `typedTransportErrors: true` does today. Today they throw the JDK's `ConnectException`, `IOException` or `HttpTimeoutException` and warn once; AxGen retries either kind (#767).

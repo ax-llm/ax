@@ -560,6 +560,7 @@ async function runSync({ repoRoot, write }) {
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axmcp', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent-real', write),
       ...compareDateData(repoRoot, tempRoot, write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),
     ];

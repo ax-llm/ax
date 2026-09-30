@@ -1,0 +1,75 @@
+{
+  "name": "agent-flat-function-namespace-tools-reserved",
+  "description": "Port-only: with flatFunctionNamespace 'tools' a flat function's own namespace is not used, so a reserved one (inputs) is filed under tools as before 25.0.0.",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "options": {
+    "directResponse": "off",
+    "functions": [
+      {
+        "name": "lookup",
+        "namespace": "inputs",
+        "description": "Look up a customer by id",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"]
+        }
+      }
+    ],
+    "flatFunctionNamespace": "tools",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "expected_request_count": 3,
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_contains": ["`tools.lookup(args: { id: string })`"],
+  "expected_deprecations": []
+}

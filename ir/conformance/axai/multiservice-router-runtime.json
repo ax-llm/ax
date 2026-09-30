@@ -4,6 +4,7 @@
     "lastConfig": {
       "temperature": 0.2
     },
+    "lastEmbed": "embed-a",
     "metrics": {
       "calls": 4,
       "service": "A"

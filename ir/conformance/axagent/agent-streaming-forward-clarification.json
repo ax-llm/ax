@@ -2,6 +2,7 @@
   "expected_deltas": [],
   "expected_error_contains": "Which order do you mean?",
   "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
   "expected_transcript": ["request:distiller"],
   "features": {
     "functions": false,

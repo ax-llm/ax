@@ -1,0 +1,58 @@
+{
+  "assertions": [
+    {
+      "equals": {
+        "name": "Ada"
+      },
+      "field": "user",
+      "message": "The user is Ada."
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
+  "features": {
+    "functions": true,
+    "structured_outputs": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-retry-memory-json-assertion",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "{\"user\":{\"name\":\"Bob\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"user\":{\"name\":\"Eve\"}}",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"user\":{\"name\":\"Ada\"}}",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

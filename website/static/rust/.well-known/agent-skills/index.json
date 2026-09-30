@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:65cd1b5cd2503598a7d9e97150452fdf2e19934f3507a76f9a283f591a19b83c"
+      "digest": "sha256:90f8e8b997a37f27e88eae72d09101b26211992e83bc0bfca8348f91eaae1d69"
     },
     {
       "name": "ax-rust-typesafe",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:19ffc32545fa5fcf308f3f1f3ee6fbec011eefb860f178a816b19cd979d90c73"
+      "digest": "sha256:1febdb506e33e86788da973734a11d204cd76cd11773b0668d4d9b5e59c1c792"
     },
     {
       "name": "ax-rust-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:c318e74a519f95172c2649263ecc238d07556ae2987a79923de8ecc53d737c86"
+      "digest": "sha256:b5a3b2b72c62d4f885e7fbfea7682b4e37ab335ed278eb6a19503626291f1c6d"
     },
     {
       "name": "ax-rust-agent-rlm",
@@ -69,7 +69,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-rust-agent-memory-skills/SKILL.md",
-      "digest": "sha256:ee8dac17e047d9573ba17cc48220b0e5e079f96481a4d30328ad10c073046730"
+      "digest": "sha256:c7b63b680503afd84b327f701983d6f191f3053074a13cbd637250e375d71f28"
     },
     {
       "name": "ax-rust-agent-observability",

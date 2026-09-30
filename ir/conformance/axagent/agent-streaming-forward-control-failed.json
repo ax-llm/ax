@@ -94,6 +94,23 @@
   ],
   "expected_error_contains": "Generate failed: Unable to fix validation error: Invalid evidenceCitations entries: made_up_source. Cite only evidence ids that exist: policy — or leave the field empty.",
   "expected_request_count": 6,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user", "assistant", "user"],
+    ["system", "user", "assistant", "user", "assistant", "user"],
+    [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ]
+  ],
   "expected_transcript": [
     "request:distiller",
     "request:executor",
@@ -113,8 +130,8 @@
   "kind": "agent_streaming_forward",
   "name": "agent-streaming-forward-control-failed",
   "options": {
-    "directResponse": "off",
     "citations": {},
+    "directResponse": "off",
     "runtime": {
       "language": "JavaScript"
     }

@@ -1,0 +1,57 @@
+{
+  "expected_chat_prompt": [
+    {
+      "cache": true,
+      "content": "<identity>\nYou will be provided with the following fields: `Document`, `Question`. Your task is to generate new fields: `Answer`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocument:\nQuestion:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAnswer (wire key: `answer`): (This string field must be included)\n</output_fields>\n\n\n<formatting_rules>\n\nReturn one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Document: Stable facts\n\nQuestion: First question\n",
+      "role": "user"
+    }
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_count": 1,
+  "features": {
+    "caching": {
+      "cacheBreakpoints": true
+    },
+    "functions": false,
+    "streaming": false
+  },
+  "forward_options": {
+    "contextCache": {
+      "cacheBreakpoint": "system"
+    }
+  },
+  "input": {
+    "document": "Stable facts",
+    "question": "First question"
+  },
+  "kind": "forward",
+  "name": "cache-split-system-breakpoint",
+  "responses": [
+    {
+      "content": "Answer: done"
+    }
+  ],
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "cache": true,
+        "optional": true,
+        "type": "string"
+      },
+      "question": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "answer": {
+        "type": "string"
+      }
+    }
+  }
+}

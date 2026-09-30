@@ -222,6 +222,9 @@ void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// Where verbose blocks go: std::cout, as TypeScript's apiCall uses
+// console.log, unless a sink is set (the conformance runner sets one).
+std::function<void(const std::string&)>& verbose_log_sink();
 // Conformance hooks for the request-layer retry: a sleep that records the
 // delay instead of waiting, and fixed random and clock sources. Empty
 // functions restore the defaults.
@@ -260,6 +263,19 @@ class AxAIServiceAbortedError : public AxError {
   explicit AxAIServiceAbortedError(std::string reason = "")
       : AxError("aborted", reason.empty() || reason == "cancelled" ? "Request aborted" : "Request aborted: " + reason,
                 "AxAIServiceAbortedError", 0, "", false) {}
+};
+
+// An agent run that asked for clarification. clarification is the
+// askClarification payload as given, or TypeScript's {question, ...} form with
+// clarificationShape: 'structured'; state is the agent's runtime state.
+class AxAgentClarificationError : public AxError {
+ public:
+  AxAgentClarificationError(std::string message, Value clarification, Value state)
+      : AxError("AxAgentClarificationError", std::move(message)),
+        clarification(std::move(clarification)),
+        state(std::move(state)) {}
+  Value clarification;
+  Value state;
 };
 
 class AxCancellationToken {
@@ -474,6 +490,8 @@ struct Core {
   static Value retry_sleep(Value attempt, Value client, Value options);
   static Value tool_invoke(Value fn, Value params);
   static Value tool_invoke(Value fn, Value params, const AxToolContext& context);
+  // extras: the run's tool_call_extras map, for a context handler.
+  static Value tool_invoke(Value fn, Value params, Value extras);
   static Value legacy_response_to_chat_response(Value raw);
   static Value record_new(Value name, Value values);
   static Value field_item(Value field);
@@ -507,6 +525,7 @@ struct Core {
   static Value axgen_record_function_call(Value gen, Value call, Value result, Value status);
   static Value run_control_aborted(Value control);
   static Value agent_stage_forward(Value stage, Value client, Value values, Value options);
+  static Value agent_program_forward(Value signature, Value program_options, Value client, Value values, Value options);
   static Value agent_native_stage_forward(Value stage,Value state,Value client,Value values,Value options,Value selected);
   static Value agent_stage_streaming_forward(Value stage,Value state,Value client,Value values,Value options,Value sink);
   static Value agent_stage_chat_log(Value stage);
@@ -520,6 +539,7 @@ struct Core {
   static Value agent_runtime_restore_state(Value session, Value snapshot, Value options);
   static Value agent_runtime_close(Value session);
   static Value agent_runtime_language(Value runtime);
+  static Value agent_runtime_usage_instructions(Value runtime);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
   static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
@@ -1132,7 +1152,15 @@ struct AxToolContext {
   std::shared_ptr<std::atomic<bool>> cancelled;
   std::string call_id;
   std::function<bool()> cancellation_requested;
+  // What TypeScript gives a tool besides its arguments: the run's sessionId
+  // and eventContext when set (else empty and null), and under a run control
+  // its executionPath (<the run's path>/<the tool's name>, else empty).
+  std::string session_id;
+  std::string execution_path;
+  Value event_context;
   bool is_cancelled() const {return (cancelled && cancelled->load()) || (cancellation_requested && cancellation_requested());}
+  // Sets the extras from a tool_call_extras map.
+  void set_extras(const Value& extras);
 };
 class Tool {
  public:
@@ -1310,6 +1338,12 @@ class AxGen : public AxProgram {
   Value get_function_call_traces() const;
   AxMemory& get_memory();
   Value value() const;
+  // Gives the program a cancellation token, as TypeScript's abortSignal in
+  // the AxGen constructor: every forward and streaming forward stops once it
+  // is cancelled (before its next request). A forward given its own token,
+  // or run inside a scope that has one, uses that token instead, as a call's
+  // abortSignal replaces the constructor's.
+  AxGen& set_cancellation(AxCancellationToken token);
 
  private:
   Value state_;
@@ -1317,6 +1351,8 @@ class AxGen : public AxProgram {
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   // Keeps the caching function the options name registered.
   std::optional<AxCachingFunctionHandle> caching_function_;
+  // The program's own cancellation token (set_cancellation).
+  std::optional<AxCancellationToken> cancellation_;
   // Keeps the function result formatter the options name registered.
   std::optional<AxFunctionResultFormatterHandle> function_result_formatter_;
   void refresh_prompt_template();

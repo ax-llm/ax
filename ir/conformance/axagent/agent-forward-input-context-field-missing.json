@@ -1,0 +1,24 @@
+{
+  "expected_error_contains": "RLM contextField \"doc\" is missing from input values",
+  "expected_request_count": 0,
+  "expected_request_roles": [],
+  "expected_transcript": [],
+  "features": {
+    "functions": false,
+    "streaming": true,
+    "structured_outputs": false
+  },
+  "input": {},
+  "kind": "agent_forward",
+  "name": "agent-forward-input-context-field-missing",
+  "options": {
+    "contextFields": ["doc"],
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [],
+  "runtime_script": [],
+  "signature": "question:string, doc:string -> answer:string"
+}
