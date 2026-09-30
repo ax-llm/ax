@@ -476,7 +476,7 @@ func (s *balancedChatOnlyService) GetFeatures(model string) map[string]Value {
 }
 func (s *balancedChatOnlyService) Chat(ctx context.Context,request,options map[string]Value)(Value,error) {
     if s.unused{return nil,fmt.Errorf("pinned run changed providers")};s.calls++
-    if s.calls==1{return Object("results",Array(Object("function_calls",Array(Object("id","balanced-call","function",Object("name","lookup","params",Object())))))),nil}
+    if s.calls==1{return Object("results",Array(Object("function_calls",Array(Object("id","balanced-call","type","function","function",Object("name","lookup","params",Object())))))),nil}
     if s.calls!=2||s.tools.Load()!=1||!strings.Contains(display(request),"FALLBACK")||!strings.Contains(display(request),"balanced-call"){return nil,fmt.Errorf("lost tool continuation: %v",request)}
     return Object("results",Array(Object("content","{\"answer\":\"FALLBACK\"}"))),nil
 }

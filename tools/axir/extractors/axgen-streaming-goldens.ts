@@ -2838,7 +2838,6 @@ for (const [label, name] of [
     kind: 'forward',
     signature: 'question:string -> answer:string',
     tools: [lookupTool],
-    port_forward_options: { function_call_validation: 'fail' },
     responses: [
       {
         results: [
@@ -2856,7 +2855,6 @@ for (const [label, name] of [
   await record(`streaming-forward-function-call-${label}-name`, {
     signature: 'question:string -> answer:string',
     tools: [lookupTool],
-    port_forward_options: { function_call_validation: 'fail' },
     responses: [
       streamed(
         chunk({ function_calls: [unnamed], finish_reason: 'function_call' })
@@ -2866,12 +2864,7 @@ for (const [label, name] of [
   });
 }
 
-// Port-only: without functionCallValidation, the ports keep this release's
-// correction for a call without a name. It runs as an unknown function, so
-// the model gets the "Function not found" correction and another request, and
-// a one-time deprecation warning names the option. An explicit 'correct'
-// keeps the correction without the warning, and any other value fails. TS has
-// no such path: it fails at once, as above.
+// Port-only: explicit 'correct' keeps the legacy correction path.
 const namelessCall: JsonMap = {
   id: 'call_1',
   type: 'function',
@@ -2892,9 +2885,8 @@ const namelessResponses: ResponseSpec[] = [
 ];
 const namelessCorrection =
   'Function not found: null. Available functions: lookup. Call one of these exact function names.';
-const namelessWarning =
-  "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.";
 const correctedFixture = {
+  forward_options: { function_call_validation: 'correct' },
   signature: 'question:string -> answer:string',
   input: { question: 'Status?' },
   tools: [lookupTool],
@@ -2907,7 +2899,7 @@ writeFixture('function-call-missing-name-corrected', {
   kind: 'forward',
   ...correctedFixture,
   responses: namelessResponses,
-  expected_deprecations: [namelessWarning],
+  expected_deprecations: [],
 });
 writeFixture('streaming-forward-function-call-missing-name-corrected', {
   kind: 'streaming_forward',
@@ -2920,7 +2912,7 @@ writeFixture('streaming-forward-function-call-missing-name-corrected', {
     ],
   })),
   expected_deltas: [{ version: 0, index: 0, delta: { answer: 'done' } }],
-  expected_deprecations: [namelessWarning],
+  expected_deprecations: [],
 });
 writeFixture('function-call-missing-name-correct-explicit', {
   kind: 'forward',
@@ -2941,3 +2933,151 @@ writeFixture('function-call-validation-unknown-value', {
   expected_tool_calls: [],
   expected_request_count: 1,
 });
+
+// TS checks every part of a response's function calls, not only the name
+// (axValidateChatResponseResult in AxMemory.addResponse, and a stream's merged
+// calls once the stream ends), in this order: the call is present (not null),
+// its id is a non-empty string, its type is 'function', it has a function
+// object, the name (above), and params, when given, are a string or an object.
+// Any failure fails the run at once, with no retry. The ports check the same
+// by default.
+const goodCall = (id: string): JsonMap => ({
+  id,
+  type: 'function',
+  function: { name: 'lookup', params: '{"key":"a"}' },
+});
+const callCases: [string, Json[]][] = [
+  [
+    'missing-id',
+    [{ type: 'function', function: { name: 'lookup', params: '{"key":"a"}' } }],
+  ],
+  ['empty-id', [{ ...goodCall('call_1'), id: '' }]],
+  ['blank-id', [{ ...goodCall('call_1'), id: '  ' }]],
+  ['number-id', [{ ...goodCall('call_1'), id: 7 }]],
+  [
+    'missing-type',
+    [{ id: 'call_1', function: { name: 'lookup', params: '{"key":"a"}' } }],
+  ],
+  ['wrong-type', [{ ...goodCall('call_1'), type: 'tool' }]],
+  ['missing-function', [{ id: 'call_1', type: 'function' }]],
+  [
+    'number-params',
+    [{ ...goodCall('call_1'), function: { name: 'lookup', params: 42 } }],
+  ],
+  ['null', [null]],
+  [
+    'second-call-number-params',
+    [
+      goodCall('call_1'),
+      { ...goodCall('call_2'), function: { name: 'lookup', params: 42 } },
+    ],
+  ],
+];
+for (const [label, calls] of callCases) {
+  await record(`function-call-${label}`, {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    responses: [
+      {
+        results: [
+          {
+            index: 0,
+            content: '',
+            function_calls: calls,
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+      { results: [{ index: 0, content: 'Answer: done' }] },
+    ],
+  });
+  await record(`streaming-forward-function-call-${label}`, {
+    signature: 'question:string -> answer:string',
+    tools: [lookupTool],
+    responses: [
+      streamed(
+        chunk({ function_calls: calls, finish_reason: 'function_call' })
+      ),
+      streamed(text('Answer: done'), done()),
+    ],
+  });
+}
+
+// Port-only: explicit 'correct' preserves permissive legacy calls.
+const callResponses = (calls: Json[]): ResponseSpec[] => [
+  {
+    results: [
+      {
+        index: 0,
+        content: '',
+        function_calls: calls,
+        finish_reason: 'function_call',
+      },
+    ],
+  },
+  { results: [{ index: 0, content: 'Answer: done' }] },
+];
+const callStreamResponses = (calls: Json[]): ResponseSpec[] => [
+  streamed(chunk({ function_calls: calls, finish_reason: 'function_call' })),
+  streamed(text('Answer: done'), done()),
+];
+const byLabel = new Map(callCases);
+const ranCall = {
+  forward_options: { function_call_validation: 'correct' },
+  signature: 'question:string -> answer:string',
+  input: { question: 'Status?' },
+  tools: [lookupTool],
+  expected_output: { answer: 'done' },
+  expected_request_count: 2,
+};
+for (const [label, toolCalls] of [
+  ['missing-id', [{ name: 'lookup', args: { key: 'a' } }]],
+  ['wrong-type', [{ name: 'lookup', args: { key: 'a' } }]],
+  ['number-params', undefined],
+] as const) {
+  const calls = byLabel.get(label) as Json[];
+  const tools = toolCalls ? { expected_tool_calls: toolCalls } : {};
+  writeFixture(`function-call-${label}-runs-with-correction-mode`, {
+    kind: 'forward',
+    description:
+      'Port-only: explicit correction mode runs a malformed call as given.',
+    ...ranCall,
+    ...tools,
+    responses: callResponses(calls),
+    expected_deprecations: [],
+  });
+  writeFixture(
+    `streaming-forward-function-call-${label}-runs-with-correction-mode`,
+    {
+      kind: 'streaming_forward',
+      description:
+        'Port-only: explicit correction mode runs a malformed streamed call as given.',
+      ...ranCall,
+      ...tools,
+      responses: callStreamResponses(calls),
+      expected_deltas: [{ version: 0, index: 0, delta: { answer: 'done' } }],
+      expected_deprecations: [],
+    }
+  );
+}
+writeFixture('function-call-missing-id-correct-explicit', {
+  kind: 'forward',
+  description:
+    "Port-only: functionCallValidation: 'correct' runs a call TS rejects as given, without the warning.",
+  ...ranCall,
+  expected_tool_calls: [{ name: 'lookup', args: { key: 'a' } }],
+  forward_options: { function_call_validation: 'correct' },
+  responses: callResponses(byLabel.get('missing-id') as Json[]),
+  expected_deprecations: [],
+});
+for (const label of ['missing-function', 'null'] as const) {
+  writeFixture(`function-call-${label}-corrected`, {
+    kind: 'forward',
+    description:
+      'Port-only: explicit correction mode retries a call with no name.',
+    ...correctedFixture,
+    responses: callResponses(byLabel.get(label) as Json[]),
+    expected_deprecations: [],
+  });
+}

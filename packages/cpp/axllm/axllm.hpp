@@ -681,8 +681,8 @@ struct Core {
   static Value _openai_normalize_tool_calls_impl(Value calls);
   static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value _openai_finish_reason_impl(Value value);
-  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
   static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
@@ -691,13 +691,14 @@ struct Core {
   static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value fold_chat_response_stream(Value events);
   static Value openai_normalize_error(Value status, Value body, Value request, Value options);
-  static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
   static Value provider_normalize_profile(Value profile);
+  static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
   static Value provider_profile_registry();
   static Value provider_resolve_profile(Value profile);
   static Value provider_model_catalog_summary();
   static Value _provider_model_catalog_registry();
   static Value provider_model_catalog(Value options);
+  static Value _chat_result_function_call_problems(Value result, Value result_index);
   static Value provider_estimate_cost(Value model_usage, Value model_info_overrides);
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
@@ -1031,8 +1032,8 @@ struct Core {
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _regex_word(Value c);
   static Value _stream_field_value_impl(Value field, Value text);
-  static Value chat_session_boundary_action(Value state);
   static Value _parse_output_impl(Value content);
+  static Value chat_session_boundary_action(Value state);
   static Value _date_string_mode_impl();
   static Value _is_flexible_json_field(Value typ);
   static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
@@ -1154,10 +1155,10 @@ struct Core {
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
   static Value _structured_output_render_options_impl(Value selection);
   static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
-  static Value _validate_completion_function_call_names(Value response);
+  static Value _completion_function_call_problems(Value response);
   static Value _stream_state_impl(Value index);
   static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
-  static Value _check_completion_function_call_names(Value response, Value options);
+  static Value _check_completion_function_calls(Value response, Value options);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
   static Value _function_result_text_impl(Value result, Value options);
   static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);
