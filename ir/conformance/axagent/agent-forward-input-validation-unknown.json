@@ -1,7 +1,7 @@
 {
-  "expected_error_contains": "RLM contextField \"doc\" is missing from input values",
+  "description": "Port-only: an agent option of the ports with a value it does not name fails when the agent is built.",
+  "expected_error_contains": "inputValidation must be 'lenient' or 'fail', received: \"strict\"",
   "expected_request_count": 0,
-  "expected_transcript": [],
   "features": {
     "functions": false,
     "streaming": true,
@@ -11,16 +11,15 @@
     "question": "How long do refunds take?"
   },
   "kind": "agent_forward",
-  "name": "agent-forward-input-context-field-only-missing",
+  "name": "agent-forward-input-validation-unknown",
   "options": {
-    "contextFields": ["doc"],
     "directResponse": "off",
-    "inputValidation": "fail",
+    "inputValidation": "strict",
     "runtime": {
       "language": "JavaScript"
     }
   },
   "responses": [],
   "runtime_script": [],
-  "signature": "question:string, doc:string -> answer:string"
+  "signature": "question:string -> answer:string"
 }
