@@ -730,6 +730,8 @@ struct Core {
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
   static Value provider_route_preprocess_request(Value features, Value request, Value processing);
+  static Value router_embed_request(Value request, Value model, Value embed_model);
+  static Value router_embed_route(Value request, Value entries);
   static Value _provider_route_file_content(Value features, Value part, Value processing, Value slot);
   static Value provider_route_file_extractions(Value features, Value request);
   static Value _provider_route_score(Value provider, Value requirements);

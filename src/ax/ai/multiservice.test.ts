@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AxMultiServiceRouter } from './multiservice.js';
+import { AxAIOpenAIEmbedModel } from './openai/chat_types.js';
 import type {
   AxAIService,
   AxAIServiceMetrics,
@@ -16,6 +17,7 @@ import type {
   AxTranscriptionRequest,
   AxTranscriptionResponse,
 } from './types.js';
+import { ai } from './wrap.js';
 
 // Mock logger function for tests
 const mockLogger: AxLoggerFunction = (message: string) => console.log(message);
@@ -608,7 +610,7 @@ describe('AxMultiServiceRouter', () => {
     expect(list[0]).not.toHaveProperty('model');
   });
 
-  it('delegates embedModel-only service embed calls stripping embedModel', async () => {
+  it('delegates embedModel-only service embed calls with the embed model key', async () => {
     const embedOnlyServiceLastUsed: AxAIServiceLastUsed = {
       modelConfig: testModelConfig,
     };
@@ -659,8 +661,43 @@ describe('AxMultiServiceRouter', () => {
     });
     expect(embedFn).toHaveBeenCalledTimes(1);
     const callArg = embedFn.mock.calls[0]![0] as AxEmbedRequest;
-    expect(callArg).not.toHaveProperty('embedModel');
+    expect(callArg.embedModel).toBe('embed-only');
     expect(callArg.texts!).toEqual(['a', 'b', 'c']);
     expect(resp.embeddings).toEqual([[3]]);
+  });
+
+  it('embeds with the model an embedModel key maps to, not the service default', async () => {
+    const bodies: any[] = [];
+    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          data: [{ embedding: [0.1, 0.2] }],
+          usage: { prompt_tokens: 1, total_tokens: 1 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    const openai = ai({
+      name: 'openai',
+      apiKey: 'key',
+      config: { embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small },
+      models: [
+        {
+          key: 'large-embed',
+          description: 'large embeddings',
+          embedModel: AxAIOpenAIEmbedModel.TextEmbedding3Large,
+        },
+      ],
+      options: { fetch },
+    });
+    const router = new AxMultiServiceRouter([openai]);
+
+    await router.embed({ embedModel: 'large-embed', texts: ['hello'] });
+
+    expect(bodies[0]?.model).toBe(AxAIOpenAIEmbedModel.TextEmbedding3Large);
+    expect(router.getLastUsedEmbedModel()).toBe(
+      AxAIOpenAIEmbedModel.TextEmbedding3Large
+    );
   });
 });

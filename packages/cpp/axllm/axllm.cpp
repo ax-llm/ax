@@ -9624,6 +9624,71 @@ Value Core::provider_route_preprocess_request(Value features, Value request, Val
   return out;
 }
 
+Value Core::router_embed_request(Value request, Value model, Value embed_model) {
+  axir_coverage_mark("router_embed_request");
+  Value empty = Value::object();
+  Value out = Core::map_merge(empty, request);
+  Value chat_key = Core::truthy_value(model);
+  Value embed_key = Core::truthy_value(embed_model);
+  Value service_key = Core::or_(chat_key, embed_key);
+  if (Core::truthy(service_key)) {
+    // empty
+  }
+  if (!Core::truthy(service_key)) {
+    Core::map_delete(out, Value("embedModel"));
+    Core::map_delete(out, Value("embed_model"));
+  }
+  return out;
+}
+
+Value Core::router_embed_route(Value request, Value entries) {
+  axir_coverage_mark("router_embed_route");
+  Value snake = Core::get(request, Value("embed_model"), Value());
+  Value key = Core::get(request, Value("embedModel"), snake);
+  Value has_key = Core::truthy_value(key);
+  if (Core::truthy(has_key)) {
+    // empty
+  }
+  if (!Core::truthy(has_key)) {
+    Value error = Core::runtime_error(Value("Embed model key must be specified for multi-service"));
+    Core::raise_error(error);
+  }
+  Value empty = Value::array();
+  for (auto entry : Core::iter(entries)) {
+    Value service_key = Core::get(entry, Value("key"), Value());
+    Value models = Core::get(entry, Value("models"), empty);
+    for (auto model : Core::iter(models)) {
+      Value model_key = Core::get(model, Value("key"), Value());
+      Value matches = Core::eq(model_key, key);
+      if (Core::truthy(matches)) {
+        Value chat_model = Core::get(model, Value("model"), Value());
+        Value embed_snake = Core::get(model, Value("embed_model"), Value());
+        Value embed_model = Core::get(model, Value("embedModel"), embed_snake);
+        Value forwarded = Core::router_embed_request(request, chat_model, embed_model);
+        Value out = Value::object();
+        Core::set(out, Value("key"), service_key);
+        Core::set(out, Value("request"), forwarded);
+        return out;
+      }
+    }
+  }
+  for (auto entry : Core::iter(entries)) {
+    Value service_key = Core::get(entry, Value("key"), Value());
+    Value matches = Core::eq(service_key, key);
+    if (Core::truthy(matches)) {
+      Value none = Core::none();
+      Value forwarded = Core::router_embed_request(request, none, none);
+      Value out = Value::object();
+      Core::set(out, Value("key"), service_key);
+      Core::set(out, Value("request"), forwarded);
+      return out;
+    }
+  }
+  Value message = Core::string_format(Value("No service found for embed model key: {}"), key);
+  Value error = Core::runtime_error(message);
+  Core::raise_error(error);
+}
+
 Value Core::_provider_route_file_content(Value features, Value part, Value processing, Value slot) {
   axir_coverage_mark("_provider_route_file_content");
   Value supports_files = Core::_provider_features_support(features, Value("files"));
@@ -57039,11 +57104,7 @@ Value MultiServiceRouter::embed(Value request, Value options) {
   auto it = services_.find(display(model_key));
   if (it == services_.end()) throw AxError("runtime", "No service found for embed model key: " + display(model_key));
   last_used_service_ = it->second.service;
-  Value req(object_ref(request));
-  if (it->second.model.is_null()) {
-    Core::map_delete(req, "embedModel");
-    Core::map_delete(req, "embed_model");
-  }
+  Value req = Core::router_embed_request(request, it->second.model, it->second.embed_model);
   return last_used_service_->embed(req, options);
 }
 
