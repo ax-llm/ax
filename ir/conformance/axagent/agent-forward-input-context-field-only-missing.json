@@ -1,6 +1,7 @@
 {
   "expected_error_contains": "RLM contextField \"doc\" is missing from input values",
   "expected_request_count": 0,
+  "expected_request_roles": [],
   "expected_transcript": [],
   "features": {
     "functions": false,

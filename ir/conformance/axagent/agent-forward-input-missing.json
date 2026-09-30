@@ -1,6 +1,7 @@
 {
   "expected_error_contains": "Value for input field 'question' is required.",
   "expected_request_count": 0,
+  "expected_request_roles": [],
   "expected_transcript": [],
   "features": {
     "functions": false,
