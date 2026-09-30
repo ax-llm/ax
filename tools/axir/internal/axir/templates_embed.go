@@ -772,3 +772,6 @@ var javaTypesafeMCPTest string
 
 //go:embed templates/cpp/cppTypesafeMCPTest.cpp
 var cppTypesafeMCPTest string
+
+//go:embed templates/java/javaAxGenerateError.java
+var javaAxGenerateError string

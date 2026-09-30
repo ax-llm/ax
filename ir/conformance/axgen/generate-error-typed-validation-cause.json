@@ -1,0 +1,26 @@
+{
+  "expected_error_cause_contains": "Unable to fix validation error: Field 'Count' has an invalid value 'many': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.\n\nLLM Output:\nCount: many",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'many': Invalid number. Provide a number. Ensure formatting exactly matches the expected type.\n\nLLM Output:\nCount: many",
+  "expected_generate_error": true,
+  "expected_request_count": 1,
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "forward_options": {
+    "maxRetries": 0,
+    "stream": false
+  },
+  "input": {
+    "question": "Count"
+  },
+  "kind": "forward",
+  "name": "generate-error-typed-validation-cause",
+  "responses": [
+    {
+      "content": "Count: many"
+    }
+  ],
+  "signature": "question:string -> count:number"
+}

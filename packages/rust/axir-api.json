@@ -1149,6 +1149,19 @@
       "symbols": [
         {
           "target_name": "rust",
+          "canonical_name": "AxGenerateError",
+          "public_name": "AxGenerateError",
+          "kind": "type",
+          "description": "Generation boundary failure retaining the original cause; cancellation propagates unchanged.",
+          "form": "AxGenerateError",
+          "important_options": [
+            "message",
+            "cause"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "AxError",
           "public_name": "AxError",
           "kind": "type",

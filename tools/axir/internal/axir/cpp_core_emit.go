@@ -380,6 +380,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicRetrySleep:                "Core::retry_sleep",
 	IntrinsicExceptionMessage:          "Core::exception_message",
 	IntrinsicExceptionRewrap:           "Core::exception_rewrap",
+	IntrinsicExceptionGenerate:         "Core::exception_generate",
 	IntrinsicCryptoSha256Hex:           "Core::crypto_sha256_hex",
 	IntrinsicRuntimeError:              "Core::runtime_error",
 	IntrinsicJSONParse:                 "Core::json_parse",

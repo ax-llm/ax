@@ -841,6 +841,16 @@ Evaluator callback boundary used by generated optimizers.
 
 Handle target-native errors and dynamic values at Ax host boundaries.
 
+### `AxGenerateError`
+
+Generation boundary failure retaining the original cause; cancellation propagates unchanged.
+
+- Canonical Ax concept: `AxGenerateError`
+- Kind: `type`
+- Form: `AxGenerateError`
+- Returns: `error`
+- Important options: message, cause
+
 ### `AxError`
 
 Target-native error envelope for validation, provider, runtime, MCP, and optimizer failures.

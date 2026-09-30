@@ -1663,6 +1663,10 @@ def _assert_request_roles(fixture, client):
 
 
 def _assert_error_cause(fixture, exc):
+    from .gen import AxGenerateError
+    if fixture.get("expected_generate_error") and not isinstance(exc, AxGenerateError):
+        raise FixtureError(f"expected AxGenerateError, got {type(exc).__name__}")
+
     # "Generate failed: ..." keeps the failure it wraps as its cause.
     expected = fixture.get("expected_error_cause_contains")
     if expected is None:

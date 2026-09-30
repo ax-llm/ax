@@ -258,6 +258,11 @@ class AxError : public std::runtime_error {
   std::shared_ptr<const AxError> cause_;
 };
 
+class AxGenerateError : public AxError {
+ public:
+  explicit AxGenerateError(const AxError& error) : AxError(error) {}
+};
+
 class AxAIServiceAbortedError : public AxError {
  public:
   explicit AxAIServiceAbortedError(std::string reason = "")
@@ -459,6 +464,7 @@ struct Core {
   // The error with a new message and the original as its cause; it keeps the
   // error's category, type and fields, so it raises as the same AxError class.
   static Value exception_rewrap(Value error, Value message);
+  static Value exception_generate(Value error, Value message);
   // The lowercase hex SHA-256 of the text's UTF-8 bytes.
   static Value crypto_sha256_hex(Value text);
   static Value exception_is_aborted(Value error);

@@ -151,6 +151,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.div":                                   "core_div",
 	"intrinsic.exception.message":                     "core_exception_message",
 	"intrinsic.exception.rewrap":                      "core_exception_rewrap",
+	"intrinsic.exception.generate":                    "core_exception_generate",
 	"intrinsic.crypto.sha256_hex":                     "core_crypto_sha256_hex",
 	"intrinsic.exception.is_aborted":                  "core_exception_is_aborted",
 	"intrinsic.exception.is_infrastructure":           "core_exception_is_infrastructure",

@@ -877,6 +877,7 @@ static void assert_list_subset(Value actual, Value expected, const std::string& 
 // every error in the chain keeps the class, category and type of the one it
 // wraps.
 static void assert_error_cause(Value fixture, const std::exception& error) {
+  if (Core::truthy(Core::get(fixture, "expected_generate_error", false)) && dynamic_cast<const AxGenerateError*>(&error) == nullptr) throw AxError("fixture", "expected a concrete AxGenerateError");
   Value expected = Core::get(fixture, "expected_error_cause_contains");
   if (expected.is_null()) return;
   const auto* wrapped = dynamic_cast<const AxError*>(&error);
@@ -884,6 +885,7 @@ static void assert_error_cause(Value fixture, const std::exception& error) {
   if (cause == nullptr || std::string(cause->what()).find(display(expected)) == std::string::npos) {
     throw AxError("fixture", "expected an error cause containing " + display(expected) + ", got " + (cause == nullptr ? std::string("none") : std::string(cause->what())));
   }
+  if (dynamic_cast<const AxGenerateError*>(wrapped) != nullptr) wrapped = cause;
   for (const AxError* link = cause; link != nullptr; link = link->cause()) {
     if (typeid(*link) != typeid(*wrapped) || link->category != wrapped->category || link->type != wrapped->type) {
       throw AxError("fixture", "error cause " + std::string(link->what()) + " (" + link->category + " " + link->type + ") does not keep the class, category and type of " + wrapped->what() + " (" + wrapped->category + " " + wrapped->type + ")");

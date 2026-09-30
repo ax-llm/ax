@@ -1041,11 +1041,12 @@ public final class Conformance {
   // the Java port each rewrap also keeps the class, so the category, of the
   // error it wraps (TS wraps it in AxGenerateError).
   static void assertErrorCause(RuntimeException e, Map<String, Object> fixture) {
+    if (Boolean.TRUE.equals(fixture.get("expected_generate_error")) && !(e instanceof AxGenerateError)) throw new FixtureError("expected AxGenerateError, got " + e.getClass());
     Object expected = fixture.get("expected_error_cause_contains");
     if (expected == null) return;
     Throwable cause = e.getCause();
     if (cause == null || !String.valueOf(cause.getMessage()).contains(String.valueOf(expected))) throw new FixtureError("expected an error cause containing " + expected + ", got " + cause);
-    for (Throwable link = e; isRewrap(link); link = link.getCause()) {
+    for (Throwable link = e instanceof AxGenerateError ? e.getCause() : e; link != null && isRewrap(link); link = link.getCause()) {
       if (link.getCause() == null || link.getCause().getClass() != link.getClass()) throw new FixtureError("expected " + link.getClass().getName() + " to wrap an error of its own class, got " + link.getCause());
     }
   }

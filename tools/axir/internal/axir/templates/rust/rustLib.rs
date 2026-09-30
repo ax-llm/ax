@@ -695,6 +695,32 @@ pub struct AxError {
     pub cause: Option<Arc<dyn Error + Send + Sync>>,
 }
 
+/// A typed generation failure retained by the common AxError envelope.
+#[derive(Debug, Clone)]
+pub struct AxGenerateError {
+    pub message: String,
+    pub cause: Arc<AxError>,
+}
+impl fmt::Display for AxGenerateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.message) }
+}
+impl Error for AxGenerateError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> { Some(self.cause.as_ref()) }
+}
+impl From<AxGenerateError> for AxError {
+    fn from(error: AxGenerateError) -> Self {
+        let mut out = AxError::new("generate", error.message.clone());
+        out.error_type = Some("AxGenerateError".to_owned());
+        out.cause = Some(Arc::new(error));
+        out
+    }
+}
+impl AxError {
+    pub fn as_generate_error(&self) -> Option<&AxGenerateError> {
+        self.cause.as_ref()?.downcast_ref::<AxGenerateError>()
+    }
+}
+
 impl AxError {
     pub fn new(category: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -12023,8 +12049,11 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 
 // An AI error's type, status, message, and the strings it must never carry.
 fn expect_error_cause(error: &AxError, fixture: &Value) -> AxResult<()> {
+    if fixture.get("expected_generate_error").and_then(Value::as_bool).unwrap_or(false) && error.as_generate_error().is_none() {
+        return Err(AxError::new("fixture", "expected a concrete AxGenerateError payload"));
+    }
     if let Some(expected) = fixture.get("expected_error_cause_contains").and_then(Value::as_str) {
-        let actual = error.source().map(ToString::to_string).unwrap_or_default();
+        let actual = error.as_generate_error().map(|generated| generated.cause.to_string()).or_else(|| error.source().map(ToString::to_string)).unwrap_or_default();
         if !actual.contains(expected) {
             return Err(AxError::new("fixture", format!("expected cause containing {expected:?}, got {actual:?}")));
         }
@@ -24044,6 +24073,12 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 // existing handlers still match it. TS wraps it in AxGenerateError with the
 // original as its cause; Rust retains that cause through Error::source().
 #[allow(dead_code)]
+fn core_exception_generate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let error = AxGenerateError { message: core_arg(args, 1).text(), cause: Arc::new(core_as_error(&core_arg(args, 0))) };
+    Ok(CoreValue::Error(Rc::new(error.into())))
+}
+
+#[allow(dead_code)]
 fn core_exception_rewrap(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut wrapped = core_as_error(&core_arg(args, 0));
     wrapped.cause = Some(Arc::new(wrapped.clone()));
@@ -24139,7 +24174,7 @@ mod exception_rewrap_tests {
     // category, with the last validation error and the last output in its
     // message.
     #[test]
-    fn exhausted_forward_error_keeps_category() {
+    fn exhausted_forward_error_preserves_validation_cause() {
         let mut program = AxGen::new("question:string -> count:number").expect("signature parses");
         program.options = json!({"max_retries": 1});
         let mut client = FixtureClient::scripted(
@@ -24150,7 +24185,8 @@ mod exception_rewrap_tests {
             router_default_features(),
         );
         let error = program.forward(&mut client, json!({"question": "How many?"})).expect_err("retries run out");
-        assert_eq!(error.category, "validation");
+        assert_eq!(error.category, "generate");
+        assert_eq!(error.as_generate_error().expect("typed generation failure").cause.category, "validation");
         assert!(error.message.starts_with("Generate failed: Unable to fix validation error: Field 'Count' has an invalid value 'lots'"));
         assert!(error.message.ends_with("LLM Output:\nCount: lots"));
     }

@@ -2003,6 +2003,9 @@ Value Core::exception_message(Value error) {
 // category, type and fields, with the new message and the original error as
 // its cause; anything else becomes a runtime error. The IR never rewraps an
 // aborted error.
+Value Core::exception_generate(Value error, Value message) {
+  return object({{"__error", "generate"}, {"__type", "AxGenerateError"}, {"message", message}, {"cause", error}});
+}
 Value Core::exception_rewrap(Value error, Value message) {
   Object wrapped = error.is_object() && has_key(error, "__error") ? object_ref(error) : object_ref(runtime_error(message));
   wrapped["message"] = str(message);
@@ -2108,6 +2111,7 @@ AxError Core::as_error(Value error) {
   return AxError("runtime", str(error));
 }
 [[noreturn]] void Core::raise_error(Value error) {
+  if (str(get_key(error, "__type")) == "AxGenerateError") throw AxGenerateError(as_error(error));
   if (truthy(exception_is_aborted(error))) {
     std::string message = str(get_key(error, "message"));
     const std::string prefix = "Request aborted: ";
@@ -30777,7 +30781,7 @@ Value Core::_generate_failed_impl(Value error) {
   }
   Value text = Core::exception_message(error);
   Value message = Core::add(Value("Generate failed: "), text);
-  Value wrapped = Core::exception_rewrap(error, message);
+  Value wrapped = Core::exception_generate(error, message);
   return wrapped;
 }
 

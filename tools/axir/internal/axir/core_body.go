@@ -87,6 +87,7 @@ const (
 	IntrinsicRetrySleep                CoreIntrinsic = "intrinsic.retry.sleep"
 	IntrinsicExceptionMessage          CoreIntrinsic = "intrinsic.exception.message"
 	IntrinsicExceptionRewrap           CoreIntrinsic = "intrinsic.exception.rewrap"
+	IntrinsicExceptionGenerate         CoreIntrinsic = "intrinsic.exception.generate"
 	IntrinsicCryptoSha256Hex           CoreIntrinsic = "intrinsic.crypto.sha256_hex"
 	IntrinsicRuntimeError              CoreIntrinsic = "intrinsic.error.runtime"
 	IntrinsicJSONParse                 CoreIntrinsic = "intrinsic.json.parse"
@@ -256,6 +257,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicRetrySleep:                "_core_retry_sleep",
 	IntrinsicExceptionMessage:          "_core_exception_message",
 	IntrinsicExceptionRewrap:           "_core_exception_rewrap",
+	IntrinsicExceptionGenerate:         "_core_exception_generate",
 	IntrinsicCryptoSha256Hex:           "_core_crypto_sha256_hex",
 	IntrinsicRuntimeError:              "_core_runtime_error",
 	IntrinsicJSONParse:                 "_core_json_parse",
@@ -424,6 +426,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.retry.sleep":                           true,
 	"intrinsic.exception.message":                     true,
 	"intrinsic.exception.rewrap":                      true,
+	"intrinsic.exception.generate":                    true,
 	"intrinsic.crypto.sha256_hex":                     true,
 	"intrinsic.exception.is_aborted":                  true,
 	"intrinsic.exception.is_infrastructure":           true,
@@ -851,6 +854,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.retry.sleep":                         intrinsicInfo("intrinsic.retry.sleep", 3, 3, true, "void"),
 	"intrinsic.exception.message":                   intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
 	"intrinsic.exception.rewrap":                    intrinsicInfo("intrinsic.exception.rewrap", 2, 2, true, "error"),
+	"intrinsic.exception.generate":                  intrinsicInfo("intrinsic.exception.generate", 2, 2, true, "error"),
 	"intrinsic.crypto.sha256_hex":                   intrinsicInfo("intrinsic.crypto.sha256_hex", 1, 1, true, "string"),
 	"intrinsic.exception.is_aborted":                intrinsicInfo("intrinsic.exception.is_aborted", 1, 1, true, "bool"),
 	"intrinsic.exception.is_infrastructure":         intrinsicInfo("intrinsic.exception.is_infrastructure", 1, 1, true, "bool"),

@@ -2620,15 +2620,13 @@ module @ax.gen version "0.1" {
     body @entry(%error: error) {
       // enhanceError: a generation failure surfaces as "Generate failed: ..."
       // with the original error as its cause; an abort surfaces as it is.
-      // TS wraps it in AxGenerateError; the ports keep the original error's
-      // class until the next major.
       %aborted = core.call intrinsic.exception.is_aborted(%error)
       core.if %aborted {
         core.return %error
       }
       %text = core.call intrinsic.exception.message(%error)
       %message = core.call intrinsic.add("Generate failed: ", %text)
-      %wrapped = core.call intrinsic.exception.rewrap(%error, %message)
+      %wrapped = core.call intrinsic.exception.generate(%error, %message)
       core.return %wrapped
     }
   }
