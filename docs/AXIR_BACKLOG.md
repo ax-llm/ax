@@ -953,6 +953,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `ae09148e2a4b5dd10d32725492b84a3fe0264068`
   - Verification: `node scripts/run-axir.mjs verify --mode dev (python, go, java, cpp, rust) with 8 axflow flow-cache-* goldens and axgen/cache-forward-key-stable-input-order; per-port flow telemetry tests; npm run test --workspace=@ax-llm/ax`
+- `axir-2026-09-27-check-a-chat-session-s-tool-arguments-as-typescript-does-and-sen` [axgen] Check a chat session's tool arguments as TypeScript does and send its fixing instructions in the ports
+  - Status: done
+  - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
+  - TS paths: `src/ax/dsp/toolArguments.ts`, `src/ax/dsp/functions.ts`, `src/ax/dsp/generate.ts`
+  - Impact: TypeScript checks a native session's tool call with axValidateToolArguments and, when it fails, submits FunctionError.getFixingInstructions() as an error result (isError): 'Errors In Function Arguments: Fix the following invalid arguments to <name>' and a line per field with TS's message and the field's description. The ports sent their own validator's message ('Validation failed: ...' or 'Required field is missing: ...') as an ordinary result, without the error flag. On the 54 raw cases, main's Python validator accepted and rejected the same arguments as TypeScript.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `0b3a55047`
+  - Verification: `TS goldens: session-raw-argument-validation pins axValidateToolArguments' errors for 54 cases, and three native-session goldens pin the submitted tool results (expected_session_tool_results: an invalid argument, a missing argument, a valid call). On main the ports submitted their own message without is_error (Python: {"error":"Validation failed: Expected 'key' to be a string"}); they pass in all five now. Mutants (no is_error, a reworded message, no field description) fail their goldens; based on main at b780a14a3, the full suites pass (1573 of 1573 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-continue-the-axgen-step-loop-while-a-run-control-update-is-pendi` [axgen] Continue the AxGen step loop while a run control update is pending in the ports
   - Status: done
   - Source commit: `54f626c2a0bff242fea15d356b7f9b325d6befae`
@@ -1178,6 +1187,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `f95ab33cf`
   - Verification: `Ten TS goldens (axgen-streaming-goldens.ts pin_request_layout: forward-request-layout-* for the text contract, native, json_object, function and three requires-structured-output cases, and streaming-forward-request-layout-native/-json-object/-function) pin the first request's whole chat prompt, every request's roles and a forward's response format. On main they fail in all five ports (an extra user instruction turn; the function rung's JSON rule and missing __axOutput listing; no exact JSON shape for a requires-structured simple signature; json_schema for json_object- or function-only providers). Three hand-written fixtures now pin TS's JSON rule and fail on main (the forced-structured prompt carried the text-contract rule while demanding JSON; the axagent-real deepseek fixture passes 10/10 here). Per-port mutations: ignoring structured_output or extra_functions fails its goldens. verify --mode dev: 1235 fixtures in python, go, java, cpp and rust (Rust cargo test 67/67); Python response-perturbation gate 335 mutations across 134 fixtures.`
+- `axir-2026-09-27-report-an-agent-run-s-tool-errors-as-typescript-s-failure-report` [axagent] Report an agent run's tool errors as TypeScript's failure report does in the ports
+  - Status: done
+  - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
+  - TS paths: `src/ax/agent/agentInternal/failureReport.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`
+  - Impact: TypeScript's failure report gives a tool_error signal the turn of the step that made the call, the signature '<name>: <first 60 characters of the error line>', the detail '<name> failed: <error line>' with the error collapsed to one line and cut to 120 characters with an ellipsis, the JSON arguments cut to 240 as its code, and one signal per signature with its occurrences counted. The ports gave turn 0, 'name:error' signatures, raw multi-line details cut without an ellipsis, a native rendering of the arguments, and one signal per failed call.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `43512f21c`
+  - Verification: `The TS golden eval-prediction-tool-error-signals (optimize-goldens.ts: a long, multi-line tool error from two calls) fails on main's packages in all five ports (turn 0, raw detail, one signal per call) and passes in all five. Mutants (truncateInline keeping max characters, no merging, the step turn counted after the step is logged) fail it; based on main at b780a14a3, the full suites pass (1573 of 1573 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-responses-prompt-cache-key-every-request` [axai] Every OpenAI Responses request sends prompt_cache_key in the ports
   - Status: done
   - Source commit: `46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68`
@@ -1187,6 +1205,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `46b4182cc`
   - Verification: `Seven axai openai-responses-prompt-cache-key-* fixtures (six send a key, one pins its absence) fail on origin/main in all five ports where a key is expected and pass in all five; openai-responses-prompt-cache-disabled now expects the key. src/ax/ai/call_options.test.ts pins TypeScript, including the GPT-6 cache path test that fails before the TypeScript fix. Live: the Responses API accepts prompt_cache_key on gpt-5.4-mini, gpt-6-luna and gpt-6-astra (HTTP 200, key echoed).`
+- `axir-2026-09-27-run-flow-nodes-at-parent-node-and-report-a-flow-s-own-lifecycle-` [axflow] Run flow nodes at <parent>/<node> and report a flow's own lifecycle to its run control in the ports
+  - Status: done
+  - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
+  - TS paths: `src/ax/flow/flow.ts`, `src/ax/flow/executor.ts`
+  - Impact: TypeScript's executor runs every node at <parent>/<node>, with or without a flow control, so a node's own run control (an AxGen constructor control) reports the node's path; and AxFlow.forward emits the flow's own started, completed or failed at its path. The ports set a node's path only under a flow control (a node's own control reported root) and never emitted the flow's lifecycle, so a flow control heard only its nodes.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-09-27
+  - Completed by: `b5130b835`
+  - Verification: `TS goldens from tools/axir/extractors/flow-goldens.ts (a node's own run control alone and under a flow control, both inside a nested flow too) fail on main's packages in all five ports (root paths, no flow events) and pass in all five. A fifth, a node that fails under a flow control, passes in all five; the flow runners now check expected_control_events and expected_node_control_events on an expected error too, and dropping the flow's failed event, or giving the node's control a failed event, fails it in all five. Mutants (the node path only under a flow control; Python without the flow's completed or failed) fail their goldens; based on main at b780a14a3, the full suites pass (1573 of 1573 in each of python, go, java, cpp and rust), the perturbation gates pass in all five and the generated examples pass in all five.`
 - `axir-2026-09-27-sampling-support-and-credential-routing` [axai] Match TypeScript's sampling support (explicit values the model accepts, one-time warnings) and keep credentials with their provider in the ports
   - Status: done
   - Source commit: `b253360603e59ab4fd0e550710d47ffae92faf05`
