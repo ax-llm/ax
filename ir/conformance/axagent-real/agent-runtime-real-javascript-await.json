@@ -19,7 +19,7 @@
       "content": "{\"javascriptCode\":\"const nums = [2, 4, 6]; const total = nums.reduce((a, b) => a + b, 0); await final(\\\"Report the total\\\", { total });\"}"
     },
     {
-      "content": "{\"answer\":\"12\"}"
+      "content": "Answer: 12"
     }
   ],
   "expected_output": {

@@ -37674,13 +37674,15 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 	var v_missing Value
 	var v_next_depth Value
 	var v_no_match Value
+	var v_no_reference Value
 	var v_not_one Value
 	var v_one Value
 	var v_part Value
 	var v_parts Value
 	var v_reference Value
+	var v_reference_limit Value
 	var v_reference_text Value
-	var v_referenced_errors Value
+	var v_resolved_depth Value
 	var v_same_index Value
 	var v_slash Value
 	var v_tail Value
@@ -37739,13 +37741,15 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 	_ = v_missing
 	_ = v_next_depth
 	_ = v_no_match
+	_ = v_no_reference
 	_ = v_not_one
 	_ = v_one
 	_ = v_part
 	_ = v_parts
 	_ = v_reference
+	_ = v_reference_limit
 	_ = v_reference_text
-	_ = v_referenced_errors
+	_ = v_resolved_depth
 	_ = v_same_index
 	_ = v_slash
 	_ = v_tail
@@ -37782,9 +37786,15 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	v_next_depth = _core_add(v_depth, 1)
+	v_resolved_depth = v_depth
 	v_reference = coreGet(v_schema, "$ref", "")
-	if coreTruthy(v_reference) {
+	for {
+		v_no_reference = _core_not(v_reference)
+		if coreTruthy(v_no_reference) {
+			break
+		} else {
+		// empty
+		}
 		v_reference_text = _core_string_str(v_reference)
 		v_local = _core_string_starts_with(v_reference_text, "#/")
 		if coreTruthy(v_local) {
@@ -37849,8 +37859,19 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 			} else {
 			// empty
 			}
-			{ v, err := _chat_session_argument_errors(v_root, v_target, v_arguments, v_path, v_next_depth); if err != nil { return nil, err }; v_referenced_errors = v }
-			return v_referenced_errors, nil
+			v_resolved_depth = _core_add(v_resolved_depth, 1)
+			v_reference_limit = _core_gt(v_resolved_depth, 64)
+			if coreTruthy(v_reference_limit) {
+				v_deep = Object()
+				if err := coreSet(v_deep, "field", v_field); err != nil { return nil, err }
+				if err := coreSet(v_deep, "message", "Arguments exceed schema nesting limit"); err != nil { return nil, err }
+				v_errors = coreAppend(v_errors, v_deep)
+				return v_errors, nil
+			} else {
+			// empty
+			}
+			v_schema = v_target
+			v_reference = coreGet(v_schema, "$ref", "")
 		} else {
 			v_external = Object()
 			if err := coreSet(v_external, "field", v_field); err != nil { return nil, err }
@@ -37858,9 +37879,8 @@ func _chat_session_argument_errors(args ...Value) (Value, error) {
 			v_errors = coreAppend(v_errors, v_external)
 			return v_errors, nil
 		}
-	} else {
-	// empty
 	}
+	v_next_depth = _core_add(v_resolved_depth, 1)
 	v_all = coreGet(v_schema, "allOf", v_empty_list)
 	v_all_is_list = coreTypeIs(v_all, "list")
 	if coreTruthy(v_all_is_list) {
@@ -39834,6 +39854,92 @@ func _date_parse_datetime_impl(args ...Value) (Value, error) {
 	return v_named, nil
 }
 
+func _stream_field_labels_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_field_labels_impl")
+	var v_field Value
+	var v_add_name Value
+	var v_distinct Value
+	var v_has_name Value
+	var v_has_title Value
+	var v_labels Value
+	var v_name Value
+	var v_same Value
+	var v_title Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	_ = v_add_name
+	_ = v_distinct
+	_ = v_has_name
+	_ = v_has_title
+	_ = v_labels
+	_ = v_name
+	_ = v_same
+	_ = v_title
+	v_labels = MutableArray()
+	v_name = coreGet(v_field, "name", "")
+	v_title = coreGet(v_field, "title", "")
+	v_has_title = _core_truthy(v_title)
+	if coreTruthy(v_has_title) {
+		v_labels = coreAppend(v_labels, v_title)
+	} else {
+	// empty
+	}
+	v_has_name = _core_truthy(v_name)
+	v_same = _core_eq(v_name, v_title)
+	v_distinct = _core_not(v_same)
+	v_add_name = _core_and(v_has_name, v_distinct)
+	if coreTruthy(v_add_name) {
+		v_labels = coreAppend(v_labels, v_name)
+	} else {
+	// empty
+	}
+	return v_labels, nil
+}
+
+func _optimization_changed_components(args ...Value) (Value, error) {
+	axirCoverageMark("_optimization_changed_components")
+	var v_components Value
+	var v_component_map Value
+	var v_changed Value
+	var v_changes Value
+	var v_component Value
+	var v_current Value
+	var v_entry Value
+	var v_id Value
+	var v_next Value
+	var v_same Value
+	if len(args) > 0 { v_components = args[0] }
+	_ = v_components
+	if len(args) > 1 { v_component_map = args[1] }
+	_ = v_component_map
+	_ = v_changed
+	_ = v_changes
+	_ = v_component
+	_ = v_current
+	_ = v_entry
+	_ = v_id
+	_ = v_next
+	_ = v_same
+	v_changes = MutableArray()
+	for _, v_component = range coreIter(v_components) {
+		v_id = coreGet(v_component, "id", "")
+		v_current = coreGet(v_component, "current", nil)
+		v_next = coreGet(v_component_map, v_id, v_current)
+		v_same = _core_eq(v_current, v_next)
+		v_changed = _core_not(v_same)
+		if coreTruthy(v_changed) {
+			v_entry = Object()
+			if err := coreSet(v_entry, "id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_entry, "current", v_current); err != nil { return nil, err }
+			if err := coreSet(v_entry, "next", v_next); err != nil { return nil, err }
+			v_changes = coreAppend(v_changes, v_entry)
+		} else {
+		// empty
+		}
+	}
+	return v_changes, nil
+}
+
 func _chat_session_argument_value_errors(args ...Value) (Value, error) {
 	axirCoverageMark("_chat_session_argument_value_errors")
 	var v_root Value
@@ -40369,92 +40475,6 @@ func _chat_session_argument_value_errors(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_errors, nil
-}
-
-func _stream_field_labels_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_field_labels_impl")
-	var v_field Value
-	var v_add_name Value
-	var v_distinct Value
-	var v_has_name Value
-	var v_has_title Value
-	var v_labels Value
-	var v_name Value
-	var v_same Value
-	var v_title Value
-	if len(args) > 0 { v_field = args[0] }
-	_ = v_field
-	_ = v_add_name
-	_ = v_distinct
-	_ = v_has_name
-	_ = v_has_title
-	_ = v_labels
-	_ = v_name
-	_ = v_same
-	_ = v_title
-	v_labels = MutableArray()
-	v_name = coreGet(v_field, "name", "")
-	v_title = coreGet(v_field, "title", "")
-	v_has_title = _core_truthy(v_title)
-	if coreTruthy(v_has_title) {
-		v_labels = coreAppend(v_labels, v_title)
-	} else {
-	// empty
-	}
-	v_has_name = _core_truthy(v_name)
-	v_same = _core_eq(v_name, v_title)
-	v_distinct = _core_not(v_same)
-	v_add_name = _core_and(v_has_name, v_distinct)
-	if coreTruthy(v_add_name) {
-		v_labels = coreAppend(v_labels, v_name)
-	} else {
-	// empty
-	}
-	return v_labels, nil
-}
-
-func _optimization_changed_components(args ...Value) (Value, error) {
-	axirCoverageMark("_optimization_changed_components")
-	var v_components Value
-	var v_component_map Value
-	var v_changed Value
-	var v_changes Value
-	var v_component Value
-	var v_current Value
-	var v_entry Value
-	var v_id Value
-	var v_next Value
-	var v_same Value
-	if len(args) > 0 { v_components = args[0] }
-	_ = v_components
-	if len(args) > 1 { v_component_map = args[1] }
-	_ = v_component_map
-	_ = v_changed
-	_ = v_changes
-	_ = v_component
-	_ = v_current
-	_ = v_entry
-	_ = v_id
-	_ = v_next
-	_ = v_same
-	v_changes = MutableArray()
-	for _, v_component = range coreIter(v_components) {
-		v_id = coreGet(v_component, "id", "")
-		v_current = coreGet(v_component, "current", nil)
-		v_next = coreGet(v_component_map, v_id, v_current)
-		v_same = _core_eq(v_current, v_next)
-		v_changed = _core_not(v_same)
-		if coreTruthy(v_changed) {
-			v_entry = Object()
-			if err := coreSet(v_entry, "id", v_id); err != nil { return nil, err }
-			if err := coreSet(v_entry, "current", v_current); err != nil { return nil, err }
-			if err := coreSet(v_entry, "next", v_next); err != nil { return nil, err }
-			v_changes = coreAppend(v_changes, v_entry)
-		} else {
-		// empty
-		}
-	}
-	return v_changes, nil
 }
 
 func _date_parse_offset_datetime_impl(args ...Value) (Value, error) {
@@ -41990,159 +42010,6 @@ func _build_optimization_eval_row(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func chat_session_record_result(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_record_result")
-	var v_gen Value
-	var v_state Value
-	var v_call Value
-	var v_result Value
-	var v_ok Value
-	var v_options Value
-	var v_changed Value
-	var v_empty_pending Value
-	var v_empty_turns Value
-	var v_failed Value
-	var v_formatted Value
-	var v_formatter_error Value
-	var v_formatter_message Value
-	var v_id Value
-	var v_message Value
-	var v_no_unresolved Value
-	var v_other_call Value
-	var v_output Value
-	var v_pending Value
-	var v_pending_call Value
-	var v_pending_id Value
-	var v_pending_ids Value
-	var v_pending_status Value
-	var v_running Value
-	var v_session_error Value
-	var v_session_message Value
-	var v_status Value
-	var v_still_running Value
-	var v_text Value
-	var v_turns Value
-	var v_unresolved Value
-	var v_unresolved_text Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	if len(args) > 2 { v_call = args[2] }
-	_ = v_call
-	if len(args) > 3 { v_result = args[3] }
-	_ = v_result
-	if len(args) > 4 { v_ok = args[4] }
-	_ = v_ok
-	if len(args) > 5 { v_options = args[5] }
-	_ = v_options
-	_ = v_changed
-	_ = v_empty_pending
-	_ = v_empty_turns
-	_ = v_failed
-	_ = v_formatted
-	_ = v_formatter_error
-	_ = v_formatter_message
-	_ = v_id
-	_ = v_message
-	_ = v_no_unresolved
-	_ = v_other_call
-	_ = v_output
-	_ = v_pending
-	_ = v_pending_call
-	_ = v_pending_id
-	_ = v_pending_ids
-	_ = v_pending_status
-	_ = v_running
-	_ = v_session_error
-	_ = v_session_message
-	_ = v_status
-	_ = v_still_running
-	_ = v_text
-	_ = v_turns
-	_ = v_unresolved
-	_ = v_unresolved_text
-	v_id = coreGet(v_call, "id", nil)
-	v_text = v_result
-	if coreTruthy(v_ok) {
-		{
-			__flow, __err := func() (coreFlow, error) {
-				{ v, err := _function_result_text_impl(v_result, v_options); if err != nil { return coreFlow{}, err }; v_formatted = v }
-				v_text = v_formatted
-				return coreFlow{}, nil
-			}()
-			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-			if __err != nil {
-				v_formatter_error = errorValue(__err)
-				_core_axgen_record_function_call(v_gen, v_call, v_formatter_error, "error")
-				v_unresolved = MutableArray()
-				v_empty_pending = Object()
-				v_pending = coreGet(v_state, "pending", v_empty_pending)
-				v_pending_ids = _core_map_keys(v_pending)
-				for _, v_pending_id = range coreIter(v_pending_ids) {
-					v_other_call = _core_ne(v_pending_id, v_id)
-					v_pending_call = coreGet(v_pending, v_pending_id, nil)
-					v_pending_status = coreGet(v_pending_call, "status", "")
-					v_running = _core_eq(v_pending_status, "running")
-					v_still_running = _core_and(v_other_call, v_running)
-					if coreTruthy(v_still_running) {
-						v_unresolved = coreAppend(v_unresolved, v_pending_id)
-					} else {
-					// empty
-					}
-				}
-				v_unresolved_text = _core_string_join(", ", v_unresolved)
-				v_no_unresolved = _core_eq(v_unresolved_text, "")
-				if coreTruthy(v_no_unresolved) {
-					v_unresolved_text = "none"
-				} else {
-				// empty
-				}
-				v_formatter_message = _core_exception_message(v_formatter_error)
-				v_session_message = _core_string_format("Chat session failed: {}; unresolved calls: {}", v_formatter_message, v_unresolved_text)
-				v_session_error = _core_exception_rewrap(v_formatter_error, v_session_message)
-				return nil, asError(v_session_error)
-			}
-		}
-	} else {
-	// empty
-	}
-	v_output = Object()
-	if err := coreSet(v_output, "function_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_output, "result", v_text); err != nil { return nil, err }
-	if coreTruthy(v_ok) {
-	// empty
-	} else {
-		if err := coreSet(v_output, "is_error", true); err != nil { return nil, err }
-	}
-	{ v, err := chat_session_complete_call(v_state, v_id, v_output); if err != nil { return nil, err }; v_changed = v }
-	if coreTruthy(v_changed) {
-		v_status = "error"
-		if coreTruthy(v_ok) {
-			v_status = "ok"
-		} else {
-		// empty
-		}
-		_core_axgen_memory_add_function_result(v_gen, v_call, v_text, v_ok, v_text)
-		_core_axgen_record_function_call(v_gen, v_call, v_result, v_status)
-		v_empty_turns = MutableArray()
-		v_turns = coreGet(v_state, "turns", v_empty_turns)
-		{ v, err := _tool_result_message_impl(v_call, v_text); if err != nil { return nil, err }; v_message = v }
-		v_failed = _core_not(v_ok)
-		if coreTruthy(v_failed) {
-			if err := coreSet(v_message, "result", v_text); err != nil { return nil, err }
-			if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		v_turns = coreAppend(v_turns, v_message)
-		if err := coreSet(v_state, "turns", v_turns); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_changed, nil
-}
-
 func _stream_js_string_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_js_string_impl")
 	var v_value Value
@@ -42366,6 +42233,159 @@ func _build_optimization_eval_result(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "avg", v_avg); err != nil { return nil, err }
 	if err := coreSet(v_out, "count", v_count); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func chat_session_record_result(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_record_result")
+	var v_gen Value
+	var v_state Value
+	var v_call Value
+	var v_result Value
+	var v_ok Value
+	var v_options Value
+	var v_changed Value
+	var v_empty_pending Value
+	var v_empty_turns Value
+	var v_failed Value
+	var v_formatted Value
+	var v_formatter_error Value
+	var v_formatter_message Value
+	var v_id Value
+	var v_message Value
+	var v_no_unresolved Value
+	var v_other_call Value
+	var v_output Value
+	var v_pending Value
+	var v_pending_call Value
+	var v_pending_id Value
+	var v_pending_ids Value
+	var v_pending_status Value
+	var v_running Value
+	var v_session_error Value
+	var v_session_message Value
+	var v_status Value
+	var v_still_running Value
+	var v_text Value
+	var v_turns Value
+	var v_unresolved Value
+	var v_unresolved_text Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_call = args[2] }
+	_ = v_call
+	if len(args) > 3 { v_result = args[3] }
+	_ = v_result
+	if len(args) > 4 { v_ok = args[4] }
+	_ = v_ok
+	if len(args) > 5 { v_options = args[5] }
+	_ = v_options
+	_ = v_changed
+	_ = v_empty_pending
+	_ = v_empty_turns
+	_ = v_failed
+	_ = v_formatted
+	_ = v_formatter_error
+	_ = v_formatter_message
+	_ = v_id
+	_ = v_message
+	_ = v_no_unresolved
+	_ = v_other_call
+	_ = v_output
+	_ = v_pending
+	_ = v_pending_call
+	_ = v_pending_id
+	_ = v_pending_ids
+	_ = v_pending_status
+	_ = v_running
+	_ = v_session_error
+	_ = v_session_message
+	_ = v_status
+	_ = v_still_running
+	_ = v_text
+	_ = v_turns
+	_ = v_unresolved
+	_ = v_unresolved_text
+	v_id = coreGet(v_call, "id", nil)
+	v_text = v_result
+	if coreTruthy(v_ok) {
+		{
+			__flow, __err := func() (coreFlow, error) {
+				{ v, err := _function_result_text_impl(v_result, v_options); if err != nil { return coreFlow{}, err }; v_formatted = v }
+				v_text = v_formatted
+				return coreFlow{}, nil
+			}()
+			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+			if __err != nil {
+				v_formatter_error = errorValue(__err)
+				_core_axgen_record_function_call(v_gen, v_call, v_formatter_error, "error")
+				v_unresolved = MutableArray()
+				v_empty_pending = Object()
+				v_pending = coreGet(v_state, "pending", v_empty_pending)
+				v_pending_ids = _core_map_keys(v_pending)
+				for _, v_pending_id = range coreIter(v_pending_ids) {
+					v_other_call = _core_ne(v_pending_id, v_id)
+					v_pending_call = coreGet(v_pending, v_pending_id, nil)
+					v_pending_status = coreGet(v_pending_call, "status", "")
+					v_running = _core_eq(v_pending_status, "running")
+					v_still_running = _core_and(v_other_call, v_running)
+					if coreTruthy(v_still_running) {
+						v_unresolved = coreAppend(v_unresolved, v_pending_id)
+					} else {
+					// empty
+					}
+				}
+				v_unresolved_text = _core_string_join(", ", v_unresolved)
+				v_no_unresolved = _core_eq(v_unresolved_text, "")
+				if coreTruthy(v_no_unresolved) {
+					v_unresolved_text = "none"
+				} else {
+				// empty
+				}
+				v_formatter_message = _core_exception_message(v_formatter_error)
+				v_session_message = _core_string_format("Chat session failed: {}; unresolved calls: {}", v_formatter_message, v_unresolved_text)
+				v_session_error = _core_exception_rewrap(v_formatter_error, v_session_message)
+				return nil, asError(v_session_error)
+			}
+		}
+	} else {
+	// empty
+	}
+	v_output = Object()
+	if err := coreSet(v_output, "function_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_output, "result", v_text); err != nil { return nil, err }
+	if coreTruthy(v_ok) {
+	// empty
+	} else {
+		if err := coreSet(v_output, "is_error", true); err != nil { return nil, err }
+	}
+	{ v, err := chat_session_complete_call(v_state, v_id, v_output); if err != nil { return nil, err }; v_changed = v }
+	if coreTruthy(v_changed) {
+		v_status = "error"
+		if coreTruthy(v_ok) {
+			v_status = "ok"
+		} else {
+		// empty
+		}
+		_core_axgen_memory_add_function_result(v_gen, v_call, v_text, v_ok, v_text)
+		_core_axgen_record_function_call(v_gen, v_call, v_result, v_status)
+		v_empty_turns = MutableArray()
+		v_turns = coreGet(v_state, "turns", v_empty_turns)
+		{ v, err := _tool_result_message_impl(v_call, v_text); if err != nil { return nil, err }; v_message = v }
+		v_failed = _core_not(v_ok)
+		if coreTruthy(v_failed) {
+			if err := coreSet(v_message, "result", v_text); err != nil { return nil, err }
+			if err := coreSet(v_message, "is_error", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_turns = coreAppend(v_turns, v_message)
+		if err := coreSet(v_state, "turns", v_turns); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_changed, nil
 }
 
 func _filter_optimization_components(args ...Value) (Value, error) {
@@ -43998,6 +44018,47 @@ func chat_session_observe_output(args ...Value) (Value, error) {
 	return v_output, nil
 }
 
+func _build_optimizer_request(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimizer_request")
+	var v_program_kind Value
+	var v_components Value
+	var v_dataset Value
+	var v_options Value
+	var v_trace Value
+	var v_evaluator Value
+	var v_methods Value
+	var v_out Value
+	if len(args) > 0 { v_program_kind = args[0] }
+	_ = v_program_kind
+	if len(args) > 1 { v_components = args[1] }
+	_ = v_components
+	if len(args) > 2 { v_dataset = args[2] }
+	_ = v_dataset
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
+	if len(args) > 4 { v_trace = args[4] }
+	_ = v_trace
+	_ = v_evaluator
+	_ = v_methods
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "contractVersion", "axir-optimize-contract-v1"); err != nil { return nil, err }
+	if err := coreSet(v_out, "programKind", v_program_kind); err != nil { return nil, err }
+	if err := coreSet(v_out, "components", v_components); err != nil { return nil, err }
+	if err := coreSet(v_out, "dataset", v_dataset); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_options); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_evaluator = Object()
+	v_methods = MutableArray()
+	v_methods = coreAppend(v_methods, "evaluate")
+	if err := coreSet(v_evaluator, "available", true); err != nil { return nil, err }
+	if err := coreSet(v_evaluator, "contractVersion", "axir-optimizer-evaluator-v1"); err != nil { return nil, err }
+	if err := coreSet(v_evaluator, "evidenceContractVersion", "axir-optimizer-evidence-v1"); err != nil { return nil, err }
+	if err := coreSet(v_evaluator, "methods", v_methods); err != nil { return nil, err }
+	if err := coreSet(v_out, "evaluator", v_evaluator); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func chat_session_apply_boundary_updates(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_apply_boundary_updates")
 	var v_request Value
@@ -44072,47 +44133,6 @@ func chat_session_apply_boundary_updates(args ...Value) (Value, error) {
 	if err := coreSet(v_result, "level", v_current_level); err != nil { return nil, err }
 	if err := coreSet(v_result, "applied", v_applied); err != nil { return nil, err }
 	return v_result, nil
-}
-
-func _build_optimizer_request(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimizer_request")
-	var v_program_kind Value
-	var v_components Value
-	var v_dataset Value
-	var v_options Value
-	var v_trace Value
-	var v_evaluator Value
-	var v_methods Value
-	var v_out Value
-	if len(args) > 0 { v_program_kind = args[0] }
-	_ = v_program_kind
-	if len(args) > 1 { v_components = args[1] }
-	_ = v_components
-	if len(args) > 2 { v_dataset = args[2] }
-	_ = v_dataset
-	if len(args) > 3 { v_options = args[3] }
-	_ = v_options
-	if len(args) > 4 { v_trace = args[4] }
-	_ = v_trace
-	_ = v_evaluator
-	_ = v_methods
-	_ = v_out
-	v_out = Object()
-	if err := coreSet(v_out, "contractVersion", "axir-optimize-contract-v1"); err != nil { return nil, err }
-	if err := coreSet(v_out, "programKind", v_program_kind); err != nil { return nil, err }
-	if err := coreSet(v_out, "components", v_components); err != nil { return nil, err }
-	if err := coreSet(v_out, "dataset", v_dataset); err != nil { return nil, err }
-	if err := coreSet(v_out, "options", v_options); err != nil { return nil, err }
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_evaluator = Object()
-	v_methods = MutableArray()
-	v_methods = coreAppend(v_methods, "evaluate")
-	if err := coreSet(v_evaluator, "available", true); err != nil { return nil, err }
-	if err := coreSet(v_evaluator, "contractVersion", "axir-optimizer-evaluator-v1"); err != nil { return nil, err }
-	if err := coreSet(v_evaluator, "evidenceContractVersion", "axir-optimizer-evidence-v1"); err != nil { return nil, err }
-	if err := coreSet(v_evaluator, "methods", v_methods); err != nil { return nil, err }
-	if err := coreSet(v_out, "evaluator", v_evaluator); err != nil { return nil, err }
-	return v_out, nil
 }
 
 func _date_zone_offset_seconds_impl(args ...Value) (Value, error) {
@@ -44215,46 +44235,6 @@ func _prepare_optimizer_run(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func chat_session_create_state(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_create_state")
-	var v_model Value
-	var v_path Value
-	var v_max_steps Value
-	var v_pending Value
-	var v_responses Value
-	var v_state Value
-	var v_turns Value
-	var v_updates Value
-	if len(args) > 0 { v_model = args[0] }
-	_ = v_model
-	if len(args) > 1 { v_path = args[1] }
-	_ = v_path
-	if len(args) > 2 { v_max_steps = args[2] }
-	_ = v_max_steps
-	_ = v_pending
-	_ = v_responses
-	_ = v_state
-	_ = v_turns
-	_ = v_updates
-	v_state = Object()
-	v_pending = Object()
-	v_responses = Object()
-	v_updates = Object()
-	if err := coreSet(v_state, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_state, "path", v_path); err != nil { return nil, err }
-	if err := coreSet(v_state, "max_steps", v_max_steps); err != nil { return nil, err }
-	if err := coreSet(v_state, "steps", 0); err != nil { return nil, err }
-	if err := coreSet(v_state, "version", 0); err != nil { return nil, err }
-	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
-	if err := coreSet(v_state, "responses", v_responses); err != nil { return nil, err }
-	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
-	if err := coreSet(v_state, "boundary", false); err != nil { return nil, err }
-	if err := coreSet(v_state, "terminal", false); err != nil { return nil, err }
-	v_turns = MutableArray()
-	if err := coreSet(v_state, "turns", v_turns); err != nil { return nil, err }
-	return v_state, nil
-}
-
 func _date_parts_in_zone_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_parts_in_zone_impl")
 	var v_zone Value
@@ -44293,6 +44273,46 @@ func _date_parts_in_zone_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_parts, nil
+}
+
+func chat_session_create_state(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_create_state")
+	var v_model Value
+	var v_path Value
+	var v_max_steps Value
+	var v_pending Value
+	var v_responses Value
+	var v_state Value
+	var v_turns Value
+	var v_updates Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	if len(args) > 2 { v_max_steps = args[2] }
+	_ = v_max_steps
+	_ = v_pending
+	_ = v_responses
+	_ = v_state
+	_ = v_turns
+	_ = v_updates
+	v_state = Object()
+	v_pending = Object()
+	v_responses = Object()
+	v_updates = Object()
+	if err := coreSet(v_state, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_state, "path", v_path); err != nil { return nil, err }
+	if err := coreSet(v_state, "max_steps", v_max_steps); err != nil { return nil, err }
+	if err := coreSet(v_state, "steps", 0); err != nil { return nil, err }
+	if err := coreSet(v_state, "version", 0); err != nil { return nil, err }
+	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+	if err := coreSet(v_state, "responses", v_responses); err != nil { return nil, err }
+	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	if err := coreSet(v_state, "boundary", false); err != nil { return nil, err }
+	if err := coreSet(v_state, "terminal", false); err != nil { return nil, err }
+	v_turns = MutableArray()
+	if err := coreSet(v_state, "turns", v_turns); err != nil { return nil, err }
+	return v_state, nil
 }
 
 func _regex_atom(args ...Value) (Value, error) {
@@ -44822,29 +44842,6 @@ func _normalize_optimizer_engine_response(args ...Value) (Value, error) {
 	return v_validated, nil
 }
 
-func chat_session_target_matches(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_target_matches")
-	var v_target Value
-	var v_path Value
-	var v_descendant Value
-	var v_exact Value
-	var v_matches Value
-	var v_prefix Value
-	if len(args) > 0 { v_target = args[0] }
-	_ = v_target
-	if len(args) > 1 { v_path = args[1] }
-	_ = v_path
-	_ = v_descendant
-	_ = v_exact
-	_ = v_matches
-	_ = v_prefix
-	v_exact = _core_eq(v_target, v_path)
-	v_prefix = _core_string_format("{}/", v_target)
-	v_descendant = _core_string_starts_with(v_path, v_prefix)
-	v_matches = _core_or(v_exact, v_descendant)
-	return v_matches, nil
-}
-
 func _date_zone_offset_millis_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_zone_offset_millis_impl")
 	var v_zone Value
@@ -44868,42 +44865,27 @@ func _date_zone_offset_millis_impl(args ...Value) (Value, error) {
 	return v_offset, nil
 }
 
-func chat_session_unresolved(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_unresolved")
-	var v_state Value
-	var v_call Value
-	var v_id Value
-	var v_ids Value
-	var v_out Value
-	var v_pending Value
-	var v_sent Value
-	var v_status Value
-	var v_unresolved Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_call
-	_ = v_id
-	_ = v_ids
-	_ = v_out
-	_ = v_pending
-	_ = v_sent
-	_ = v_status
-	_ = v_unresolved
-	v_out = MutableArray()
-	v_pending = coreGet(v_state, "pending", nil)
-	v_ids = _core_map_keys(v_pending)
-	for _, v_id = range coreIter(v_ids) {
-		v_call = coreGet(v_pending, v_id, nil)
-		v_status = coreGet(v_call, "status", nil)
-		v_sent = _core_eq(v_status, "sent")
-		v_unresolved = _core_not(v_sent)
-		if coreTruthy(v_unresolved) {
-			v_out = coreAppend(v_out, v_id)
-		} else {
-		// empty
-		}
-	}
-	return v_out, nil
+func chat_session_target_matches(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_target_matches")
+	var v_target Value
+	var v_path Value
+	var v_descendant Value
+	var v_exact Value
+	var v_matches Value
+	var v_prefix Value
+	if len(args) > 0 { v_target = args[0] }
+	_ = v_target
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	_ = v_descendant
+	_ = v_exact
+	_ = v_matches
+	_ = v_prefix
+	v_exact = _core_eq(v_target, v_path)
+	v_prefix = _core_string_format("{}/", v_target)
+	v_descendant = _core_string_starts_with(v_path, v_prefix)
+	v_matches = _core_or(v_exact, v_descendant)
+	return v_matches, nil
 }
 
 func _date_named_timestamp_impl(args ...Value) (Value, error) {
@@ -44983,56 +44965,42 @@ func _stream_field_flag_impl(args ...Value) (Value, error) {
 	return v_flag, nil
 }
 
-func chat_session_register_call(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_register_call")
+func chat_session_unresolved(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_unresolved")
 	var v_state Value
 	var v_call Value
-	var v_execution Value
-	var v_exists Value
 	var v_id Value
-	var v_missing Value
+	var v_ids Value
+	var v_out Value
 	var v_pending Value
-	var v_record Value
-	var v_terminal Value
+	var v_sent Value
+	var v_status Value
+	var v_unresolved Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
-	if len(args) > 1 { v_call = args[1] }
 	_ = v_call
-	if len(args) > 2 { v_execution = args[2] }
-	_ = v_execution
-	_ = v_exists
 	_ = v_id
-	_ = v_missing
+	_ = v_ids
+	_ = v_out
 	_ = v_pending
-	_ = v_record
-	_ = v_terminal
-	v_terminal = coreGet(v_state, "terminal", false)
-	if coreTruthy(v_terminal) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_id = coreGet(v_call, "id", "")
-	v_missing = _core_eq(v_id, "")
-	if coreTruthy(v_missing) {
-		return nil, AxError{Category: "runtime", Message: "Completed tool calls require a call ID"}
-	} else {
-	// empty
-	}
+	_ = v_sent
+	_ = v_status
+	_ = v_unresolved
+	v_out = MutableArray()
 	v_pending = coreGet(v_state, "pending", nil)
-	v_exists = _core_map_contains(v_pending, v_id)
-	if coreTruthy(v_exists) {
-		return false, nil
-	} else {
-	// empty
+	v_ids = _core_map_keys(v_pending)
+	for _, v_id = range coreIter(v_ids) {
+		v_call = coreGet(v_pending, v_id, nil)
+		v_status = coreGet(v_call, "status", nil)
+		v_sent = _core_eq(v_status, "sent")
+		v_unresolved = _core_not(v_sent)
+		if coreTruthy(v_unresolved) {
+			v_out = coreAppend(v_out, v_id)
+		} else {
+		// empty
+		}
 	}
-	v_record = Object()
-	if err := coreSet(v_record, "call", v_call); err != nil { return nil, err }
-	if err := coreSet(v_record, "execution", v_execution); err != nil { return nil, err }
-	if err := coreSet(v_record, "status", "running"); err != nil { return nil, err }
-	if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
-	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
-	return true, nil
+	return v_out, nil
 }
 
 func _stream_field_type_label_impl(args ...Value) (Value, error) {
@@ -45143,6 +45111,58 @@ func _stream_field_type_label_impl(args ...Value) (Value, error) {
 	return v_base, nil
 }
 
+func chat_session_register_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_register_call")
+	var v_state Value
+	var v_call Value
+	var v_execution Value
+	var v_exists Value
+	var v_id Value
+	var v_missing Value
+	var v_pending Value
+	var v_record Value
+	var v_terminal Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_call = args[1] }
+	_ = v_call
+	if len(args) > 2 { v_execution = args[2] }
+	_ = v_execution
+	_ = v_exists
+	_ = v_id
+	_ = v_missing
+	_ = v_pending
+	_ = v_record
+	_ = v_terminal
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_id = coreGet(v_call, "id", "")
+	v_missing = _core_eq(v_id, "")
+	if coreTruthy(v_missing) {
+		return nil, AxError{Category: "runtime", Message: "Completed tool calls require a call ID"}
+	} else {
+	// empty
+	}
+	v_pending = coreGet(v_state, "pending", nil)
+	v_exists = _core_map_contains(v_pending, v_id)
+	if coreTruthy(v_exists) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_record = Object()
+	if err := coreSet(v_record, "call", v_call); err != nil { return nil, err }
+	if err := coreSet(v_record, "execution", v_execution); err != nil { return nil, err }
+	if err := coreSet(v_record, "status", "running"); err != nil { return nil, err }
+	if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
+	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+	return true, nil
+}
+
 func _date_parse_range_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_parse_range_impl")
 	var v_value Value
@@ -45215,22 +45235,6 @@ func _date_parse_range_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_range_millis, nil
-}
-
-func chat_session_result(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_result")
-	var v_response Value
-	var v_id Value
-	var v_empty Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	if len(args) > 1 { v_id = args[1] }
-	_ = v_id
-	_ = v_empty
-	v_empty = Object()
-	v_response = _core_map_merge(v_response, v_empty)
-	if err := coreSet(v_response, "__session_response_id", v_id); err != nil { return nil, err }
-	return v_response, nil
 }
 
 func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
@@ -45366,6 +45370,22 @@ func _build_optimizer_evidence_batch(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "count", v_count); err != nil { return nil, err }
 	if err := coreSet(v_out, "reflectiveDataset", v_reflective); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func chat_session_result(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_result")
+	var v_response Value
+	var v_id Value
+	var v_empty Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_empty
+	v_empty = Object()
+	v_response = _core_map_merge(v_response, v_empty)
+	if err := coreSet(v_response, "__session_response_id", v_id); err != nil { return nil, err }
+	return v_response, nil
 }
 
 func chat_session_record_response(args ...Value) (Value, error) {
@@ -45553,6 +45573,26 @@ func _date_range_endpoints_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
+func _stream_required_missing_error_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_required_missing_error_impl")
+	var v_field Value
+	var v_error Value
+	var v_label Value
+	var v_message Value
+	var v_title Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	_ = v_error
+	_ = v_label
+	_ = v_message
+	_ = v_title
+	{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
+	{ v, err := _stream_field_type_label_impl(v_field); if err != nil { return nil, err }; v_label = v }
+	v_message = _core_string_format("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank.", v_title, v_title, v_label)
+	v_error = _core_validation_error(v_message)
+	return v_error, nil
+}
+
 func chat_session_step_limit_error(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_step_limit_error")
 	var v_state Value
@@ -45608,26 +45648,6 @@ func chat_session_step_limit_error(args ...Value) (Value, error) {
 	}
 	v_message = _core_string_format("Chat session failed: Maximum steps reached with unincorporated tool results ({}); unresolved calls: {}", v_count, v_ids)
 	v_error = _core_runtime_error(v_message)
-	return v_error, nil
-}
-
-func _stream_required_missing_error_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_required_missing_error_impl")
-	var v_field Value
-	var v_error Value
-	var v_label Value
-	var v_message Value
-	var v_title Value
-	if len(args) > 0 { v_field = args[0] }
-	_ = v_field
-	_ = v_error
-	_ = v_label
-	_ = v_message
-	_ = v_title
-	{ v, err := _stream_field_title_impl(v_field); if err != nil { return nil, err }; v_title = v }
-	{ v, err := _stream_field_type_label_impl(v_field); if err != nil { return nil, err }; v_label = v }
-	v_message = _core_string_format("Required field is missing: '{}'. After the \"{}:\" label, provide a non-empty {}. Do not use null, undefined, or leave it blank.", v_title, v_title, v_label)
-	v_error = _core_validation_error(v_message)
 	return v_error, nil
 }
 
@@ -45965,21 +45985,6 @@ func _stream_validate_constraints_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
-}
-
-func chat_session_completion(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_completion")
-	var v_response Value
-	var v_id Value
-	var v_completion Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	if len(args) > 1 { v_id = args[1] }
-	_ = v_id
-	_ = v_completion
-	{ v, err := chat_response_to_completion(v_response); if err != nil { return nil, err }; v_completion = v }
-	if err := coreSet(v_completion, "remote_id", v_id); err != nil { return nil, err }
-	return v_completion, nil
 }
 
 func _date_range_string_impl(args ...Value) (Value, error) {
@@ -46458,6 +46463,21 @@ func _ace_estimate_token_count(args ...Value) (Value, error) {
 	return v_tokens, nil
 }
 
+func chat_session_completion(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_completion")
+	var v_response Value
+	var v_id Value
+	var v_completion Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_completion
+	{ v, err := chat_response_to_completion(v_response); if err != nil { return nil, err }; v_completion = v }
+	if err := coreSet(v_completion, "remote_id", v_id); err != nil { return nil, err }
+	return v_completion, nil
+}
+
 func chat_session_has_continuation_work(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_has_continuation_work")
 	var v_state Value
@@ -46478,34 +46498,6 @@ func chat_session_has_continuation_work(args ...Value) (Value, error) {
 	v_work = _core_or(v_pending, v_native_wait)
 	v_work = _core_or(v_work, v_continuation)
 	return v_work, nil
-}
-
-func chat_session_normalize_call(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_normalize_call")
-	var v_call Value
-	var v_function Value
-	var v_missing Value
-	var v_name Value
-	var v_params Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	_ = v_function
-	_ = v_missing
-	_ = v_name
-	_ = v_params
-	v_function = coreGet(v_call, "function", nil)
-	v_missing = _core_is_none(v_function)
-	if coreTruthy(v_missing) {
-		{ v, err := _completion_call_to_chat_impl(v_call); if err != nil { return nil, err }; v_call = v }
-		v_function = coreGet(v_call, "function", nil)
-	} else {
-	// empty
-	}
-	v_name = coreGet(v_function, "name", nil)
-	v_params = coreGet(v_function, "params", nil)
-	if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_call, "params", v_params); err != nil { return nil, err }
-	return v_call, nil
 }
 
 func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
@@ -46581,48 +46573,32 @@ func _ace_recompute_playbook_stats(args ...Value) (Value, error) {
 	return v_playbook, nil
 }
 
-func chat_session_defer_final_call(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_defer_final_call")
-	var v_state Value
+func chat_session_normalize_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_normalize_call")
 	var v_call Value
-	var v_defer Value
-	var v_id Value
-	var v_pending Value
-	var v_registered Value
-	var v_result Value
-	var v_unresolved Value
-	var v_updates Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_call = args[1] }
+	var v_function Value
+	var v_missing Value
+	var v_name Value
+	var v_params Value
+	if len(args) > 0 { v_call = args[0] }
 	_ = v_call
-	_ = v_defer
-	_ = v_id
-	_ = v_pending
-	_ = v_registered
-	_ = v_result
-	_ = v_unresolved
-	_ = v_updates
-	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
-	v_pending = _core_truthy(v_unresolved)
-	v_updates = coreGet(v_state, "needs_continuation", false)
-	v_defer = _core_or(v_pending, v_updates)
-	if coreTruthy(v_defer) {
-		{ v, err := chat_session_register_call(v_state, v_call, "blocking"); if err != nil { return nil, err }; v_registered = v }
-		if coreTruthy(v_registered) {
-			v_id = coreGet(v_call, "id", nil)
-			v_result = Object()
-			if err := coreSet(v_result, "function_id", v_id); err != nil { return nil, err }
-			if err := coreSet(v_result, "result", "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."); err != nil { return nil, err }
-			if _, err := chat_session_complete_call(v_state, v_id, v_result); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		return v_registered, nil
+	_ = v_function
+	_ = v_missing
+	_ = v_name
+	_ = v_params
+	v_function = coreGet(v_call, "function", nil)
+	v_missing = _core_is_none(v_function)
+	if coreTruthy(v_missing) {
+		{ v, err := _completion_call_to_chat_impl(v_call); if err != nil { return nil, err }; v_call = v }
+		v_function = coreGet(v_call, "function", nil)
 	} else {
 	// empty
 	}
-	return false, nil
+	v_name = coreGet(v_function, "name", nil)
+	v_params = coreGet(v_function, "params", nil)
+	if err := coreSet(v_call, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_call, "params", v_params); err != nil { return nil, err }
+	return v_call, nil
 }
 
 func _date_delimiter_split_impl(args ...Value) (Value, error) {
@@ -46786,6 +46762,50 @@ func _date_delimiter_split_impl(args ...Value) (Value, error) {
 		return v_split, nil
 	}
 	return v_none, nil
+}
+
+func chat_session_defer_final_call(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_defer_final_call")
+	var v_state Value
+	var v_call Value
+	var v_defer Value
+	var v_id Value
+	var v_pending Value
+	var v_registered Value
+	var v_result Value
+	var v_unresolved Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_call = args[1] }
+	_ = v_call
+	_ = v_defer
+	_ = v_id
+	_ = v_pending
+	_ = v_registered
+	_ = v_result
+	_ = v_unresolved
+	_ = v_updates
+	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
+	v_pending = _core_truthy(v_unresolved)
+	v_updates = coreGet(v_state, "needs_continuation", false)
+	v_defer = _core_or(v_pending, v_updates)
+	if coreTruthy(v_defer) {
+		{ v, err := chat_session_register_call(v_state, v_call, "blocking"); if err != nil { return nil, err }; v_registered = v }
+		if coreTruthy(v_registered) {
+			v_id = coreGet(v_call, "id", nil)
+			v_result = Object()
+			if err := coreSet(v_result, "function_id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_result, "result", "Not executed: incorporate the background tool results and queued updates before calling this finalization function again."); err != nil { return nil, err }
+			if _, err := chat_session_complete_call(v_state, v_id, v_result); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_registered, nil
+	} else {
+	// empty
+	}
+	return false, nil
 }
 
 func _ace_empty_playbook(args ...Value) (Value, error) {
@@ -47007,105 +47027,6 @@ func _ace_render_playbook(args ...Value) (Value, error) {
 	return v_result, nil
 }
 
-func chat_session_complete_response(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_complete_response")
-	var v_state Value
-	var v_id Value
-	var v_duplicate Value
-	var v_exhausted Value
-	var v_finished Value
-	var v_had_successor Value
-	var v_has_parent Value
-	var v_limit Value
-	var v_limit_error Value
-	var v_next Value
-	var v_parent Value
-	var v_queued Value
-	var v_record Value
-	var v_responses Value
-	var v_steps Value
-	var v_successor Value
-	var v_terminal Value
-	var v_update_id Value
-	var v_update_ids Value
-	var v_updates Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_id = args[1] }
-	_ = v_id
-	_ = v_duplicate
-	_ = v_exhausted
-	_ = v_finished
-	_ = v_had_successor
-	_ = v_has_parent
-	_ = v_limit
-	_ = v_limit_error
-	_ = v_next
-	_ = v_parent
-	_ = v_queued
-	_ = v_record
-	_ = v_responses
-	_ = v_steps
-	_ = v_successor
-	_ = v_terminal
-	_ = v_update_id
-	_ = v_update_ids
-	_ = v_updates
-	v_terminal = coreGet(v_state, "terminal", false)
-	if coreTruthy(v_terminal) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_responses = coreGet(v_state, "responses", nil)
-	v_duplicate = _core_map_contains(v_responses, v_id)
-	if coreTruthy(v_duplicate) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_steps = coreGet(v_state, "steps", 0)
-	v_limit = coreGet(v_state, "max_steps", nil)
-	v_exhausted = _core_gte(v_steps, v_limit)
-	if coreTruthy(v_exhausted) {
-		{ v, err := chat_session_step_limit_error(v_state); if err != nil { return nil, err }; v_limit_error = v }
-		return nil, asError(v_limit_error)
-	} else {
-	// empty
-	}
-	v_next = _core_add(v_steps, 1)
-	if err := coreSet(v_responses, v_id, true); err != nil { return nil, err }
-	if err := coreSet(v_state, "responses", v_responses); err != nil { return nil, err }
-	if err := coreSet(v_state, "response_id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_state, "steps", v_next); err != nil { return nil, err }
-	if err := coreSet(v_state, "boundary", true); err != nil { return nil, err }
-	v_updates = coreGet(v_state, "updates", nil)
-	v_update_ids = _core_map_keys(v_updates)
-	v_had_successor = false
-	for _, v_update_id = range coreIter(v_update_ids) {
-		v_record = coreGet(v_updates, v_update_id, nil)
-		v_parent = coreGet(v_record, "native_parent", nil)
-		v_has_parent = _core_is_not_none(v_parent)
-		v_successor = _core_ne(v_parent, v_id)
-		v_finished = _core_and(v_has_parent, v_successor)
-		if coreTruthy(v_finished) {
-			v_had_successor = true
-			if err := coreSet(v_record, "native_state", "done"); err != nil { return nil, err }
-			if err := coreSet(v_updates, v_update_id, v_record); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
-	if coreTruthy(v_had_successor) {
-		{ v, err := chat_session_has_queued_updates(v_state); if err != nil { return nil, err }; v_queued = v }
-		if err := coreSet(v_state, "needs_continuation", v_queued); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return true, nil
-}
-
 func _stream_convert_value_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_convert_value_impl")
 	var v_field Value
@@ -47310,6 +47231,105 @@ func _stream_convert_value_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func chat_session_complete_response(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_complete_response")
+	var v_state Value
+	var v_id Value
+	var v_duplicate Value
+	var v_exhausted Value
+	var v_finished Value
+	var v_had_successor Value
+	var v_has_parent Value
+	var v_limit Value
+	var v_limit_error Value
+	var v_next Value
+	var v_parent Value
+	var v_queued Value
+	var v_record Value
+	var v_responses Value
+	var v_steps Value
+	var v_successor Value
+	var v_terminal Value
+	var v_update_id Value
+	var v_update_ids Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	_ = v_duplicate
+	_ = v_exhausted
+	_ = v_finished
+	_ = v_had_successor
+	_ = v_has_parent
+	_ = v_limit
+	_ = v_limit_error
+	_ = v_next
+	_ = v_parent
+	_ = v_queued
+	_ = v_record
+	_ = v_responses
+	_ = v_steps
+	_ = v_successor
+	_ = v_terminal
+	_ = v_update_id
+	_ = v_update_ids
+	_ = v_updates
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_responses = coreGet(v_state, "responses", nil)
+	v_duplicate = _core_map_contains(v_responses, v_id)
+	if coreTruthy(v_duplicate) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_steps = coreGet(v_state, "steps", 0)
+	v_limit = coreGet(v_state, "max_steps", nil)
+	v_exhausted = _core_gte(v_steps, v_limit)
+	if coreTruthy(v_exhausted) {
+		{ v, err := chat_session_step_limit_error(v_state); if err != nil { return nil, err }; v_limit_error = v }
+		return nil, asError(v_limit_error)
+	} else {
+	// empty
+	}
+	v_next = _core_add(v_steps, 1)
+	if err := coreSet(v_responses, v_id, true); err != nil { return nil, err }
+	if err := coreSet(v_state, "responses", v_responses); err != nil { return nil, err }
+	if err := coreSet(v_state, "response_id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_state, "steps", v_next); err != nil { return nil, err }
+	if err := coreSet(v_state, "boundary", true); err != nil { return nil, err }
+	v_updates = coreGet(v_state, "updates", nil)
+	v_update_ids = _core_map_keys(v_updates)
+	v_had_successor = false
+	for _, v_update_id = range coreIter(v_update_ids) {
+		v_record = coreGet(v_updates, v_update_id, nil)
+		v_parent = coreGet(v_record, "native_parent", nil)
+		v_has_parent = _core_is_not_none(v_parent)
+		v_successor = _core_ne(v_parent, v_id)
+		v_finished = _core_and(v_has_parent, v_successor)
+		if coreTruthy(v_finished) {
+			v_had_successor = true
+			if err := coreSet(v_record, "native_state", "done"); err != nil { return nil, err }
+			if err := coreSet(v_updates, v_update_id, v_record); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	if coreTruthy(v_had_successor) {
+		{ v, err := chat_session_has_queued_updates(v_state); if err != nil { return nil, err }; v_queued = v }
+		if err := coreSet(v_state, "needs_continuation", v_queued); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return true, nil
+}
+
 func _date_range_keyword_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_range_keyword_impl")
 	var v_units Value
@@ -47425,38 +47445,6 @@ func _set_examples(args ...Value) (Value, error) {
 	_ = v_examples
 	if err := coreSet(v_gen, "examples", v_examples); err != nil { return nil, err }
 	return v_gen, nil
-}
-
-func chat_session_has_queued_updates(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_has_queued_updates")
-	var v_state Value
-	var v_id Value
-	var v_ids Value
-	var v_queued Value
-	var v_record Value
-	var v_status Value
-	var v_updates Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_id
-	_ = v_ids
-	_ = v_queued
-	_ = v_record
-	_ = v_status
-	_ = v_updates
-	v_updates = coreGet(v_state, "updates", nil)
-	v_ids = _core_map_keys(v_updates)
-	for _, v_id = range coreIter(v_ids) {
-		v_record = coreGet(v_updates, v_id, nil)
-		v_status = coreGet(v_record, "status", nil)
-		v_queued = _core_eq(v_status, "queued")
-		if coreTruthy(v_queued) {
-			return true, nil
-		} else {
-		// empty
-		}
-	}
-	return false, nil
 }
 
 func _ace_update_bullet_feedback(args ...Value) (Value, error) {
@@ -47679,6 +47667,49 @@ func _regex_alternative(args ...Value) (Value, error) {
 	return v_t17, nil
 }
 
+func chat_session_has_queued_updates(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_has_queued_updates")
+	var v_state Value
+	var v_id Value
+	var v_ids Value
+	var v_queued Value
+	var v_record Value
+	var v_status Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_id
+	_ = v_ids
+	_ = v_queued
+	_ = v_record
+	_ = v_status
+	_ = v_updates
+	v_updates = coreGet(v_state, "updates", nil)
+	v_ids = _core_map_keys(v_updates)
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_updates, v_id, nil)
+		v_status = coreGet(v_record, "status", nil)
+		v_queued = _core_eq(v_status, "queued")
+		if coreTruthy(v_queued) {
+			return true, nil
+		} else {
+		// empty
+		}
+	}
+	return false, nil
+}
+
+func _render_demos(args ...Value) (Value, error) {
+	axirCoverageMark("_render_demos")
+	var v_gen Value
+	var v_messages Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	_ = v_messages
+	v_messages = _core_axgen_render_demos(v_gen)
+	return v_messages, nil
+}
+
 func chat_session_native_update(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_native_update")
 	var v_state Value
@@ -47725,17 +47756,6 @@ func chat_session_native_update(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_new_native, nil
-}
-
-func _render_demos(args ...Value) (Value, error) {
-	axirCoverageMark("_render_demos")
-	var v_gen Value
-	var v_messages Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	_ = v_messages
-	v_messages = _core_axgen_render_demos(v_gen)
-	return v_messages, nil
 }
 
 func _date_strip_code_fence_impl(args ...Value) (Value, error) {
@@ -47824,54 +47844,6 @@ func _apply_field_processors(args ...Value) (Value, error) {
 	_ = v_processed
 	v_processed = _core_axgen_apply_field_processors(v_gen, v_output)
 	return v_processed, nil
-}
-
-func chat_session_native_wait(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_native_wait")
-	var v_state Value
-	var v_has_native Value
-	var v_id Value
-	var v_ids Value
-	var v_native_state Value
-	var v_queued Value
-	var v_record Value
-	var v_status Value
-	var v_successor Value
-	var v_updates Value
-	var v_waiting Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_has_native
-	_ = v_id
-	_ = v_ids
-	_ = v_native_state
-	_ = v_queued
-	_ = v_record
-	_ = v_status
-	_ = v_successor
-	_ = v_updates
-	_ = v_waiting
-	v_updates = coreGet(v_state, "updates", nil)
-	v_ids = _core_map_keys(v_updates)
-	for _, v_id = range coreIter(v_ids) {
-		v_record = coreGet(v_updates, v_id, nil)
-		v_native_state = coreGet(v_record, "native_state", nil)
-		v_has_native = _core_is_not_none(v_native_state)
-		if coreTruthy(v_has_native) {
-			v_status = coreGet(v_record, "status", nil)
-			v_queued = _core_eq(v_status, "queued")
-			v_successor = _core_eq(v_native_state, "awaiting_successor")
-			v_waiting = _core_or(v_queued, v_successor)
-			if coreTruthy(v_waiting) {
-				return true, nil
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-	}
-	return false, nil
 }
 
 func _run_assertions(args ...Value) (Value, error) {
@@ -48011,6 +47983,54 @@ func _ace_dedupe_playbook(args ...Value) (Value, error) {
 	if err := coreSet(v_playbook, "sections", v_sections); err != nil { return nil, err }
 	{ v, err := _ace_recompute_playbook_stats(v_playbook); if err != nil { return nil, err }; v_recomputed = v }
 	return v_recomputed, nil
+}
+
+func chat_session_native_wait(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_native_wait")
+	var v_state Value
+	var v_has_native Value
+	var v_id Value
+	var v_ids Value
+	var v_native_state Value
+	var v_queued Value
+	var v_record Value
+	var v_status Value
+	var v_successor Value
+	var v_updates Value
+	var v_waiting Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_has_native
+	_ = v_id
+	_ = v_ids
+	_ = v_native_state
+	_ = v_queued
+	_ = v_record
+	_ = v_status
+	_ = v_successor
+	_ = v_updates
+	_ = v_waiting
+	v_updates = coreGet(v_state, "updates", nil)
+	v_ids = _core_map_keys(v_updates)
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_updates, v_id, nil)
+		v_native_state = coreGet(v_record, "native_state", nil)
+		v_has_native = _core_is_not_none(v_native_state)
+		if coreTruthy(v_has_native) {
+			v_status = coreGet(v_record, "status", nil)
+			v_queued = _core_eq(v_status, "queued")
+			v_successor = _core_eq(v_native_state, "awaiting_successor")
+			v_waiting = _core_or(v_queued, v_successor)
+			if coreTruthy(v_waiting) {
+				return true, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return false, nil
 }
 
 func _regex_word(args ...Value) (Value, error) {
@@ -48491,6 +48511,33 @@ func _stream_field_value_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _date_string_mode_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_date_string_mode_impl")
+	var v_accented Value
+	var v_astral Value
+	var v_pair Value
+	var v_wide Value
+	_ = v_accented
+	_ = v_astral
+	_ = v_pair
+	_ = v_wide
+	v_accented = _core_len("é")
+	v_wide = _core_gt(v_accented, 1)
+	if coreTruthy(v_wide) {
+		return "utf8", nil
+	} else {
+	// empty
+	}
+	v_astral = _core_len("😀")
+	v_pair = _core_gt(v_astral, 1)
+	if coreTruthy(v_pair) {
+		return "utf16", nil
+	} else {
+	// empty
+	}
+	return "codepoint", nil
+}
+
 func chat_session_native_event(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_native_event")
 	var v_state Value
@@ -48736,33 +48783,6 @@ func chat_session_native_event(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_result, nil
-}
-
-func _date_string_mode_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_date_string_mode_impl")
-	var v_accented Value
-	var v_astral Value
-	var v_pair Value
-	var v_wide Value
-	_ = v_accented
-	_ = v_astral
-	_ = v_pair
-	_ = v_wide
-	v_accented = _core_len("é")
-	v_wide = _core_gt(v_accented, 1)
-	if coreTruthy(v_wide) {
-		return "utf8", nil
-	} else {
-	// empty
-	}
-	v_astral = _core_len("😀")
-	v_pair = _core_gt(v_astral, 1)
-	if coreTruthy(v_pair) {
-		return "utf16", nil
-	} else {
-	// empty
-	}
-	return "codepoint", nil
 }
 
 func _append_assertion_retry_messages(args ...Value) (Value, error) {
@@ -49910,124 +49930,6 @@ func _parse_json_string_for_field(args ...Value) (Value, error) {
 	return v_value, nil
 }
 
-func chat_session_boundary_action(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_boundary_action")
-	var v_state Value
-	var v_action Value
-	var v_active Value
-	var v_blocking Value
-	var v_boundary Value
-	var v_execution Value
-	var v_has_results Value
-	var v_id Value
-	var v_ids Value
-	var v_is_blocking Value
-	var v_is_running Value
-	var v_native_wait Value
-	var v_needs_continuation Value
-	var v_pending Value
-	var v_ready Value
-	var v_record Value
-	var v_result Value
-	var v_results Value
-	var v_running Value
-	var v_running_barrier Value
-	var v_status Value
-	var v_terminal Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_action
-	_ = v_active
-	_ = v_blocking
-	_ = v_boundary
-	_ = v_execution
-	_ = v_has_results
-	_ = v_id
-	_ = v_ids
-	_ = v_is_blocking
-	_ = v_is_running
-	_ = v_native_wait
-	_ = v_needs_continuation
-	_ = v_pending
-	_ = v_ready
-	_ = v_record
-	_ = v_result
-	_ = v_results
-	_ = v_running
-	_ = v_running_barrier
-	_ = v_status
-	_ = v_terminal
-	v_action = Object()
-	if err := coreSet(v_action, "type", "wait"); err != nil { return nil, err }
-	v_terminal = coreGet(v_state, "terminal", false)
-	if coreTruthy(v_terminal) {
-		if err := coreSet(v_action, "type", "closed"); err != nil { return nil, err }
-		return v_action, nil
-	} else {
-	// empty
-	}
-	{ v, err := chat_session_native_wait(v_state); if err != nil { return nil, err }; v_native_wait = v }
-	if coreTruthy(v_native_wait) {
-		return v_action, nil
-	} else {
-	// empty
-	}
-	v_boundary = coreGet(v_state, "boundary", false)
-	v_active = _core_not(v_boundary)
-	if coreTruthy(v_active) {
-		return v_action, nil
-	} else {
-	// empty
-	}
-	v_pending = coreGet(v_state, "pending", nil)
-	v_ids = _core_map_keys(v_pending)
-	v_results = MutableArray()
-	v_running = false
-	v_blocking = false
-	for _, v_id = range coreIter(v_ids) {
-		v_record = coreGet(v_pending, v_id, nil)
-		v_status = coreGet(v_record, "status", nil)
-		v_is_running = _core_eq(v_status, "running")
-		v_execution = coreGet(v_record, "execution", nil)
-		v_is_blocking = _core_eq(v_execution, "blocking")
-		v_running_barrier = _core_and(v_is_running, v_is_blocking)
-		v_blocking = _core_or(v_blocking, v_running_barrier)
-		v_running = _core_or(v_running, v_is_running)
-		v_ready = _core_eq(v_status, "ready")
-		if coreTruthy(v_ready) {
-			v_result = coreGet(v_record, "result", nil)
-			v_results = coreAppend(v_results, v_result)
-		} else {
-		// empty
-		}
-	}
-	if coreTruthy(v_blocking) {
-		return v_action, nil
-	} else {
-	// empty
-	}
-	v_has_results = _core_truthy(v_results)
-	if coreTruthy(v_has_results) {
-		if err := coreSet(v_action, "type", "submit"); err != nil { return nil, err }
-		if err := coreSet(v_action, "results", v_results); err != nil { return nil, err }
-		return v_action, nil
-	} else {
-	// empty
-	}
-	if coreTruthy(v_running) {
-		return v_action, nil
-	} else {
-	// empty
-	}
-	v_needs_continuation = coreGet(v_state, "needs_continuation", false)
-	if coreTruthy(v_needs_continuation) {
-		if err := coreSet(v_action, "type", "continue"); err != nil { return nil, err }
-	} else {
-		if err := coreSet(v_action, "type", "validate"); err != nil { return nil, err }
-	}
-	return v_action, nil
-}
-
 func _regex_member(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_member")
 	var v_n Value
@@ -50295,6 +50197,124 @@ func _regex_member(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func chat_session_boundary_action(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_boundary_action")
+	var v_state Value
+	var v_action Value
+	var v_active Value
+	var v_blocking Value
+	var v_boundary Value
+	var v_execution Value
+	var v_has_results Value
+	var v_id Value
+	var v_ids Value
+	var v_is_blocking Value
+	var v_is_running Value
+	var v_native_wait Value
+	var v_needs_continuation Value
+	var v_pending Value
+	var v_ready Value
+	var v_record Value
+	var v_result Value
+	var v_results Value
+	var v_running Value
+	var v_running_barrier Value
+	var v_status Value
+	var v_terminal Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_action
+	_ = v_active
+	_ = v_blocking
+	_ = v_boundary
+	_ = v_execution
+	_ = v_has_results
+	_ = v_id
+	_ = v_ids
+	_ = v_is_blocking
+	_ = v_is_running
+	_ = v_native_wait
+	_ = v_needs_continuation
+	_ = v_pending
+	_ = v_ready
+	_ = v_record
+	_ = v_result
+	_ = v_results
+	_ = v_running
+	_ = v_running_barrier
+	_ = v_status
+	_ = v_terminal
+	v_action = Object()
+	if err := coreSet(v_action, "type", "wait"); err != nil { return nil, err }
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		if err := coreSet(v_action, "type", "closed"); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	{ v, err := chat_session_native_wait(v_state); if err != nil { return nil, err }; v_native_wait = v }
+	if coreTruthy(v_native_wait) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_boundary = coreGet(v_state, "boundary", false)
+	v_active = _core_not(v_boundary)
+	if coreTruthy(v_active) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_pending = coreGet(v_state, "pending", nil)
+	v_ids = _core_map_keys(v_pending)
+	v_results = MutableArray()
+	v_running = false
+	v_blocking = false
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_pending, v_id, nil)
+		v_status = coreGet(v_record, "status", nil)
+		v_is_running = _core_eq(v_status, "running")
+		v_execution = coreGet(v_record, "execution", nil)
+		v_is_blocking = _core_eq(v_execution, "blocking")
+		v_running_barrier = _core_and(v_is_running, v_is_blocking)
+		v_blocking = _core_or(v_blocking, v_running_barrier)
+		v_running = _core_or(v_running, v_is_running)
+		v_ready = _core_eq(v_status, "ready")
+		if coreTruthy(v_ready) {
+			v_result = coreGet(v_record, "result", nil)
+			v_results = coreAppend(v_results, v_result)
+		} else {
+		// empty
+		}
+	}
+	if coreTruthy(v_blocking) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_has_results = _core_truthy(v_results)
+	if coreTruthy(v_has_results) {
+		if err := coreSet(v_action, "type", "submit"); err != nil { return nil, err }
+		if err := coreSet(v_action, "results", v_results); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_running) {
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_needs_continuation = coreGet(v_state, "needs_continuation", false)
+	if coreTruthy(v_needs_continuation) {
+		if err := coreSet(v_action, "type", "continue"); err != nil { return nil, err }
+	} else {
+		if err := coreSet(v_action, "type", "validate"); err != nil { return nil, err }
+	}
+	return v_action, nil
+}
+
 func _date_skip_space_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_skip_space_impl")
 	var v_units Value
@@ -50502,64 +50522,6 @@ func chat_session_mark_submitted(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func chat_session_queue_update(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_queue_update")
-	var v_state Value
-	var v_update Value
-	var v_exists Value
-	var v_id Value
-	var v_matches Value
-	var v_path Value
-	var v_record Value
-	var v_target Value
-	var v_terminal Value
-	var v_unmatched Value
-	var v_updates Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_update = args[1] }
-	_ = v_update
-	_ = v_exists
-	_ = v_id
-	_ = v_matches
-	_ = v_path
-	_ = v_record
-	_ = v_target
-	_ = v_terminal
-	_ = v_unmatched
-	_ = v_updates
-	v_terminal = coreGet(v_state, "terminal", false)
-	if coreTruthy(v_terminal) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_target = coreGet(v_update, "target", "root")
-	v_path = coreGet(v_state, "path", nil)
-	{ v, err := chat_session_target_matches(v_target, v_path); if err != nil { return nil, err }; v_matches = v }
-	v_unmatched = _core_not(v_matches)
-	if coreTruthy(v_unmatched) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_id = coreGet(v_update, "id", nil)
-	v_updates = coreGet(v_state, "updates", nil)
-	v_exists = _core_map_contains(v_updates, v_id)
-	if coreTruthy(v_exists) {
-		return false, nil
-	} else {
-	// empty
-	}
-	v_record = Object()
-	if err := coreSet(v_record, "update", v_update); err != nil { return nil, err }
-	if err := coreSet(v_record, "status", "queued"); err != nil { return nil, err }
-	if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
-	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
-	if err := coreSet(v_state, "needs_continuation", true); err != nil { return nil, err }
-	return true, nil
-}
-
 func _date_is_line_terminator_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_is_line_terminator_impl")
 	var v_unit Value
@@ -50686,6 +50648,64 @@ func _stream_text_note_field_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func chat_session_queue_update(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_queue_update")
+	var v_state Value
+	var v_update Value
+	var v_exists Value
+	var v_id Value
+	var v_matches Value
+	var v_path Value
+	var v_record Value
+	var v_target Value
+	var v_terminal Value
+	var v_unmatched Value
+	var v_updates Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_update = args[1] }
+	_ = v_update
+	_ = v_exists
+	_ = v_id
+	_ = v_matches
+	_ = v_path
+	_ = v_record
+	_ = v_target
+	_ = v_terminal
+	_ = v_unmatched
+	_ = v_updates
+	v_terminal = coreGet(v_state, "terminal", false)
+	if coreTruthy(v_terminal) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_target = coreGet(v_update, "target", "root")
+	v_path = coreGet(v_state, "path", nil)
+	{ v, err := chat_session_target_matches(v_target, v_path); if err != nil { return nil, err }; v_matches = v }
+	v_unmatched = _core_not(v_matches)
+	if coreTruthy(v_unmatched) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_id = coreGet(v_update, "id", nil)
+	v_updates = coreGet(v_state, "updates", nil)
+	v_exists = _core_map_contains(v_updates, v_id)
+	if coreTruthy(v_exists) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_record = Object()
+	if err := coreSet(v_record, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_record, "status", "queued"); err != nil { return nil, err }
+	if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
+	if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+	if err := coreSet(v_state, "needs_continuation", true); err != nil { return nil, err }
+	return true, nil
 }
 
 func _date_ascii_letter_impl(args ...Value) (Value, error) {
@@ -50831,59 +50851,6 @@ func _validate_exact_output_keys(args ...Value) (Value, error) {
 		// empty
 		}
 	}
-	return nil, nil
-}
-
-func chat_session_record_unresolved(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_record_unresolved")
-	var v_gen Value
-	var v_state Value
-	var v_call Value
-	var v_id Value
-	var v_ids Value
-	var v_message Value
-	var v_needed Value
-	var v_not_recorded Value
-	var v_pending Value
-	var v_record Value
-	var v_recorded Value
-	var v_running Value
-	var v_status Value
-	if len(args) > 0 { v_gen = args[0] }
-	_ = v_gen
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	_ = v_call
-	_ = v_id
-	_ = v_ids
-	_ = v_message
-	_ = v_needed
-	_ = v_not_recorded
-	_ = v_pending
-	_ = v_record
-	_ = v_recorded
-	_ = v_running
-	_ = v_status
-	v_pending = coreGet(v_state, "pending", nil)
-	v_ids = _core_map_keys(v_pending)
-	for _, v_id = range coreIter(v_ids) {
-		v_record = coreGet(v_pending, v_id, nil)
-		v_status = coreGet(v_record, "status", nil)
-		v_running = _core_eq(v_status, "running")
-		v_recorded = coreGet(v_record, "diagnostic_recorded", false)
-		v_not_recorded = _core_not(v_recorded)
-		v_needed = _core_and(v_running, v_not_recorded)
-		if coreTruthy(v_needed) {
-			v_call = coreGet(v_record, "call", nil)
-			v_message = "Run closed before the started tool settled; its external effects may still complete"
-			_core_axgen_record_function_call(v_gen, v_call, v_message, "unresolved")
-			if err := coreSet(v_record, "diagnostic_recorded", true); err != nil { return nil, err }
-			if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
 	return nil, nil
 }
 
@@ -51262,6 +51229,59 @@ func _date_ascii_matches_impl(args ...Value) (Value, error) {
 	return true, nil
 }
 
+func chat_session_record_unresolved(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_record_unresolved")
+	var v_gen Value
+	var v_state Value
+	var v_call Value
+	var v_id Value
+	var v_ids Value
+	var v_message Value
+	var v_needed Value
+	var v_not_recorded Value
+	var v_pending Value
+	var v_record Value
+	var v_recorded Value
+	var v_running Value
+	var v_status Value
+	if len(args) > 0 { v_gen = args[0] }
+	_ = v_gen
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_call
+	_ = v_id
+	_ = v_ids
+	_ = v_message
+	_ = v_needed
+	_ = v_not_recorded
+	_ = v_pending
+	_ = v_record
+	_ = v_recorded
+	_ = v_running
+	_ = v_status
+	v_pending = coreGet(v_state, "pending", nil)
+	v_ids = _core_map_keys(v_pending)
+	for _, v_id = range coreIter(v_ids) {
+		v_record = coreGet(v_pending, v_id, nil)
+		v_status = coreGet(v_record, "status", nil)
+		v_running = _core_eq(v_status, "running")
+		v_recorded = coreGet(v_record, "diagnostic_recorded", false)
+		v_not_recorded = _core_not(v_recorded)
+		v_needed = _core_and(v_running, v_not_recorded)
+		if coreTruthy(v_needed) {
+			v_call = coreGet(v_record, "call", nil)
+			v_message = "Run closed before the started tool settled; its external effects may still complete"
+			_core_axgen_record_function_call(v_gen, v_call, v_message, "unresolved")
+			if err := coreSet(v_record, "diagnostic_recorded", true); err != nil { return nil, err }
+			if err := coreSet(v_pending, v_id, v_record); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_state, "pending", v_pending); err != nil { return nil, err }
+	return nil, nil
+}
+
 func _regex_state(args ...Value) (Value, error) {
 	axirCoverageMark("_regex_state")
 	var v_pos Value
@@ -51279,18 +51299,6 @@ func _regex_state(args ...Value) (Value, error) {
 	{ v, err := _regex_copy_map(v_caps); if err != nil { return nil, err }; v_t2 = v }
 	if err := coreSet(v_t1, "caps", v_t2); err != nil { return nil, err }
 	return v_t1, nil
-}
-
-func chat_session_close_state(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_close_state")
-	var v_state Value
-	var v_unresolved Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	_ = v_unresolved
-	if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
-	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
-	return v_unresolved, nil
 }
 
 func _regex_capture_ids(args ...Value) (Value, error) {
@@ -51387,203 +51395,6 @@ func _regex_capture_ids(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
-}
-
-func chat_session_transition(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_transition")
-	var v_state Value
-	var v_event Value
-	var v_action Value
-	var v_action_type Value
-	var v_applied Value
-	var v_call Value
-	var v_change Value
-	var v_changed Value
-	var v_closed Value
-	var v_execution Value
-	var v_exists Value
-	var v_final_call Value
-	var v_id Value
-	var v_ids Value
-	var v_item Value
-	var v_kind Value
-	var v_native_queued Value
-	var v_next_version Value
-	var v_not_ready Value
-	var v_queued Value
-	var v_ready Value
-	var v_record Value
-	var v_response Value
-	var v_result Value
-	var v_status Value
-	var v_steer Value
-	var v_steering Value
-	var v_submitted Value
-	var v_tool_call Value
-	var v_type Value
-	var v_update Value
-	var v_updates Value
-	var v_validated Value
-	var v_value Value
-	var v_version Value
-	if len(args) > 0 { v_state = args[0] }
-	_ = v_state
-	if len(args) > 1 { v_event = args[1] }
-	_ = v_event
-	_ = v_action
-	_ = v_action_type
-	_ = v_applied
-	_ = v_call
-	_ = v_change
-	_ = v_changed
-	_ = v_closed
-	_ = v_execution
-	_ = v_exists
-	_ = v_final_call
-	_ = v_id
-	_ = v_ids
-	_ = v_item
-	_ = v_kind
-	_ = v_native_queued
-	_ = v_next_version
-	_ = v_not_ready
-	_ = v_queued
-	_ = v_ready
-	_ = v_record
-	_ = v_response
-	_ = v_result
-	_ = v_status
-	_ = v_steer
-	_ = v_steering
-	_ = v_submitted
-	_ = v_tool_call
-	_ = v_type
-	_ = v_update
-	_ = v_updates
-	_ = v_validated
-	_ = v_value
-	_ = v_version
-	v_type = coreGet(v_event, "type", nil)
-	v_call = _core_eq(v_type, "tool.validated")
-	v_result = _core_eq(v_type, "tool.result")
-	v_response = _core_eq(v_type, "response.completed")
-	v_update = _core_eq(v_type, "update.queued")
-	v_submitted = _core_eq(v_type, "results.submitted")
-	v_closed = _core_eq(v_type, "closed")
-	v_validated = _core_eq(v_type, "validated")
-	v_applied = _core_eq(v_type, "update.applied")
-	v_changed = false
-	v_native_queued = _core_eq(v_type, "native.queued")
-	if coreTruthy(v_native_queued) {
-		v_id = coreGet(v_event, "id", nil)
-		{ v, err := chat_session_native_update(v_state, v_id); if err != nil { return nil, err }; v_changed = v }
-		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
-		if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
-		return v_action, nil
-	} else {
-	// empty
-	}
-	v_steering = _core_eq(v_type, "steering")
-	if coreTruthy(v_steering) {
-		{ v, err := chat_session_native_event(v_state, v_event); if err != nil { return nil, err }; v_change = v }
-		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
-		v_action = _core_map_merge(v_action, v_change)
-		return v_action, nil
-	} else {
-	// empty
-	}
-	v_final_call = _core_eq(v_type, "tool.final")
-	if coreTruthy(v_final_call) {
-		v_tool_call = coreGet(v_event, "call", nil)
-		{ v, err := chat_session_defer_final_call(v_state, v_tool_call); if err != nil { return nil, err }; v_changed = v }
-		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
-		if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
-		return v_action, nil
-	} else {
-	// empty
-	}
-	if coreTruthy(v_call) {
-		v_tool_call = coreGet(v_event, "call", nil)
-		v_execution = coreGet(v_event, "execution", "blocking")
-		{ v, err := chat_session_register_call(v_state, v_tool_call, v_execution); if err != nil { return nil, err }; v_changed = v }
-	} else {
-		if coreTruthy(v_result) {
-			v_id = coreGet(v_event, "id", nil)
-			v_value = coreGet(v_event, "result", nil)
-			{ v, err := chat_session_complete_call(v_state, v_id, v_value); if err != nil { return nil, err }; v_changed = v }
-		} else {
-			if coreTruthy(v_response) {
-				v_id = coreGet(v_event, "id", nil)
-				{ v, err := chat_session_complete_response(v_state, v_id); if err != nil { return nil, err }; v_changed = v }
-			} else {
-				if coreTruthy(v_update) {
-					v_item = coreGet(v_event, "update", nil)
-					{ v, err := chat_session_queue_update(v_state, v_item); if err != nil { return nil, err }; v_changed = v }
-				} else {
-					if coreTruthy(v_submitted) {
-						v_ids = coreGet(v_event, "ids", nil)
-						if _, err := chat_session_mark_submitted(v_state, v_ids); err != nil { return nil, err }
-						v_changed = true
-					} else {
-						if coreTruthy(v_closed) {
-							if _, err := chat_session_close_state(v_state); err != nil { return nil, err }
-							v_changed = true
-						} else {
-							if coreTruthy(v_validated) {
-								{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
-								v_action_type = coreGet(v_action, "type", nil)
-								v_ready = _core_eq(v_action_type, "validate")
-								v_not_ready = _core_not(v_ready)
-								if coreTruthy(v_not_ready) {
-									return nil, AxError{Category: "runtime", Message: "Cannot finalize while model or tool work is unresolved"}
-								} else {
-								// empty
-								}
-								if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
-								v_changed = true
-							} else {
-								if coreTruthy(v_applied) {
-									v_id = coreGet(v_event, "id", nil)
-									v_updates = coreGet(v_state, "updates", nil)
-									v_exists = _core_map_contains(v_updates, v_id)
-									if coreTruthy(v_exists) {
-										v_record = coreGet(v_updates, v_id, nil)
-										v_status = coreGet(v_record, "status", nil)
-										v_queued = _core_eq(v_status, "queued")
-										if coreTruthy(v_queued) {
-											if err := coreSet(v_record, "status", "applied"); err != nil { return nil, err }
-											if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
-											if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
-											v_item = coreGet(v_record, "update", nil)
-											v_kind = coreGet(v_item, "type", nil)
-											v_steer = _core_eq(v_kind, "steer")
-											if coreTruthy(v_steer) {
-												v_version = coreGet(v_state, "version", 0)
-												v_next_version = _core_add(v_version, 1)
-												if err := coreSet(v_state, "version", v_next_version); err != nil { return nil, err }
-											} else {
-											// empty
-											}
-											v_changed = true
-										} else {
-										// empty
-										}
-									} else {
-									// empty
-									}
-								} else {
-									return nil, AxError{Category: "runtime", Message: "Unknown chat session transition"}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
-	if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
-	return v_action, nil
 }
 
 func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
@@ -51806,6 +51617,18 @@ func _ace_is_noop_acknowledgment(args ...Value) (Value, error) {
 	return v_is_noop, nil
 }
 
+func chat_session_close_state(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_close_state")
+	var v_state Value
+	var v_unresolved Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_unresolved
+	if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
+	{ v, err := chat_session_unresolved(v_state); if err != nil { return nil, err }; v_unresolved = v }
+	return v_unresolved, nil
+}
+
 func _date_digits_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_digits_impl")
 	var v_units Value
@@ -51910,6 +51733,203 @@ func _tool_spec_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_spec, nil
+}
+
+func chat_session_transition(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_transition")
+	var v_state Value
+	var v_event Value
+	var v_action Value
+	var v_action_type Value
+	var v_applied Value
+	var v_call Value
+	var v_change Value
+	var v_changed Value
+	var v_closed Value
+	var v_execution Value
+	var v_exists Value
+	var v_final_call Value
+	var v_id Value
+	var v_ids Value
+	var v_item Value
+	var v_kind Value
+	var v_native_queued Value
+	var v_next_version Value
+	var v_not_ready Value
+	var v_queued Value
+	var v_ready Value
+	var v_record Value
+	var v_response Value
+	var v_result Value
+	var v_status Value
+	var v_steer Value
+	var v_steering Value
+	var v_submitted Value
+	var v_tool_call Value
+	var v_type Value
+	var v_update Value
+	var v_updates Value
+	var v_validated Value
+	var v_value Value
+	var v_version Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_event = args[1] }
+	_ = v_event
+	_ = v_action
+	_ = v_action_type
+	_ = v_applied
+	_ = v_call
+	_ = v_change
+	_ = v_changed
+	_ = v_closed
+	_ = v_execution
+	_ = v_exists
+	_ = v_final_call
+	_ = v_id
+	_ = v_ids
+	_ = v_item
+	_ = v_kind
+	_ = v_native_queued
+	_ = v_next_version
+	_ = v_not_ready
+	_ = v_queued
+	_ = v_ready
+	_ = v_record
+	_ = v_response
+	_ = v_result
+	_ = v_status
+	_ = v_steer
+	_ = v_steering
+	_ = v_submitted
+	_ = v_tool_call
+	_ = v_type
+	_ = v_update
+	_ = v_updates
+	_ = v_validated
+	_ = v_value
+	_ = v_version
+	v_type = coreGet(v_event, "type", nil)
+	v_call = _core_eq(v_type, "tool.validated")
+	v_result = _core_eq(v_type, "tool.result")
+	v_response = _core_eq(v_type, "response.completed")
+	v_update = _core_eq(v_type, "update.queued")
+	v_submitted = _core_eq(v_type, "results.submitted")
+	v_closed = _core_eq(v_type, "closed")
+	v_validated = _core_eq(v_type, "validated")
+	v_applied = _core_eq(v_type, "update.applied")
+	v_changed = false
+	v_native_queued = _core_eq(v_type, "native.queued")
+	if coreTruthy(v_native_queued) {
+		v_id = coreGet(v_event, "id", nil)
+		{ v, err := chat_session_native_update(v_state, v_id); if err != nil { return nil, err }; v_changed = v }
+		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+		if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_steering = _core_eq(v_type, "steering")
+	if coreTruthy(v_steering) {
+		{ v, err := chat_session_native_event(v_state, v_event); if err != nil { return nil, err }; v_change = v }
+		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+		v_action = _core_map_merge(v_action, v_change)
+		return v_action, nil
+	} else {
+	// empty
+	}
+	v_final_call = _core_eq(v_type, "tool.final")
+	if coreTruthy(v_final_call) {
+		v_tool_call = coreGet(v_event, "call", nil)
+		{ v, err := chat_session_defer_final_call(v_state, v_tool_call); if err != nil { return nil, err }; v_changed = v }
+		{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+		if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
+		return v_action, nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_call) {
+		v_tool_call = coreGet(v_event, "call", nil)
+		v_execution = coreGet(v_event, "execution", "blocking")
+		{ v, err := chat_session_register_call(v_state, v_tool_call, v_execution); if err != nil { return nil, err }; v_changed = v }
+	} else {
+		if coreTruthy(v_result) {
+			v_id = coreGet(v_event, "id", nil)
+			v_value = coreGet(v_event, "result", nil)
+			{ v, err := chat_session_complete_call(v_state, v_id, v_value); if err != nil { return nil, err }; v_changed = v }
+		} else {
+			if coreTruthy(v_response) {
+				v_id = coreGet(v_event, "id", nil)
+				{ v, err := chat_session_complete_response(v_state, v_id); if err != nil { return nil, err }; v_changed = v }
+			} else {
+				if coreTruthy(v_update) {
+					v_item = coreGet(v_event, "update", nil)
+					{ v, err := chat_session_queue_update(v_state, v_item); if err != nil { return nil, err }; v_changed = v }
+				} else {
+					if coreTruthy(v_submitted) {
+						v_ids = coreGet(v_event, "ids", nil)
+						if _, err := chat_session_mark_submitted(v_state, v_ids); err != nil { return nil, err }
+						v_changed = true
+					} else {
+						if coreTruthy(v_closed) {
+							if _, err := chat_session_close_state(v_state); err != nil { return nil, err }
+							v_changed = true
+						} else {
+							if coreTruthy(v_validated) {
+								{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+								v_action_type = coreGet(v_action, "type", nil)
+								v_ready = _core_eq(v_action_type, "validate")
+								v_not_ready = _core_not(v_ready)
+								if coreTruthy(v_not_ready) {
+									return nil, AxError{Category: "runtime", Message: "Cannot finalize while model or tool work is unresolved"}
+								} else {
+								// empty
+								}
+								if err := coreSet(v_state, "terminal", true); err != nil { return nil, err }
+								v_changed = true
+							} else {
+								if coreTruthy(v_applied) {
+									v_id = coreGet(v_event, "id", nil)
+									v_updates = coreGet(v_state, "updates", nil)
+									v_exists = _core_map_contains(v_updates, v_id)
+									if coreTruthy(v_exists) {
+										v_record = coreGet(v_updates, v_id, nil)
+										v_status = coreGet(v_record, "status", nil)
+										v_queued = _core_eq(v_status, "queued")
+										if coreTruthy(v_queued) {
+											if err := coreSet(v_record, "status", "applied"); err != nil { return nil, err }
+											if err := coreSet(v_updates, v_id, v_record); err != nil { return nil, err }
+											if err := coreSet(v_state, "updates", v_updates); err != nil { return nil, err }
+											v_item = coreGet(v_record, "update", nil)
+											v_kind = coreGet(v_item, "type", nil)
+											v_steer = _core_eq(v_kind, "steer")
+											if coreTruthy(v_steer) {
+												v_version = coreGet(v_state, "version", 0)
+												v_next_version = _core_add(v_version, 1)
+												if err := coreSet(v_state, "version", v_next_version); err != nil { return nil, err }
+											} else {
+											// empty
+											}
+											v_changed = true
+										} else {
+										// empty
+										}
+									} else {
+									// empty
+									}
+								} else {
+									return nil, AxError{Category: "runtime", Message: "Unknown chat session transition"}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	{ v, err := chat_session_boundary_action(v_state); if err != nil { return nil, err }; v_action = v }
+	if err := coreSet(v_action, "changed", v_changed); err != nil { return nil, err }
+	return v_action, nil
 }
 
 func _function_call_mode_impl(args ...Value) (Value, error) {
@@ -53618,31 +53638,6 @@ func _stream_text_required_check_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
-func chat_session_tool_argument_errors(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_tool_argument_errors")
-	var v_schema Value
-	var v_arguments Value
-	var v_empty Value
-	var v_errors Value
-	var v_no_schema Value
-	if len(args) > 0 { v_schema = args[0] }
-	_ = v_schema
-	if len(args) > 1 { v_arguments = args[1] }
-	_ = v_arguments
-	_ = v_empty
-	_ = v_errors
-	_ = v_no_schema
-	v_empty = MutableArray()
-	v_no_schema = _core_is_none(v_schema)
-	if coreTruthy(v_no_schema) {
-		return v_empty, nil
-	} else {
-	// empty
-	}
-	{ v, err := _chat_session_argument_errors(v_schema, v_schema, v_arguments, "", 0); if err != nil { return nil, err }; v_errors = v }
-	return v_errors, nil
-}
-
 func _completion_call_to_chat_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_completion_call_to_chat_impl")
 	var v_call Value
@@ -53671,140 +53666,29 @@ func _completion_call_to_chat_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func chat_session_tool_argument_error(args ...Value) (Value, error) {
-	axirCoverageMark("chat_session_tool_argument_error")
-	var v_name Value
+func chat_session_tool_argument_errors(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_tool_argument_errors")
 	var v_schema Value
 	var v_arguments Value
-	var v_bullet Value
-	var v_bullets Value
-	var v_count Value
-	var v_description Value
 	var v_empty Value
-	var v_enum_count Value
-	var v_enum_joined Value
-	var v_enum_list Value
-	var v_enum_null Value
-	var v_enum_text Value
-	var v_enum_texts Value
-	var v_enum_value Value
-	var v_enum_values Value
 	var v_errors Value
-	var v_failure Value
-	var v_field Value
-	var v_has_description Value
-	var v_has_enum Value
-	var v_joined Value
-	var v_message Value
-	var v_nothing Value
-	var v_properties Value
-	var v_properties_map Value
-	var v_property Value
-	var v_property_description Value
-	var v_property_map Value
-	var v_text Value
-	var v_valid Value
-	if len(args) > 0 { v_name = args[0] }
-	_ = v_name
-	if len(args) > 1 { v_schema = args[1] }
+	var v_no_schema Value
+	if len(args) > 0 { v_schema = args[0] }
 	_ = v_schema
-	if len(args) > 2 { v_arguments = args[2] }
+	if len(args) > 1 { v_arguments = args[1] }
 	_ = v_arguments
-	_ = v_bullet
-	_ = v_bullets
-	_ = v_count
-	_ = v_description
 	_ = v_empty
-	_ = v_enum_count
-	_ = v_enum_joined
-	_ = v_enum_list
-	_ = v_enum_null
-	_ = v_enum_text
-	_ = v_enum_texts
-	_ = v_enum_value
-	_ = v_enum_values
 	_ = v_errors
-	_ = v_failure
-	_ = v_field
-	_ = v_has_description
-	_ = v_has_enum
-	_ = v_joined
-	_ = v_message
-	_ = v_nothing
-	_ = v_properties
-	_ = v_properties_map
-	_ = v_property
-	_ = v_property_description
-	_ = v_property_map
-	_ = v_text
-	_ = v_valid
-	{ v, err := chat_session_tool_argument_errors(v_schema, v_arguments); if err != nil { return nil, err }; v_errors = v }
-	v_count = _core_len(v_errors)
-	v_valid = _core_eq(v_count, 0)
-	if coreTruthy(v_valid) {
-		v_nothing = _core_none()
-		return v_nothing, nil
+	_ = v_no_schema
+	v_empty = MutableArray()
+	v_no_schema = _core_is_none(v_schema)
+	if coreTruthy(v_no_schema) {
+		return v_empty, nil
 	} else {
 	// empty
 	}
-	v_empty = Object()
-	v_properties = coreGet(v_schema, "properties", v_empty)
-	v_properties_map = coreTypeIs(v_properties, "object")
-	if coreTruthy(v_properties_map) {
-	// empty
-	} else {
-		v_properties = v_empty
-	}
-	v_bullets = MutableArray()
-	for _, v_failure = range coreIter(v_errors) {
-		v_field = coreGet(v_failure, "field", "arguments")
-		v_message = coreGet(v_failure, "message", "")
-		v_description = ""
-		v_property = coreGet(v_properties, v_field, nil)
-		v_property_map = coreTypeIs(v_property, "object")
-		if coreTruthy(v_property_map) {
-			v_has_description = _core_map_contains(v_property, "description")
-			v_property_description = coreGet(v_property, "description", "")
-			v_description = _core_string_str(v_property_description)
-			v_enum_values = coreGet(v_property, "enum", nil)
-			v_enum_list = coreTypeIs(v_enum_values, "list")
-			if coreTruthy(v_enum_list) {
-				v_enum_count = _core_len(v_enum_values)
-				v_has_enum = _core_gt(v_enum_count, 0)
-				if coreTruthy(v_has_enum) {
-					if coreTruthy(v_has_description) {
-					// empty
-					} else {
-						v_description = "undefined"
-					}
-					v_enum_texts = MutableArray()
-					for _, v_enum_value = range coreIter(v_enum_values) {
-						v_enum_null = _core_is_none(v_enum_value)
-						v_enum_text = ""
-						if coreTruthy(v_enum_null) {
-						// empty
-						} else {
-							v_enum_text = _core_string_str(v_enum_value)
-						}
-						v_enum_texts = coreAppend(v_enum_texts, v_enum_text)
-					}
-					v_enum_joined = _core_string_join(", ", v_enum_texts)
-					v_description = _core_string_format("{} Allowed values are: {}", v_description, v_enum_joined)
-				} else {
-				// empty
-				}
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_bullet = _core_string_format("- `{}` - {} ({}).", v_field, v_message, v_description)
-		v_bullets = coreAppend(v_bullets, v_bullet)
-	}
-	v_joined = _core_string_join("\n", v_bullets)
-	v_text = _core_string_format("Errors In Function Arguments: Fix the following invalid arguments to '{}'\n{}", v_name, v_joined)
-	return v_text, nil
+	{ v, err := _chat_session_argument_errors(v_schema, v_schema, v_arguments, "", 0); if err != nil { return nil, err }; v_errors = v }
+	return v_errors, nil
 }
 
 func _ace_normalize_curator_operations(args ...Value) (Value, error) {
@@ -54137,6 +54021,142 @@ func _tool_result_message_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_message, "name", v_name); err != nil { return nil, err }
 	if err := coreSet(v_message, "result", v_result_text); err != nil { return nil, err }
 	return v_message, nil
+}
+
+func chat_session_tool_argument_error(args ...Value) (Value, error) {
+	axirCoverageMark("chat_session_tool_argument_error")
+	var v_name Value
+	var v_schema Value
+	var v_arguments Value
+	var v_bullet Value
+	var v_bullets Value
+	var v_count Value
+	var v_description Value
+	var v_empty Value
+	var v_enum_count Value
+	var v_enum_joined Value
+	var v_enum_list Value
+	var v_enum_null Value
+	var v_enum_text Value
+	var v_enum_texts Value
+	var v_enum_value Value
+	var v_enum_values Value
+	var v_errors Value
+	var v_failure Value
+	var v_field Value
+	var v_has_description Value
+	var v_has_enum Value
+	var v_joined Value
+	var v_message Value
+	var v_nothing Value
+	var v_properties Value
+	var v_properties_map Value
+	var v_property Value
+	var v_property_description Value
+	var v_property_map Value
+	var v_text Value
+	var v_valid Value
+	if len(args) > 0 { v_name = args[0] }
+	_ = v_name
+	if len(args) > 1 { v_schema = args[1] }
+	_ = v_schema
+	if len(args) > 2 { v_arguments = args[2] }
+	_ = v_arguments
+	_ = v_bullet
+	_ = v_bullets
+	_ = v_count
+	_ = v_description
+	_ = v_empty
+	_ = v_enum_count
+	_ = v_enum_joined
+	_ = v_enum_list
+	_ = v_enum_null
+	_ = v_enum_text
+	_ = v_enum_texts
+	_ = v_enum_value
+	_ = v_enum_values
+	_ = v_errors
+	_ = v_failure
+	_ = v_field
+	_ = v_has_description
+	_ = v_has_enum
+	_ = v_joined
+	_ = v_message
+	_ = v_nothing
+	_ = v_properties
+	_ = v_properties_map
+	_ = v_property
+	_ = v_property_description
+	_ = v_property_map
+	_ = v_text
+	_ = v_valid
+	{ v, err := chat_session_tool_argument_errors(v_schema, v_arguments); if err != nil { return nil, err }; v_errors = v }
+	v_count = _core_len(v_errors)
+	v_valid = _core_eq(v_count, 0)
+	if coreTruthy(v_valid) {
+		v_nothing = _core_none()
+		return v_nothing, nil
+	} else {
+	// empty
+	}
+	v_empty = Object()
+	v_properties = coreGet(v_schema, "properties", v_empty)
+	v_properties_map = coreTypeIs(v_properties, "object")
+	if coreTruthy(v_properties_map) {
+	// empty
+	} else {
+		v_properties = v_empty
+	}
+	v_bullets = MutableArray()
+	for _, v_failure = range coreIter(v_errors) {
+		v_field = coreGet(v_failure, "field", "arguments")
+		v_message = coreGet(v_failure, "message", "")
+		v_description = ""
+		v_property = coreGet(v_properties, v_field, nil)
+		v_property_map = coreTypeIs(v_property, "object")
+		if coreTruthy(v_property_map) {
+			v_has_description = _core_map_contains(v_property, "description")
+			v_property_description = coreGet(v_property, "description", "")
+			v_description = _core_string_str(v_property_description)
+			v_enum_values = coreGet(v_property, "enum", nil)
+			v_enum_list = coreTypeIs(v_enum_values, "list")
+			if coreTruthy(v_enum_list) {
+				v_enum_count = _core_len(v_enum_values)
+				v_has_enum = _core_gt(v_enum_count, 0)
+				if coreTruthy(v_has_enum) {
+					if coreTruthy(v_has_description) {
+					// empty
+					} else {
+						v_description = "undefined"
+					}
+					v_enum_texts = MutableArray()
+					for _, v_enum_value = range coreIter(v_enum_values) {
+						v_enum_null = _core_is_none(v_enum_value)
+						v_enum_text = ""
+						if coreTruthy(v_enum_null) {
+						// empty
+						} else {
+							v_enum_text = _core_string_str(v_enum_value)
+						}
+						v_enum_texts = coreAppend(v_enum_texts, v_enum_text)
+					}
+					v_enum_joined = _core_string_join(", ", v_enum_texts)
+					v_description = _core_string_format("{} Allowed values are: {}", v_description, v_enum_joined)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_bullet = _core_string_format("- `{}` - {} ({}).", v_field, v_message, v_description)
+		v_bullets = coreAppend(v_bullets, v_bullet)
+	}
+	v_joined = _core_string_join("\n", v_bullets)
+	v_text = _core_string_format("Errors In Function Arguments: Fix the following invalid arguments to '{}'\n{}", v_name, v_joined)
+	return v_text, nil
 }
 
 func _stream_text_missed_fields_impl(args ...Value) (Value, error) {

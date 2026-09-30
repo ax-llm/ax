@@ -23,7 +23,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"logged\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"logged\"}"
+      "content": "Answer: logged"
     }
   ],
   "expected_output": {

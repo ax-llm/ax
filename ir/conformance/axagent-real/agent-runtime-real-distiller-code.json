@@ -19,7 +19,7 @@
       "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"from runtime\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"from runtime\"}"
+      "content": "Answer: from runtime"
     }
   ],
   "expected_output": {
