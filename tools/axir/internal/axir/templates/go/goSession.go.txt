@@ -487,7 +487,7 @@ func (p *genSessionClient) start(call Value) {
 	mustCore(chat_session_register_call(p.state, call, execution))
 	if validationErr != nil {
 		message := mustCore(_tool_error_message_impl(call, validationErr))
-		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false))
+		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false, p.options))
 		return
 	}
 	p.blocking = execution == "blocking"
@@ -780,7 +780,7 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 			if result.err != nil {
 				value = coreGet(mustCore(_tool_error_message_impl(result.call, result.err)), "result", result.err.Error())
 			}
-			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil))) {
+			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil, p.options))) {
 				continue
 			}
 			p.emit("tool.completed", "call_id", id)

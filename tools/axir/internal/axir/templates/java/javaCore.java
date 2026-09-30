@@ -899,6 +899,9 @@ final class Core {
     // AxGen renders with the selected structured-output rung's options.
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null), args.length > 1 ? asMap(args[1]) : null);
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxGen.FunctionResultFormatter formatter && "format_result".equals(String.valueOf(methodName))) {
+      return formatter.format(args.length > 0 ? args[0] : null);
+    }
     if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
       Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
       return picker.pick(asMapList(payload.get("results")));
@@ -1114,6 +1117,10 @@ final class Core {
   }
   // The forward call's cachingFunction, else the AxGen constructor's, else the
   // process-wide one (AxGlobals.setCachingFunction); null when none is set.
+  // The process-wide tool result formatter, or null.
+  static Object axgenFunctionResultFormatter() {
+    return AxGlobals.functionResultFormatter();
+  }
   static Object axgenCachingFunction(Object gen, Object options) {
     Object fromCall = cachingFunctionOption(options);
     if (fromCall != null) return fromCall;
@@ -1477,12 +1484,14 @@ final class Core {
     if (get(gen, "memory", null) instanceof AxMemory mem) mem.addResponse(response);
     return null;
   }
-  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok) {
+  // `result` and `result_text` both keep the text the model got.
+  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok, Object resultText) {
     if (get(gen, "memory", null) instanceof AxMemory mem) {
       Map<String, Object> item = new LinkedHashMap<>();
       item.put("call", call);
       item.put("result", result);
       item.put("ok", truthy(ok));
+      if (resultText != null) item.put("result_text", resultText);
       mem.addFunctionResults(item);
     }
     return null;

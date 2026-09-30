@@ -151,7 +151,7 @@ final class SessionRun implements AiClient,AutoCloseable {
         Core.chat_session_validate_required_arguments(tool.schema(),args,"tool."+name+".args");
       } catch(RuntimeException error) {
         Core.chat_session_register_call(state,call,"blocking");
-        Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false);return;
+        Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false,options);return;
       }
       Core.chat_session_register_call(state,call,execution);blocking=!"background".equals(execution);
       emit("tool.started",Map.of("call_id",id));
@@ -194,7 +194,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       if("tool".equals(delivery.type())) {
         var call=Core.asMap(delivery.value());String id=String.valueOf(call.get("id"));Object result=delivery.result();
         if(delivery.error()!=null) result=Core.get(Core._tool_error_message_impl(call,delivery.error()),"result",delivery.error().toString());
-        if(!Core.truthy(Core.chat_session_record_result(gen,state,call,result,delivery.error()==null)))return null;emit("tool.completed",Map.of("call_id",id));
+        if(!Core.truthy(Core.chat_session_record_result(gen,state,call,result,delivery.error()==null,options)))return null;emit("tool.completed",Map.of("call_id",id));
         if(!"background".equals(Core.get(Core.asMap(state.get("pending")).get(id),"execution","blocking"))) {blocking=false;var queued=new ArrayList<>(waiting);waiting.clear();for(var item:queued)start(item);}
         return null;
       }

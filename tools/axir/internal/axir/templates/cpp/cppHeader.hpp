@@ -191,6 +191,33 @@ class AxCachingFunctionHandle {
 };
 AxCachingFunctionHandle caching_function(AxCachingFunction fn);
 
+// TypeScript's functionResultFormatter: writes a tool result for the model.
+// Without one, a string result goes as it is, a null one as "done", and any
+// other value as pretty JSON (JSON.stringify(result, null, 2)); an empty text
+// goes as "done". A formatter that throws fails the forward ("Generate
+// failed: ..."), as in TypeScript.
+using AxFunctionResultFormatter = std::function<std::string(const Value& result)>;
+
+// A function result formatter for one forward or streaming_forward call,
+// passed as a caching function is: value() goes in the call options under
+// "functionResultFormatter", and it comes before the AxGen's own
+// (set_function_result_formatter). The formatter stays registered while a
+// copy of the handle lives; a value() used after that fails as expired.
+class AxFunctionResultFormatterHandle {
+ public:
+  struct State;
+  explicit AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn);
+  Value value() const;
+
+ private:
+  std::shared_ptr<State> state_;
+};
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn);
+// The process-wide tool result formatter, as TypeScript's
+// axGlobals.functionResultFormatter: AxGen uses it when neither the call nor
+// the AxGen sets one. An empty function restores the default.
+void set_function_result_formatter(AxFunctionResultFormatter fn);
+
 void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
@@ -469,7 +496,7 @@ struct Core {
   static Value axgen_apply_context_cache(Value gen, Value messages, Value options);
   static Value axgen_memory_add_request(Value gen, Value messages);
   static Value axgen_memory_add_response(Value gen, Value request, Value response);
-  static Value axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok);
+  static Value axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok, Value result_text = Value());
   static Value axgen_memory_add_correction(Value gen, Value response, Value error);
   static Value axgen_memory_cleanup_corrections(Value gen);
   static Value axgen_record_chat_log(Value gen, Value request, Value response);
@@ -530,6 +557,8 @@ struct Core {
   // process-wide caching function (a caching_function() handle value, or
   // null); a read, whose errors propagate (null is a miss); and a write.
   static Value axgen_caching_function(Value gen, Value options);
+  // The process-wide tool result formatter's marker, or null.
+  static Value axgen_function_result_formatter();
   static Value axgen_cache_read(Value fn, Value key);
   static Value axgen_cache_write(Value fn, Value key, Value value);
   // AXIR_CORE_CPP_DECLARATIONS
@@ -1207,6 +1236,11 @@ class AxGen : public AxProgram {
   AxGen& set_demos(Value demos);
   AxGen& set_sample_count(int sample_count);
   AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
+  // Writes each tool result for the model, as TypeScript's
+  // functionResultFormatter option (see AxFunctionResultFormatter). A call's
+  // "functionResultFormatter" option (a function_result_formatter() handle
+  // value) comes before it. An empty function clears it.
+  AxGen& set_function_result_formatter(AxFunctionResultFormatter formatter);
   // TypeScript's cachingFunction option. forward reads fn(key, nullptr) first,
   // before the run's span and metrics, and returns a stored output without a
   // request or telemetry (what the read throws propagates), then stores each
@@ -1276,6 +1310,8 @@ class AxGen : public AxProgram {
   std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   // Keeps the caching function the options name registered.
   std::optional<AxCachingFunctionHandle> caching_function_;
+  // Keeps the function result formatter the options name registered.
+  std::optional<AxFunctionResultFormatterHandle> function_result_formatter_;
   void refresh_prompt_template();
 };
 

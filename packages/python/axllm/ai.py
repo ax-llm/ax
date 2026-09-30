@@ -276,6 +276,27 @@ def _snapshot_global_caching_function() -> Callable[..., Any] | None:
         return _global_caching_function
 
 
+_global_function_result_formatter: Callable[[Any], Any] | None = None
+
+
+def set_function_result_formatter(formatter: Callable[[Any], Any] | None) -> None:
+    """Set the process-wide tool result formatter, as TS's
+    ``axGlobals.functionResultFormatter``; pass None to restore the default.
+
+    AxGen uses it when neither the forward call nor the program sets
+    ``function_result_formatter``: ``formatter(result)`` returns the text the
+    model gets for a tool result, and an empty text goes as ``done``.
+    """
+    global _global_function_result_formatter
+    with _runtime_hooks_lock:
+        _global_function_result_formatter = formatter
+
+
+def _snapshot_global_function_result_formatter() -> Callable[[Any], Any] | None:
+    with _runtime_hooks_lock:
+        return _global_function_result_formatter
+
+
 def _coerce_runtime_hooks(value: Any) -> AxRuntimeHooks:
     if isinstance(value, AxRuntimeHooks):
         return value
@@ -10887,7 +10908,8 @@ def _openai_responses_input_item_impl(message: Any) -> Any:
     if is_function:
         message_id = _core_get(message, "id", None)
         message_content = _core_get(message, "content", None)
-        call_id_snake = _core_get(message, "function_call_id", None)
+        call_id_legacy = _core_get(message, "function_call_id", None)
+        call_id_snake = _core_get(message, "function_id", call_id_legacy)
         call_id_camel = _core_get(message, "functionId", call_id_snake)
         call_id = _core_coalesce(call_id_camel, message_id)
         result = _core_get(message, "result", message_content)

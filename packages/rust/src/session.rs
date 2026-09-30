@@ -819,6 +819,7 @@ pub(crate) struct SessionRun {
     gen: CoreValue,
     tools: Vec<Tool>,
     options: Value,
+    pub(crate) formatter_options: CoreValue,
     control: Option<AxRunControl>,
     path: String,
     after: usize,
@@ -858,7 +859,9 @@ impl SessionRun {
             .and_then(Value::as_str)
             .unwrap_or("root")
             .to_string();
+        let formatter_options = core_get(&gen, &CoreValue::from("options"), CoreValue::new_map());
         Self {
+            formatter_options,
             id: NEXT_SESSION_RUN.fetch_add(1, Ordering::SeqCst),
             routes: Vec::new(),
             route_selected: false,
@@ -964,6 +967,7 @@ impl SessionRun {
                     core_value_from_json(&call),
                     core_value_from_json(&core_value_to_json(&message)["result"]),
                     CoreValue::Bool(false),
+                    self.formatter_options.clone(),
                 ])?;
                 return Ok(());
             }
@@ -1412,6 +1416,7 @@ impl SessionRun {
                 core_value_from_json(&delivery.call),
                 core_value_from_json(&result),
                 CoreValue::Bool(ok),
+                self.formatter_options.clone(),
             ])?) {
                 continue;
             }

@@ -1,0 +1,69 @@
+{
+  "expected_error_contains": "Generate failed: formatter broke",
+  "expected_request_count": 1,
+  "function_result_formatter": {
+    "throws": "formatter broke"
+  },
+  "input": {
+    "query": "q"
+  },
+  "kind": "forward",
+  "name": "function-result-format-formatter-throws",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "lookupObject",
+          "params": {}
+        },
+        {
+          "id": "call_2",
+          "name": "lookupText",
+          "params": {}
+        },
+        {
+          "id": "call_3",
+          "name": "lookupNone",
+          "params": {}
+        },
+        {
+          "id": "call_4",
+          "name": "lookupNumber",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "content": "Answer: done"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "description": "Look up lookupObject",
+      "name": "lookupObject",
+      "result": {
+        "a": [2],
+        "b": 1,
+        "c": null
+      }
+    },
+    {
+      "description": "Look up lookupText",
+      "name": "lookupText",
+      "result": "plain text"
+    },
+    {
+      "description": "Look up lookupNone",
+      "name": "lookupNone",
+      "result": null
+    },
+    {
+      "description": "Look up lookupNumber",
+      "name": "lookupNumber",
+      "result": 42
+    }
+  ]
+}

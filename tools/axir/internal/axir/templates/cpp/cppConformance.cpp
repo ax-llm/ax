@@ -1069,11 +1069,49 @@ static void run_forward(Value fixture) {
       return std::stoi(display(picker_index));
     });
   }
+  // A fixture's formatter: {text} writes that text for every tool result,
+  // and {throws} fails with that message.
+  auto fixture_formatter = [](const Value& spec) -> AxFunctionResultFormatter {
+    std::string text = display(Core::get(spec, "text", ""));
+    Value failure = Core::get(spec, "throws");
+    std::string message = failure.is_null() ? "" : display(failure);
+    bool fails = !failure.is_null();
+    return [text, message, fails](const Value&) -> std::string {
+      if (fails) throw std::runtime_error(message);
+      return text;
+    };
+  };
+  Value formatter_spec = Core::get(fixture, "function_result_formatter");
+  if (!formatter_spec.is_null()) {
+    // The program's formatter.
+    gen.set_function_result_formatter(fixture_formatter(formatter_spec));
+  }
   Value forward_options = Core::get(fixture, "forward_options", Value::object());
+  // The forward call's formatter; the handle stays alive for the call.
+  std::optional<AxFunctionResultFormatterHandle> call_formatter;
+  Value call_formatter_spec = Core::get(fixture, "call_function_result_formatter");
+  if (!call_formatter_spec.is_null()) {
+    call_formatter.emplace(fixture_formatter(call_formatter_spec));
+    forward_options = Core::map_merge(Value::object(), forward_options);
+    Core::set(forward_options, "functionResultFormatter", call_formatter->value());
+  }
   std::optional<AxRunControl> control;
   if (Core::truthy(Core::get(fixture, "control", false))) {
     forward_options = Core::map_merge(Value::object(), forward_options);
     control = attach_fixture_control(fixture, client, forward_options, control_events);
+  }
+  // The process-wide formatter; the guard restores the default after the
+  // forward.
+  struct GlobalFormatterReset {
+    bool active = false;
+    ~GlobalFormatterReset() {
+      if (active) set_function_result_formatter(nullptr);
+    }
+  } global_formatter_reset;
+  Value global_formatter_spec = Core::get(fixture, "global_function_result_formatter");
+  if (!global_formatter_spec.is_null()) {
+    set_function_result_formatter(fixture_formatter(global_formatter_spec));
+    global_formatter_reset.active = true;
   }
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, forward_options); }, fixture, true);
@@ -1149,6 +1187,18 @@ static void run_forward(Value fixture) {
     throw AxError("fixture", "expected memory history count mismatch");
   }
   if (!Core::get(fixture, "expected_memory_history_subset").is_null()) assert_list_subset(gen.get_memory().history(), Core::get(fixture, "expected_memory_history_subset"), "memory history");
+  // The memory's tool results, in order: result_text is the text the model
+  // got, and result holds the same text.
+  for (const auto& [memory_key, entry_key] : std::vector<std::pair<std::string, std::string>>{{"expected_memory_function_results", "result_text"}, {"expected_memory_function_stored_results", "result"}}) {
+    Value expected_memory = Core::get(fixture, memory_key);
+    if (expected_memory.is_null()) continue;
+    Value memory_values = Value::array();
+    for (const auto& item : Core::iter(gen.get_memory().history())) {
+      if (display(Core::get(item, "role")) != "function") continue;
+      for (const auto& entry : Core::iter(Core::get(item, "results", Value::array()))) Core::append(memory_values, Core::get(entry, entry_key));
+    }
+    assert_equal(memory_values, expected_memory, memory_key);
+  }
   if (!Core::get(fixture, "expected_chat_log_subset").is_null()) assert_list_subset(gen.get_chat_log(), Core::get(fixture, "expected_chat_log_subset"), "chat log");
   if (!Core::get(fixture, "expected_function_traces_subset").is_null()) assert_list_subset(gen.get_function_call_traces(), Core::get(fixture, "expected_function_traces_subset"), "function call traces");
   if (!Core::get(fixture, "expected_chat_prompt").is_null()) {
