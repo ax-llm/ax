@@ -1384,7 +1384,7 @@ def _run_forward(fixture):
     _add_fixture_transforms(gen, fixture)
     processor_calls = []
     for spec in fixture.get("feedback_processors") or []:
-        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls), feedback=True)
+        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
     if "result_picker_index" in fixture:
@@ -1515,14 +1515,12 @@ def _run_forward(fixture):
 
 
 def _add_fixture_transforms(gen, fixture):
-    # field_transforms use add_field_transform(); field_processors use the
-    # deprecated transforming default of add_field_processor().
+    # Both fixture spellings describe local transforms. Feedback fixtures
+    # use feedback_processors and exercise add_field_processor's default.
     for spec in fixture.get("field_transforms") or []:
         gen.add_field_transform(spec.get("field"), spec.get("processor", spec.get("op")))
     for spec in fixture.get("field_processors") or fixture.get("fieldProcessors") or []:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            gen.add_field_processor(spec.get("field"), spec.get("processor", spec.get("op")))
+        gen.add_field_transform(spec.get("field"), spec.get("processor", spec.get("op")))
 
 
 def _fixture_processor(spec, calls):
@@ -1758,7 +1756,7 @@ def _run_streaming_forward(fixture):
     _add_fixture_transforms(gen, fixture)
     processor_calls = []
     for spec in fixture.get("feedback_processors") or []:
-        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls), feedback=True)
+        gen.add_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
     for spec in fixture.get("streaming_processors") or []:
         gen.add_streaming_field_processor(spec["field"], _fixture_processor(spec, processor_calls))
     if "result_picker_index" in fixture:
@@ -1773,7 +1771,7 @@ def _run_streaming_forward(fixture):
     try:
         if stop_after is not None:
             # The consumer stops the public generator after stop_after deltas.
-            stream = gen.streaming_forward(client, fixture.get("input") or {}, {**run_options, "deltas": True})
+            stream = gen.streaming_forward(client, fixture.get("input") or {}, run_options)
             try:
                 for delta in stream:
                     deltas.append(delta)

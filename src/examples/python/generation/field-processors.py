@@ -19,7 +19,7 @@ if not api_key:
 client = ai(
     "openai",
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-6-luna"),
 )
 summarize = ax("text:string -> summary:string")
 
@@ -31,7 +31,7 @@ def keep_it_short(summary, context):
     return f"That summary has {words} words; answer again in at most 12 words." if words > 12 else None
 
 
-summarize.add_field_processor("summary", keep_it_short, feedback=True)
+summarize.add_field_processor("summary", keep_it_short)
 summarize.add_field_transform("summary", "trim")
 
 text = (
