@@ -3254,7 +3254,7 @@ Value Core::prompt_user_content(Value signature, Value values) {
     parts.emplace_back(part);
   }
   bool all_text = true;
-  for (const auto& part : parts) if (str(get_key(part, "type")) != "text" || truthy(get_key(part, "cache"))) all_text = false;
+  for (const auto& part : parts) if (str(get_key(part, "type")) != "text") all_text = false;
   if (!all_text) {
     // As TS combineConsecutiveStrings: in a message with media, each run of
     // text parts joins with a newline and is cached when any of them is.
