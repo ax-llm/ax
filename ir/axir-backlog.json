@@ -3040,7 +3040,7 @@
     },
     {
       "id": "axir-2026-09-27-honor-a-flat-function-s-own-namespace-in-the-ports-agents",
-      "status": "open",
+      "status": "done",
       "title": "Honor a flat function's own namespace in the ports' agents",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -3056,9 +3056,9 @@
         "Add the fn namespace API where a port's Tool lacks it",
         "Pin a TS golden with a flat namespaced tool listed and called under its namespace"
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-27",
+      "completedByCommit": "51f5419cf393032e8809209006a0005a260ca9dd",
+      "verification": "Opt-in, per the no-surprise rule: agent option flatFunctionNamespace 'own' files a flat function under its own namespace as TS does (TS's error for a reserved one); unset keeps tools.<name> and warns once, 'tools' keeps it silently, and 'own' becomes the default in the next major version (docs/NEXT_MAJOR.md). Go Tool.WithNamespace and Java fn(...).namespace(...) added. TS golden axagent/agent-first-requests-flat-namespace (run with 'own'), real-engine axagent-real/agent-runtime-real-flat-namespace-call, and six port-only axagent/agent-flat-function-namespace-* fixtures; all but the tools-explicit control fail on #766's Python. axagent+axmcp 253/253 in all five ports; real-engine antidote 11/11 in goja, QuickJS, the quickjs wheel, rquickjs and quickjs4j."
     },
     {
       "id": "axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime",
