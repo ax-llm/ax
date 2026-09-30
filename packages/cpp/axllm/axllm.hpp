@@ -700,8 +700,8 @@ struct Core {
   static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value chat_response_to_completion(Value response);
   static Value _openai_normalize_tool_calls_impl(Value calls);
-  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value _openai_finish_reason_impl(Value value);
+  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
@@ -911,7 +911,7 @@ struct Core {
   static Value _openai_responses_apply_prompt_cache_key(Value payload, Value options);
   static Value provider_call_timeout_ms(Value options);
   static Value provider_call_timeout_message(Value timeout_ms);
-  static Value provider_warn_call_timeout(Value options, Value seconds);
+  static Value provider_normalize_call_options(Value options);
   static Value _provider_sampling_is_one_impl(Value value);
   static Value _anthropic_sampling_impl(Value payload, Value model_config, Value model, Value explicit_keys, Value is_vertex);
   static Value _anthropic_deprecates_sampling_impl(Value model);

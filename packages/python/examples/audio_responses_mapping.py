@@ -9,7 +9,7 @@ transport_requests = []
 def scripted_transport(request):
     transport_requests.append(request)
     if request["url"].endswith("/audio/speech"):
-        return {"status": 200, "json": {"audio": "base64-speech"}}
+        return {"status": 200, "json": {"data": "base64-speech"}}
     if request["url"].endswith("/audio/transcriptions"):
         return {
             "status": 200,
@@ -23,7 +23,7 @@ speech = client.speak({"text": "hello", "voice": "alloy", "format": "mp3"})
 transcript = client.transcribe(
     {"audio": "base64-audio", "language": "en", "model": "whisper-1", "format": "json"}
 )
-assert speech["audio"] == "base64-speech", speech
+assert speech["data"] == "base64-speech", speech
 assert transcript["text"] == "hello world", transcript
 
 print("normalized output:")

@@ -12,7 +12,8 @@
   "options": {
     "runtime": {
       "language": "JavaScript"
-    }
+    },
+    "renderAudio": false
   },
   "responses": [
     {

@@ -4689,6 +4689,7 @@ final class Core {
 
   static Object resolve_model_key(Object client_options, Object request, Object options, Object default_model, Object embed) {
     axirCoverageMark("resolve_model_key");
+    options = Core.provider_normalize_call_options(options);
     Object empty_models = new java.util.ArrayList<Object>();
     Object model_list_camel = Core.get(client_options, "modelList", empty_models);
     Object model_list_snake = Core.get(client_options, "model_list", model_list_camel);
@@ -5395,7 +5396,7 @@ final class Core {
           if (Core.truthy(item_not_map)) {
             Object item_json = Core.jsonPretty(item);
             Object item_text = Core.stringFormat("User message content item at index {} must be an object, received: {}", item_index, item_json);
-            Object item_error = Core.aiErrorUnsupported(item_text);
+            Object item_error = Core.aiErrorResponse(item_text);
             throw Core.asRuntime(item_error);
           }
           Object item_type = Core.get(item, "type", null);
@@ -5411,7 +5412,7 @@ final class Core {
               received_type = Core.jsonPretty(item_type);
             }
             Object type_text = Core.stringFormat("User message content item at index {} must have a type, received: {}", item_index, received_type);
-            Object type_error = Core.aiErrorUnsupported(type_text);
+            Object type_error = Core.aiErrorResponse(type_text);
             throw Core.asRuntime(type_error);
           }
           Object next_item_index = Core.add(item_index, 1);
@@ -6482,6 +6483,30 @@ final class Core {
     return out;
   }
 
+  static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
+    Object is_stop = Core.eq(value, "stop");
+    if (Core.truthy(is_stop)) {
+      return "stop";
+    }
+    Object is_length = Core.eq(value, "length");
+    if (Core.truthy(is_length)) {
+      return "length";
+    }
+    Object is_content_filter = Core.eq(value, "content_filter");
+    if (Core.truthy(is_content_filter)) {
+      return "error";
+    }
+    Object is_tool_calls = Core.eq(value, "tool_calls");
+    Object is_function_call = Core.eq(value, "function_call");
+    Object is_call = Core.or(is_tool_calls, is_function_call);
+    if (Core.truthy(is_call)) {
+      return "function_call";
+    }
+    Object none = Core.none();
+    return none;
+  }
+
   static Object ai_context_cache_rejection(Object status, Object body_json) {
     axirCoverageMark("ai_context_cache_rejection");
     Object status_400_min = Core.gte(status, 400);
@@ -6510,30 +6535,6 @@ final class Core {
     Object cache_rejection = Core.or(names_cache, invalid_cache);
     Object out = Core.and(valid_status, cache_rejection);
     return out;
-  }
-
-  static Object _openai_finish_reason_impl(Object value) {
-    axirCoverageMark("_openai_finish_reason_impl");
-    Object is_stop = Core.eq(value, "stop");
-    if (Core.truthy(is_stop)) {
-      return "stop";
-    }
-    Object is_length = Core.eq(value, "length");
-    if (Core.truthy(is_length)) {
-      return "length";
-    }
-    Object is_content_filter = Core.eq(value, "content_filter");
-    if (Core.truthy(is_content_filter)) {
-      return "error";
-    }
-    Object is_tool_calls = Core.eq(value, "tool_calls");
-    Object is_function_call = Core.eq(value, "function_call");
-    Object is_call = Core.or(is_tool_calls, is_function_call);
-    if (Core.truthy(is_call)) {
-      return "function_call";
-    }
-    Object none = Core.none();
-    return none;
   }
 
   static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
@@ -11470,11 +11471,7 @@ final class Core {
       Object json_speech = Core._speech_json_response_impl(raw, format, transcript);
       speech = json_speech;
     }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object data = Core.get(speech, "data", null);
-    Core.set(out, "audio", data);
-    out = Core.mapMerge(out, speech);
-    return out;
+    return speech;
   }
 
   static Object provider_normalize_realtime_event(Object profile, Object event, Object state, Object ai_name, Object model) {
@@ -12718,18 +12715,7 @@ final class Core {
     Object transcript = Core._speech_request_text_impl(request);
     Object none = Core.none();
     Object speech = Core._speech_json_response_impl(raw, none, transcript);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object data = Core.get(speech, "data", null);
-    Core.set(out, "audio", data);
-    Object named_mime = Core._speech_json_named_mime_type_impl(raw);
-    Object has_named_mime = Core.truthyValue(named_mime);
-    if (Core.truthy(has_named_mime)) {
-      Core.set(out, "mime_type", named_mime);
-      Object mime_params = Core._audio_mime_params_impl(named_mime);
-      out = Core.mapMerge(out, mime_params);
-    }
-    out = Core.mapMerge(out, speech);
-    return out;
+    return speech;
   }
 
   static Object _speech_request_text_impl(Object request) {
@@ -12792,20 +12778,8 @@ final class Core {
       // empty
     }
     if (!Core.truthy(data_is_text)) {
-      Object json_is_object = Core.typeIs(json, "object");
-      Object older = Core.none();
-      if (Core.truthy(json_is_object)) {
-        older = Core.get(json, "audio", null);
-      }
-      Object older_is_text = Core.typeIs(older, "string");
-      if (Core.truthy(older_is_text)) {
-        Core.axgenDeprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.");
-        data = older;
-      }
-      if (!Core.truthy(older_is_text)) {
-        Object error = Core.aiErrorResponse("Speech response JSON did not include audio data", json);
-        throw Core.asRuntime(error);
-      }
+      Object error = Core.aiErrorResponse("Speech response JSON did not include audio data", json);
+      throw Core.asRuntime(error);
     }
     Object mime_type = Core._speech_json_named_mime_type_impl(json);
     Object has_mime = Core.truthyValue(mime_type);
@@ -16571,22 +16545,19 @@ final class Core {
     return message;
   }
 
-  static Object provider_warn_call_timeout(Object options, Object seconds) {
-    axirCoverageMark("provider_warn_call_timeout");
-    Object timeout = Core.get(options, "timeout", null);
-    Object timeout_ms = Core.get(options, "timeoutMs", null);
-    Object has_timeout = Core.isNotNone(timeout);
-    Object has_timeout_ms = Core.isNotNone(timeout_ms);
-    Object without_ms = Core.not(has_timeout_ms);
-    Object warn = Core.and(has_timeout, without_ms);
-    if (Core.truthy(warn)) {
-      Object message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.";
-      if (Core.truthy(seconds)) {
-        message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).";
-      }
-      Core.aiWarnOnce("call-timeout", message);
+  static Object provider_normalize_call_options(Object options) {
+    axirCoverageMark("provider_normalize_call_options");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object source = Core.coalesce(options, empty);
+    Object out = Core.mapMerge(empty, source);
+    Object timeout = Core.get(source, "timeout", null);
+    Object alias = Core.get(source, "timeoutMs", timeout);
+    Object has_timeout = Core.isNotNone(alias);
+    if (Core.truthy(has_timeout)) {
+      Core.set(out, "timeoutMs", alias);
     }
-    return null;
+    Core.mapDelete(out, "timeout");
+    return out;
   }
 
   static Object _provider_sampling_is_one_impl(Object value) {
@@ -17228,9 +17199,10 @@ final class Core {
     axirCoverageMark("_render_audio_outputs_impl");
     Object base_options = Core.get(gen, "options", null);
     Object runtime_options = Core.mapMerge(base_options, options);
-    Object render_snake = Core.get(runtime_options, "render_audio", null);
-    Object render = Core.get(runtime_options, "renderAudio", render_snake);
-    Object render_unset = Core.isNone(render);
+    Object gen_snake = Core.get(base_options, "render_audio", Boolean.TRUE);
+    Object gen_render = Core.get(base_options, "renderAudio", gen_snake);
+    Object call_snake = Core.get(options, "render_audio", gen_render);
+    Object render = Core.get(options, "renderAudio", call_snake);
     Object render_on = Core.truthyValue(render);
     Object no_speech = new java.util.LinkedHashMap<String, Object>();
     Object speech = Core.get(runtime_options, "speech", no_speech);
@@ -17255,9 +17227,6 @@ final class Core {
         Object value = Core.get(out, name, null);
         Object is_text = Core.typeIs(value, "string");
         if (Core.truthy(is_text)) {
-          if (Core.truthy(render_unset)) {
-            Core.axgenDeprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.");
-          }
           if (Core.truthy(render_on)) {
             Object request_base = new java.util.LinkedHashMap<String, Object>();
             Object request = Core.mapMerge(request_base, speak_defaults);
@@ -17518,7 +17487,7 @@ final class Core {
     Object empty = new java.util.LinkedHashMap<String, Object>();
     Object call_options = Core.mapMerge(empty, options);
     Object gen_options = Core.mapMerge(empty, base_options);
-    Object gen_snake = Core.get(gen_options, "parse_dates", Boolean.FALSE);
+    Object gen_snake = Core.get(gen_options, "parse_dates", Boolean.TRUE);
     Object gen_parse = Core.get(gen_options, "parseDates", gen_snake);
     Object call_snake = Core.get(call_options, "parse_dates", gen_parse);
     Object parse = Core.get(call_options, "parseDates", call_snake);
@@ -36980,12 +36949,9 @@ final class Core {
     Core.mapDelete(runtime_options, "mcpContext");
     Core.mapDelete(runtime_options, "functions");
     Core.set(runtime_options, "reservedNames", reserved_names);
-    Object timeout_ms = Core.get(options, "timeout_ms", null);
-    Object timeout = Core.get(options, "timeout", timeout_ms);
-    Object has_timeout = Core.isNotNone(timeout);
-    if (Core.truthy(has_timeout)) {
-      Core.set(runtime_options, "timeout", timeout);
-    }
+    Core.mapDelete(runtime_options, "timeout");
+    Core.mapDelete(runtime_options, "timeout_ms");
+    Core.mapDelete(runtime_options, "timeoutMs");
     Object abort_snake = Core.get(options, "abort", Boolean.FALSE);
     Object aborted = Core.get(options, "aborted", abort_snake);
     Object abort_signal = Core.get(options, "abortSignal", aborted);

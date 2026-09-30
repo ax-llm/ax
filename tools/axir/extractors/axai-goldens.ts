@@ -3990,47 +3990,21 @@ const binaryResponse = (bytes: Uint8Array, contentType: string) => () =>
     headers: { 'content-type': contentType },
   });
 
-// A port's speak() output: its older keys (audio, mime_type, sample_rate),
-// kept until the next major version, next to TypeScript's AxSpeechResponse
-// keys. Where both name the same thing they must agree.
+// Speech outputs now use TypeScript's exact response keys.
 function portSpeechOutput(
-  older: Record<string, Json>,
+  _older: Record<string, Json>,
   ts: Record<string, Json>
 ): Record<string, Json> {
-  const pairs: [string, string][] = [
-    ['audio', 'data'],
-    ['format', 'format'],
-    ['mime_type', 'mimeType'],
-    ['sample_rate', 'sampleRate'],
-    ['channels', 'channels'],
-  ];
-  for (const [olderKey, tsKey] of pairs) {
-    if (
-      olderKey in older &&
-      JSON.stringify(older[olderKey]) !== JSON.stringify(ts[tsKey])
-    ) {
-      throw new Error(
-        `speak ${olderKey} ${JSON.stringify(older[olderKey])} disagrees with TS ${tsKey} ${JSON.stringify(ts[tsKey])}`
-      );
-    }
-  }
-  return { ...older, ...ts };
+  return ts;
 }
 
-// The older JSON speak path: TS's axFetchJsonSpeech rejects a JSON body
-// without audio_data, data or audio.data ("Speech response JSON did not
-// include audio data"), but the ports still read its `audio`, with a
-// deprecation warning, until the next major version. They add TS's keys from
-// it: data, the mime type of the format, and the spoken text. (TS's
-// openai-responses client has no speak(); the ports' speak goes through the
-// OpenAI speech builder, so the model defaults to gpt-4o-mini-tts.)
+// The Responses profile delegates speech to the OpenAI speech endpoint.
 writeFixture('responses-speak', {
   kind: 'ai_speak',
   provider: 'openai-responses',
   request: { text: 'hello', voice: 'alloy', format: 'mp3' },
-  transport_responses: [{ status: 200, json: { audio: 'base64-speech' } }],
+  transport_responses: [{ status: 200, json: { data: 'base64-speech' } }],
   expected_output: {
-    audio: 'base64-speech',
     format: 'mp3',
     data: 'base64-speech',
     mimeType: 'audio/mpeg',
@@ -4090,8 +4064,7 @@ writeFixture('responses-speak', {
 // them: OpenAI's defaults (gpt-4o-mini-tts, a voice object's id, pcm sent as
 // pcm16, speed), Mistral's and Grok's profile dialects, the JSON bodies
 // axFetchJsonSpeech reads, and Gemini audio with no or snake_case mime data.
-// A port keeps its older keys (audio, format, and Gemini's mime_type,
-// sample_rate and channels) beside TypeScript's.
+// Ports return the exact TypeScript response shape.
 {
   const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00]);
   const wav = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
@@ -4213,22 +4186,24 @@ writeFixture('responses-speak', {
     { json: { audio: { data: b64(wav) }, mimeType: 'audio/wav' } },
     binaryOlder
   );
-  // A JSON body with no audio TS reads is TS's error. (The ports' older
-  // `audio` key is a deprecated fallback until the next major version; see
-  // responses-speak.)
-  {
+  // Reject both missing data and the removed bare audio-string fallback.
+  for (const body of [{ status: 'ok' }, { audio: 'legacy-base64' }]) {
     const request = { text: 'Hello there' };
-    const body = { status: 'ok' };
     const message = await tsSpeechError('openai', request, jsonResponse(body));
     if (!message) throw new Error('TS speak accepted a JSON body without data');
-    writeFixture('openai-speak-json-without-audio-data', {
-      kind: 'ai_error',
-      method: 'speak',
-      provider: 'openai',
-      request,
-      transport_responses: [{ status: 200, json: body }],
-      expected_error_contains: message,
-    });
+    writeFixture(
+      'audio' in body
+        ? 'openai-speak-json-legacy-audio-rejected'
+        : 'openai-speak-json-without-audio-data',
+      {
+        kind: 'ai_error',
+        method: 'speak',
+        provider: 'openai',
+        request,
+        transport_responses: [{ status: 200, json: body }],
+        expected_error_contains: message,
+      }
+    );
   }
   const geminiOlder = (ts: Record<string, Json>) => ({
     audio: ts.data,
@@ -10204,21 +10179,21 @@ for (const [name, fixture, key] of [
 const callTimeoutChat = {
   kind: 'ai_chat',
   provider: 'openai',
-  model: 'gpt-5.4-mini',
+  model: 'gpt-6-luna',
   service_options: {},
   request: {
     chat_prompt: [{ role: 'user', content: 'hi' }],
     model_config: { stream: false },
   },
   transport_responses: [
-    compatibleResponse('chatcmpl_call_timeout', 'gpt-5.4-mini'),
+    compatibleResponse('chatcmpl_call_timeout', 'gpt-6-luna'),
   ],
 };
 writeFixture('call-timeout-ms-reaches-transport', {
   description:
     "Port-only: a call's timeoutMs (TS's per-call timeout, in milliseconds) reaches the transport as timeout_ms.",
   ...callTimeoutChat,
-  options: { timeoutMs: 250 },
+  options: { timeout: 250 },
   expected_transport_request: { timeout_ms: 250 },
   expected_warnings: [],
 });
@@ -10227,9 +10202,9 @@ writeFixture('call-timeout-ms-reaches-stream-transport', {
     "Port-only: a stream call's timeoutMs reaches the transport as timeout_ms.",
   kind: 'ai_stream',
   provider: 'openai',
-  model: 'gpt-5.4-mini',
+  model: 'gpt-6-luna',
   service_options: {},
-  options: { timeoutMs: 250 },
+  options: { timeout: 250 },
   request: {
     chat_prompt: [{ role: 'user', content: 'hi' }],
     model_config: { stream: true },
@@ -10237,7 +10212,7 @@ writeFixture('call-timeout-ms-reaches-stream-transport', {
   transport_responses: [
     {
       status: 200,
-      body: 'data: {"id":"chatcmpl_call_timeout","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      body: 'data: {"id":"chatcmpl_call_timeout","model":"gpt-6-luna","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
     },
   ],
   expected_transport_request: { timeout_ms: 250 },
@@ -10262,12 +10237,13 @@ writeFixture('call-timeout-ms-from-client-options-embed', {
   ],
   expected_transport_request: { timeout_ms: 250 },
 });
-writeFixture('call-timeout-without-timeout-ms-warns', {
+writeFixture('call-timeout-milliseconds-default', {
   description:
-    'Port-only: a per-call timeout without timeoutMs is ignored (Rust reads it in seconds) until the next major version, so the call warns once, naming timeoutMs.',
+    'A per-call timeout is milliseconds and reaches the transport without warnings.',
   ...callTimeoutChat,
   options: { timeout: 30 },
-  expected_warnings_containing: ['per-call timeout', 'timeoutMs'],
+  expected_transport_request: { timeout_ms: 30 },
+  expected_warnings: [],
 });
 writeFixture('call-timeout-with-timeout-ms-does-not-warn', {
   description:
@@ -14814,10 +14790,7 @@ providerErrorFixture(
 // unknown role, and a user content item that is not an object or has no type
 // fail with messages that show the value as JSON.stringify(value, null, 2)
 // writes it, undefined when it is missing. The expected messages are TS's own.
-// TS throws a plain Error; the ports keep their classes: a role error is an
-// AxAIServiceResponseError, and a content-item error stays the
-// AxUnsupportedCapabilityError they raised before (it becomes the response
-// error at the next major).
+// Ports classify all malformed messages as AxAIServiceResponseError.
 async function tsChatPromptError(chatPrompt: unknown[]): Promise<string> {
   const llm = ai({ name: 'openai', apiKey: 'test-key' });
   llm.setOptions({
@@ -14859,9 +14832,7 @@ for (const [name, chatPrompt] of [
     kind: 'ai_error',
     request: { chat_prompt: chatPrompt },
     expected_error_contains: await tsChatPromptError([...chatPrompt]),
-    expected_error_type: name.startsWith('chat-message-content-item')
-      ? 'AxUnsupportedCapabilityError'
-      : 'AxAIServiceResponseError',
+    expected_error_type: 'AxAIServiceResponseError',
   });
 }
 

@@ -1,10 +1,13 @@
 {
-  "description": "Port-only: without parse_dates an invalid date is not a validation error; the model text comes back as is.",
+  "description": "Port-only: with parse_dates: false an invalid date is not a validation error; the model text comes back as is.",
   "expected_output": {
     "due": "2024-02-30",
     "when": "next Tuesday"
   },
   "expected_request_count": 1,
+  "forward_options": {
+    "parse_dates": false
+  },
   "input": {
     "question": "Status?"
   },

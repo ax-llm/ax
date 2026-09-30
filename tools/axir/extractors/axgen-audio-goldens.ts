@@ -2,10 +2,8 @@
 // AxGen (forward or streamingForward) against AxMockAIService with scripted
 // chat and speak responses, and records the output (or deltas), each speak()
 // request, and the chat request count. TypeScript renders audio outputs
-// through speak() by default; the ports do so with the renderAudio option, so
-// every fixture passes renderAudio: true to them unless it pins the ports'
-// text default ("off" variants), which expect the text TS sent to speak() and
-// no speak requests.
+// through speak() by default in every language. Explicit false ("off"
+// variants) keeps the text TS sent to speak() and sends no speech request.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -145,7 +143,7 @@ type Case = {
   result_picker_index?: number;
   responses: ResponseSpec[];
   speak_responses?: SpeakSpec[];
-  // The ports' opt-in: renderAudio true (default), unset ("unset"), or false.
+  // Default rendering, or explicit false to retain text.
   render?: true | 'unset' | false;
   // Output fields TS rendered, in speak() order; an "off" fixture puts the
   // text TS sent to speak() back in them.
@@ -256,7 +254,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const result = await run(spec);
   const render = spec.render ?? true;
   const forwardOptions: JsonMap = { ...(spec.forward_options ?? {}) };
-  if (render !== 'unset') forwardOptions.renderAudio = render;
+  if (render === false) forwardOptions.renderAudio = false;
 
   const fixture: Record<string, unknown> = {
     kind,
@@ -519,7 +517,7 @@ const cases: Record<string, Case> = {
     rendered: ['speech'],
   },
   // Without a result picker, streamingForward streams the text as it comes
-  // and renders nothing, even with the opt-in.
+  // and renders nothing, even with rendering enabled.
   'audio-output-streaming-no-picker-streams-text': {
     kind: 'streaming_forward',
     signature: speechSignature,
@@ -552,12 +550,11 @@ const cases: Record<string, Case> = {
   },
 };
 
-// The ports' default this release: audio fields keep the model's text and
-// speak() is not called, with renderAudio unset or false.
+// Explicit false preserves text and skips speak().
 const offCases: Record<string, Case> = {
   'audio-output-off-by-default': {
     ...cases['audio-output-forward-single-field']!,
-    render: 'unset',
+    render: false,
     trace: false,
   },
   'audio-output-off-explicit-false': {
@@ -566,7 +563,7 @@ const offCases: Record<string, Case> = {
   },
   'audio-output-off-streaming-result-picker': {
     ...cases['audio-output-streaming-result-picker']!,
-    render: 'unset',
+    render: false,
   },
 };
 

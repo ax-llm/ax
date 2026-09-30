@@ -74,7 +74,7 @@ public final class AudioHTTPRoundtripExample {
       Map<String, Object> speech =
           client.speak(
               Map.of("text", "hello", "voice", "alloy", "format", "mp3", "model", "gpt-4o-mini-tts"));
-      if (!wantAudio.equals(speech.get("audio")))
+      if (!wantAudio.equals(speech.get("data")))
         throw new RuntimeException("speak binary response not base64-encoded as expected: " + speech);
     } finally {
       server.stop(0);

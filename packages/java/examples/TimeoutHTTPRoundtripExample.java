@@ -11,7 +11,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // Time requests out through the REAL HttpClient transport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -38,9 +38,9 @@ public final class TimeoutHTTPRoundtripExample {
     Map<String, Object> request = Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hi")));
     OpenAICompatibleClient client = new OpenAICompatibleClient(
         Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent.getLocalPort(), "model", "gpt-5.4-mini"));
-    expectTimeout("chat", () -> client.chat(request, new LinkedHashMap<>(Map.of("timeoutMs", 200))));
+    expectTimeout("chat", () -> client.chat(request, new LinkedHashMap<>(Map.of("timeout", 200))));
     expectTimeout("stream", () -> {
-      try (AxChatStream stream = client.openStream(request, new LinkedHashMap<>(Map.of("timeoutMs", 200)), null)) {
+      try (AxChatStream stream = client.openStream(request, new LinkedHashMap<>(Map.of("timeout", 200)), null)) {
         for (Object ignored : stream) {}
       }
       return null;
@@ -48,7 +48,7 @@ public final class TimeoutHTTPRoundtripExample {
     if (accepted.get() != 2) throw new RuntimeException("a timed-out request was retried: " + accepted.get() + " connections");
 
     // A stream whose headers arrive at once and whose second event comes after
-    // more than the timeoutMs.
+    // more than the timeout.
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/",
@@ -73,7 +73,7 @@ public final class TimeoutHTTPRoundtripExample {
       OpenAICompatibleClient slow = new OpenAICompatibleClient(
           Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + server.getAddress().getPort(), "model", "gpt-5.4-mini"));
       StringBuilder text = new StringBuilder();
-      try (AxChatStream stream = slow.openStream(request, new LinkedHashMap<>(Map.of("timeoutMs", 1000)), null)) {
+      try (AxChatStream stream = slow.openStream(request, new LinkedHashMap<>(Map.of("timeout", 1000)), null)) {
         for (Map<String, Object> event : stream) {
           Object results = event.get("results");
           if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first && first.get("content") instanceof String content) text.append(content);

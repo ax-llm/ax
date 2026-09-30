@@ -12,9 +12,6 @@
   },
   "kind": "forward",
   "name": "date-forward-parse-dates-retry",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "results": [

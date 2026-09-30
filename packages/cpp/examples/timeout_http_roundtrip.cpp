@@ -16,7 +16,7 @@
 #include <vector>
 
 // Time requests out through the REAL libcurl HttpTransport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -115,12 +115,12 @@ int main() {
   OpenAICompatibleClient client(
       object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port_of(silent))}, {"model", "gpt-5.4-mini"}}),
       nullptr);
-  expect_timeout("chat", [&] { client.chat(request, object({{"timeoutMs", 200}})); });
-  expect_timeout("stream", [&] { client.stream(request, object({{"timeoutMs", 200}})); });
+  expect_timeout("chat", [&] { client.chat(request, object({{"timeout", 200}})); });
+  expect_timeout("stream", [&] { client.stream(request, object({{"timeout", 200}})); });
   if (accepted.load() != 2) throw std::runtime_error("a timed-out request was retried: " + std::to_string(accepted.load()) + " connections");
 
   // A stream whose headers arrive at once and whose second event comes after
-  // more than the timeoutMs.
+  // more than the timeout.
   int slow = listen_loopback();
   std::thread server([slow] {
     int fd = accept(slow, nullptr, nullptr);
@@ -136,7 +136,7 @@ int main() {
       object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port_of(slow))}, {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::string text;
-  for (const auto& event : slow_client.stream(request, object({{"timeoutMs", 1000}}))) {
+  for (const auto& event : slow_client.stream(request, object({{"timeout", 1000}}))) {
     text += display(Core::get(Core::get(Core::get(event, "results"), 0), "content", ""));
   }
   server.join();

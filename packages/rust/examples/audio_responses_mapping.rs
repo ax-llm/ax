@@ -3,7 +3,7 @@ use serde_json::json;
 
 fn main() -> AxResult<()> {
     let transport = ScriptedTransport::new(vec![
-        json!({"status": 200, "json": {"audio": "base64-speech"}}),
+        json!({"status": 200, "json": {"data": "base64-speech"}}),
         json!({"status": 200, "json": {"text": "hello world", "language": "en", "duration": 1.25}}),
     ]);
     let mut client =
@@ -15,7 +15,7 @@ fn main() -> AxResult<()> {
         "model": "whisper-1",
         "format": "json"
     }))?;
-    assert_eq!(speech["audio"], "base64-speech");
+    assert_eq!(speech["data"], "base64-speech");
     assert_eq!(transcript["text"], "hello world");
     println!(
         "{}",

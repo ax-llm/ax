@@ -2512,7 +2512,7 @@ transport_requests = []
 def scripted_transport(request):
     transport_requests.append(request)
     if request["url"].endswith("/audio/speech"):
-        return {"status": 200, "json": {"audio": "base64-speech"}}
+        return {"status": 200, "json": {"data": "base64-speech"}}
     if request["url"].endswith("/audio/transcriptions"):
         return {
             "status": 200,
@@ -2526,7 +2526,7 @@ speech = client.speak({"text": "hello", "voice": "alloy", "format": "mp3"})
 transcript = client.transcribe(
     {"audio": "base64-audio", "language": "en", "model": "whisper-1", "format": "json"}
 )
-assert speech["audio"] == "base64-speech", speech
+assert speech["data"] == "base64-speech", speech
 assert transcript["text"] == "hello world", transcript
 
 print("normalized output:")
@@ -2623,7 +2623,7 @@ try:
     speech = client.speak(
         {"text": "hello", "voice": "alloy", "format": "mp3", "model": "gpt-4o-mini-tts"}
     )
-    assert speech["audio"] == want_audio, f"speak binary base64 mismatch: {speech}"
+    assert speech["data"] == want_audio, f"speak binary base64 mismatch: {speech}"
 finally:
     server.shutdown()
 
@@ -3315,7 +3315,7 @@ public final class AudioResponsesMappingExample {
           transportRequests.add(new LinkedHashMap<>(request));
           String url = String.valueOf(request.get("url"));
           if (url.endsWith("/audio/speech")) {
-            return Map.of("status", 200, "json", Map.of("audio", "base64-speech"));
+            return Map.of("status", 200, "json", Map.of("data", "base64-speech"));
           }
           if (url.endsWith("/audio/transcriptions")) {
             return Map.of(
@@ -3334,7 +3334,7 @@ public final class AudioResponsesMappingExample {
     Map<String, Object> transcript =
         client.transcribe(
             Map.of("audio", "base64-audio", "language", "en", "model", "whisper-1", "format", "json"));
-    if (!"base64-speech".equals(speech.get("audio"))) throw new RuntimeException("bad speech: " + speech);
+    if (!"base64-speech".equals(speech.get("data"))) throw new RuntimeException("bad speech: " + speech);
     if (!"hello world".equals(transcript.get("text"))) throw new RuntimeException("bad transcript: " + transcript);
 
     System.out.println("normalized output:");
@@ -3421,7 +3421,7 @@ public final class AudioHTTPRoundtripExample {
       Map<String, Object> speech =
           client.speak(
               Map.of("text", "hello", "voice", "alloy", "format", "mp3", "model", "gpt-4o-mini-tts"));
-      if (!wantAudio.equals(speech.get("audio")))
+      if (!wantAudio.equals(speech.get("data")))
         throw new RuntimeException("speak binary response not base64-encoded as expected: " + speech);
     } finally {
       server.stop(0);
@@ -4450,7 +4450,7 @@ int main() {
     std::cerr << "transcribe response not normalized: " << axllm::stringify(transcript) << "\n";
     return 1;
   }
-  if (!axllm::equal(axllm::Core::get(speech, "audio"), want_audio)) {
+  if (!axllm::equal(axllm::Core::get(speech, "data"), want_audio)) {
     std::cerr << "speak binary response not base64-encoded as expected: "
               << axllm::stringify(speech) << "\n";
     return 1;
@@ -4968,7 +4968,7 @@ struct ScriptedTransport : axllm::Transport {
     requests.push_back(request);
     std::string url = axllm::stringify(axllm::Core::get(request, "url"));
     if (url.find("/audio/speech") != std::string::npos) {
-      return axllm::object({{"status", 200}, {"json", axllm::object({{"audio", "base64-speech"}})}});
+      return axllm::object({{"status", 200}, {"json", axllm::object({{"data", "base64-speech"}})}});
     }
     if (url.find("/audio/transcriptions") != std::string::npos) {
       return axllm::object({
@@ -4991,7 +4991,7 @@ int main() {
       {"model", "whisper-1"},
       {"format", "json"},
   }));
-  if (!axllm::equal(axllm::Core::get(speech, "audio"), "base64-speech")) return 1;
+  if (!axllm::equal(axllm::Core::get(speech, "data"), "base64-speech")) return 1;
   if (!axllm::equal(axllm::Core::get(transcript, "text"), "hello world")) return 2;
 
   std::cout << "normalized output:\n"
@@ -5498,7 +5498,7 @@ int main() {
 `
 
 const pyTimeoutHTTPRoundtripExample = `"""Time requests out through the REAL urllib transport against in-process
-loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+loopback servers. A call's timeout (TypeScript's per-call timeout, in
 milliseconds) ends a chat or a stream whose response has not started, and the
 request layer does not retry it. A stream whose response has started runs past
 it, because the timer stops at the response headers, as in TypeScript's
@@ -5546,13 +5546,13 @@ def expect_timeout(label, run):
     raise AssertionError(f"{label}: the request did not time out")
 
 
-expect_timeout("chat", lambda: client.chat(request, {"timeoutMs": 200}))
-expect_timeout("stream", lambda: list(client.stream(request, {"timeoutMs": 200})))
+expect_timeout("chat", lambda: client.chat(request, {"timeout": 200}))
+expect_timeout("stream", lambda: list(client.stream(request, {"timeout": 200})))
 assert len(accepted) == 2, f"a timed-out request was retried: {len(accepted)} connections"
 
 
 # A stream whose headers arrive at once and whose second event comes after more
-# than the timeoutMs.
+# than the timeout.
 def event(content, finish):
     return (
         '{"id":"chatcmpl_slow","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"'
@@ -5585,7 +5585,7 @@ try:
     slow = OpenAICompatibleClient(
         api_key="test-key", base_url=f"http://127.0.0.1:{server.server_address[1]}", model="gpt-5.4-mini"
     )
-    events = list(slow.stream(request, {"timeoutMs": 1000}))
+    events = list(slow.stream(request, {"timeout": 1000}))
     text = "".join((event.get("results") or [{}])[0].get("content") or "" for event in events)
     assert text == "Hello", f"a started stream was cut off: {text!r}"
 finally:
@@ -5608,7 +5608,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // Time requests out through the REAL HttpClient transport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -5635,9 +5635,9 @@ public final class TimeoutHTTPRoundtripExample {
     Map<String, Object> request = Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hi")));
     OpenAICompatibleClient client = new OpenAICompatibleClient(
         Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent.getLocalPort(), "model", "gpt-5.4-mini"));
-    expectTimeout("chat", () -> client.chat(request, new LinkedHashMap<>(Map.of("timeoutMs", 200))));
+    expectTimeout("chat", () -> client.chat(request, new LinkedHashMap<>(Map.of("timeout", 200))));
     expectTimeout("stream", () -> {
-      try (AxChatStream stream = client.openStream(request, new LinkedHashMap<>(Map.of("timeoutMs", 200)), null)) {
+      try (AxChatStream stream = client.openStream(request, new LinkedHashMap<>(Map.of("timeout", 200)), null)) {
         for (Object ignored : stream) {}
       }
       return null;
@@ -5645,7 +5645,7 @@ public final class TimeoutHTTPRoundtripExample {
     if (accepted.get() != 2) throw new RuntimeException("a timed-out request was retried: " + accepted.get() + " connections");
 
     // A stream whose headers arrive at once and whose second event comes after
-    // more than the timeoutMs.
+    // more than the timeout.
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/",
@@ -5670,7 +5670,7 @@ public final class TimeoutHTTPRoundtripExample {
       OpenAICompatibleClient slow = new OpenAICompatibleClient(
           Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + server.getAddress().getPort(), "model", "gpt-5.4-mini"));
       StringBuilder text = new StringBuilder();
-      try (AxChatStream stream = slow.openStream(request, new LinkedHashMap<>(Map.of("timeoutMs", 1000)), null)) {
+      try (AxChatStream stream = slow.openStream(request, new LinkedHashMap<>(Map.of("timeout", 1000)), null)) {
         for (Map<String, Object> event : stream) {
           Object results = event.get("results");
           if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first && first.get("content") instanceof String content) text.append(content);
@@ -5722,7 +5722,7 @@ const cppTimeoutHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 #include <vector>
 
 // Time requests out through the REAL libcurl HttpTransport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -5821,12 +5821,12 @@ int main() {
   OpenAICompatibleClient client(
       object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port_of(silent))}, {"model", "gpt-5.4-mini"}}),
       nullptr);
-  expect_timeout("chat", [&] { client.chat(request, object({{"timeoutMs", 200}})); });
-  expect_timeout("stream", [&] { client.stream(request, object({{"timeoutMs", 200}})); });
+  expect_timeout("chat", [&] { client.chat(request, object({{"timeout", 200}})); });
+  expect_timeout("stream", [&] { client.stream(request, object({{"timeout", 200}})); });
   if (accepted.load() != 2) throw std::runtime_error("a timed-out request was retried: " + std::to_string(accepted.load()) + " connections");
 
   // A stream whose headers arrive at once and whose second event comes after
-  // more than the timeoutMs.
+  // more than the timeout.
   int slow = listen_loopback();
   std::thread server([slow] {
     int fd = accept(slow, nullptr, nullptr);
@@ -5842,7 +5842,7 @@ int main() {
       object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port_of(slow))}, {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::string text;
-  for (const auto& event : slow_client.stream(request, object({{"timeoutMs", 1000}}))) {
+  for (const auto& event : slow_client.stream(request, object({{"timeout", 1000}}))) {
     text += display(Core::get(Core::get(Core::get(event, "results"), 0), "content", ""));
   }
   server.join();

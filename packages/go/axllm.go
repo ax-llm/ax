@@ -9161,6 +9161,7 @@ func resolve_model_key(args ...Value) (Value, error) {
 	_ = v_target
 	_ = v_target_snake
 	_ = v_unmatched
+	{ v, err := provider_normalize_call_options(v_options); if err != nil { return nil, err }; v_options = v }
 	v_empty_models = MutableArray()
 	v_model_list_camel = coreGet(v_client_options, "modelList", v_empty_models)
 	v_model_list_snake = coreGet(v_client_options, "model_list", v_model_list_camel)
@@ -10615,7 +10616,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 				if coreTruthy(v_item_not_map) {
 					v_item_json = _core_json_pretty(v_item)
 					v_item_text = _core_string_format("User message content item at index {} must be an object, received: {}", v_item_index, v_item_json)
-					v_item_error = _core_ai_error_unsupported(v_item_text)
+					v_item_error = _core_ai_error_response(v_item_text)
 					return nil, asError(v_item_error)
 				} else {
 				// empty
@@ -10637,7 +10638,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 					// empty
 					}
 					v_type_text = _core_string_format("User message content item at index {} must have a type, received: {}", v_item_index, v_received_type)
-					v_type_error = _core_ai_error_unsupported(v_type_text)
+					v_type_error = _core_ai_error_response(v_type_text)
 					return nil, asError(v_type_error)
 				} else {
 				// empty
@@ -12928,6 +12929,55 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
+	var v_value Value
+	var v_is_call Value
+	var v_is_content_filter Value
+	var v_is_function_call Value
+	var v_is_length Value
+	var v_is_stop Value
+	var v_is_tool_calls Value
+	var v_none Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_call
+	_ = v_is_content_filter
+	_ = v_is_function_call
+	_ = v_is_length
+	_ = v_is_stop
+	_ = v_is_tool_calls
+	_ = v_none
+	v_is_stop = _core_eq(v_value, "stop")
+	if coreTruthy(v_is_stop) {
+		return "stop", nil
+	} else {
+	// empty
+	}
+	v_is_length = _core_eq(v_value, "length")
+	if coreTruthy(v_is_length) {
+		return "length", nil
+	} else {
+	// empty
+	}
+	v_is_content_filter = _core_eq(v_value, "content_filter")
+	if coreTruthy(v_is_content_filter) {
+		return "error", nil
+	} else {
+	// empty
+	}
+	v_is_tool_calls = _core_eq(v_value, "tool_calls")
+	v_is_function_call = _core_eq(v_value, "function_call")
+	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
+	if coreTruthy(v_is_call) {
+		return "function_call", nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
 func ai_context_cache_rejection(args ...Value) (Value, error) {
 	axirCoverageMark("ai_context_cache_rejection")
 	var v_status Value
@@ -13012,55 +13062,6 @@ func ai_context_cache_rejection(args ...Value) (Value, error) {
 	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
 	v_out = _core_and(v_valid_status, v_cache_rejection)
 	return v_out, nil
-}
-
-func _openai_finish_reason_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_finish_reason_impl")
-	var v_value Value
-	var v_is_call Value
-	var v_is_content_filter Value
-	var v_is_function_call Value
-	var v_is_length Value
-	var v_is_stop Value
-	var v_is_tool_calls Value
-	var v_none Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_call
-	_ = v_is_content_filter
-	_ = v_is_function_call
-	_ = v_is_length
-	_ = v_is_stop
-	_ = v_is_tool_calls
-	_ = v_none
-	v_is_stop = _core_eq(v_value, "stop")
-	if coreTruthy(v_is_stop) {
-		return "stop", nil
-	} else {
-	// empty
-	}
-	v_is_length = _core_eq(v_value, "length")
-	if coreTruthy(v_is_length) {
-		return "length", nil
-	} else {
-	// empty
-	}
-	v_is_content_filter = _core_eq(v_value, "content_filter")
-	if coreTruthy(v_is_content_filter) {
-		return "error", nil
-	} else {
-	// empty
-	}
-	v_is_tool_calls = _core_eq(v_value, "tool_calls")
-	v_is_function_call = _core_eq(v_value, "function_call")
-	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
-	if coreTruthy(v_is_call) {
-		return "function_call", nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
@@ -23578,7 +23579,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	var v_request Value
 	var v_content_type Value
 	var v_binary_speech Value
-	var v_data Value
 	var v_descriptor Value
 	var v_dialect Value
 	var v_format Value
@@ -23587,7 +23587,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	var v_json_speech Value
 	var v_operation Value
 	var v_operations Value
-	var v_out Value
 	var v_provider_id Value
 	var v_raw_is_text Value
 	var v_speech Value
@@ -23601,7 +23600,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	if len(args) > 3 { v_content_type = args[3] }
 	_ = v_content_type
 	_ = v_binary_speech
-	_ = v_data
 	_ = v_descriptor
 	_ = v_dialect
 	_ = v_format
@@ -23610,7 +23608,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	_ = v_json_speech
 	_ = v_operation
 	_ = v_operations
-	_ = v_out
 	_ = v_provider_id
 	_ = v_raw_is_text
 	_ = v_speech
@@ -23638,11 +23635,7 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 		{ v, err := _speech_json_response_impl(v_raw, v_format, v_transcript); if err != nil { return nil, err }; v_json_speech = v }
 		v_speech = v_json_speech
 	}
-	v_out = Object()
-	v_data = coreGet(v_speech, "data", nil)
-	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
-	v_out = _core_map_merge(v_out, v_speech)
-	return v_out, nil
+	return v_speech, nil
 }
 
 func provider_normalize_realtime_event(args ...Value) (Value, error) {
@@ -26129,43 +26122,20 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	axirCoverageMark("_gemini_normalize_speak_response")
 	var v_raw Value
 	var v_request Value
-	var v_data Value
-	var v_has_named_mime Value
-	var v_mime_params Value
-	var v_named_mime Value
 	var v_none Value
-	var v_out Value
 	var v_speech Value
 	var v_transcript Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
-	_ = v_data
-	_ = v_has_named_mime
-	_ = v_mime_params
-	_ = v_named_mime
 	_ = v_none
-	_ = v_out
 	_ = v_speech
 	_ = v_transcript
 	{ v, err := _speech_request_text_impl(v_request); if err != nil { return nil, err }; v_transcript = v }
 	v_none = _core_none()
 	{ v, err := _speech_json_response_impl(v_raw, v_none, v_transcript); if err != nil { return nil, err }; v_speech = v }
-	v_out = Object()
-	v_data = coreGet(v_speech, "data", nil)
-	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
-	{ v, err := _speech_json_named_mime_type_impl(v_raw); if err != nil { return nil, err }; v_named_mime = v }
-	v_has_named_mime = _core_truthy(v_named_mime)
-	if coreTruthy(v_has_named_mime) {
-		if err := coreSet(v_out, "mime_type", v_named_mime); err != nil { return nil, err }
-		{ v, err := _audio_mime_params_impl(v_named_mime); if err != nil { return nil, err }; v_mime_params = v }
-		v_out = _core_map_merge(v_out, v_mime_params)
-	} else {
-	// empty
-	}
-	v_out = _core_map_merge(v_out, v_speech)
-	return v_out, nil
+	return v_speech, nil
 }
 
 func _speech_request_text_impl(args ...Value) (Value, error) {
@@ -26295,10 +26265,7 @@ func _speech_json_response_impl(args ...Value) (Value, error) {
 	var v_data_is_text Value
 	var v_error Value
 	var v_has_mime Value
-	var v_json_is_object Value
 	var v_mime_type Value
-	var v_older Value
-	var v_older_is_text Value
 	var v_speech Value
 	if len(args) > 0 { v_json = args[0] }
 	_ = v_json
@@ -26310,31 +26277,15 @@ func _speech_json_response_impl(args ...Value) (Value, error) {
 	_ = v_data_is_text
 	_ = v_error
 	_ = v_has_mime
-	_ = v_json_is_object
 	_ = v_mime_type
-	_ = v_older
-	_ = v_older_is_text
 	_ = v_speech
 	{ v, err := _speech_json_data_impl(v_json); if err != nil { return nil, err }; v_data = v }
 	v_data_is_text = coreTypeIs(v_data, "string")
 	if coreTruthy(v_data_is_text) {
 	// empty
 	} else {
-		v_json_is_object = coreTypeIs(v_json, "object")
-		v_older = _core_none()
-		if coreTruthy(v_json_is_object) {
-			v_older = coreGet(v_json, "audio", nil)
-		} else {
-		// empty
-		}
-		v_older_is_text = coreTypeIs(v_older, "string")
-		if coreTruthy(v_older_is_text) {
-			_core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
-			v_data = v_older
-		} else {
-			v_error = _core_ai_error_response("Speech response JSON did not include audio data", v_json)
-			return nil, asError(v_error)
-		}
+		v_error = _core_ai_error_response("Speech response JSON did not include audio data", v_json)
+		return nil, asError(v_error)
 	}
 	{ v, err := _speech_json_named_mime_type_impl(v_json); if err != nil { return nil, err }; v_mime_type = v }
 	v_has_mime = _core_truthy(v_mime_type)
@@ -34019,46 +33970,36 @@ func provider_call_timeout_message(args ...Value) (Value, error) {
 	return v_message, nil
 }
 
-func provider_warn_call_timeout(args ...Value) (Value, error) {
-	axirCoverageMark("provider_warn_call_timeout")
+func provider_normalize_call_options(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_call_options")
 	var v_options Value
-	var v_seconds Value
+	var v_alias Value
+	var v_empty Value
 	var v_has_timeout Value
-	var v_has_timeout_ms Value
-	var v_message Value
+	var v_out Value
+	var v_source Value
 	var v_timeout Value
-	var v_timeout_ms Value
-	var v_warn Value
-	var v_without_ms Value
 	if len(args) > 0 { v_options = args[0] }
 	_ = v_options
-	if len(args) > 1 { v_seconds = args[1] }
-	_ = v_seconds
+	_ = v_alias
+	_ = v_empty
 	_ = v_has_timeout
-	_ = v_has_timeout_ms
-	_ = v_message
+	_ = v_out
+	_ = v_source
 	_ = v_timeout
-	_ = v_timeout_ms
-	_ = v_warn
-	_ = v_without_ms
-	v_timeout = coreGet(v_options, "timeout", nil)
-	v_timeout_ms = coreGet(v_options, "timeoutMs", nil)
-	v_has_timeout = _core_is_not_none(v_timeout)
-	v_has_timeout_ms = _core_is_not_none(v_timeout_ms)
-	v_without_ms = _core_not(v_has_timeout_ms)
-	v_warn = _core_and(v_has_timeout, v_without_ms)
-	if coreTruthy(v_warn) {
-		v_message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
-		if coreTruthy(v_seconds) {
-			v_message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
-		} else {
-		// empty
-		}
-		_core_ai_warn_once("call-timeout", v_message)
+	v_empty = Object()
+	v_source = _core_coalesce(v_options, v_empty)
+	v_out = _core_map_merge(v_empty, v_source)
+	v_timeout = coreGet(v_source, "timeout", nil)
+	v_alias = coreGet(v_source, "timeoutMs", v_timeout)
+	v_has_timeout = _core_is_not_none(v_alias)
+	if coreTruthy(v_has_timeout) {
+		if err := coreSet(v_out, "timeoutMs", v_alias); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	return nil, nil
+	_core_map_delete(v_out, "timeout")
+	return v_out, nil
 }
 
 func _provider_sampling_is_one_impl(args ...Value) (Value, error) {
@@ -35490,9 +35431,12 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	var v_audio Value
 	var v_audio_field Value
 	var v_base_options Value
+	var v_call_snake Value
 	var v_field Value
 	var v_field_defaults Value
 	var v_field_speech Value
+	var v_gen_render Value
+	var v_gen_snake Value
 	var v_is_array Value
 	var v_is_audio Value
 	var v_is_text Value
@@ -35508,8 +35452,6 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	var v_output_fields Value
 	var v_render Value
 	var v_render_on Value
-	var v_render_snake Value
-	var v_render_unset Value
 	var v_request Value
 	var v_request_base Value
 	var v_runtime_options Value
@@ -35534,9 +35476,12 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	_ = v_audio
 	_ = v_audio_field
 	_ = v_base_options
+	_ = v_call_snake
 	_ = v_field
 	_ = v_field_defaults
 	_ = v_field_speech
+	_ = v_gen_render
+	_ = v_gen_snake
 	_ = v_is_array
 	_ = v_is_audio
 	_ = v_is_text
@@ -35552,8 +35497,6 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	_ = v_output_fields
 	_ = v_render
 	_ = v_render_on
-	_ = v_render_snake
-	_ = v_render_unset
 	_ = v_request
 	_ = v_request_base
 	_ = v_runtime_options
@@ -35567,9 +35510,10 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	_ = v_value
 	v_base_options = coreGet(v_gen, "options", nil)
 	v_runtime_options = _core_map_merge(v_base_options, v_options)
-	v_render_snake = coreGet(v_runtime_options, "render_audio", nil)
-	v_render = coreGet(v_runtime_options, "renderAudio", v_render_snake)
-	v_render_unset = _core_is_none(v_render)
+	v_gen_snake = coreGet(v_base_options, "render_audio", true)
+	v_gen_render = coreGet(v_base_options, "renderAudio", v_gen_snake)
+	v_call_snake = coreGet(v_options, "render_audio", v_gen_render)
+	v_render = coreGet(v_options, "renderAudio", v_call_snake)
 	v_render_on = _core_truthy(v_render)
 	v_no_speech = Object()
 	v_speech = coreGet(v_runtime_options, "speech", v_no_speech)
@@ -35594,11 +35538,6 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 			v_value = coreGet(v_out, v_name, nil)
 			v_is_text = coreTypeIs(v_value, "string")
 			if coreTruthy(v_is_text) {
-				if coreTruthy(v_render_unset) {
-					_core_axgen_deprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.")
-				} else {
-				// empty
-				}
 				if coreTruthy(v_render_on) {
 					v_request_base = Object()
 					v_request = _core_map_merge(v_request_base, v_speak_defaults)
@@ -36177,7 +36116,7 @@ func _date_parse_dates_option_impl(args ...Value) (Value, error) {
 	v_empty = Object()
 	v_call_options = _core_map_merge(v_empty, v_options)
 	v_gen_options = _core_map_merge(v_empty, v_base_options)
-	v_gen_snake = coreGet(v_gen_options, "parse_dates", false)
+	v_gen_snake = coreGet(v_gen_options, "parse_dates", true)
 	v_gen_parse = coreGet(v_gen_options, "parseDates", v_gen_snake)
 	v_call_snake = coreGet(v_call_options, "parse_dates", v_gen_parse)
 	v_parse = coreGet(v_call_options, "parseDates", v_call_snake)
@@ -77755,15 +77694,12 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_has_abort Value
 	var v_has_session_id Value
-	var v_has_timeout Value
 	var v_has_trace_id Value
 	var v_reserved_names Value
 	var v_runtime_options Value
 	var v_session_id Value
 	var v_session_id_snake Value
 	var v_signal_aborted Value
-	var v_timeout Value
-	var v_timeout_ms Value
 	var v_trace_id Value
 	var v_trace_id_snake Value
 	if len(args) > 0 { v_state = args[0] }
@@ -77778,15 +77714,12 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_has_abort
 	_ = v_has_session_id
-	_ = v_has_timeout
 	_ = v_has_trace_id
 	_ = v_reserved_names
 	_ = v_runtime_options
 	_ = v_session_id
 	_ = v_session_id_snake
 	_ = v_signal_aborted
-	_ = v_timeout
-	_ = v_timeout_ms
 	_ = v_trace_id
 	_ = v_trace_id_snake
 	v_empty_map = Object()
@@ -77801,14 +77734,9 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_core_map_delete(v_runtime_options, "mcpContext")
 	_core_map_delete(v_runtime_options, "functions")
 	if err := coreSet(v_runtime_options, "reservedNames", v_reserved_names); err != nil { return nil, err }
-	v_timeout_ms = coreGet(v_options, "timeout_ms", nil)
-	v_timeout = coreGet(v_options, "timeout", v_timeout_ms)
-	v_has_timeout = _core_is_not_none(v_timeout)
-	if coreTruthy(v_has_timeout) {
-		if err := coreSet(v_runtime_options, "timeout", v_timeout); err != nil { return nil, err }
-	} else {
-	// empty
-	}
+	_core_map_delete(v_runtime_options, "timeout")
+	_core_map_delete(v_runtime_options, "timeout_ms")
+	_core_map_delete(v_runtime_options, "timeoutMs")
 	v_abort_snake = coreGet(v_options, "abort", false)
 	v_aborted = coreGet(v_options, "aborted", v_abort_snake)
 	v_abort_signal = coreGet(v_options, "abortSignal", v_aborted)
@@ -102760,12 +102688,6 @@ func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first
 	}
 }
 
-// warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
-// ignores it until the next major version and warns once, naming timeoutMs.
-func warnCallTimeout(options map[string]Value) {
-	mustCore(provider_warn_call_timeout(stripRuntimeHooks(options), false))
-}
-
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
 	ctx, timer := startRequestTimer(ctx, req)
@@ -102935,7 +102857,7 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
     return models, err
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
-    opts := mergeAIOptions(c.client.optionsSnapshot(), options)
+    opts := mergeAIOptions(c.client.optionsSnapshot(), asMap(mustCore(provider_normalize_call_options(options))))
     timeout := num(coreGet(opts, "timeout", 0))
     config := mustCore(resolve_stream_retry(Value(opts)))
     for attempt := 0; ; attempt++ {
@@ -103278,7 +103200,6 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -103542,7 +103463,6 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -103680,7 +103600,6 @@ func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, req
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
-    warnCallTimeout(options)
     request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
@@ -104019,7 +103938,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	}
 	// The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds the
 	// wait for the response headers; HTTPTransport honors it.
-	if operation == "chat" || operation == "stream_chat" || operation == "embed" {
+	if operation == "chat" || operation == "stream_chat" || operation == "embed" || operation == "models" {
 		if timeoutMs := mustCore(provider_call_timeout_ms(opts)); timeoutMs != nil {
 			coreSet(out, "timeout_ms", timeoutMs)
 		}
@@ -115585,7 +115504,7 @@ func conformanceVerificationSummary() Value {
 		"toolName", coreGet(coreGet(toolCall, "function", Object()), "name", nil),
 		"profileId", coreGet(profile, "id", nil),
 		"geminiText", coreGet(geminiTranscript, "text", nil),
-		"geminiAudio", coreGet(geminiSpeech, "audio", nil),
+		"geminiAudio", coreGet(geminiSpeech, "data", nil),
 		"grokCodec", coreGet(coreGet(grokSpeak, "output_format", Object()), "codec", nil),
 		"grokFormat", coreGet(grokTranscribe, "format", nil),
 		"policyActions", len(asSlice(mustCore(_select_protocol_actions(registry)))),

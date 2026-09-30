@@ -6479,6 +6479,7 @@ Value Core::_openai_apply_cache_breakpoint_impl(Value message) {
 
 Value Core::resolve_model_key(Value client_options, Value request, Value options, Value default_model, Value embed) {
   axir_coverage_mark("resolve_model_key");
+  options = Core::provider_normalize_call_options(options);
   Value empty_models = Value::array();
   Value model_list_camel = Core::get(client_options, Value("modelList"), empty_models);
   Value model_list_snake = Core::get(client_options, Value("model_list"), model_list_camel);
@@ -7185,7 +7186,7 @@ Value Core::validate_chat_request(Value request) {
         if (Core::truthy(item_not_map)) {
           Value item_json = Core::json_pretty(item);
           Value item_text = Core::string_format(Value("User message content item at index {} must be an object, received: {}"), item_index, item_json);
-          Value item_error = Core::ai_error_unsupported(item_text);
+          Value item_error = Core::ai_error_response(item_text);
           Core::raise_error(item_error);
         }
         Value item_type = Core::get(item, Value("type"), Value());
@@ -7201,7 +7202,7 @@ Value Core::validate_chat_request(Value request) {
             received_type = Core::json_pretty(item_type);
           }
           Value type_text = Core::string_format(Value("User message content item at index {} must have a type, received: {}"), item_index, received_type);
-          Value type_error = Core::ai_error_unsupported(type_text);
+          Value type_error = Core::ai_error_response(type_text);
           Core::raise_error(type_error);
         }
         Value next_item_index = Core::add(item_index, Value(1));
@@ -8274,6 +8275,30 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   return out;
 }
 
+Value Core::_openai_finish_reason_impl(Value value) {
+  axir_coverage_mark("_openai_finish_reason_impl");
+  Value is_stop = Core::eq(value, Value("stop"));
+  if (Core::truthy(is_stop)) {
+    return Value("stop");
+  }
+  Value is_length = Core::eq(value, Value("length"));
+  if (Core::truthy(is_length)) {
+    return Value("length");
+  }
+  Value is_content_filter = Core::eq(value, Value("content_filter"));
+  if (Core::truthy(is_content_filter)) {
+    return Value("error");
+  }
+  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
+  Value is_function_call = Core::eq(value, Value("function_call"));
+  Value is_call = Core::or_(is_tool_calls, is_function_call);
+  if (Core::truthy(is_call)) {
+    return Value("function_call");
+  }
+  Value none = Core::none();
+  return none;
+}
+
 Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   axir_coverage_mark("ai_context_cache_rejection");
   Value status_400_min = Core::gte(status, Value(400));
@@ -8302,30 +8327,6 @@ Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   Value cache_rejection = Core::or_(names_cache, invalid_cache);
   Value out = Core::and_(valid_status, cache_rejection);
   return out;
-}
-
-Value Core::_openai_finish_reason_impl(Value value) {
-  axir_coverage_mark("_openai_finish_reason_impl");
-  Value is_stop = Core::eq(value, Value("stop"));
-  if (Core::truthy(is_stop)) {
-    return Value("stop");
-  }
-  Value is_length = Core::eq(value, Value("length"));
-  if (Core::truthy(is_length)) {
-    return Value("length");
-  }
-  Value is_content_filter = Core::eq(value, Value("content_filter"));
-  if (Core::truthy(is_content_filter)) {
-    return Value("error");
-  }
-  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
-  Value is_function_call = Core::eq(value, Value("function_call"));
-  Value is_call = Core::or_(is_tool_calls, is_function_call);
-  if (Core::truthy(is_call)) {
-    return Value("function_call");
-  }
-  Value none = Core::none();
-  return none;
 }
 
 Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
@@ -13223,11 +13224,7 @@ Value Core::provider_normalize_speak_response(Value profile, Value raw, Value re
     Value json_speech = Core::_speech_json_response_impl(raw, format, transcript);
     speech = json_speech;
   }
-  Value out = Value::object();
-  Value data = Core::get(speech, Value("data"), Value());
-  Core::set(out, Value("audio"), data);
-  out = Core::map_merge(out, speech);
-  return out;
+  return speech;
 }
 
 Value Core::provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model) {
@@ -14472,18 +14469,7 @@ Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
   Value transcript = Core::_speech_request_text_impl(request);
   Value none = Core::none();
   Value speech = Core::_speech_json_response_impl(raw, none, transcript);
-  Value out = Value::object();
-  Value data = Core::get(speech, Value("data"), Value());
-  Core::set(out, Value("audio"), data);
-  Value named_mime = Core::_speech_json_named_mime_type_impl(raw);
-  Value has_named_mime = Core::truthy_value(named_mime);
-  if (Core::truthy(has_named_mime)) {
-    Core::set(out, Value("mime_type"), named_mime);
-    Value mime_params = Core::_audio_mime_params_impl(named_mime);
-    out = Core::map_merge(out, mime_params);
-  }
-  out = Core::map_merge(out, speech);
-  return out;
+  return speech;
 }
 
 Value Core::_speech_request_text_impl(Value request) {
@@ -14546,20 +14532,8 @@ Value Core::_speech_json_response_impl(Value json, Value format, Value transcrip
     // empty
   }
   if (!Core::truthy(data_is_text)) {
-    Value json_is_object = Core::type_is(json, Value("object"));
-    Value older = Core::none();
-    if (Core::truthy(json_is_object)) {
-      older = Core::get(json, Value("audio"), Value());
-    }
-    Value older_is_text = Core::type_is(older, Value("string"));
-    if (Core::truthy(older_is_text)) {
-      Core::axgen_deprecation(Value("speech-json-audio-key"), Value("A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version."));
-      data = older;
-    }
-    if (!Core::truthy(older_is_text)) {
-      Value error = Core::ai_error_response(Value("Speech response JSON did not include audio data"), json);
-      Core::raise_error(error);
-    }
+    Value error = Core::ai_error_response(Value("Speech response JSON did not include audio data"), json);
+    Core::raise_error(error);
   }
   Value mime_type = Core::_speech_json_named_mime_type_impl(json);
   Value has_mime = Core::truthy_value(mime_type);
@@ -18325,22 +18299,19 @@ Value Core::provider_call_timeout_message(Value timeout_ms) {
   return message;
 }
 
-Value Core::provider_warn_call_timeout(Value options, Value seconds) {
-  axir_coverage_mark("provider_warn_call_timeout");
-  Value timeout = Core::get(options, Value("timeout"), Value());
-  Value timeout_ms = Core::get(options, Value("timeoutMs"), Value());
-  Value has_timeout = Core::is_not_none(timeout);
-  Value has_timeout_ms = Core::is_not_none(timeout_ms);
-  Value without_ms = Core::not_(has_timeout_ms);
-  Value warn = Core::and_(has_timeout, without_ms);
-  if (Core::truthy(warn)) {
-    Value message = Value("Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.");
-    if (Core::truthy(seconds)) {
-      message = Value("Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).");
-    }
-    Core::ai_warn_once(Value("call-timeout"), message);
+Value Core::provider_normalize_call_options(Value options) {
+  axir_coverage_mark("provider_normalize_call_options");
+  Value empty = Value::object();
+  Value source = Core::coalesce(options, empty);
+  Value out = Core::map_merge(empty, source);
+  Value timeout = Core::get(source, Value("timeout"), Value());
+  Value alias = Core::get(source, Value("timeoutMs"), timeout);
+  Value has_timeout = Core::is_not_none(alias);
+  if (Core::truthy(has_timeout)) {
+    Core::set(out, Value("timeoutMs"), alias);
   }
-  return Value();
+  Core::map_delete(out, Value("timeout"));
+  return out;
 }
 
 Value Core::_provider_sampling_is_one_impl(Value value) {
@@ -18982,9 +18953,10 @@ Value Core::_render_audio_outputs_impl(Value gen, Value client, Value values, Va
   axir_coverage_mark("_render_audio_outputs_impl");
   Value base_options = Core::get(gen, Value("options"), Value());
   Value runtime_options = Core::map_merge(base_options, options);
-  Value render_snake = Core::get(runtime_options, Value("render_audio"), Value());
-  Value render = Core::get(runtime_options, Value("renderAudio"), render_snake);
-  Value render_unset = Core::is_none(render);
+  Value gen_snake = Core::get(base_options, Value("render_audio"), Value(true));
+  Value gen_render = Core::get(base_options, Value("renderAudio"), gen_snake);
+  Value call_snake = Core::get(options, Value("render_audio"), gen_render);
+  Value render = Core::get(options, Value("renderAudio"), call_snake);
   Value render_on = Core::truthy_value(render);
   Value no_speech = Value::object();
   Value speech = Core::get(runtime_options, Value("speech"), no_speech);
@@ -19009,9 +18981,6 @@ Value Core::_render_audio_outputs_impl(Value gen, Value client, Value values, Va
       Value value = Core::get(out, name, Value());
       Value is_text = Core::type_is(value, Value("string"));
       if (Core::truthy(is_text)) {
-        if (Core::truthy(render_unset)) {
-          Core::axgen_deprecation(Value("axgen-audio-output-text"), Value("AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version."));
-        }
         if (Core::truthy(render_on)) {
           Value request_base = Value::object();
           Value request = Core::map_merge(request_base, speak_defaults);
@@ -19272,7 +19241,7 @@ Value Core::_date_parse_dates_option_impl(Value base_options, Value options) {
   Value empty = Value::object();
   Value call_options = Core::map_merge(empty, options);
   Value gen_options = Core::map_merge(empty, base_options);
-  Value gen_snake = Core::get(gen_options, Value("parse_dates"), Value(false));
+  Value gen_snake = Core::get(gen_options, Value("parse_dates"), Value(true));
   Value gen_parse = Core::get(gen_options, Value("parseDates"), gen_snake);
   Value call_snake = Core::get(call_options, Value("parse_dates"), gen_parse);
   Value parse = Core::get(call_options, Value("parseDates"), call_snake);
@@ -38751,12 +38720,9 @@ Value Core::_agent_runtime_execution_options(Value state, Value options) {
   Core::map_delete(runtime_options, Value("mcpContext"));
   Core::map_delete(runtime_options, Value("functions"));
   Core::set(runtime_options, Value("reservedNames"), reserved_names);
-  Value timeout_ms = Core::get(options, Value("timeout_ms"), Value());
-  Value timeout = Core::get(options, Value("timeout"), timeout_ms);
-  Value has_timeout = Core::is_not_none(timeout);
-  if (Core::truthy(has_timeout)) {
-    Core::set(runtime_options, Value("timeout"), timeout);
-  }
+  Core::map_delete(runtime_options, Value("timeout"));
+  Core::map_delete(runtime_options, Value("timeout_ms"));
+  Core::map_delete(runtime_options, Value("timeoutMs"));
   Value abort_snake = Core::get(options, Value("abort"), Value(false));
   Value aborted = Core::get(options, Value("aborted"), abort_snake);
   Value abort_signal = Core::get(options, Value("abortSignal"), aborted);
@@ -52815,10 +52781,8 @@ static std::string ax_call_base_url(const std::string& profile, const Value& des
   return resolved.is_null() ? base_url : strip_trailing_slashes(str(resolved));
 }
 
-// TS reads a per-call timeout in milliseconds; this port ignores it until the
-// next major version and warns once, naming timeoutMs.
 void OpenAICompatibleClient::check_call_options(const Value& call_options) {
-  Core::provider_warn_call_timeout(call_options, false);
+  (void)call_options;
 }
 
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {

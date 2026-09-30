@@ -24,9 +24,7 @@
     "functions": true,
     "structured_outputs": false
   },
-  "forward_options": {
-    "renderAudio": true
-  },
+  "forward_options": {},
   "input": {
     "question": "Say hi"
   },

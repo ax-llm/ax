@@ -6087,12 +6087,9 @@ module @ax.agent version "0.1" {
       core.call intrinsic.map.delete(%runtime_options, "mcpContext")
       core.call intrinsic.map.delete(%runtime_options, "functions")
       core.set %runtime_options["reservedNames"] = %reserved_names
-      %timeout_ms = core.get %options["timeout_ms"] default null
-      %timeout = core.get %options["timeout"] default %timeout_ms
-      %has_timeout = core.call intrinsic.is_not_none(%timeout)
-      core.if %has_timeout {
-        core.set %runtime_options["timeout"] = %timeout
-      }
+      core.call intrinsic.map.delete(%runtime_options, "timeout")
+      core.call intrinsic.map.delete(%runtime_options, "timeout_ms")
+      core.call intrinsic.map.delete(%runtime_options, "timeoutMs")
       %abort_snake = core.get %options["abort"] default false
       %aborted = core.get %options["aborted"] default %abort_snake
       %abort_signal = core.get %options["abortSignal"] default %aborted

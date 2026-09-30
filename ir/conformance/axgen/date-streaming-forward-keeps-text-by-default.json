@@ -1,5 +1,5 @@
 {
-  "description": "Port-only: without parse_dates streaming deltas carry the model text of each date field, sent whole once the field is complete, as the ports do today.",
+  "description": "Port-only: with parse_dates false streaming deltas carry the model text of each date field, sent whole once the field is complete, as the ports do today.",
   "expected_deltas": [
     {
       "delta": {
@@ -45,13 +45,16 @@
     }
   ],
   "expected_output": {
-    "note": "all set",
     "due": "2024-05-09",
-    "when": "2024-05-09T14:30:00+05:30",
+    "note": "all set",
     "span": "2024-05-09 to 2024-05-12",
+    "when": "2024-05-09T14:30:00+05:30",
     "window": "2024-05-09T14:30:00Z/2024-05-09T15:30:00Z"
   },
   "expected_request_count": 1,
+  "forward_options": {
+    "parse_dates": false
+  },
   "input": {
     "question": "Status?"
   },

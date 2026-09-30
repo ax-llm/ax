@@ -6132,10 +6132,8 @@ static std::string ax_call_base_url(const std::string& profile, const Value& des
   return resolved.is_null() ? base_url : strip_trailing_slashes(str(resolved));
 }
 
-// TS reads a per-call timeout in milliseconds; this port ignores it until the
-// next major version and warns once, naming timeoutMs.
 void OpenAICompatibleClient::check_call_options(const Value& call_options) {
-  Core::provider_warn_call_timeout(call_options, false);
+  (void)call_options;
 }
 
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {

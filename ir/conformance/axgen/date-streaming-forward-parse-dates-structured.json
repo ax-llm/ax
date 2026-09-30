@@ -2,22 +2,22 @@
   "expected_deltas": [
     {
       "delta": {
+        "due": "2024-05-10",
         "event": {
           "name": "launch",
           "on": "2024-05-09"
-        },
-        "due": "2024-05-10"
+        }
       },
       "index": 0,
       "version": 0
     }
   ],
   "expected_output": {
+    "due": "2024-05-10",
     "event": {
       "name": "launch",
       "on": "2024-05-09"
-    },
-    "due": "2024-05-10"
+    }
   },
   "expected_request_count": 1,
   "features": {
@@ -28,9 +28,6 @@
   },
   "kind": "streaming_forward",
   "name": "date-streaming-forward-parse-dates-structured",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "stream": [

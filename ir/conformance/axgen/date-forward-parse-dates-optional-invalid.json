@@ -8,9 +8,6 @@
   },
   "kind": "forward",
   "name": "date-forward-parse-dates-optional-invalid",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "results": [

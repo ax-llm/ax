@@ -2564,7 +2564,7 @@ def _verification_instruments_summary():
         "toolName": (tool_call.get("function") or {}).get("name"),
         "profileId": profile.get("id"),
         "geminiText": gemini_transcript.get("text"),
-        "geminiAudio": gemini_speech.get("audio"),
+        "geminiAudio": gemini_speech.get("data"),
         "grokCodec": (grok_speak.get("output_format") or {}).get("codec"),
         "grokFormat": grok_transcribe.get("format"),
         "policyActions": len(_select_protocol_actions(registry)),

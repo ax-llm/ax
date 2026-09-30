@@ -1,10 +1,10 @@
 {
   "expected_output": {
+    "due": "2024-02-30",
     "event": {
       "name": "launch",
       "on": "2024-05-09"
     },
-    "due": "2024-02-30",
     "when": "2024-05-09 14:30 America/New_York"
   },
   "expected_request_count": 1,
@@ -16,9 +16,6 @@
   },
   "kind": "forward",
   "name": "date-forward-parse-dates-structured-keeps-strings",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "results": [

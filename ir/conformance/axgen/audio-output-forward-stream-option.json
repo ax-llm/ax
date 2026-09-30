@@ -15,7 +15,6 @@
     }
   ],
   "forward_options": {
-    "renderAudio": true,
     "stream": true
   },
   "input": {

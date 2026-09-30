@@ -23,9 +23,7 @@
       "text": "See you soon"
     }
   ],
-  "forward_options": {
-    "renderAudio": true
-  },
+  "forward_options": {},
   "input": {
     "question": "Say hi"
   },

@@ -1,5 +1,5 @@
 """Time requests out through the REAL urllib transport against in-process
-loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+loopback servers. A call's timeout (TypeScript's per-call timeout, in
 milliseconds) ends a chat or a stream whose response has not started, and the
 request layer does not retry it. A stream whose response has started runs past
 it, because the timer stops at the response headers, as in TypeScript's
@@ -47,13 +47,13 @@ def expect_timeout(label, run):
     raise AssertionError(f"{label}: the request did not time out")
 
 
-expect_timeout("chat", lambda: client.chat(request, {"timeoutMs": 200}))
-expect_timeout("stream", lambda: list(client.stream(request, {"timeoutMs": 200})))
+expect_timeout("chat", lambda: client.chat(request, {"timeout": 200}))
+expect_timeout("stream", lambda: list(client.stream(request, {"timeout": 200})))
 assert len(accepted) == 2, f"a timed-out request was retried: {len(accepted)} connections"
 
 
 # A stream whose headers arrive at once and whose second event comes after more
-# than the timeoutMs.
+# than the timeout.
 def event(content, finish):
     return (
         '{"id":"chatcmpl_slow","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"'
@@ -86,7 +86,7 @@ try:
     slow = OpenAICompatibleClient(
         api_key="test-key", base_url=f"http://127.0.0.1:{server.server_address[1]}", model="gpt-5.4-mini"
     )
-    events = list(slow.stream(request, {"timeoutMs": 1000}))
+    events = list(slow.stream(request, {"timeout": 1000}))
     text = "".join((event.get("results") or [{}])[0].get("content") or "" for event in events)
     assert text == "Hello", f"a started stream was cut off: {text!r}"
 finally:

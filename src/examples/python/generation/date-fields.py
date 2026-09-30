@@ -1,7 +1,7 @@
 # ax-example:start
 # title: Python Date Fields
 # group: generation
-# description: Parses date, datetime and range outputs into ISO 8601 as TypeScript does with parse_dates, and passes a native datetime as an input.
+# description: Parses date, datetime and range outputs into ISO 8601 by default as TypeScript does, and passes a native datetime as an input.
 # provider: openai
 # env: OPENAI_API_KEY, OPENAI_APIKEY
 # level: intermediate
@@ -20,17 +20,13 @@ if not api_key:
 client = ai(
     "openai",
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-6-luna"),
 )
 
-# parse_dates reads the date-typed outputs as TypeScript does: an IANA zone,
-# an offset or an abbreviation at its literal offset, then toISOString text.
-# Without it (the default until the next major version) they keep the
-# model's text.
+# Date outputs parse by default; set parseDates (or parse_dates) to false to keep text.
 planner = ax(
     'emailText:string, sentAt:datetime -> meetingStartsAt:datetime "Start time with its time zone", '
     'meetingDay:date, travelWindow:dateRange "First and last day away"',
-    {"parse_dates": True},
 )
 out = planner.forward(
     client,

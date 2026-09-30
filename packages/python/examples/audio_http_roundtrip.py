@@ -86,7 +86,7 @@ try:
     speech = client.speak(
         {"text": "hello", "voice": "alloy", "format": "mp3", "model": "gpt-4o-mini-tts"}
     )
-    assert speech["audio"] == want_audio, f"speak binary base64 mismatch: {speech}"
+    assert speech["data"] == want_audio, f"speak binary base64 mismatch: {speech}"
 finally:
     server.shutdown()
 

@@ -10,7 +10,7 @@ import (
 
 func main() {
 	transport := ax.NewScriptedTransport([]ax.Value{
-		ax.Object("status", 200, "json", ax.Object("audio", "base64-speech")),
+		ax.Object("status", 200, "json", ax.Object("data", "base64-speech")),
 		ax.Object("status", 200, "json", ax.Object("text", "hello world", "language", "en", "duration", 1.25)),
 	})
 	client := ax.NewOpenAIResponsesClient(map[string]ax.Value{

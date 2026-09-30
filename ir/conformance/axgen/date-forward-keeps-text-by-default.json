@@ -1,13 +1,16 @@
 {
-  "description": "Port-only: without parse_dates (the default until the next major version) date fields keep the model text; TS always parses them.",
+  "description": "Port-only: with parse_dates: false date fields keep the model text; TS always parses them.",
   "expected_output": {
     "due": "2024-05-09",
-    "when": "2024-05-09 14:30 America/New_York",
+    "note": "all set",
     "span": "2024-05-09/2024-05-12",
-    "window": "{\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}",
-    "note": "all set"
+    "when": "2024-05-09 14:30 America/New_York",
+    "window": "{\"start\":\"2024-05-09T14:30:00Z\",\"end\":\"2024-05-09T15:30:00+00:00\"}"
   },
   "expected_request_count": 1,
+  "forward_options": {
+    "parse_dates": false
+  },
   "input": {
     "question": "Status?"
   },

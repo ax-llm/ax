@@ -29,9 +29,7 @@
     },
     "status": "ok"
   },
-  "forward_options": {
-    "renderAudio": true
-  },
+  "forward_options": {},
   "input": {
     "question": "Say hi"
   },
