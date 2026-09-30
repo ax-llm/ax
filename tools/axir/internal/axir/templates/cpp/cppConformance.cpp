@@ -4041,13 +4041,15 @@ static void run_program_contract(Value fixture) {
 }
 
 static void run_flow(Value fixture) {
+  // A step with constructor_control gets a node run control of its own;
+  // expected_node_control_events pins its lifecycle events, and
+  // expected_control_events the flow control's, a failed flow's too.
+  auto node_events = std::make_shared<FixtureControlEvents>();
+  auto flow_events = std::make_shared<FixtureControlEvents>();
   try {
     std::vector<std::unique_ptr<AxGen>> programs;
     std::vector<std::unique_ptr<AxFlow>> flows;
     std::vector<std::unique_ptr<AxAgent>> agents;
-    // A step with constructor_control gets a node run control of its own;
-    // expected_node_control_events pins its lifecycle events.
-    auto node_events = std::make_shared<FixtureControlEvents>();
     AxRunControl node_control = run_control();
     node_control.on_event([node_events](Value event) {
       std::string type = display(Core::get(event, "type"));
@@ -4064,7 +4066,6 @@ static void run_flow(Value fixture) {
     ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
     client.script_speak(fixture);
     Value forward_options = Core::map_merge(Value::object(), Core::get(fixture, "forward_options", Value::object()));
-    auto flow_events = std::make_shared<FixtureControlEvents>();
     std::optional<AxRunControl> flow_control;
     if (Core::truthy(Core::get(fixture, "control", false))) flow_control = attach_fixture_control(fixture, client, forward_options, flow_events);
     Value output = display(Core::get(fixture, "operation", Value(""))) == "streaming"
@@ -4101,7 +4102,17 @@ static void run_flow(Value fixture) {
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected flow fixture to fail");
   } catch (const AxError& e) {
     Value expected = Core::get(fixture, "expected_error_contains");
-    if (!expected.is_null() && std::string(e.what()).find(display(expected)) != std::string::npos) return;
+    if (!expected.is_null() && std::string(e.what()).find(display(expected)) != std::string::npos) {
+      if (!Core::get(fixture, "expected_control_events").is_null()) {
+        std::lock_guard<std::mutex> lock(flow_events->mutex);
+        assert_equal(flow_events->events, Core::get(fixture, "expected_control_events"), "flow run control events");
+      }
+      if (!Core::get(fixture, "expected_node_control_events").is_null()) {
+        std::lock_guard<std::mutex> lock(node_events->mutex);
+        assert_equal(node_events->events, Core::get(fixture, "expected_node_control_events"), "node run control events");
+      }
+      return;
+    }
     throw;
   }
 }

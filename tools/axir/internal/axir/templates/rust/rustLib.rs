@@ -11893,10 +11893,22 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
         }
     });
     CONFORMANCE_NODE_CONTROL.with(|slot| *slot.borrow_mut() = Some(node_control.clone()));
+    CONFORMANCE_FLOW_EVENTS.with(|slot| *slot.borrow_mut() = None);
     let result = conformance_flow_result(fixture);
     CONFORMANCE_NODE_CONTROL.with(|slot| *slot.borrow_mut() = None);
+    let flow_events = CONFORMANCE_FLOW_EVENTS.with(|slot| slot.borrow_mut().take());
     if fixture.get("expected_error_contains").is_some() {
-        return expect_validation_result(result.map(|_| ()), fixture);
+        expect_validation_result(result.map(|_| ()), fixture)?;
+        // A failed flow's lifecycle events are pinned too.
+        if let Some(expected) = fixture.get("expected_control_events") {
+            let events = flow_events.map(|events| events.lock().unwrap().clone()).unwrap_or_default();
+            expect_json_equal("flow run control events", &Value::Array(events), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_node_control_events") {
+            let events = Value::Array(node_events.lock().unwrap().clone());
+            expect_json_equal("node run control events", &events, expected)?;
+        }
+        return Ok(());
     }
     let actual = result?;
     if let Some(expected) = fixture.get("expected_control_events") {
@@ -15344,6 +15356,9 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
     } else {
         None
     };
+    if let Some((_, events)) = &flow_control {
+        CONFORMANCE_FLOW_EVENTS.with(|slot| *slot.borrow_mut() = Some(events.clone()));
+    }
     let (output, streaming_output) = if operation == "streaming" {
         // The public AxFlow::streaming_forward over the fixture's flow state.
         let mut streaming_flow = AxFlow { state: state.clone(), execution_context: None, runtime_hooks: AxRuntimeHooks::default() };
@@ -17637,6 +17652,8 @@ thread_local! {
     // The run control a flow fixture's execute step with constructor_control
     // gets on its AxGen's constructor.
     static CONFORMANCE_NODE_CONTROL: RefCell<Option<AxRunControl>> = RefCell::new(None);
+    // The events a flow fixture's run control recorded, read after a failed run.
+    static CONFORMANCE_FLOW_EVENTS: RefCell<Option<Arc<Mutex<Vec<Value>>>>> = RefCell::new(None);
 }
 
 fn attach_fixture_control(fixture: &Value, client: &mut FixtureClient) -> (AxRunControl, Arc<Mutex<Vec<Value>>>) {

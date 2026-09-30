@@ -1888,6 +1888,7 @@ public final class Conformance {
     List<Object> nodeEvents = attachRunControl(Map.of(), null, nodeOptions);
     fixture = new LinkedHashMap<>(fixture);
     fixture.put("_node_control", nodeOptions.get("control"));
+    List<Object> flowEvents = new ArrayList<>();
     try {
       AxFlow fl = buildFlow(fixture);
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
@@ -1895,7 +1896,7 @@ public final class Conformance {
       if ("plan".equals(fixture.get("operation"))) return;
       ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))).scriptSpeak(fixture);
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
-      List<Object> flowEvents = attachFixtureControl(fixture, client, forwardOptions);
+      flowEvents = attachFixtureControl(fixture, client, forwardOptions);
       Object output = "streaming".equals(fixture.get("operation"))
         ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
         : fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
@@ -1921,7 +1922,12 @@ public final class Conformance {
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected flow fixture to fail");
     } catch (RuntimeException e) {
       String expected = (String) fixture.get("expected_error_contains");
-      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
+      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) {
+        // A failed flow's lifecycle events are pinned too.
+        if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(flowEvents), fixture.get("expected_control_events"), "flow run control events");
+        if (fixture.containsKey("expected_node_control_events")) assertEqual(new ArrayList<>(nodeEvents), fixture.get("expected_node_control_events"), "node run control events");
+        return;
+      }
       throw e;
     }
   }

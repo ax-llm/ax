@@ -1862,6 +1862,13 @@ def _run_program_contract(fixture):
         _assert_list_subset(components, fixture["expected_components_subset"], "program components")
 
 
+def _assert_flow_control_events(fixture, control_events, node_events):
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "flow run control events")
+    if "expected_node_control_events" in fixture:
+        _assert_equal(node_events, fixture["expected_node_control_events"], "node run control events")
+
+
 def _run_flow(fixture):
     # A step with constructor_control gets a node run control of its own;
     # expected_node_control_events pins its lifecycle events.
@@ -1888,16 +1895,15 @@ def _run_flow(fixture):
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
+            # A failed flow's lifecycle events are pinned too.
+            _assert_flow_control_events(fixture, control_events, node_events)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected flow to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "flow output")
-    if "expected_control_events" in fixture:
-        _assert_equal(control_events, fixture["expected_control_events"], "flow run control events")
-    if "expected_node_control_events" in fixture:
-        _assert_equal(node_events, fixture["expected_node_control_events"], "node run control events")
+    _assert_flow_control_events(fixture, control_events, node_events)
     if "expected_streaming_output" in fixture:
         _assert_equal(output, fixture["expected_streaming_output"], "flow streaming output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:

@@ -15411,6 +15411,13 @@ func runConformanceFlow(fixture map[string]Value) {
 			return out
 		}, fixture, nil)
 	}
+	// The run's lifecycle events, a failed flow's too.
+	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
+		assertEqual(flowEvents(), expected, "flow run control events")
+	}
+	if expected := coreGet(fixture, "expected_node_control_events", nil); expected != nil {
+		assertEqual(nodeEvents(), expected, "node run control events")
+	}
 	if coreGet(fixture, "expected_error_contains", nil) != nil {
 		return
 	}
@@ -15419,12 +15426,6 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_streaming_output", nil); expected != nil {
 		assertEqual(output, expected, "flow streaming output")
-	}
-	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
-		assertEqual(flowEvents(), expected, "flow run control events")
-	}
-	if expected := coreGet(fixture, "expected_node_control_events", nil); expected != nil {
-		assertEqual(nodeEvents(), expected, "node run control events")
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
