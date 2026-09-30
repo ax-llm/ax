@@ -3581,6 +3581,40 @@ static void run_ai_custom_labels(Value fixture) {
   set_meter(nullptr);
 }
 
+// Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+// headers must mask the API key.
+static void run_ai_verbose(Value fixture) {
+  ClientFixture cf(fixture);
+  std::string api_key = display(Core::get(fixture, "api_key", Value("test-key")));
+  const std::regex headers_json(" Headers: \\{[\\s\\S]*?\\n\\} \\nBody:");
+  Value logs = Value::array();
+  auto entries = std::make_shared<std::vector<std::string>>();
+  verbose_log_sink() = [entries](const std::string& text) { entries->push_back(text); };
+  try {
+    for (const auto& call : Core::iter(Core::get(fixture, "calls", Value::array()))) {
+      entries->clear();
+      Value request = parse_json(stringify(Core::get(call, "request", Value::object())));
+      Value options = Core::map_merge(Value::object(), Core::get(call, "options", Value::object()));
+      if (Core::truthy(Core::get(Core::get(request, "model_config", Value::object()), "stream", false))) {
+        cf.client->stream(request, options);
+      } else {
+        cf.client->chat(request, options);
+      }
+      Value out = Value::array();
+      for (const auto& entry : *entries) {
+        if (!api_key.empty() && entry.find(api_key) != std::string::npos) throw AxError("fixture", "a verbose block shows the API key: " + entry);
+        Core::append(out, std::regex_replace(entry, headers_json, " Headers: {{HEADERS}} \nBody:"));
+      }
+      Core::append(logs, out);
+    }
+  } catch (...) {
+    verbose_log_sink() = nullptr;
+    throw;
+  }
+  verbose_log_sink() = nullptr;
+  assert_equal(logs, Core::get(fixture, "expected_verbose_logs"), "verbose logs");
+}
+
 static void run_ai_runtime_hooks(Value fixture) {
   struct FailingTracer final : AxTracer {
     std::shared_ptr<AxSpan> start_span(const AxSpanStart&) override { throw std::runtime_error("tracer failure"); }
@@ -4626,6 +4660,8 @@ static void run_kind(Value fixture) {
     run_ai_usage_observer(fixture);
   } else if (kind == "ai_runtime_hooks") {
     run_ai_runtime_hooks(fixture);
+  } else if (kind == "ai_verbose") {
+    run_ai_verbose(fixture);
   } else if (kind == "ai_custom_labels") {
     run_ai_custom_labels(fixture);
   } else if (kind == "ai_credential_wrapper") {

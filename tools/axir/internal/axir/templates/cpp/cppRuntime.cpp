@@ -4073,6 +4073,28 @@ static Value gen_metric_labels(AIClient& client, const Value& gen_options, const
   }
 }
 
+// Prints a verbose block, as TypeScript's apiCall uses console.log.
+static void verbose_log(const Value& text) {
+  auto& sink = verbose_log_sink();
+  if (sink) sink(display(text)); else std::cout << display(text) << std::endl;
+}
+
+// Whether a call logs its requests: the call's verbose, else the client's
+// (the options are the two merged).
+static bool verbose_enabled(const Value& options) {
+  return options.is_object() && Core::truthy(Core::get(options, "verbose", false));
+}
+
+static void log_verbose_request(const Value& call) {
+  verbose_log(Core::ai_verbose_request_log(Core::get(call, "url", Value("")), Core::get(call, "method", Value("POST")), Core::get(call, "headers", Value::object()), Core::get(call, "json")));
+}
+
+// A transport result's HTTP status.
+static Value transport_status(const Value& raw) {
+  if (raw.is_object() && !Core::get(raw, "status").is_null()) return Core::get(raw, "status");
+  return Value(200.0);
+}
+
 class RuntimeHookScope {
  public:
   // metric_labels (TS's custom labels) go on the metrics, not the span.
@@ -4681,6 +4703,11 @@ void set_rate_limiter(AxRateLimiter limiter) {
 void set_tracer(std::shared_ptr<AxTracer> tracer) {
   std::lock_guard<std::mutex> lock(runtime_hooks_mutex);
   global_runtime_hooks.tracer = std::move(tracer);
+}
+
+std::function<void(const std::string&)>& verbose_log_sink() {
+  static std::function<void(const std::string&)> sink;
+  return sink;
 }
 
 void set_meter(std::shared_ptr<AxMeter> meter) {
@@ -5367,9 +5394,19 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           if (!handler(normalized)) { cancelled = true; return false; }
           return true;
         });
+        // As TS's apiCall, a verbose call logs the request and that its stream
+        // started (with the first chunk).
+        bool verbose = verbose_enabled(merged_options);
+        bool stream_logged = false;
+        if (verbose) log_verbose_request(call);
         auto consume = [&](Value chunk) {
           Value raw = chunk;
+          Value status = transport_status(chunk);
           if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call, merged_options);
+          if (verbose && !stream_logged) {
+            stream_logged = true;
+            verbose_log(Core::ai_verbose_stream_log(status));
+          }
           if (raw.is_array()) {
             for (const auto& event : array_ref(raw)) {
               if (display(event) == "[DONE]") return false;
@@ -5844,6 +5881,10 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options) {
   Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
   if (transport_ == nullptr) throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  // As TS's apiCall, a verbose call logs the request, then its JSON response
+  // or the stream's start.
+  bool verbose = verbose_enabled(error_options.is_object() ? error_options : options_);
+  if (verbose) log_verbose_request(call);
   Value raw;
   try {
     raw = transport_->call(call, current_cancellation_token());
@@ -5854,7 +5895,9 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
     if (error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceTimeoutError") attach_error_request(error, call, error_options);
     throw;
   }
-  return transport_result(raw, call, error_options);
+  Value result = transport_result(raw, call, error_options);
+  if (verbose) verbose_log(stream ? Core::ai_verbose_stream_log(transport_status(raw)) : Core::ai_verbose_response_log(transport_status(raw), result));
+  return result;
 }
 
 // The call's options can move the provider's base URL (a Vertex beta selects

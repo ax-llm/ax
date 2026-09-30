@@ -1951,6 +1951,42 @@ pub enum AxTransportStream {
     Reader { status: u16, body: Box<dyn Read> },
 }
 
+// Where verbose blocks go: stdout, as TS's apiCall uses console.log, unless
+// a sink is set (the conformance runner sets one).
+static VERBOSE_SINK: OnceLock<Mutex<Option<Box<dyn Fn(&str) + Send>>>> = OnceLock::new();
+
+pub(crate) fn set_verbose_sink(sink: Option<Box<dyn Fn(&str) + Send>>) {
+    *VERBOSE_SINK.get_or_init(|| Mutex::new(None)).lock().unwrap() = sink;
+}
+
+fn verbose_log(text: &str) {
+    let sink = VERBOSE_SINK.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    match sink.as_ref() {
+        Some(sink) => sink(text),
+        None => println!("{text}"),
+    }
+}
+
+// The verbose block of a transport request, as TS's apiCall logs it.
+fn verbose_request_log(call: &Value) -> String {
+    ai_verbose_request_log(&[
+        core_value_from_json(call.get("url").unwrap_or(&json!(""))),
+        core_value_from_json(call.get("method").unwrap_or(&json!("POST"))),
+        core_value_from_json(call.get("headers").unwrap_or(&json!({}))),
+        core_value_from_json(call.get("json").unwrap_or(&Value::Null)),
+    ])
+    .map(|text| core_value_to_json(&text).as_str().unwrap_or_default().to_string())
+    .unwrap_or_default()
+}
+
+fn verbose_status_log(status: u64, body: Option<&Value>) -> String {
+    let text = match body {
+        Some(body) => ai_verbose_response_log(&[CoreValue::Num(status as f64), core_value_from_json(body)]),
+        None => ai_verbose_stream_log(&[CoreValue::Num(status as f64)]),
+    };
+    text.map(|text| core_value_to_json(&text).as_str().unwrap_or_default().to_string()).unwrap_or_default()
+}
+
 pub trait AxTransport: Send {
     fn owned_worker_factory(&self) -> Option<AxOwnedTransportFactory> { None }
     fn send(&mut self, request: Value) -> AxResult<Value>;
@@ -2745,7 +2781,33 @@ impl OpenAICompatibleClient {
         Ok(out)
     }
 
+    /// Whether this call logs its requests: the call's verbose, else the
+    /// client's (the options are the two merged for a call).
+    fn verbose_enabled(&self) -> bool {
+        self.options.get("verbose").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    // As TS's apiCall, a verbose call logs the request and its JSON response.
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        let verbose = self.verbose_enabled();
+        if verbose {
+            verbose_log(&verbose_request_log(&call));
+        }
+        let response = self.dispatch_transport_request_unlogged(call)?;
+        if verbose {
+            match response.get("status").and_then(Value::as_u64) {
+                Some(status) if status < 400 => {
+                    let body = response.get("json").or_else(|| response.get("body")).or_else(|| response.get("data")).cloned().unwrap_or(Value::Null);
+                    verbose_log(&verbose_status_log(status, Some(&body)));
+                }
+                Some(_) => {}
+                None => verbose_log(&verbose_status_log(200, Some(&response))),
+            }
+        }
+        Ok(response)
+    }
+
+    fn dispatch_transport_request_unlogged(&mut self, call: Value) -> AxResult<Value> {
         let cancellation=current_cancellation_token();
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
@@ -2816,8 +2878,23 @@ impl OpenAICompatibleClient {
     fn dispatch_transport_stream(&mut self, call: Value) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
         let cancellation=current_cancellation_token();
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
+        // As TS's apiCall, a verbose call logs the request and that its
+        // stream started.
+        let verbose = self.verbose_enabled();
+        if verbose {
+            verbose_log(&verbose_request_log(&call));
+        }
         if let Some(transport) = self.transport.as_mut() {
             let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token)?,None=>transport.stream(call)?};
+            if verbose {
+                let status = match &stream {
+                    AxTransportStream::Buffered(response) => response.get("status").and_then(Value::as_u64).unwrap_or(200),
+                    AxTransportStream::Reader { status, .. } => u64::from(*status),
+                };
+                if status < 400 {
+                    verbose_log(&verbose_status_log(status, None));
+                }
+            }
             let inner=Self::transport_stream_iter(stream)?;
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
@@ -2844,6 +2921,9 @@ impl OpenAICompatibleClient {
             }
         };
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
+        if verbose && status < 400 {
+            verbose_log(&verbose_status_log(u64::from(status), None));
+        }
         let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
         Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner})
     }
@@ -11227,6 +11307,7 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
+        "ai_verbose" => run_ai_verbose_fixture(&fixture)?,
         "ai_custom_labels" => run_ai_custom_labels_fixture(&fixture)?,
         "ai_credential_wrapper" => run_ai_credential_wrapper_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
@@ -18860,6 +18941,43 @@ fn run_ai_custom_labels_fixture(fixture: &Value) -> AxResult<()> {
     })();
     set_meter(None);
     result
+}
+
+// Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+// headers must mask the API key.
+fn run_ai_verbose_fixture(fixture: &Value) -> AxResult<()> {
+    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let api_key = fixture.get("api_key").and_then(Value::as_str).unwrap_or("test-key").to_string();
+    let headers_json = regex::Regex::new(r" Headers: \{[\s\S]*?\n\} \nBody:").map_err(|error| AxError::runtime(error.to_string()))?;
+    let entries = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink_entries = entries.clone();
+    set_verbose_sink(Some(Box::new(move |text: &str| sink_entries.lock().unwrap().push(text.to_string()))));
+    let result = (|| -> AxResult<Value> {
+        let mut logs = Vec::new();
+        for call in fixture.get("calls").and_then(Value::as_array).cloned().unwrap_or_default() {
+            entries.lock().unwrap().clear();
+            let request = call.get("request").cloned().unwrap_or_else(|| json!({}));
+            let options = call.get("options").cloned().unwrap_or_else(|| json!({}));
+            if request.get("model_config").and_then(|config| config.get("stream")).and_then(Value::as_bool).unwrap_or(false) {
+                for event in client.stream_iter_with_options(request, options)? {
+                    event?;
+                }
+            } else {
+                client.chat_with_options(request, options)?;
+            }
+            let mut out = Vec::new();
+            for entry in entries.lock().unwrap().iter() {
+                if !api_key.is_empty() && entry.contains(&api_key) {
+                    return Err(AxError::new("fixture", format!("a verbose block shows the API key: {entry}")));
+                }
+                out.push(Value::String(headers_json.replace_all(entry, " Headers: {{HEADERS}} \nBody:").into_owned()));
+            }
+            logs.push(Value::Array(out));
+        }
+        Ok(Value::Array(logs))
+    })();
+    set_verbose_sink(None);
+    expect_json_equal("verbose logs", &result?, fixture.get("expected_verbose_logs").unwrap_or(&Value::Null))
 }
 
 fn run_ai_runtime_hooks_fixture(fixture: &Value) -> AxResult<()> {

@@ -853,6 +853,7 @@ public final class Conformance {
       case "ai_cancellation" -> runAICancellation(fixture);
       case "ai_usage_observer" -> runAIUsageObserver(fixture);
       case "ai_runtime_hooks" -> runAIRuntimeHooks(fixture);
+      case "ai_verbose" -> runAIVerbose(fixture);
       case "ai_custom_labels" -> runAICustomLabels(fixture);
       case "ai_credential_wrapper" -> runAICredentialWrapper(fixture);
       case "ai_error" -> runAIError(fixture);
@@ -3529,6 +3530,44 @@ public final class Conformance {
     } finally {
       AxGlobals.setMeter(null);
     }
+  }
+
+  // Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+  // headers must mask the API key.
+  static void runAIVerbose(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    String apiKey = String.valueOf(fixture.getOrDefault("api_key", "test-key"));
+    java.util.regex.Pattern headersJson = java.util.regex.Pattern.compile(" Headers: \\{[\\s\\S]*?\\n\\} \\nBody:");
+    List<Object> logs = new ArrayList<>();
+    try {
+      for (Object raw : Core.asList(fixture.getOrDefault("calls", List.of()))) {
+        Map<String, Object> call = Core.asMap(raw);
+        List<String> entries = java.util.Collections.synchronizedList(new ArrayList<>());
+        AxGlobals.verboseSink = entries::add;
+        Map<String, Object> request = Core.asMap(Json.parse(Json.stringify(call.getOrDefault("request", Map.of()))));
+        Map<String, Object> options = new LinkedHashMap<>(Core.asMap(call.getOrDefault("options", Map.of())));
+        try {
+          if (Core.truthy(Core.asMap(request.getOrDefault("model_config", Map.of())).get("stream"))) {
+            try (AxChatStream stream = cf.client.openStream(request, options, null)) { for (Object ignored : stream) { } }
+          } else {
+            cf.client.chat(request, options);
+          }
+        } catch (RuntimeException error) {
+          throw error;
+        } catch (Exception error) {
+          throw Core.asRuntime(error);
+        }
+        List<Object> out = new ArrayList<>();
+        for (String entry : entries) {
+          if (!apiKey.isEmpty() && entry.contains(apiKey)) throw new FixtureError("a verbose block shows the API key: " + entry);
+          out.add(headersJson.matcher(entry).replaceAll(java.util.regex.Matcher.quoteReplacement(" Headers: {{HEADERS}} \nBody:")));
+        }
+        logs.add(out);
+      }
+    } finally {
+      AxGlobals.verboseSink = null;
+    }
+    assertEqual(logs, fixture.get("expected_verbose_logs"), "verbose logs");
   }
 
   static void runAIRuntimeHooks(Map<String, Object> fixture) {

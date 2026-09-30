@@ -1025,7 +1025,11 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     // The call's timeoutMs, for a custom transport to honor.
     if (timeoutMs != null) call.put("timeout_ms", timeoutMs);
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
-    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();return binaryResponse?binaryTransportResult(value,errorRequest):transportResult(value,errorRequest);}
+    // As TS's apiCall, a verbose call (the call's verbose, else the client's)
+    // logs the request, then its JSON response or the stream's start.
+    boolean verbose = Core.truthy((errorOptions == null ? options : errorOptions).get("verbose"));
+    if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_request_log(requestUrl, method, resolvedHeaders, payload)));
+    if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();if(binaryResponse)return binaryTransportResult(value,errorRequest);Object result=transportResult(value,errorRequest);if(verbose)AxGlobals.verboseLog(String.valueOf(stream?Core.ai_verbose_stream_log(AxGlobals.transportStatus(value)):Core.ai_verbose_response_log(AxGlobals.transportStatus(value),result)));return result;}
     if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, errorRequest);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
@@ -1069,8 +1073,14 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     // Streaming responses are SSE text (text/event-stream): return the raw body
     // for iterSseJson to fold. This explicit branch matches the other ports
     // rather than relying on Json.parse throwing on the SSE body to fall back.
-    if (stream) return responseBody;
-    try { return Json.parse(responseBody); } catch (RuntimeException ignored) { return responseBody; }
+    if (stream) {
+      if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_stream_log(res.statusCode())));
+      return responseBody;
+    }
+    Object parsedBody;
+    try { parsedBody = Json.parse(responseBody); } catch (RuntimeException ignored) { parsedBody = responseBody; }
+    if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_response_log(res.statusCode(), parsedBody)));
+    return parsedBody;
   }
 
   RawSseStream requestSse(String endpoint, Map<String, Object> payload, Object modelName) throws Exception {
@@ -1099,7 +1109,16 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     // The call's timeoutMs, for a custom transport to honor.
     if (timeoutMs != null) call.put("timeout_ms", timeoutMs);
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
-    if (transport != null) return RawSseStream.from(transportResult(transport.stream(call,cancellation), errorRequest));
+    // As TS's apiCall, a verbose call logs the request and that its stream
+    // started.
+    boolean verbose = Core.truthy((errorOptions == null ? options : errorOptions).get("verbose"));
+    if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_request_log(requestUrl, method, resolvedHeaders, payload)));
+    if (transport != null) {
+      Object streamed = transport.stream(call,cancellation);
+      Object result = transportResult(streamed, errorRequest);
+      if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_stream_log(AxGlobals.transportStatus(streamed))));
+      return RawSseStream.from(result);
+    }
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, errorRequest);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
@@ -1115,6 +1134,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         throw Core.asRuntime(Core.openai_normalize_error(res.statusCode(), parsed, errorRequest, null));
       }
     }
+    if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_stream_log(res.statusCode())));
     InputStream body=res.body();
     AxCancellationToken.Subscription subscription=cancellation==null?()->{}:cancellation.subscribe(()->{try{body.close();}catch(IOException ignored){}});
     return new RawSseStream(new BufferedReader(new InputStreamReader(body,StandardCharsets.UTF_8)),null,()->{subscription.close();body.close();});

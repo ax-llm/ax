@@ -14755,3 +14755,148 @@ writeFixture('gemini-live-ws-url-encodes-key', {
     },
   });
 }
+
+// verbose: TS's apiCall logs each request (URL, method, headers with secrets
+// masked, the JSON body) and each response (status and JSON body, or that a
+// stream started) with console.log when the call's verbose, else the
+// service's, is set. The ports send their own headers, so the fixture keeps
+// TS's text with the headers' JSON as {{HEADERS}}; the runners check theirs
+// mask the key.
+{
+  // Keys in sorted order, as the fixture stores the response the ports'
+  // scripted transports answer with (TS logs the order it received).
+  const verboseCompletion = {
+    choices: [
+      {
+        finish_reason: 'stop',
+        index: 0,
+        message: { content: 'Hello', role: 'assistant' },
+      },
+    ],
+    id: 'chatcmpl-verbose',
+    model: 'gpt-5.4-mini',
+    object: 'chat.completion',
+    usage: { completion_tokens: 1, prompt_tokens: 3, total_tokens: 4 },
+  };
+  const verboseStream =
+    'data: {"id":"chatcmpl-verbose","object":"chat.completion.chunk","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+  type VerboseCall = {
+    request: Record<string, unknown>;
+    options?: Record<string, unknown>;
+  };
+  const runVerbose = async (
+    serviceVerbose: boolean | undefined,
+    calls: VerboseCall[],
+    replies: (() => Response)[]
+  ) => {
+    const logs: string[][] = [];
+    const original = console.log;
+    const service = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: 'gpt-5.4-mini' as never },
+      options: {
+        ...(serviceVerbose === undefined ? {} : { verbose: serviceVerbose }),
+        fetch: (async () => replies.shift()!()) as never,
+      },
+    });
+    try {
+      for (const call of calls) {
+        const entries: string[] = [];
+        console.log = (...args: unknown[]) => {
+          entries.push(args.map((arg) => String(arg)).join(' '));
+        };
+        const result = await service.chat(
+          call.request as never,
+          call.options as never
+        );
+        if (result instanceof ReadableStream) {
+          const reader = result.getReader();
+          while (!(await reader.read()).done) {}
+        }
+        logs.push(entries);
+      }
+    } finally {
+      console.log = original;
+    }
+    // The headers' JSON, which the ports write their own way.
+    return logs.map((entries) =>
+      entries.map((entry) =>
+        entry.replace(
+          / Headers: \{[\s\S]*?\n\} \nBody:/,
+          ' Headers: {{HEADERS}} \nBody:'
+        )
+      )
+    );
+  };
+  const jsonReply = () =>
+    new Response(JSON.stringify(verboseCompletion), {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+    });
+  const streamReply = () =>
+    new Response(verboseStream, {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  const prompt = [{ role: 'user', content: 'hi' }];
+  const verboseTransport = (kinds: ('json' | 'stream')[]) =>
+    kinds.map((kind) =>
+      kind === 'json'
+        ? { status: 200, json: verboseCompletion }
+        : { status: 200, body: verboseStream }
+    );
+  const serviceCalls: VerboseCall[] = [
+    { request: { chatPrompt: prompt, modelConfig: { stream: false } } },
+    { request: { chatPrompt: prompt, modelConfig: { stream: true } } },
+  ];
+  writeFixture('ai-verbose-request-logging', {
+    kind: 'ai_verbose',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    api_key: 'test-key',
+    service_options: { verbose: true },
+    transport_responses: verboseTransport(['json', 'stream']),
+    calls: [
+      { request: { chat_prompt: prompt, model_config: { stream: false } } },
+      { request: { chat_prompt: prompt, model_config: { stream: true } } },
+    ],
+    expected_verbose_logs: await runVerbose(true, serviceCalls, [
+      jsonReply,
+      streamReply,
+    ]),
+  });
+  const callOptionCalls: VerboseCall[] = [
+    {
+      request: { chatPrompt: prompt, modelConfig: { stream: false } },
+      options: { verbose: true },
+    },
+    {
+      request: { chatPrompt: prompt, modelConfig: { stream: false } },
+      options: {},
+    },
+  ];
+  writeFixture('ai-verbose-call-option', {
+    kind: 'ai_verbose',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    api_key: 'test-key',
+    transport_responses: verboseTransport(['json', 'json']),
+    calls: [
+      {
+        request: { chat_prompt: prompt, model_config: { stream: false } },
+        options: { verbose: true },
+      },
+      {
+        request: { chat_prompt: prompt, model_config: { stream: false } },
+        options: {},
+      },
+    ],
+    expected_verbose_logs: await runVerbose(undefined, callOptionCalls, [
+      jsonReply,
+      jsonReply,
+    ]),
+  });
+}

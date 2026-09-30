@@ -1861,6 +1861,12 @@ class ProviderOperationClient(AxBaseAI):
             call["timeout_ms"] = timeout_ms
         # The request this call's provider errors keep (Core owns the view).
         error_request = _ai_error_request(call, self.options if error_options is None else error_options)
+        # As TS's apiCall, a verbose call (the call's verbose, else the
+        # client's) logs the request, then the JSON response or the stream's
+        # start.
+        verbose = bool((self.options if error_options is None else error_options).get("verbose"))
+        if verbose:
+            _verbose_log(ai_verbose_request_log(request_url, method, headers, payload))
         if self.transport:
             try:
                 cancellable_name = "stream_with_cancellation" if stream else "call_with_cancellation"
@@ -1869,7 +1875,10 @@ class ProviderOperationClient(AxBaseAI):
                 if cancellation is not None: cancellation.throw_if_cancelled()
                 if binary_response:
                     return _binary_transport_result(result, error_request)
-                return _transport_result(result, error_request)
+                value = _transport_result(result, error_request)
+                if verbose:
+                    _verbose_log(ai_verbose_stream_log(_transport_status(result)) if stream else ai_verbose_response_log(_transport_status(result), value))
+                return value
             except AxAIServiceAbortedError:
                 raise
             except AxAIServiceError:
@@ -1905,6 +1914,8 @@ class ProviderOperationClient(AxBaseAI):
             if cancellation is not None: cancellation.throw_if_cancelled()
             res, stop_open = self._open_http_response(req, cancellation, timeout_ms)
             opened = True
+            if stream and verbose:
+                _verbose_log(ai_verbose_stream_log(int(getattr(res, "status", 200) or 200)))
             if stream:
                 # A generator cannot be closed while another thread is reading it.
                 # Own the response explicitly so cancellation can interrupt that read.
@@ -1980,6 +1991,8 @@ class ProviderOperationClient(AxBaseAI):
                             value = json.loads(response_text)
                         except json.JSONDecodeError:
                             value = response_text
+                        if verbose:
+                            _verbose_log(ai_verbose_response_log(int(getattr(res, "status", 200) or 200), value))
                     if cancellation is not None: cancellation.throw_if_cancelled()
                     return value
             finally:
@@ -3622,6 +3635,24 @@ def _binary_transport_result(result: Any, request: dict[str, Any]):
             return json.loads(body)
         return _BinaryBody(body, content_type)
     return body
+
+
+# Where verbose blocks go: print, as TS's apiCall uses console.log (the
+# conformance runner collects them instead).
+_verbose_sink = None
+
+
+def _verbose_log(text: str) -> None:
+    (_verbose_sink or print)(text)
+
+
+def _transport_status(result: Any) -> int:
+    # A transport result's HTTP status.
+    if isinstance(result, tuple):
+        return int(result[0])
+    if isinstance(result, dict) and "status" in result:
+        return int(result.get("status") or 200)
+    return 200
 
 
 def _transport_result(result: Any, request: dict[str, Any]):

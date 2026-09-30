@@ -4371,11 +4371,19 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
                 return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 			}
+			// As TS's apiCall, a verbose call logs the request and its JSON response.
+			verbose := verboseEnabled(mergedOptions)
+			if verbose {
+				logVerboseRequest(transportReq)
+			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
 				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
 			}
 			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
+			if verbose {
+				verboseLog(display(mustCore(ai_verbose_response_log(transportStatus(raw), body))))
+			}
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 		})
 	}
@@ -4627,11 +4635,19 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
 			c.setLastEmbed(model)
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
+			verbose := verboseEnabled(mergedOptions)
+			if verbose {
+				logVerboseRequest(transportReq)
+			}
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
 				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
 			}
-			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
+			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
+			if verbose {
+				verboseLog(display(mustCore(ai_verbose_response_log(transportStatus(raw), body))))
+			}
+			return mustCore(provider_normalize_embed_response(c.Profile, body, c.Name, model))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
@@ -4675,6 +4691,12 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 }
 
 func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, error) {
+	// As TS's apiCall, a verbose call logs the request and that its stream
+	// started.
+	verbose := verboseEnabled(errorOptions)
+	if verbose {
+		logVerboseRequest(request)
+	}
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
@@ -4704,6 +4726,9 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 			}
 			return nil, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
 		}
+		if verbose {
+			verboseLog(display(mustCore(ai_verbose_stream_log(float64(response.Status)))))
+		}
 		return newSSEJSONStream(response.Body, response.Body), nil
 	}
 
@@ -4715,6 +4740,9 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw, request, errorOptions) })
 	if normalizedErr != nil {
 		return nil, normalizedErr
+	}
+	if verbose {
+		verboseLog(display(mustCore(ai_verbose_stream_log(transportStatus(raw)))))
 	}
 	switch body.(type) {
 	case []any, *AxArray:
@@ -5064,6 +5092,35 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 		}
 	}
 	return out
+}
+
+// verboseLogSink, when set, takes the verbose blocks that verboseLog would
+// print (the conformance runner collects them).
+var verboseLogSink func(string)
+
+// verboseLog prints a verbose block, as TS's apiCall uses console.log.
+func verboseLog(text string) {
+	if verboseLogSink != nil {
+		verboseLogSink(text)
+		return
+	}
+	fmt.Println(text)
+}
+
+// verboseEnabled reports whether a call logs its requests: the call's
+// verbose, else the client's (options are the two merged).
+func verboseEnabled(options map[string]Value) bool {
+	return coreTruthy(coreGet(options, "verbose", false))
+}
+
+// logVerboseRequest logs a transport request as TS's apiCall does.
+func logVerboseRequest(request Value) {
+	verboseLog(display(mustCore(ai_verbose_request_log(coreGet(request, "url", ""), coreGet(request, "method", "POST"), coreGet(request, "headers", Object()), coreGet(request, "json", nil)))))
+}
+
+// transportStatus is a transport response's HTTP status.
+func transportStatus(raw Value) float64 {
+	return num(coreGet(raw, "status", 200))
 }
 
 // transportContentType is the Content-Type header of a transport response, if
@@ -13015,6 +13072,8 @@ func runConformanceFixtureKind(fixture map[string]Value) {
 		runConformanceAIUsageObserver(fixture)
 	case "ai_runtime_hooks":
 		runConformanceAIRuntimeHooks(fixture)
+	case "ai_verbose":
+		runConformanceAIVerbose(fixture)
 	case "ai_custom_labels":
 		runConformanceAICustomLabels(fixture)
 	case "ai_credential_wrapper":
@@ -15173,6 +15232,47 @@ func runConformanceAICustomLabels(fixture map[string]Value) {
 	for _, name := range orderedKeys(expectedForward) {
 		assertEqual(meter.customPart(name), expectedForward[name], "forward "+name+" custom labels")
 	}
+}
+
+var conformanceVerboseHeaders = regexp.MustCompile(` Headers: \{[\s\S]*?\n\} \nBody:`)
+
+// runConformanceAIVerbose: each call's verbose blocks, with the headers'
+// JSON as {{HEADERS}}; the headers must mask the API key.
+func runConformanceAIVerbose(fixture map[string]Value) {
+	client, _ := conformanceAIClient(fixture)
+	apiKey := display(coreGet(fixture, "api_key", "test-key"))
+	logs := Array()
+	defer func() { verboseLogSink = nil }()
+	for _, raw := range asSlice(coreGet(fixture, "calls", Array())) {
+		call := asMap(raw)
+		entries := []string{}
+		verboseLogSink = func(text string) { entries = append(entries, text) }
+		request := cloneMap(asMap(coreGet(call, "request", Object())))
+		options := cloneMap(asMap(coreGet(call, "options", Object())))
+		if coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", false)) {
+			stream, err := client.StreamEvents(context.Background(), request, options)
+			if err != nil {
+				panic(err)
+			}
+			for stream.Next() {
+			}
+			if err := stream.Err(); err != nil {
+				panic(err)
+			}
+			_ = stream.Close()
+		} else if _, err := client.Chat(context.Background(), request, options); err != nil {
+			panic(err)
+		}
+		out := Array()
+		for _, entry := range entries {
+			if apiKey != "" && strings.Contains(entry, apiKey) {
+				panic(AxError{Category: "fixture", Message: "a verbose block shows the API key: " + entry})
+			}
+			out = append(out, conformanceVerboseHeaders.ReplaceAllString(entry, " Headers: {{HEADERS}} \nBody:"))
+		}
+		logs = append(logs, out)
+	}
+	assertEqual(logs, coreGet(fixture, "expected_verbose_logs", nil), "verbose logs")
 }
 
 func runConformanceAIRuntimeHooks(fixture map[string]Value) {

@@ -195,6 +195,9 @@ void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// Where verbose blocks go: std::cout, as TypeScript's apiCall uses
+// console.log, unless a sink is set (the conformance runner sets one).
+std::function<void(const std::string&)>& verbose_log_sink();
 // The process-wide caching function, which AxGen uses when neither the call
 // nor the AxGen sets one; an empty function clears it.
 void set_caching_function(AxCachingFunction fn);

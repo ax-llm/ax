@@ -778,6 +778,8 @@ def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_usage_observer(fixture)
         elif kind == "ai_runtime_hooks":
             _run_ai_runtime_hooks(fixture)
+        elif kind == "ai_verbose":
+            _run_ai_verbose(fixture)
         elif kind == "ai_custom_labels":
             _run_ai_custom_labels(fixture)
         elif kind == "ai_credential_wrapper":
@@ -3694,6 +3696,36 @@ def _run_ai_custom_labels(fixture):
             _assert_equal(custom_part(name), expected, f"forward {name} custom labels")
     finally:
         set_meter(None)
+
+
+_VERBOSE_HEADERS = re.compile(r" Headers: \{[\s\S]*?\n\} \nBody:")
+
+
+def _run_ai_verbose(fixture):
+    # Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+    # headers must mask the API key.
+    import importlib
+    ai_module = importlib.import_module(__package__ + ".ai")
+    client, _transport = _openai_fixture_client(fixture)
+    api_key = fixture.get("api_key", "test-key")
+    logs = []
+    previous = ai_module._verbose_sink
+    try:
+        for call in fixture.get("calls") or []:
+            entries = []
+            ai_module._verbose_sink = entries.append
+            request = copy.deepcopy(call.get("request") or {})
+            if (request.get("model_config") or {}).get("stream"):
+                list(client.stream(request, call.get("options") or {}))
+            else:
+                client.chat(request, call.get("options") or {})
+            for entry in entries:
+                if api_key and api_key in entry:
+                    raise FixtureError(f"a verbose block shows the API key: {entry}")
+            logs.append([_VERBOSE_HEADERS.sub(" Headers: {{HEADERS}} \nBody:", entry) for entry in entries])
+    finally:
+        ai_module._verbose_sink = previous
+    _assert_equal(logs, fixture["expected_verbose_logs"], "verbose logs")
 
 
 def _run_ai_runtime_hooks(fixture):

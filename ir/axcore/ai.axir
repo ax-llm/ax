@@ -1433,4 +1433,117 @@ module @ax.ai version "0.1" {
       core.return %sanitized
     }
   }
+
+  op ax.ai.semantic @ai_redact_headers {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#redactHeaders"
+    type signature = "(headers:json) -> json"
+    body @entry(%headers: json) {
+      // TS's redactHeaders: the value of each sensitive header (by its name
+      // in lower case) is "***".
+      %sensitive = core.list
+      core.append %sensitive, "authorization"
+      core.append %sensitive, "proxy-authorization"
+      core.append %sensitive, "x-api-key"
+      core.append %sensitive, "api-key"
+      core.append %sensitive, "apikey"
+      core.append %sensitive, "x-goog-api-key"
+      core.append %sensitive, "x-amz-security-token"
+      core.append %sensitive, "cookie"
+      core.append %sensitive, "set-cookie"
+      %redacted = core.map
+      %headers_map = core.type_is %headers type "object"
+      core.if %headers_map {
+      } else {
+        core.return %redacted
+      }
+      %keys = core.call intrinsic.map.keys(%headers)
+      core.for %key in %keys {
+        %value = core.get %headers[%key] default null
+        %lower = core.call intrinsic.string.lower(%key)
+        %masked = core.call intrinsic.contains(%sensitive, %lower)
+        core.if %masked {
+          core.set %redacted[%key] = "***"
+        } else {
+          core.set %redacted[%key] = %value
+        }
+      }
+      core.return %redacted
+    }
+  }
+
+  op ax.ai.semantic @ai_http_status_text {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(status:i64) -> string"
+    body @entry(%status: i64) {
+      // The status text a response carries, for the common HTTP statuses.
+      %texts = core.map
+      core.set %texts["200"] = "OK"
+      core.set %texts["201"] = "Created"
+      core.set %texts["202"] = "Accepted"
+      core.set %texts["204"] = "No Content"
+      core.set %texts["400"] = "Bad Request"
+      core.set %texts["401"] = "Unauthorized"
+      core.set %texts["403"] = "Forbidden"
+      core.set %texts["404"] = "Not Found"
+      core.set %texts["408"] = "Request Timeout"
+      core.set %texts["409"] = "Conflict"
+      core.set %texts["413"] = "Payload Too Large"
+      core.set %texts["422"] = "Unprocessable Entity"
+      core.set %texts["429"] = "Too Many Requests"
+      core.set %texts["500"] = "Internal Server Error"
+      core.set %texts["502"] = "Bad Gateway"
+      core.set %texts["503"] = "Service Unavailable"
+      core.set %texts["504"] = "Gateway Timeout"
+      %key = core.call intrinsic.string.format("{}", %status)
+      %text = core.get %texts[%key] default ""
+      core.return %text
+    }
+  }
+
+  op ax.ai.semantic @ai_verbose_request_log {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(url:string, method:string, headers:json, body:json) -> string"
+    body @entry(%url: string, %method: string, %headers: json, %body: json) {
+      // What TS's apiCall logs before a verbose request: console.log joins
+      // its arguments with spaces; the headers have their secrets masked.
+      %redacted = core.call @ai_redact_headers(%headers)
+      %headers_text = core.call intrinsic.json.pretty(%redacted)
+      %body_text = core.call intrinsic.json.pretty(%body)
+      %text = core.call intrinsic.string.format("\n--- [AxAI API Request] ---\n URL: {}\n Method: {}\n Headers: {} \nBody: {} \n------------------------\n", %url, %method, %headers_text, %body_text)
+      core.return %text
+    }
+  }
+
+  op ax.ai.semantic @ai_verbose_response_log {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(status:i64, body:json) -> string"
+    body @entry(%status: i64, %body: json) {
+      // What TS's apiCall logs after a verbose request's JSON response.
+      %status_text = core.call @ai_http_status_text(%status)
+      %body_text = core.call intrinsic.json.pretty(%body)
+      %text = core.call intrinsic.string.format("\n--- [AxAI API Response] ---\n Status: {} {}\n Body: {} \n-------------------------\n", %status, %status_text, %body_text)
+      core.return %text
+    }
+  }
+
+  op ax.ai.semantic @ai_verbose_stream_log {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "source:src/ax/util/apicall.ts#apiCall"
+    type signature = "(status:i64) -> string"
+    body @entry(%status: i64) {
+      // What TS's apiCall logs when a verbose request's stream starts.
+      %status_text = core.call @ai_http_status_text(%status)
+      %text = core.call intrinsic.string.format("\n--- [AxAI API Streaming Response Started] ---\n Status: {} {}\n \n-------------------------------------------\n", %status, %status_text)
+      core.return %text
+    }
+  }
 }

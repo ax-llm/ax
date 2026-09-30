@@ -65,6 +65,21 @@ public final class AxGlobals {
         frame == null ? snapshot() : frame.globals);
   }
 
+  // Where verbose blocks go: System.out, as TS's apiCall uses console.log
+  // (the conformance runner collects them instead).
+  static volatile java.util.function.Consumer<String> verboseSink;
+
+  static void verboseLog(String text) {
+    java.util.function.Consumer<String> sink = verboseSink;
+    if (sink != null) sink.accept(text); else System.out.println(text);
+  }
+
+  // A transport result's HTTP status.
+  static int transportStatus(Object result) {
+    if (result instanceof Map<?, ?> map && map.get("status") != null) return Core.asInt(map.get("status"));
+    return 200;
+  }
+
   // A metric's attributes with TypeScript's custom labels: the service's
   // customLabels, then the call's (ai_custom_labels), cut to 100 characters
   // when sanitize is set (TS cuts them for the request duration and errors,
