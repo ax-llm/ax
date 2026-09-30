@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any
 # AXIR_CORE_IMPORTS
-from .signature import _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl, _js_format
+from .signature import _core_gt, _core_type_is, _core_record_new, _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl, _js_format
 
 
 PROMPT_FEATURES = {
@@ -738,7 +738,7 @@ def _core_prompt_combine_consecutive_text(parts, separator: str):
 
 def _core_prompt_user_content(signature, values):
     parts = _core_prompt_user_parts(signature, values or {})
-    if all(part.get("type") == "text" and not part.get("cache") for part in parts):
+    if all(part.get("type") == "text" for part in parts):
         return "\n".join(part.get("text", "") for part in parts)
     return _core_prompt_combine_consecutive_text(parts, "\n")
 
