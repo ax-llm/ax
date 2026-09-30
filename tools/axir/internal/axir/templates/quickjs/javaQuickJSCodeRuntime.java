@@ -17,8 +17,12 @@ public final class AxQuickJsCodeRuntime implements AxCodeRuntime, AutoCloseable 
     this.runtimePolicy = defaultPolicy(runtimePolicy == null ? Map.of() : runtimePolicy);
   }
 
+  /** TypeScript's AxJSRuntime.getUsageInstructions() in its default stdout mode. */
   public String getUsageInstructions() {
-    return "JavaScript QuickJS runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), and reportFailure(...). Filesystem, network, and native host APIs are not exposed by default.";
+    return "- Don't wrap async code in (async()=>{ ... })() \u2014 the runtime automatically handles async execution.\n"
+      + "- State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.\n"
+      + "- Bare assignment (e.g. `x = 1`) also persists via `globalThis`.\n"
+      + "- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.";
   }
 
   public Map<String, Object> getRuntimePolicy() {

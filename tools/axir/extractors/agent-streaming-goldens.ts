@@ -17,6 +17,7 @@ import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import type { AxChatResponse } from '../../../src/ax/ai/types.js';
 import { runControl } from '../../../src/ax/dsp/runControl.js';
 import { mergeDeltas } from '../../../src/ax/dsp/util.js';
+import { AxJSRuntime } from '../../../src/ax/funcs/jsRuntime.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type JsonMap = { [key: string]: Json };
@@ -24,6 +25,12 @@ type JsonMap = { [key: string]: Json };
 const outDir = join(
   process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
   'ir/conformance/axagent'
+);
+// Real-runtime goldens: each port runs them in its own JavaScript engine (the
+// real-engine antidote).
+const realOutDir = join(
+  process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
+  'ir/conformance/axagent-real'
 );
 
 function stable(value: unknown, parentKey = ''): unknown {
@@ -44,9 +51,13 @@ function stable(value: unknown, parentKey = ''): unknown {
   return value;
 }
 
-function writeFixture(name: string, fixture: Record<string, unknown>): void {
+function writeFixture(
+  name: string,
+  fixture: Record<string, unknown>,
+  dir = outDir
+): void {
   writeFileSync(
-    join(outDir, `${name}.json`),
+    join(dir, `${name}.json`),
     `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
   );
 }
@@ -245,6 +256,8 @@ type Case = {
   pin_stage_requests?: string[];
   forward_runs?: number;
   pin_context_map?: boolean;
+  // Run in the real JavaScript engine and pin its runtime behavior.
+  real_runtime?: boolean;
   // Port-only: TS passes a forward timeout (milliseconds) to every stage's
   // ai.chat. TS runs the case with that timeout, and the extractor checks each
   // chat call got it; the fixture gives the ports' forward timeoutMs, their
@@ -346,7 +359,9 @@ async function record(name: string, spec: Case): Promise<void> {
   const ag = agent(tsSignature, {
     ...(options as object),
     ai,
-    runtime: scriptedRuntime(spec.runtime_script),
+    runtime: spec.real_runtime
+      ? new AxJSRuntime()
+      : scriptedRuntime(spec.runtime_script),
   } as never);
 
   const forwardOptions: Record<string, unknown> = clone(
@@ -409,7 +424,8 @@ async function record(name: string, spec: Case): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   const fixture: Record<string, unknown> = {
-    kind,
+    kind: spec.real_runtime ? 'agent_runtime_real' : kind,
+    ...(spec.real_runtime ? { runtime_engine: 'javascript' } : {}),
     signature,
     input,
     options: spec.runtime_on_forward
@@ -417,7 +433,7 @@ async function record(name: string, spec: Case): Promise<void> {
       : { ...clone(spec.options ?? {}), runtime: { language: 'JavaScript' } },
     features,
     responses: spec.responses,
-    runtime_script: spec.runtime_script,
+    ...(spec.real_runtime ? {} : { runtime_script: spec.runtime_script }),
     expected_request_count: calls(),
     expected_transcript: transcript,
   };
@@ -539,7 +555,7 @@ async function record(name: string, spec: Case): Promise<void> {
   if (error !== undefined) {
     fixture.expected_error_contains = error;
   }
-  writeFixture(name, fixture);
+  writeFixture(name, fixture, spec.real_runtime ? realOutDir : outDir);
 }
 
 // ----- scripted helpers -----
@@ -682,6 +698,7 @@ const datedStream = (): ResponseSpec =>
   );
 
 mkdirSync(outDir, { recursive: true });
+mkdirSync(realOutDir, { recursive: true });
 
 // Grouped tools with explicit namespaces (TS files flat functions under
 // `utils`, the ports under `tools`): one always-included module and one
@@ -1030,6 +1047,28 @@ const cases: Record<string, Case> = {
     ),
     runtime_script: baseRuntime(),
     pin_context_map: true,
+  },
+  // TS's own AxJSRuntime runs the model's code: variables of several types
+  // made by the distiller, what console.log prints, the live runtime state
+  // each stage sees (the executor shares the distiller's session), the
+  // evidence summary and the runtime's usage instructions.
+  'agent-runtime-real-ts-live-state': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(
+        "const kept = 41; var items = [1, 2, 3, 4]; bare = { a: 1, b: 'x' }; let label = 'refunds'; console.log('seen', kept, items.length)"
+      ),
+      actor('final("Answer the question", { kept })'),
+      actor('console.log(kept + 1, items.length, typeof bare, label)'),
+      actor('final("Answer the question", { answer: String(kept + 1) })'),
+      { content: 'Answer: 42' },
+    ],
+    runtime_script: [],
+    real_runtime: true,
+    first_requests: true,
+    pin_stage_requests: ['distiller', 'executor'],
   },
   // Two forwards on one agent: each stage of the second run restores its own
   // earlier actions and says so.

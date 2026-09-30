@@ -889,6 +889,23 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES against the TypeScript golden agent-first-requests-second-forward (two forwards on one agent; each run's first request of each stage pinned), and the playbook evolve golden keeps each evaluated run's action log to that run."
+    },
+    {
+      "capability": "agent.runtime.live_state_ts_format",
+      "summary": "The ports' JavaScript runtimes (Python QuickJS, goja, quickjs4j, rquickjs, C++ QuickJS) load one shared support script (scripts/axir-runtime-support.mjs): they describe user globals as TypeScript's AxJSRuntime does (type, constructor, size, preview, restorability), analyze each turn's code as TS's action log does (the variables it writes and reads, its qualified calls), and give TS's usage instructions. The live runtime state renders as TS's formatStructuredRuntimeState: salience order, '[from tN via source; read tM]' provenance from the stage's own actions, maxEntries and maxChars. The executor's shared session keeps the distiller's variables (a merge patch), receives its own inputs (inputs.distilledContext), and inherits the distilledContext global the distiller's final(task, evidence) kept, as TS's shared session does; the Distilled Context Summary follows TS's renderEvidenceDescriptor.",
+      "ir_ops": [
+        "@agent_render_structured_runtime_state",
+        "@agent_runtime_state_provenance",
+        "@agent_attach_code_analysis",
+        "@normalize_agent_runtime_snapshot",
+        "@agent_build_evidence_descriptor",
+        "@agent_render_evidence_descriptor"
+      ],
+      "fixtures": ["axagent-real/agent-runtime-real-ts-live-state.json"],
+      "gate": "G1 real-engine antidote + G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE ENGINES against a TypeScript golden recorded with TS's own AxJSRuntime (tools/axir/extractors/agent-streaming-goldens.ts real_runtime): the distiller makes variables of four types and logs, the executor reads them; every distiller and executor request is pinned (usage instructions, action log output, live state with provenance, evidence summary). Before: Go, Rust, Java and C++ lost the distiller's variables in the executor (a replacing patch), no port gave the executor inputs.distilledContext in the shared session, Python showed Python type names and repr, C++ and the others listed engine globals by hardcoded lists. scripts/axir-runtime-support.test.js checks the support script against the TS sources."
     }
   ]
 }
