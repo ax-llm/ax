@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:90de6629b248b58a2d9154f42716febb52be7bd1a253a9efc8e9f6b860db2edb"
+      "digest": "sha256:b471bbe485262bde056becbd215086f4a9cc48515fc7862dfe46f04c297f6f00"
     },
     {
       "name": "ax-rust-agent-rlm",

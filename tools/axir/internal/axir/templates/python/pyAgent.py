@@ -2266,8 +2266,7 @@ class AxAgent:
         raw = self._playbook_config
         config = dict(raw) if isinstance(raw, dict) else {}
         config.setdefault("maxReflectorRounds", 1)
-        # TS's `playbook` seed (a snapshot or a bare playbook), or the older
-        # `seed` key with a deprecation warning.
+        # TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
         seed = _agent_playbook_config_seed(config)
         self.playbook(config)
         if seed is not None:

@@ -8306,8 +8306,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
     .to_string();
     if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
         let config = playbook_config.as_object().cloned().unwrap_or_default();
-        // TS's `playbook` seed (a snapshot or a bare playbook), or the older
-        // `seed` key with a deprecation warning; else an initialPlaybook.
+        // TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
         let seed = core_value_to_json(&_agent_playbook_config_seed(&[core_value_from_json(
             &playbook_config,
         )])?);
@@ -116915,13 +116914,9 @@ fn _agent_playbook_config_seed(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_has_config_artifact = CoreValue::Null;
     let mut v_has_playbook = CoreValue::Null;
     let mut v_is_snapshot = CoreValue::Null;
-    let mut v_legacy = CoreValue::Null;
-    let mut v_legacy_has_playbook = CoreValue::Null;
-    let mut v_legacy_is_object = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_value = CoreValue::Null;
     let mut v_value_is_object = CoreValue::Null;
-    let mut v_wrapped = CoreValue::Null;
     v_none = core_none(&[])?;
     v_value = core_get(&v_config, &CoreValue::from("playbook"), CoreValue::Null);
     v_value_is_object = core_type_is(&v_value, CoreValue::from("object"));
@@ -116944,19 +116939,6 @@ fn _agent_playbook_config_seed(args: &[CoreValue]) -> Result<CoreValue, AxError>
             )?;
         }
         return Ok(v_bare.clone());
-    }
-    v_legacy = core_get(&v_config, &CoreValue::from("seed"), CoreValue::Null);
-    v_legacy_is_object = core_type_is(&v_legacy, CoreValue::from("object"));
-    if core_truthy(&v_legacy_is_object) {
-        core_axgen_deprecation(&[CoreValue::from("agent-playbook-seed-snapshot"), CoreValue::from("A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")])?;
-        v_legacy_has_playbook =
-            core_map_contains(&[v_legacy.clone(), CoreValue::from("playbook")])?;
-        if core_truthy(&v_legacy_has_playbook) {
-            return Ok(v_legacy.clone());
-        }
-        v_wrapped = CoreValue::new_map();
-        core_set(&v_wrapped, CoreValue::from("playbook"), v_legacy.clone())?;
-        return Ok(v_wrapped.clone());
     }
     v_artifact = core_get(&v_config, &CoreValue::from("artifact"), CoreValue::Null);
     v_has_artifact_only = core_is_not_none(&[v_artifact.clone()])?;

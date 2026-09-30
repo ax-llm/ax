@@ -81010,13 +81010,9 @@ func _agent_playbook_config_seed(args ...Value) (Value, error) {
 	var v_has_config_artifact Value
 	var v_has_playbook Value
 	var v_is_snapshot Value
-	var v_legacy Value
-	var v_legacy_has_playbook Value
-	var v_legacy_is_object Value
 	var v_none Value
 	var v_value Value
 	var v_value_is_object Value
-	var v_wrapped Value
 	if len(args) > 0 { v_config = args[0] }
 	_ = v_config
 	_ = v_artifact
@@ -81028,13 +81024,9 @@ func _agent_playbook_config_seed(args ...Value) (Value, error) {
 	_ = v_has_config_artifact
 	_ = v_has_playbook
 	_ = v_is_snapshot
-	_ = v_legacy
-	_ = v_legacy_has_playbook
-	_ = v_legacy_is_object
 	_ = v_none
 	_ = v_value
 	_ = v_value_is_object
-	_ = v_wrapped
 	v_none = _core_none()
 	v_value = coreGet(v_config, "playbook", nil)
 	v_value_is_object = coreTypeIs(v_value, "object")
@@ -81057,22 +81049,6 @@ func _agent_playbook_config_seed(args ...Value) (Value, error) {
 		// empty
 		}
 		return v_bare, nil
-	} else {
-	// empty
-	}
-	v_legacy = coreGet(v_config, "seed", nil)
-	v_legacy_is_object = coreTypeIs(v_legacy, "object")
-	if coreTruthy(v_legacy_is_object) {
-		_core_axgen_deprecation("agent-playbook-seed-snapshot", "A `playbook.seed` snapshot is deprecated: pass the snapshot or bare playbook as `playbook.playbook`, as TypeScript Ax does. In the next major version `playbook.seed` is TypeScript's numeric random seed.")
-		v_legacy_has_playbook = _core_map_contains(v_legacy, "playbook")
-		if coreTruthy(v_legacy_has_playbook) {
-			return v_legacy, nil
-		} else {
-		// empty
-		}
-		v_wrapped = Object()
-		if err := coreSet(v_wrapped, "playbook", v_legacy); err != nil { return nil, err }
-		return v_wrapped, nil
 	} else {
 	// empty
 	}
@@ -107144,8 +107120,7 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 	if config == nil {
 		config = Object()
 	}
-	// TS's `playbook` seed (a snapshot or a bare playbook), or the older
-	// `seed` key with a deprecation warning.
+	// TS's `playbook` seed (a snapshot or a bare playbook). Numeric `seed` is reserved for the optimizer.
 	seed := mustCore(_agent_playbook_config_seed(config))
 	options := cloneMap(config)
 	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {
