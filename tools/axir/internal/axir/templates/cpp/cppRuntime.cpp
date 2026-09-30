@@ -288,6 +288,98 @@ static Value get_key(const Value& object, const std::string& key, Value fallback
   return fallback;
 }
 
+// Function result formatters the AxGen IR reaches through
+// {"__function_result_formatter_id"} markers, as caching functions are: the
+// registry holds each handle's state weakly, and a handle (the caller's or an
+// AxGen's) keeps it registered.
+struct AxFunctionResultFormatterHandle::State {
+  std::string id;
+  AxFunctionResultFormatter fn;
+};
+
+struct FunctionResultFormatterRegistry {
+  std::mutex mutex;
+  std::uint64_t next_id = 0;
+  std::map<std::string, std::weak_ptr<AxFunctionResultFormatterHandle::State>> handles;
+  // The process-wide formatter (set_function_result_formatter).
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> global;
+};
+
+static FunctionResultFormatterRegistry& function_result_formatter_registry() {
+  static FunctionResultFormatterRegistry registry;
+  return registry;
+}
+
+// Calls the formatter a marker names, outside the registry lock. The
+// process-wide marker calls the formatter set when the call runs, as TS reads
+// axGlobals at each call; if it was cleared meanwhile, the result gets the
+// default text.
+static Value call_function_result_formatter(const Value& marker, const Value& result) {
+  if (Core::truthy(get_key(marker, "__function_result_formatter_global"))) {
+    std::shared_ptr<AxFunctionResultFormatterHandle::State> global;
+    {
+      auto& registry = function_result_formatter_registry();
+      std::lock_guard<std::mutex> lock(registry.mutex);
+      global = registry.global;
+    }
+    if (global) return Value(global->fn(result));
+    if (result.is_string()) return result;
+    if (result.is_null()) return Value("");
+    return Core::json_pretty(result);
+  }
+  std::string id = str(get_key(marker, "__function_result_formatter_id"));
+  if (id.empty()) {
+    throw AxError("validation", "The functionResultFormatter option must be an axllm::function_result_formatter() handle value");
+  }
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> state;
+  {
+    auto& registry = function_result_formatter_registry();
+    std::lock_guard<std::mutex> lock(registry.mutex);
+    auto it = registry.handles.find(id);
+    if (it != registry.handles.end()) state = it->second.lock();
+  }
+  if (!state) throw AxError("validation", "Function result formatter handle has expired");
+  return Value(state->fn(result));
+}
+
+AxFunctionResultFormatterHandle::AxFunctionResultFormatterHandle(AxFunctionResultFormatter fn) : state_(std::make_shared<State>()) {
+  if (!fn) throw AxError("validation", "Function result formatter must be callable");
+  state_->fn = std::move(fn);
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  state_->id = "__function_result_formatter_" + std::to_string(++registry.next_id);
+  for (auto it = registry.handles.begin(); it != registry.handles.end();) {
+    if (it->second.expired()) it = registry.handles.erase(it);
+    else ++it;
+  }
+  registry.handles[state_->id] = state_;
+}
+
+Value AxFunctionResultFormatterHandle::value() const { return object({{"__function_result_formatter_id", state_->id}}); }
+
+AxFunctionResultFormatterHandle function_result_formatter(AxFunctionResultFormatter fn) {
+  return AxFunctionResultFormatterHandle(std::move(fn));
+}
+
+void set_function_result_formatter(AxFunctionResultFormatter fn) {
+  std::shared_ptr<AxFunctionResultFormatterHandle::State> next;
+  if (fn) {
+    next = std::make_shared<AxFunctionResultFormatterHandle::State>();
+    next->id = "__function_result_formatter_global";
+    next->fn = std::move(fn);
+  }
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  registry.global.swap(next);
+}
+
+Value Core::axgen_function_result_formatter() {
+  auto& registry = function_result_formatter_registry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  if (!registry.global) return Value();
+  return object({{"__function_result_formatter_global", true}});
+}
+
 static bool has_key(const Value& object, const std::string& key) {
   const auto& obj = object_ref(object);
   if (obj.count(key) > 0) return true;
@@ -2118,6 +2210,7 @@ Value Core::object_call_method(Value target, Value method_name, Value arg, Value
     }
     return render_prompt(get_key(target, "signature"), arg, functions, render_options);
   }
+  if (str(method_name) == "format_result") return call_function_result_formatter(target, arg);
   if (str(method_name) == "call") {
     std::string picker_id = str(get_key(target, "__result_picker_id"));
     auto picker = result_picker_registry().find(picker_id);
@@ -3362,10 +3455,13 @@ Value Core::axgen_memory_add_response(Value gen, Value request, Value response) 
   set(gen, "memory", memory);
   return Value();
 }
-Value Core::axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok) {
+// `result` and `result_text` both keep the text the model got.
+Value Core::axgen_memory_add_function_result(Value gen, Value call, Value result, Value ok, Value result_text) {
   Value memory = get(gen, "memory", Value::object());
   Value items = get_key(memory, "items", Value::array());
-  append(items, Value(Object{{"role", "function"}, {"results", Value(Array{Value(Object{{"call", call}, {"result", result}, {"ok", Value(truthy(ok))}})})}, {"tags", Value::array()}}));
+  Object entry{{"call", call}, {"result", result}, {"ok", Value(truthy(ok))}};
+  if (!result_text.is_null()) entry["result_text"] = result_text;
+  append(items, Value(Object{{"role", "function"}, {"results", Value(Array{Value(std::move(entry))})}, {"tags", Value::array()}}));
   set(memory, "items", items);
   set(gen, "memory", memory);
   return Value();
@@ -6210,6 +6306,20 @@ AxGen& AxGen::set_sample_count(int sample_count) {
   Value options = Core::get(state_, "options", Value::object());
   Core::set(options, "sampleCount", sample_count);
   Core::set(state_, "options", options);
+  return *this;
+}
+
+// The program's tool result formatter, as TS's functionResultFormatter
+// option; options another AxGen shares are copied, not changed.
+AxGen& AxGen::set_function_result_formatter(AxFunctionResultFormatter formatter) {
+  std::optional<AxFunctionResultFormatterHandle> handle;
+  if (formatter) handle.emplace(std::move(formatter));
+  Value options(object_ref(Core::get(state_, "options", Value::object())));
+  Core::map_delete(options, "functionResultFormatter");
+  Core::map_delete(options, "function_result_formatter");
+  if (handle) Core::set(options, "functionResultFormatter", handle->value());
+  Core::set(state_, "options", options);
+  function_result_formatter_ = std::move(handle);
   return *this;
 }
 

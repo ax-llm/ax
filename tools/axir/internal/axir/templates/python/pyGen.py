@@ -32,6 +32,7 @@ from .ai import (
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     _snapshot_global_caching_function,
+    _snapshot_global_function_result_formatter,
     chat_response_to_completion,
     ai_merge_replay_metadata,
     fold_chat_response_stream,
@@ -53,6 +54,12 @@ def _core_json_stable_stringify(value):
 
 def _core_crypto_sha256_hex(text):
     return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+
+
+def _core_axgen_function_result_formatter():
+    # The process-wide tool result formatter (set_function_result_formatter),
+    # or None.
+    return _snapshot_global_function_result_formatter()
 
 
 def _core_axgen_caching_function(gen, options):
@@ -287,6 +294,17 @@ class AxGen:
 
     def set_result_picker(self, result_picker):
         self.options["result_picker"] = result_picker
+        return self
+
+    def set_function_result_formatter(self, formatter):
+        """Write each tool result for the model as TS's functionResultFormatter
+        option does: formatter(result) -> text. Without one, a string goes as it
+        is, None as "done", and any other value as pretty JSON. A forward
+        call's function_result_formatter option wins over this one, and this
+        one over the process-wide axllm.set_function_result_formatter. A
+        formatter that raises fails the forward ("Generate failed: ..."), as
+        in TS."""
+        self.options["function_result_formatter"] = formatter
         return self
 
     def add_assert(self, assertion, message=None):
@@ -855,6 +873,7 @@ def ax(
     *,
     sample_count: int | None = None,
     result_picker=None,
+    function_result_formatter=None,
     hooks: AxRuntimeHooks | None = None,
 ) -> AxGen:
     normalized = dict(options or {})
@@ -862,6 +881,8 @@ def ax(
         normalized["sample_count"] = int(sample_count)
     if result_picker is not None:
         normalized["result_picker"] = result_picker
+    if function_result_formatter is not None:
+        normalized["function_result_formatter"] = function_result_formatter
     return AxGen(signature, normalized, hooks=hooks)
 
 
@@ -1014,6 +1035,9 @@ def _core_map_values(values):
 
 
 def _core_object_call_method(target, method_name, *args):
+    if str(method_name) == "format_result" and callable(target):
+        # A function result formatter: formatter(result) -> text.
+        return target(args[0] if args else None)
     if str(method_name) == "call" and callable(target):
         payload = args[0] if args else None
         if isinstance(payload, dict) and payload.get("type") == "fields":
@@ -1039,6 +1063,11 @@ def _core_json_parse_strict(value):
 def _core_json_stringify(value):
     # TS JSON.stringify(value): keys in insertion order, null as null.
     return _js_json_dumps(value)
+
+
+def _core_json_pretty(value):
+    # TS JSON.stringify(value, null, 2).
+    return _js_json_dumps(value, indent=2)
 
 
 def _core_fields_from_map(fields):
@@ -1620,10 +1649,14 @@ def _core_axgen_memory_add_response(gen, request, response):
     return None
 
 
-def _core_axgen_memory_add_function_result(gen, call, result, ok):
+def _core_axgen_memory_add_function_result(gen, call, result, ok, result_text=None):
+    # `result` and `result_text` both keep the text the model got.
     memory = _core_get(gen, "memory")
     if memory is not None and hasattr(memory, "add_function_results"):
-        memory.add_function_results({"call": call, "result": result, "ok": bool(ok)})
+        entry = {"call": call, "result": result, "ok": bool(ok)}
+        if result_text is not None:
+            entry["result_text"] = result_text
+        memory.add_function_results(entry)
     return None
 
 

@@ -183,6 +183,32 @@ func snapshotGlobalCachingFunction() AxCachingFunction {
 	return fn
 }
 
+var functionResultFormatterState struct {
+	sync.RWMutex
+	fn AxFunctionResultFormatter
+}
+
+// SetGlobalFunctionResultFormatter sets the process-wide tool result
+// formatter, as TypeScript's axGlobals.functionResultFormatter: AxGen uses it
+// when neither the forward call nor the program sets
+// "functionResultFormatter". nil restores the default.
+func SetGlobalFunctionResultFormatter(fn AxFunctionResultFormatter) {
+	functionResultFormatterState.Lock()
+	functionResultFormatterState.fn = fn
+	functionResultFormatterState.Unlock()
+}
+
+// _core_axgen_function_result_formatter is the process-wide formatter, or nil.
+func _core_axgen_function_result_formatter() Value {
+	functionResultFormatterState.RLock()
+	fn := functionResultFormatterState.fn
+	functionResultFormatterState.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn
+}
+
 type runtimeHookFrame struct {
 	hooks   AxRuntimeHooks
 	globals AxRuntimeHooks
@@ -7294,6 +7320,26 @@ type AxResultPickerSample struct {
 
 type AxResultPicker func([]AxResultPickerSample) (int, error)
 
+// AxFunctionResultFormatter writes a tool result for the model, as TS's
+// functionResultFormatter option does. Without one, a string goes as it is,
+// nil as "done", and any other value as pretty JSON. An error fails the
+// forward ("Generate failed: ..."), as a TS formatter that throws does.
+type AxFunctionResultFormatter func(result Value) (string, error)
+
+// conformanceFunctionResultFormatter builds a fixture's formatter: {text}
+// writes that text for every tool result, and {throws} fails with that
+// message.
+func conformanceFunctionResultFormatter(spec Value) AxFunctionResultFormatter {
+	text := display(coreGet(spec, "text", ""))
+	failure := coreGet(spec, "throws", nil)
+	return func(Value) (string, error) {
+		if failure != nil {
+			return "", errors.New(display(failure))
+		}
+		return text, nil
+	}
+}
+
 func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
@@ -7333,6 +7379,13 @@ func (g *AxGen) SetSampleCount(sampleCount int) *AxGen {
 }
 func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
 	g.Options["resultPicker"] = resultPicker
+	return g
+}
+
+// SetFunctionResultFormatter sets the program's tool result formatter; a
+// forward call's "functionResultFormatter" option wins over it.
+func (g *AxGen) SetFunctionResultFormatter(formatter AxFunctionResultFormatter) *AxGen {
+	g.Options["functionResultFormatter"] = formatter
 	return g
 }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
@@ -11168,6 +11221,17 @@ func objectCallMethod(target Value, method string, arg Value, rest ...Value) (Va
 		}
 		return render_prompt(coreGet(target, "signature", nil), arg, functions, options)
 	}
+	if method == "format_result" {
+		if formatter, ok := target.(AxFunctionResultFormatter); ok {
+			return formatter(arg)
+		}
+		if formatter, ok := target.(func(Value) (string, error)); ok {
+			return formatter(arg)
+		}
+		if formatter, ok := target.(func(Value) string); ok {
+			return formatter(arg), nil
+		}
+	}
 	if method == "call" {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
 			return fn(asMap(arg)), nil
@@ -14091,7 +14155,24 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
+	if spec := coreGet(fixture, "function_result_formatter", nil); spec != nil {
+		// The program's formatter.
+		gen.SetFunctionResultFormatter(conformanceFunctionResultFormatter(spec))
+	}
 	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
+	if spec := coreGet(fixture, "call_function_result_formatter", nil); spec != nil {
+		// The forward call's formatter.
+		forwardOptions = cloneMap(forwardOptions)
+		forwardOptions["functionResultFormatter"] = conformanceFunctionResultFormatter(spec)
+	}
+	if spec := coreGet(fixture, "global_function_result_formatter", nil); spec != nil {
+		// The process-wide formatter, restored after the forward.
+		functionResultFormatterState.RLock()
+		previous := functionResultFormatterState.fn
+		functionResultFormatterState.RUnlock()
+		SetGlobalFunctionResultFormatter(conformanceFunctionResultFormatter(spec))
+		defer SetGlobalFunctionResultFormatter(previous)
+	}
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		forwardOptions = cloneMap(forwardOptions)
 		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)
@@ -14176,6 +14257,28 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_memory_history_subset", nil); expected != nil {
 			assertListSubset(gen.Memory, expected, "memory history")
+		}
+		// The memory's tool results, in order; a Go memory item's results are
+		// [call, result, ok, result_text]: result_text is the text the model
+		// got, and result holds the same text.
+		for _, check := range []struct {
+			key   string
+			index int
+		}{{"expected_memory_function_results", 3}, {"expected_memory_function_stored_results", 1}} {
+			expected := coreGet(fixture, check.key, nil)
+			if expected == nil {
+				continue
+			}
+			values := []Value{}
+			for _, item := range asSlice(gen.Memory) {
+				if coreGet(item, "role", nil) != "function" {
+					continue
+				}
+				if results := asSlice(coreGet(item, "results", nil)); len(results) > check.index {
+					values = append(values, results[check.index])
+				}
+			}
+			assertEqual(values, expected, check.key)
 		}
 		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
 			assertListSubset(gen.ChatLog, expected, "chat log")

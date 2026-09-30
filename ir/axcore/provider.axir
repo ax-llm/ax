@@ -6139,7 +6139,8 @@ module @ax.provider version "0.1" {
       core.if %is_function {
         %message_id = core.get %message["id"]
         %message_content = core.get %message["content"]
-        %call_id_snake = core.get %message["function_call_id"]
+        %call_id_legacy = core.get %message["function_call_id"]
+        %call_id_snake = core.get %message["function_id"] default %call_id_legacy
         %call_id_camel = core.get %message["functionId"] default %call_id_snake
         %call_id = core.call intrinsic.coalesce(%call_id_camel, %message_id)
         %result = core.get %message["result"] default %message_content

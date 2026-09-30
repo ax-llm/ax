@@ -14993,3 +14993,58 @@ writeFixture('gemini-live-ws-url-encodes-key', {
   api_key: liveKey,
   expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
 });
+
+// AxGen's portable message uses function_id. Normalize that host spelling to
+// the same Responses call_id TypeScript sends for functionId.
+{
+  let body: Record<string, Json> = {};
+  const response = {
+    id: 'resp_tool_output',
+    output: [
+      {
+        id: 'msg_tool_output',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '12 units' }],
+      },
+    ],
+  };
+  await new AxAIOpenAIResponses({
+    apiKey: 'test-key',
+    config: { model: AxAIOpenAIModel.GPT6Luna },
+    options: {
+      fetch: async (_url: unknown, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body)) as Record<string, Json>;
+        return Response.json(response);
+      },
+    },
+  }).chat(
+    {
+      chatPrompt: [
+        {
+          role: 'function',
+          functionId: 'call_inventory',
+          result: '12 units available',
+        },
+      ],
+    } as never,
+    { stream: false }
+  );
+  writeFixture('openai-responses-generated-tool-result-id', {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model: AxAIOpenAIModel.GPT6Luna,
+    request: {
+      chat_prompt: [
+        {
+          role: 'function',
+          function_id: 'call_inventory',
+          result: '12 units available',
+        },
+      ],
+      model_config: { stream: false },
+    },
+    transport_responses: [{ status: 200, json: response }],
+    expected_transport_request: { json: { input: body.input } },
+  });
+}
