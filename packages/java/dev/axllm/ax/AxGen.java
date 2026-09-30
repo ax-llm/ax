@@ -232,33 +232,9 @@ public final class AxGen implements AxProgram {
     return this;
   }
 
-  /**
-   * Rewrites the field value, as {@link #addFieldTransform(String, String)} does.
-   *
-   * @deprecated Use {@link #addFieldTransform(String, String)}. In the next major version {@code
-   *     addFieldProcessor} follows TypeScript and sends the processor's result back to the model;
-   *     opt in now with {@link #addFieldProcessor(String, AxFieldProcessor, AxFieldProcessorMode)}
-   *     and {@link AxFieldProcessorMode#FEEDBACK}.
-   */
-  @Deprecated
-  public AxGen addFieldProcessor(String field, String op) {
-    Core.axgenDeprecation("java-add-field-processor-transform", FIELD_PROCESSOR_DEPRECATION);
-    return addFieldTransform(field, op);
-  }
-
-  /**
-   * Rewrites the field value with the callback's result, as {@link #addFieldTransform(String,
-   * FieldProcessorCallback)} does.
-   *
-   * @deprecated Use {@link #addFieldTransform(String, FieldProcessorCallback)}. In the next major
-   *     version {@code addFieldProcessor} follows TypeScript and sends the processor's result back
-   *     to the model; opt in now with {@link #addFieldProcessor(String, AxFieldProcessor,
-   *     AxFieldProcessorMode)} and {@link AxFieldProcessorMode#FEEDBACK}.
-   */
-  @Deprecated
-  public AxGen addFieldProcessor(String field, FieldProcessorCallback processor) {
-    Core.axgenDeprecation("java-add-field-processor-transform", FIELD_PROCESSOR_DEPRECATION);
-    return addFieldTransform(field, processor);
+  /** Sends processor feedback to the model, matching TypeScript's default. */
+  public AxGen addFieldProcessor(String field, AxFieldProcessor processor) {
+    return addFieldProcessor(field, processor, AxFieldProcessorMode.FEEDBACK);
   }
 
   /**
@@ -296,11 +272,6 @@ public final class AxGen implements AxProgram {
     this.streamingFieldProcessors.add(processorSpec(field, processor));
     return this;
   }
-
-  private static final String FIELD_PROCESSOR_DEPRECATION =
-      "AxGen.addFieldProcessor(field, op or callback) rewrites the field value; use addFieldTransform(field, ...) for that. "
-          + "In the next major version addFieldProcessor follows TypeScript and sends the processor's result back "
-          + "to the model for another step; opt in now with addFieldProcessor(field, processor, AxFieldProcessorMode.FEEDBACK).";
 
   // Throws, as TypeScript does, when field is not an output field or, for
   // text, not a string or code field.

@@ -1274,7 +1274,7 @@ public final class Conformance {
     List<Object> processorCalls = new ArrayList<>();
     for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls), AxFieldProcessorMode.FEEDBACK);
+      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
     }
     if (fixture.containsKey("stop_functions") || fixture.containsKey("stopFunctions")) {
       List<String> names = new ArrayList<>();
@@ -1368,9 +1368,8 @@ public final class Conformance {
 	    }
 	  }
 
-  // field_transforms use the transform API; field_processors use the
-  // deprecated transforming addFieldProcessor() path, which behaves the same.
-  @SuppressWarnings("deprecation")
+  // Both fixture spellings describe local transforms; feedback fixtures
+  // exercise addFieldProcessor with its default mode.
   static void addFixtureTransforms(AxGen gen, Map<String, Object> fixture) {
     for (Object item : Core.asList(fixture.getOrDefault("field_transforms", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
@@ -1378,7 +1377,7 @@ public final class Conformance {
     }
     for (Object item : Core.asList(fixture.getOrDefault("field_processors", fixture.getOrDefault("fieldProcessors", List.of())))) {
       Map<String, Object> spec = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(spec.get("field")), String.valueOf(spec.getOrDefault("processor", spec.get("op"))));
+      gen.addFieldTransform(String.valueOf(spec.get("field")), String.valueOf(spec.getOrDefault("processor", spec.get("op"))));
     }
   }
 
@@ -1420,7 +1419,7 @@ public final class Conformance {
     addFixtureTransforms(gen, fixture);
     for (Object item : Core.asList(fixture.getOrDefault("feedback_processors", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
-      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls), AxFieldProcessorMode.FEEDBACK);
+      gen.addFieldProcessor(String.valueOf(spec.get("field")), fixtureProcessor(spec, processorCalls));
     }
     for (Object item : Core.asList(fixture.getOrDefault("streaming_processors", List.of()))) {
       Map<String, Object> spec = Core.asMap(item);
