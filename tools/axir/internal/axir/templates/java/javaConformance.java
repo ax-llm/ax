@@ -162,6 +162,8 @@ public final class Conformance {
     // What the run did to its sessions: open, steer, continue (with the IDs
     // of the tool results it submitted) and close.
     final List<Object> sessionLog = Collections.synchronizedList(new ArrayList<>());
+    // The tool results the run submitted to its sessions, in order.
+    final List<Object> sessionToolResults = Collections.synchronizedList(new ArrayList<>());
 
     ConformanceSessionAI(List<Object> responses, List<Object> streamEvents, Map<String, Object> features, Map<String, Object> client, List<Object> sessions) {
       super(responses, streamEvents, withAsyncTools(features), client);
@@ -183,7 +185,7 @@ public final class Conformance {
       sessionLog.add(logEntry("open"));
       noteRequest();
       if (sessions.isEmpty()) throw new RuntimeException("scripted sessions exhausted");
-      return new ScriptedChatSession(sessionLog, Core.asList(sessions.remove(0)));
+      return new ScriptedChatSession(sessionLog, Core.asList(sessions.remove(0)), sessionToolResults);
     }
   }
 
@@ -199,12 +201,14 @@ public final class Conformance {
   static final class ScriptedChatSession implements AxChatSession {
     private static final Map<String, Object> END = new LinkedHashMap<>();
     private final List<Object> log;
+    private final List<Object> toolResults;
     private final List<Object> script;
     private final java.util.concurrent.BlockingQueue<Map<String, Object>> events = new java.util.concurrent.LinkedBlockingQueue<>();
     private boolean closed;
 
-    ScriptedChatSession(List<Object> log, List<Object> script) {
+    ScriptedChatSession(List<Object> log, List<Object> script, List<Object> toolResults) {
       this.log = log;
+      this.toolResults = toolResults;
       this.script = new ArrayList<>(script);
       play();
     }
@@ -242,6 +246,13 @@ public final class Conformance {
       Map<String, Object> entry = logEntry("continue");
       entry.put("call_ids", ids);
       log.add(entry);
+      for (Object result : results) {
+        Map<String, Object> submitted = new LinkedHashMap<>();
+        submitted.put("call_id", Core.get(result, "function_id", null));
+        submitted.put("result", Core.get(result, "result", null));
+        submitted.put("is_error", Core.truthy(Core.get(result, "is_error", false)));
+        toolResults.add(submitted);
+      }
       play();
     }
 
@@ -284,6 +295,10 @@ public final class Conformance {
 
   // expected_session_log: what the run did to its native sessions, in order.
   static void assertSessionLog(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (fixture.containsKey("expected_session_tool_results")) {
+      List<Object> results = client instanceof ConformanceSessionAI session ? new ArrayList<>(session.sessionToolResults) : List.of();
+      assertEqual(results, fixture.get("expected_session_tool_results"), "native session tool results");
+    }
     if (!fixture.containsKey("expected_session_log")) return;
     List<Object> log = client instanceof ConformanceSessionAI session ? new ArrayList<>(session.sessionLog) : List.of();
     assertEqual(log, fixture.get("expected_session_log"), "native session log");
@@ -4206,6 +4221,7 @@ public final class Conformance {
       try { Core.chat_session_validate_required_arguments(item.get("schema"), item.get("arguments"), "arguments"); }
       catch (RuntimeException error) { valid = false; }
       assertEqual(valid, item.get("valid"), "raw argument validation: " + item);
+      if (item.containsKey("errors")) assertEqual(Core.chat_session_tool_argument_errors(item.get("schema"), item.get("arguments")), item.get("errors"), "raw argument errors: " + item);
     }
     Object state = Core.chat_session_create_state(fixture.get("model"), fixture.get("path"), fixture.get("max_steps"));
     for (Object rawCase : Core.iter(fixture.get("cases"))) {

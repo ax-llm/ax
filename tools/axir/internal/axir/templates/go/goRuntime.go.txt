@@ -12324,6 +12324,8 @@ type conformanceScriptedAI struct {
 	SessionScripted bool
 	sessionMu       sync.Mutex
 	SessionLog      []Value
+	// SessionToolResults: the tool results the run submitted to its sessions.
+	SessionToolResults []Value
 }
 
 func (f *conformanceScriptedAI) noteRequest() {
@@ -12442,6 +12444,15 @@ func (s *conformanceScriptedSession) Submit(results []Value) error {
 		ids = append(ids, coreGet(result, "function_id", nil))
 	}
 	s.client.logSession(Object("op", "continue", "call_ids", ids))
+	s.client.sessionMu.Lock()
+	for _, result := range results {
+		s.client.SessionToolResults = append(s.client.SessionToolResults, Object(
+			"call_id", coreGet(result, "function_id", nil),
+			"result", coreGet(result, "result", nil),
+			"is_error", coreTruthy(coreGet(result, "is_error", false)),
+		))
+	}
+	s.client.sessionMu.Unlock()
 	return s.play()
 }
 
@@ -12473,6 +12484,12 @@ func (s *conformanceScriptedSession) Close() error {
 // conformanceAssertSessionLog compares expected_session_log with what the
 // run did to its native sessions, in order.
 func conformanceAssertSessionLog(fixture map[string]Value, client *conformanceScriptedAI) {
+	if expected, ok := fixture["expected_session_tool_results"]; ok {
+		client.sessionMu.Lock()
+		results := Array(client.SessionToolResults...)
+		client.sessionMu.Unlock()
+		assertEqual(results, expected, "native session tool results")
+	}
 	expected, ok := fixture["expected_session_log"]
 	if !ok {
 		return
@@ -12818,6 +12835,9 @@ func runConformanceFixtureKind(fixture map[string]Value) {
         for _, item := range coreIter(coreGet(fixture,"validation_cases",Array())) {
             _, err := chat_session_validate_required_arguments(coreGet(item,"schema",nil),coreGet(item,"arguments",nil),"arguments")
             assertEqual(err == nil, coreGet(item,"valid",nil),"raw argument validation: " + display(item))
+            if expectedErrors := coreGet(item, "errors", nil); expectedErrors != nil {
+                assertEqual(mustCore(chat_session_tool_argument_errors(coreGet(item,"schema",nil),coreGet(item,"arguments",nil))), expectedErrors, "raw argument errors: " + display(item))
+            }
         }
         state := mustCore(chat_session_create_state(coreGet(fixture,"model",nil),coreGet(fixture,"path",nil),coreGet(fixture,"max_steps",nil)))
         for _, item := range coreIter(coreGet(fixture,"cases",nil)) {

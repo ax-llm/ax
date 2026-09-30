@@ -131,6 +131,8 @@ function scriptedAI(
 ) {
   const queue = clone(responses);
   const sessionQueue = clone(sessions ?? []);
+  // The tool results a session run submits, in order.
+  const sessionResults: JsonMap[] = [];
   // What the run did to its sessions, in order: open, steer, continue (with
   // the IDs of the tool results it submitted) and close.
   const sessionLog: JsonMap[] = [];
@@ -243,8 +245,21 @@ function scriptedAI(
                 };
             }
           },
-          async submitToolResults(results: { functionId: string }[]) {
+          async submitToolResults(
+            results: {
+              functionId: string;
+              result?: unknown;
+              isError?: boolean;
+            }[]
+          ) {
             submitted.push(...results.map((result) => result.functionId));
+            sessionResults.push(
+              ...results.map((result) => ({
+                call_id: result.functionId,
+                result: clone(result.result ?? null) as Json,
+                is_error: result.isError === true,
+              }))
+            );
           },
           async continue() {
             sessionLog.push({ op: 'continue', call_ids: submitted.splice(0) });
@@ -274,6 +289,7 @@ function scriptedAI(
     prompts: () => prompts,
     formats: () => formats,
     sessionLog: () => sessionLog,
+    sessionResults: () => sessionResults,
   };
 }
 
@@ -303,7 +319,7 @@ function tsOptions(options: JsonMap | undefined): Record<string, unknown> {
 type ToolSpec = {
   name: string;
   description?: string;
-  args?: Record<string, { type: string }>;
+  args?: Record<string, { type: string; description?: string }>;
   result?: Json;
   error?: string;
 };
@@ -312,12 +328,13 @@ function tsTools(specs: ToolSpec[], calls: JsonMap[]) {
   return specs.map((spec) => {
     let builder = fn(spec.name).description(spec.description ?? spec.name);
     for (const [name, arg] of Object.entries(spec.args ?? {})) {
+      const description = arg.description ?? name;
       const field =
         arg.type === 'number'
-          ? f.number(name)
+          ? f.number(description)
           : arg.type === 'boolean'
-            ? f.boolean(name)
-            : f.string(name);
+            ? f.boolean(description)
+            : f.string(description);
       builder = builder.arg(name, field) as typeof builder;
     }
     return builder
@@ -442,6 +459,8 @@ type Case = {
   native_session?: SessionScript;
   // Pin each request's message roles, also when the forward fails.
   pin_request_roles?: boolean;
+  // Pin the tool results the session run submits (text and error flag).
+  pin_session_results?: boolean;
   // Port-only forward options, added to the fixture's forward_options but
   // not passed to TS: a port's opt-in to what TS always does.
   port_forward_options?: JsonMap;
@@ -455,16 +474,17 @@ async function record(name: string, spec: Case): Promise<void> {
   const control =
     spec.control || spec.constructor_control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, prompts, formats, sessionLog } = scriptedAI(
-    spec.responses,
-    spec.features,
-    (request) => {
-      if (steer && control && request === steer.during_request) {
-        control.steer(steer.text);
-      }
-    },
-    spec.native_session
-  );
+  const { ai, calls, prompts, formats, sessionLog, sessionResults } =
+    scriptedAI(
+      spec.responses,
+      spec.features,
+      (request) => {
+        if (steer && control && request === steer.during_request) {
+          control.steer(steer.text);
+        }
+      },
+      spec.native_session
+    );
   const gen = new AxGen(spec.signature, {
     ...tsOptions(spec.options),
     functions: tsTools(spec.tools ?? [], toolCalls),
@@ -570,6 +590,9 @@ async function record(name: string, spec: Case): Promise<void> {
     'native_session',
   ] as const) {
     if (spec[key] !== undefined) fixture[key] = spec[key];
+  }
+  if (spec.native_session && spec.pin_session_results) {
+    fixture.expected_session_tool_results = sessionResults();
   }
   if (spec.native_session) {
     fixture.expected_session_log = sessionLog();
@@ -690,6 +713,14 @@ const lookupTool: ToolSpec = {
   name: 'lookup',
   description: 'Look up a key',
   args: { key: { type: 'string' } },
+  result: 'status is green',
+};
+// The lookup tool with its argument's own description, which TS's fixing
+// instructions for a bad argument show.
+const describedLookupTool: ToolSpec = {
+  name: 'lookup',
+  description: 'Look up a key',
+  args: { key: { type: 'string', description: 'The key to look up' } },
   result: 'status is green',
 };
 const finishTool: ToolSpec = {
@@ -2718,6 +2749,54 @@ const sessionCases: Record<string, Case> = {
     tools: [lookupTool],
     native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
     responses: [],
+  },
+  // A call whose arguments fail the tool's JSON schema is not run: TS's
+  // axValidateToolArguments lists each bad argument, and the session gets
+  // the fixing instructions as the call's error result, then goes on.
+  'forward-native-session-tool-invalid-arguments': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [describedLookupTool],
+    native_session: [
+      [
+        [
+          sessionCompleted('r1', {
+            function_calls: [call('c1', 'lookup', '{"key":7}')],
+          }),
+        ],
+        [sessionAnswer('r2', 'Answer: green')],
+      ],
+    ],
+    responses: [],
+    pin_session_results: true,
+  },
+  'forward-native-session-tool-missing-argument': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [describedLookupTool],
+    native_session: [
+      [
+        [
+          sessionCompleted('r1', {
+            function_calls: [call('c1', 'lookup', '{}')],
+          }),
+        ],
+        [sessionAnswer('r2', 'Answer: green')],
+      ],
+    ],
+    responses: [],
+    pin_session_results: true,
+  },
+  'forward-native-session-tool-results-pinned': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    control: true,
+    tools: [lookupTool],
+    native_session: [[[lookupCall], [sessionAnswer('r2', 'Answer: green')]]],
+    responses: [],
+    pin_session_results: true,
   },
   // A correction's fresh session gets the whole conversation, the first
   // session's tool call and result included.

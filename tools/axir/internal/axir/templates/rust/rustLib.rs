@@ -4362,8 +4362,11 @@ impl ToolBuilder {
         self
     }
 
+    /// An argument; the field type's description, when it has one, goes into
+    /// the tool's JSON schema, as TypeScript's `fn(...).arg(name, f.string("..."))`
+    /// puts it there.
     pub fn arg(mut self, name: &str, field_type: FieldType) -> Self {
-        self.args.insert(name.to_string(), field_type.to_payload());
+        self.args.insert(name.to_string(), field_type.to_payload_with_description());
         self
     }
 
@@ -17209,6 +17212,8 @@ struct FixtureClient {
     // What the run did to its sessions: open, steer, thinking, continue (with
     // the IDs of the tool results it submitted) and close.
     session_log: Rc<RefCell<Vec<Value>>>,
+    // The tool results the run submitted to its sessions, in order.
+    session_tool_results: Rc<RefCell<Vec<Value>>>,
 }
 
 impl AxAIClient for FixtureClient {
@@ -17233,7 +17238,7 @@ impl AxAIClient for FixtureClient {
             .as_mut()
             .and_then(VecDeque::pop_front)
             .ok_or_else(|| AxError::runtime("scripted sessions exhausted"))?;
-        Ok(Some(Box::new(ScriptedChatSession::new(self.session_log.clone(), script)?)))
+        Ok(Some(Box::new(ScriptedChatSession::new(self.session_log.clone(), self.session_tool_results.clone(), script)?)))
     }
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
@@ -17369,6 +17374,7 @@ impl FixtureClient {
             chat_requests: 0,
             native_sessions: None,
             session_log: Rc::new(RefCell::new(Vec::new())),
+            session_tool_results: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -17428,15 +17434,16 @@ fn expect_fixture_speak_requests(fixture: &Value, requests: &[Value]) -> AxResul
 // delivered as {type, response_id, response: {results}}.
 struct ScriptedChatSession {
     log: Rc<RefCell<Vec<Value>>>,
+    tool_results: Rc<RefCell<Vec<Value>>>,
     script: VecDeque<Value>,
     events: VecDeque<Value>,
     closed: bool,
 }
 
 impl ScriptedChatSession {
-    fn new(log: Rc<RefCell<Vec<Value>>>, script: Value) -> AxResult<Self> {
+    fn new(log: Rc<RefCell<Vec<Value>>>, tool_results: Rc<RefCell<Vec<Value>>>, script: Value) -> AxResult<Self> {
         let script = script.as_array().cloned().unwrap_or_default().into();
-        let mut session = Self { log, script, events: VecDeque::new(), closed: false };
+        let mut session = Self { log, tool_results, script, events: VecDeque::new(), closed: false };
         session.play()?;
         Ok(session)
     }
@@ -17472,6 +17479,13 @@ impl AxChatSession for ScriptedChatSession {
     fn submit(&mut self, results: Vec<Value>) -> AxResult<()> {
         let ids = results.iter().map(|result| result.get("function_id").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>();
         self.log.borrow_mut().push(json!({"op": "continue", "call_ids": ids}));
+        for result in &results {
+            self.tool_results.borrow_mut().push(json!({
+                "call_id": result.get("function_id").cloned().unwrap_or(Value::Null),
+                "result": result.get("result").cloned().unwrap_or(Value::Null),
+                "is_error": result.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+            }));
+        }
         self.play()
     }
 
@@ -17497,6 +17511,9 @@ impl AxChatSession for ScriptedChatSession {
 // python: _assert_session_log. expected_session_log is what the run did to
 // its native sessions, in order.
 fn expect_fixture_session_log(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_session_tool_results") {
+        expect_json_equal("native session tool results", &Value::Array(client.session_tool_results.borrow().clone()), expected)?;
+    }
     if let Some(expected) = fixture.get("expected_session_log") {
         expect_json_equal("native session log", &Value::Array(client.session_log.borrow().clone()), expected)?;
     }
@@ -25002,6 +25019,9 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
             CoreValue::from("type"),
             core_field_type_value(&field_type_from_payload(payload))?,
         )?;
+        if let Some(description) = payload.get("description").and_then(Value::as_str) {
+            core_set(&values, CoreValue::from("description"), CoreValue::from(description))?;
+        }
         core_append(&fields, core_record_new(&[CoreValue::from("Field"), values])?)?;
     }
     Ok(fields)
@@ -26877,6 +26897,10 @@ fn run_ai_session_state_fixture(fixture: &Value) -> AxResult<()> {
         for case in cases {
             let valid = chat_session_validate_required_arguments(&[core_value_from_json(&case["schema"]), core_value_from_json(&case["arguments"]), CoreValue::from("arguments")]).is_ok();
             expect_json_equal(&format!("raw argument validation: {case}"), &json!(valid), &case["valid"])?;
+            if let Some(expected) = case.get("errors") {
+                let errors = core_value_to_json(&chat_session_tool_argument_errors(&[core_value_from_json(&case["schema"]), core_value_from_json(&case["arguments"])])?);
+                expect_json_equal(&format!("raw argument errors: {case}"), &errors, expected)?;
+            }
         }
     }
     let state = chat_session_create_state(&[core_value_from_json(&fixture["model"]), core_value_from_json(&fixture["path"]), core_value_from_json(&fixture["max_steps"])])?;

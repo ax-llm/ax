@@ -48,10 +48,17 @@ static Value scripted_client_options(Value spec) {
 struct ScriptedSessionLog {
   std::mutex mutex;
   Value entries = Value::array();
+  // The tool results the run submitted, in order.
+  Value tool_results = Value::array();
 
   void add(Value entry) {
     std::lock_guard<std::mutex> lock(mutex);
     Core::append(entries, std::move(entry));
+  }
+
+  void add_result(Value result) {
+    std::lock_guard<std::mutex> lock(mutex);
+    Core::append(tool_results, std::move(result));
   }
 };
 
@@ -76,6 +83,9 @@ class ScriptedChatSession final : public AxChatSession {
     Value call_ids = Value::array();
     for (const auto& result : Core::iter(results)) Core::append(call_ids, Core::get(result, "function_id"));
     log_->add(object({{"op", "continue"}, {"call_ids", call_ids}}));
+    for (const auto& result : Core::iter(results)) {
+      log_->add_result(object({{"call_id", Core::get(result, "function_id")}, {"result", Core::get(result, "result")}, {"is_error", Value(Core::truthy(Core::get(result, "is_error", false)))}}));
+    }
     play();
   }
 
@@ -279,6 +289,11 @@ static void assert_equal(Value actual, Value expected, const std::string& label)
 
 // The fixture's native session log, compared exactly.
 static void assert_session_log(Value fixture, const ConformanceScriptedAI& client) {
+  Value expected_results = Core::get(fixture, "expected_session_tool_results");
+  if (!expected_results.is_null()) {
+    std::lock_guard<std::mutex> lock(client.session_log->mutex);
+    assert_equal(client.session_log->tool_results, expected_results, "native session tool results");
+  }
   Value expected = Core::get(fixture, "expected_session_log");
   if (expected.is_null()) return;
   std::lock_guard<std::mutex> lock(client.session_log->mutex);
@@ -4445,6 +4460,7 @@ static void run_kind(Value fixture) {
       try { Core::chat_session_validate_required_arguments(Core::get(item,"schema"), Core::get(item,"arguments"), "arguments"); }
       catch (const AxError&) { valid = false; }
       assert_equal(Value(valid), Core::get(item,"valid"), "raw argument validation: " + display(item));
+      if (!Core::get(item, "errors").is_null()) assert_equal(Core::chat_session_tool_argument_errors(Core::get(item,"schema"), Core::get(item,"arguments")), Core::get(item, "errors"), "raw argument errors: " + display(item));
     }
     Value state = Core::chat_session_create_state(Core::get(fixture, "model"), Core::get(fixture, "path"), Core::get(fixture, "max_steps"));
     for (auto item : Core::iter(Core::get(fixture, "cases"))) {
