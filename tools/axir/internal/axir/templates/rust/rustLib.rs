@@ -27517,7 +27517,7 @@ mod request_url_security_tests {
     impl AxTransport for NativeFileTransport {
         fn send(&mut self, request: Value)->AxResult<Value> {
             self.requests.lock().unwrap().push(request["json"].clone());
-            Ok(json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"{\"summary\":\"Read\"}"}}]}}))
+            Ok(json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"Summary: Read"}}]}}))
         }
     }
     #[test]
@@ -28732,7 +28732,7 @@ mod axflow_caching_function_tests {
         fn send(&mut self, request: Value) -> AxResult<Value> {
             self.0.lock().unwrap().push(std::thread::current().id());
             let field = if request.to_string().contains("reply") { "reply" } else { "answer" };
-            let message = json!({"role": "assistant", "content": json!({field: "Paris"}).to_string()});
+            let message = json!({"role": "assistant", "content": format!("{}: Paris", if field == "reply" { "Reply" } else { "Answer" })});
             Ok(json!({"status": 200, "json": {"id": "reply", "choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}}))
         }
     }

@@ -36843,7 +36843,7 @@ mod request_url_security_tests {
         fn send(&mut self, request: Value) -> AxResult<Value> {
             self.requests.lock().unwrap().push(request["json"].clone());
             Ok(
-                json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"{\"summary\":\"Read\"}"}}]}}),
+                json!({"status":200,"json":{"id":"file-response","choices":[{"index":0,"message":{"role":"assistant","content":"Summary: Read"}}]}}),
             )
         }
     }
@@ -140432,8 +140432,7 @@ mod axflow_caching_function_tests {
             } else {
                 "answer"
             };
-            let message =
-                json!({"role": "assistant", "content": json!({field: "Paris"}).to_string()});
+            let message = json!({"role": "assistant", "content": format!("{}: Paris", if field == "reply" { "Reply" } else { "Answer" })});
             Ok(
                 json!({"status": 200, "json": {"id": "reply", "choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}}),
             )

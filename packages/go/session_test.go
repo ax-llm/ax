@@ -502,7 +502,7 @@ func TestAstraSessionInvalidArgumentsAndStepExhaustion(t *testing.T) {
     if exhausted||n!=2 {return AxHTTPStreamResponse{},fmt.Errorf("work replayed after step exhaustion")}
     body:=coreGet(request,"json",Object());outputs:=asSlice(coreGet(body,"input",Array()))
     if coreGet(body,"previous_response_id",nil)!="invalid"||len(outputs)!=1||coreGet(outputs[0],"call_id",nil)!="invalid-call"||!strings.Contains(strings.ToLower(display(coreGet(outputs[0],"output",""))),"query") {return AxHTTPStreamResponse{},fmt.Errorf("invalid correction continuation: %v",body)}
-    event=sessionCompleted("corrected",`{"answer":"CORRECTED"}`)
+    event=sessionCompleted("corrected",`Answer: CORRECTED`)
    }
    var data strings.Builder;sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
@@ -699,10 +699,10 @@ func(t *mcpAgentModelTransport) response(request Value)(Value,io.ReadCloser,erro
     t.requests++;number:=t.requests;body:=coreGet(request,"json",nil);actor:=[]Value{}
     for _,tool:=range asSlice(coreGet(body,"tools",Array())){if coreTruthy(coreGet(tool,"async",false)){actor=append(actor,tool)}}
     if t.hidden {
-        if len(actor)!=0{return nil,nil,fmt.Errorf("Undiscovered MCP tool exposed")};text:=`{"completion":{"type":"final","args":["No discovered tools",{}]}}`;if number==3{text=`{"answer":"not discovered"}`};return sessionCompleted(fmt.Sprint("hidden-",number),text),nil,nil
+        if len(actor)!=0{return nil,nil,fmt.Errorf("Undiscovered MCP tool exposed")};text:=`{"completion":{"type":"final","args":["No discovered tools",{}]}}`;if number==3{text=`Answer: not discovered`};return sessionCompleted(fmt.Sprint("hidden-",number),text),nil,nil
     }
     if number==1||number==5 {
-        if len(actor)!=0{return nil,nil,fmt.Errorf("Native authority escaped executor")};text:=`{"completion":{"type":"final","args":["Find reference",{}]}}`;if number==5{if !strings.Contains(stableStringify(body),"REF-42"){return nil,nil,fmt.Errorf("Responder preceded result incorporation")};text=`{"answer":"REF-42"}`};return sessionCompleted(fmt.Sprint("stage-",number),text),nil,nil
+        if len(actor)!=0{return nil,nil,fmt.Errorf("Native authority escaped executor")};text:=`{"completion":{"type":"final","args":["Find reference",{}]}}`;if number==5{if !strings.Contains(stableStringify(body),"REF-42"){return nil,nil,fmt.Errorf("Responder preceded result incorporation")};text=`Answer: REF-42`};return sessionCompleted(fmt.Sprint("stage-",number),text),nil,nil
     }
     if number==2 {
         if len(actor)!=1||coreGet(actor[0],"name",nil)!="orders_lookup"||stableStringify(coreGet(actor[0],"parameters",nil))!=stableStringify(t.mcp.schema){return nil,nil,fmt.Errorf("Lost native MCP schema: %v",actor)}
@@ -772,7 +772,7 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    if number==10{raw,_:=json.Marshal(body);if !strings.Contains(string(raw),"REF-42"){return AxHTTPStreamResponse{},fmt.Errorf("parent continued without child result")}}
    var output Value
    if strings.HasPrefix(stage,"root/team.researcher"){if strings.HasSuffix(stage,"/responder"){output=Object("answer","REF-42")}else{output=Object("completion",Object("type","final","args",Array("Find reference",Object())))}}else if stage=="root/responder"{output=Object("answer","REF-42")}else{code:="parent-final";if stage=="root/executor"&&!runtime.delegated{code="delegate"};output=Object("javascriptCode",code)}
-   raw,_:=json.Marshal(output);var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw));if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
+   raw,_:=json.Marshal(output);text:=string(raw);if answer:=coreGet(output,"answer",nil);answer!=nil{text="Answer: "+display(answer)};var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),text);if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
   }
   mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("actorMode","completion","directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)

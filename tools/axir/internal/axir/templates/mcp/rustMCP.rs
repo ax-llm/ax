@@ -1680,7 +1680,7 @@ mod configured_context_tests {
                 assert_eq!(self.calls,2);
                 assert!(request.to_string().contains("OWN-REFERENCE"),"MCP result absent from continuation");
                 assert!(request.to_string().contains("own-call"),"MCP result lost its call ID");
-                Ok(json!({"results":[{"content":"{\"answer\":\"OWN-REFERENCE\"}"}]}))
+                Ok(json!({"results":[{"content":"Answer: OWN-REFERENCE"}]}))
             }
         }
         let mut mcp=AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(vec![json!({"result":{"structuredContent":{"reference":"OWN-REFERENCE"}}})])),json!({"namespace":"inventory"}));
