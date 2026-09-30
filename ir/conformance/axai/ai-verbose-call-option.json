@@ -1,0 +1,94 @@
+{
+  "api_key": "test-key",
+  "calls": [
+    {
+      "options": {
+        "verbose": true
+      },
+      "request": {
+        "chat_prompt": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model_config": {
+          "stream": false
+        }
+      }
+    },
+    {
+      "options": {},
+      "request": {
+        "chat_prompt": [
+          {
+            "content": "hi",
+            "role": "user"
+          }
+        ],
+        "model_config": {
+          "stream": false
+        }
+      }
+    }
+  ],
+  "expected_verbose_logs": [
+    [
+      "\n--- [AxAI API Request] ---\n URL: https://api.openai.com/v1/chat/completions\n Method: POST\n Headers: {{HEADERS}} \nBody: {\n  \"model\": \"gpt-5.4-mini\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"hi\"\n    }\n  ]\n} \n------------------------\n",
+      "\n--- [AxAI API Response] ---\n Status: 200 OK\n Body: {\n  \"choices\": [\n    {\n      \"finish_reason\": \"stop\",\n      \"index\": 0,\n      \"message\": {\n        \"content\": \"Hello\",\n        \"role\": \"assistant\"\n      }\n    }\n  ],\n  \"id\": \"chatcmpl-verbose\",\n  \"model\": \"gpt-5.4-mini\",\n  \"object\": \"chat.completion\",\n  \"usage\": {\n    \"completion_tokens\": 1,\n    \"prompt_tokens\": 3,\n    \"total_tokens\": 4\n  }\n} \n-------------------------\n"
+    ],
+    []
+  ],
+  "kind": "ai_verbose",
+  "model": "gpt-5.4-mini",
+  "name": "ai-verbose-call-option",
+  "provider": "openai",
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Hello",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-verbose",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 3,
+          "total_tokens": 4
+        }
+      },
+      "status": 200
+    },
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Hello",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl-verbose",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 1,
+          "prompt_tokens": 3,
+          "total_tokens": 4
+        }
+      },
+      "status": 200
+    }
+  ]
+}

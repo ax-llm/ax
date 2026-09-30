@@ -8,30 +8,27 @@
           "description": "Search docs",
           "kind": "tool",
           "name": "search",
-          "namespace": "tools",
+          "namespace": "utils",
           "parameters": null,
-          "qualified_name": "tools.search"
+          "qualified_name": "utils.search"
         },
         {
           "always_include": false,
           "description": "Look up an id",
           "kind": "tool",
           "name": "lookup",
-          "namespace": "tools",
+          "namespace": "utils",
           "parameters": null,
-          "qualified_name": "tools.lookup"
+          "qualified_name": "utils.lookup"
         }
       ],
-      "namespace": "tools"
+      "namespace": "utils"
     }
   ],
   "expected_discovery_catalog_subset": [
     {
-      "callables": [
-        "tools.search",
-        "tools.lookup"
-      ],
-      "namespace": "tools",
+      "callables": ["utils.search", "utils.lookup"],
+      "namespace": "utils",
       "placement": "actor_prompt"
     }
   ],

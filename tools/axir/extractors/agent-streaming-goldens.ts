@@ -6,7 +6,7 @@
 // callbacks, the run-control events, the chat-log shape, and the error.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
+import { AxAgentClarificationError } from '../../../src/ax/agent/agentInternal/agentStateTypes.js';
 import {
   AX_HOST_SNIPPET_MARKER,
   AX_INPUTS_PATCH_GLOBAL,
@@ -17,6 +17,7 @@ import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import type { AxChatResponse } from '../../../src/ax/ai/types.js';
 import { runControl } from '../../../src/ax/dsp/runControl.js';
 import { mergeDeltas } from '../../../src/ax/dsp/util.js';
+import { AxJSRuntime } from '../../../src/ax/funcs/jsRuntime.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type JsonMap = { [key: string]: Json };
@@ -24,6 +25,12 @@ type JsonMap = { [key: string]: Json };
 const outDir = join(
   process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
   'ir/conformance/axagent'
+);
+// Real-runtime goldens: each port runs them in its own JavaScript engine (the
+// real-engine antidote).
+const realOutDir = join(
+  process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
+  'ir/conformance/axagent-real'
 );
 
 function stable(value: unknown, parentKey = ''): unknown {
@@ -44,9 +51,13 @@ function stable(value: unknown, parentKey = ''): unknown {
   return value;
 }
 
-function writeFixture(name: string, fixture: Record<string, unknown>): void {
+function writeFixture(
+  name: string,
+  fixture: Record<string, unknown>,
+  dir = outDir
+): void {
   writeFileSync(
-    join(outDir, `${name}.json`),
+    join(dir, `${name}.json`),
     `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
   );
 }
@@ -101,6 +112,7 @@ function scriptedAI(
   const queue = clone(responses);
   let calls = 0;
   const chatOptions: Record<string, unknown>[] = [];
+  const prompts: unknown[] = [];
   const ai = new AxMockAIService({
     features: {
       functions: (features.functions as boolean | undefined) ?? false,
@@ -111,6 +123,7 @@ function scriptedAI(
       calls++;
       chatOptions.push({ ...(options ?? {}) });
       onRequest?.(calls);
+      prompts.push(clone(req.chatPrompt));
       const first = req.chatPrompt[0];
       const system =
         first?.role === 'system' && typeof first.content === 'string'
@@ -134,7 +147,7 @@ function scriptedAI(
       });
     },
   });
-  return { ai, calls: () => calls, chatOptions };
+  return { ai, calls: () => calls, chatOptions, prompts: () => prompts };
 }
 
 // ----- scripted code runtime -----
@@ -205,6 +218,9 @@ type Case = {
   // Agent options the fixture spells as JSON; the runtime is always the
   // scripted one.
   options?: JsonMap;
+  // Port-only agent options, added to the fixture's options but not passed
+  // to TS: a port's opt-in to what TS always does.
+  port_options?: JsonMap;
   forward_options?: JsonMap;
   features?: JsonMap;
   responses: ResponseSpec[];
@@ -222,15 +238,14 @@ type Case = {
   // with control_steer).
   control?: boolean;
   // Steer the run while this request (1-based) is in flight; the fixture
-  // then pins every control event. It leaves out expected_request_roles: the
-  // ports' actor stages send AxGen's JSON-shape instruction as a user message
-  // of its own where TS keeps it in the system prompt, so each actor request
-  // has one more user message; the steer lands where TS puts it.
+  // then pins every control event.
   control_steer?: { during_request: number; text: string };
   // The consumer stops the stream after this many deltas.
   stop_after_deltas?: number;
   // Pin the chat log's {name, stage} shape.
   chat_log_shape?: boolean;
+  // Pin the clarification the run's AxAgentClarificationError carries.
+  pin_clarification?: boolean;
   // Substrings every port's request JSON must contain (ASCII only).
   request_contains?: string[];
   // Port-only: the ports keep the model's text for date fields without
@@ -243,13 +258,31 @@ type Case = {
   // agent(sig, {}) runs with its default JavaScript runtime; the extractor
   // gives TS the scripted runtime in its place.
   runtime_on_forward?: boolean;
+  pin_stage_requests?: string[];
+  forward_runs?: number;
+  pin_context_map?: boolean;
+  // Run in the real JavaScript engine and pin its runtime behavior.
+  real_runtime?: boolean;
   // Port-only: TS passes a forward timeout (milliseconds) to every stage's
   // ai.chat. TS runs the case with that timeout, and the extractor checks each
   // chat call got it; the fixture gives the ports' forward timeoutMs, their
   // name for it until the next major version, and pins that each chat call
   // gets it.
   call_timeout_ms?: number;
+  // Pin the first request of each stage (distiller, executor, responder)
+  // in full: every message's role and content, as each port must send them.
+  first_requests?: boolean;
+  // Why the fixture leaves out expected_request_roles.
+  no_request_roles?: string;
 };
+
+// For a failure thrown after the answer parses (an assertion, as the citations
+// check is), TS forward drops the failed answer and its correction once the
+// next answer parses (response/nonStreaming.ts), so each retry sends one
+// failed attempt; the ports' AxGen keeps them all. Two or more responder
+// retries show it.
+const RETRY_MEMORY_GAP =
+  "the ports' non-streaming AxGen keeps every failed attempt and correction, where TS keeps the latest after an assertion failure";
 
 const DATE_TYPES = /:(datetimeRange|dateRange|datetime|date)\b/g;
 
@@ -265,7 +298,7 @@ async function record(name: string, spec: Case): Promise<void> {
   const transcript: string[] = [];
   const control = spec.control ? runControl() : undefined;
   const steer = spec.control_steer;
-  const { ai, calls, chatOptions } = scriptedAI(
+  const { ai, calls, chatOptions, prompts } = scriptedAI(
     spec.responses,
     features,
     transcript,
@@ -284,6 +317,25 @@ async function record(name: string, spec: Case): Promise<void> {
       observerCalls.push({ callback: label, payload: clone(payload) as Json });
     };
   const options: Record<string, unknown> = clone(spec.options ?? {});
+  // The fixture's functions carry no implementation; the scripted runtime
+  // never calls them.
+  if (Array.isArray(options.functions)) {
+    const withFunc = (fn: Record<string, unknown>) => ({
+      ...fn,
+      func: async () => ({}),
+    });
+    options.functions = (options.functions as Record<string, unknown>[]).map(
+      (item) =>
+        Array.isArray(item.functions)
+          ? {
+              ...item,
+              functions: (item.functions as Record<string, unknown>[]).map(
+                withFunc
+              ),
+            }
+          : withFunc(item)
+    );
+  }
   for (const label of spec.observers ?? []) {
     if (label === 'used_memories') options.onUsedMemories = observe(label);
     if (label === 'used_skills') options.onUsedSkills = observe(label);
@@ -312,7 +364,9 @@ async function record(name: string, spec: Case): Promise<void> {
   const ag = agent(tsSignature, {
     ...(options as object),
     ai,
-    runtime: scriptedRuntime(spec.runtime_script),
+    runtime: spec.real_runtime
+      ? new AxJSRuntime()
+      : scriptedRuntime(spec.runtime_script),
   } as never);
 
   const forwardOptions: Record<string, unknown> = clone(
@@ -333,10 +387,29 @@ async function record(name: string, spec: Case): Promise<void> {
   }
 
   const deltas: JsonMap[] = [];
+  // The request count when each forward run starts.
+  const runStarts: number[] = [];
   let output: Json | undefined;
   let error: string | undefined;
+  let clarification: Json | undefined;
   try {
-    if (kind === 'agent_forward') {
+    if (kind === 'agent_forward' && spec.forward_runs !== undefined) {
+      // Several forwards on the one agent; the output is each run's.
+      const outputs: Json[] = [];
+      for (let run = 0; run < spec.forward_runs; run++) {
+        runStarts.push(calls());
+        outputs.push(
+          clone(
+            (await ag.forward(
+              ai,
+              input as never,
+              forwardOptions as never
+            )) as Json
+          )
+        );
+      }
+      output = outputs;
+    } else if (kind === 'agent_forward') {
       output = clone(
         (await ag.forward(ai, input as never, forwardOptions as never)) as Json
       );
@@ -352,20 +425,29 @@ async function record(name: string, spec: Case): Promise<void> {
     }
   } catch (e) {
     error = (e as Error).message.split('\n')[0];
+    if (spec.pin_clarification) {
+      if (!(e instanceof AxAgentClarificationError)) throw e;
+      clarification = clone(e.clarification) as Json;
+    }
   }
   // Fire-and-forget observers settle before the fixture is written.
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   const fixture: Record<string, unknown> = {
-    kind,
+    kind: spec.real_runtime ? 'agent_runtime_real' : kind,
+    ...(spec.real_runtime ? { runtime_engine: 'javascript' } : {}),
     signature,
     input,
     options: spec.runtime_on_forward
-      ? clone(spec.options ?? {})
-      : { ...clone(spec.options ?? {}), runtime: { language: 'JavaScript' } },
+      ? { ...clone(spec.options ?? {}), ...clone(spec.port_options ?? {}) }
+      : {
+          ...clone(spec.options ?? {}),
+          ...clone(spec.port_options ?? {}),
+          runtime: { language: 'JavaScript' },
+        },
     features,
     responses: spec.responses,
-    runtime_script: spec.runtime_script,
+    ...(spec.real_runtime ? {} : { runtime_script: spec.runtime_script }),
     expected_request_count: calls(),
     expected_transcript: transcript,
   };
@@ -432,10 +514,65 @@ async function record(name: string, spec: Case): Promise<void> {
   if (spec.request_contains) {
     fixture.expected_request_contains = spec.request_contains;
   }
+  // Every request's message roles, in order: a steer lands where TS puts it.
+  if (spec.no_request_roles === undefined) {
+    fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
+      prompt.map((message) => message.role as Json)
+    );
+  }
+  if (spec.forward_runs !== undefined) {
+    fixture.forward_runs = Array.from({ length: spec.forward_runs }, () => ({
+      input: clone(input),
+    }));
+  }
+  if (spec.first_requests) {
+    const firsts: JsonMap[] = [];
+    const seen = new Set<string>();
+    // With several runs, the first request of each stage in every run.
+    const runOf = (index: number) =>
+      runStarts.filter((start) => start <= index).length;
+    transcript.forEach((entry, position) => {
+      if (!entry.startsWith('request:')) return;
+      const index = transcript
+        .slice(0, position)
+        .filter((item) => item.startsWith('request:')).length;
+      const stage = entry.slice('request:'.length);
+      const key = `${runOf(index)}:${stage}`;
+      if (seen.has(key) && !spec.pin_stage_requests?.includes(stage)) return;
+      seen.add(key);
+      const messages = (
+        prompts()[index] as { role: string; content: Json }[]
+      ).map((message) => ({ role: message.role, content: message.content }));
+      firsts.push({ index, stage, messages });
+    });
+    fixture.expected_stage_first_requests = firsts;
+  }
+  if (spec.pin_context_map) {
+    const snapshot = (
+      ag as unknown as {
+        getContextMap: () =>
+          | { snapshot: () => { text: string; scores?: Json; steps?: number } }
+          | undefined;
+      }
+    )
+      .getContextMap()
+      ?.snapshot();
+    if (!snapshot) throw new Error(`${name}: the agent has no context map`);
+    fixture.expected_exported_state_subset = {
+      context_map: {
+        text: snapshot.text,
+        scores: snapshot.scores ?? {},
+        steps: snapshot.steps ?? 0,
+      },
+    };
+  }
   if (error !== undefined) {
     fixture.expected_error_contains = error;
   }
-  writeFixture(name, fixture);
+  if (clarification !== undefined) {
+    fixture.expected_clarification = clarification;
+  }
+  writeFixture(name, fixture, spec.real_runtime ? realOutDir : outDir);
 }
 
 // ----- scripted helpers -----
@@ -482,6 +619,25 @@ const citedStream = (citations: string): ResponseSpec =>
 const cited = (citations: string): ResponseSpec => ({
   content: `Answer: Refunds take 30 days.\nEvidence Citations: ${citations}`,
 });
+// The context-map distiller and cartographer answer in the text contract;
+// each takes a distiller answer and the cartographer's operations.
+const contextMapUpdate = (
+  distiller: string,
+  operations: JsonMap[]
+): ResponseSpec[] => [
+  { content: distiller },
+  { content: `Operations: ${JSON.stringify(operations)}` },
+];
+const contextMapRun = (update: ResponseSpec[]): ResponseSpec[] => [
+  ...baseActors(),
+  { content: 'Answer: Refunds take 30 days.' },
+  ...update,
+];
+// A map written by the ports before 25.0.0: every header, unpadded ids, no
+// blank lines and no trailing newline.
+const LEGACY_MAP =
+  '## CONTEXT ROADMAP\n## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly\n## DOMAIN CONSTANTS\n## PARSING SCHEMA\n## REUSABLE RESULTS\n[rr-2] Refund window = 30 days\n## ERROR PATTERNS';
+
 // The context-map distiller and cartographer answer as JSON objects.
 const contextMapTurns = (): ResponseSpec[] => [
   {
@@ -559,8 +715,459 @@ const datedStream = (): ResponseSpec =>
   );
 
 mkdirSync(outDir, { recursive: true });
+mkdirSync(realOutDir, { recursive: true });
+
+// Grouped tools with explicit namespaces (TS files flat functions under
+// `utils`, the ports under `tools`): one always-included module and one
+// discoverable one, with parameter and return schemas. Each schema declares
+// its properties in sorted order, since the fixture sync sorts object keys
+// and TS renders a tool's arguments in declared order.
+const TOOL_GROUPS: JsonMap[] = [
+  {
+    namespace: 'db',
+    title: 'Database',
+    selectionCriteria: 'Customer records',
+    alwaysInclude: true,
+    functions: [
+      {
+        name: 'lookup',
+        description: 'Look up a customer by id',
+        parameters: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            include: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['id'],
+        },
+        returns: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            tier: { enum: ['gold', 'silver'] },
+          },
+        },
+      },
+    ],
+  },
+  {
+    namespace: 'web',
+    title: 'Web',
+    selectionCriteria: 'Public pages',
+    functions: [
+      {
+        name: 'search',
+        description: 'Search public pages',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            size: { type: ['number', 'null'] },
+          },
+          required: ['query'],
+        },
+      },
+    ],
+  },
+];
+
+// Flat functions, each filed under its own namespace (TS fn().namespace()),
+// with the namespaces interleaved and in neither name nor namespace order.
+// Every one names its namespace: a flat function without one is
+// `utils.<name>` in TS and `tools.<name>` in the ports.
+const FLAT_NAMESPACED: JsonMap[] = [
+  {
+    name: 'search',
+    namespace: 'web',
+    description: 'Search public pages',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'lookup',
+    namespace: 'crm',
+    description: 'Look up a customer by id',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'fetch',
+    namespace: 'web',
+    description: 'Fetch a public page',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+  },
+];
 
 const cases: Record<string, Case> = {
+  // ----- each stage's first request, in full -----
+  'agent-first-requests-base': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-tools': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', functions: TOOL_GROUPS },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-flat-namespace': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', functions: FLAT_NAMESPACED },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-context-field': {
+    kind: 'agent_forward',
+    signature: 'question:string, policyDoc:string -> answer:string',
+    input: {
+      question: 'How long do refunds take?',
+      policyDoc:
+        'Refunds take 30 days after approval. Store credit is instant.',
+    },
+    options: { directResponse: 'off', contextFields: ['policyDoc'] },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-skills': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      skills: [
+        {
+          id: 'refunds',
+          name: 'Refund policy',
+          description: 'How refunds work',
+          content: 'Refunds settle in 30 days; quote the policy.',
+        },
+      ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-discovery': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      functionDiscovery: true,
+      functions: TOOL_GROUPS,
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-memories': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      memoriesCatalog: [
+        { id: 'mem-refunds', content: 'Refunds settle in 30 days.' },
+        { id: 'mem-credit', content: 'Store credit is instant.' },
+      ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-first-requests-skills-catalog': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      skillsCatalog: [
+        {
+          id: 'shipping',
+          name: 'Shipping policy',
+          description: 'How shipping works',
+          content: 'Orders ship in 2 days.',
+        },
+        {
+          id: 'refunds',
+          name: 'Refund policy',
+          description: 'How refunds work',
+          content: 'Refunds settle in 30 days; quote the policy.',
+        },
+      ],
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  // Two forwards with a context map: each run's distiller reads the map, and
+  // after each run its distiller and cartographer update it (an ADD, then a
+  // REPLACE and an ADD by section title).
+  'agent-first-requests-context-map': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: '## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly',
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      ...contextMapRun(
+        contextMapUpdate(
+          'Diagnosis: refund window is reusable\nItem Tags: {"cu-1": "helpful"}',
+          [
+            {
+              type: 'ADD',
+              section: 'reusable_results',
+              content: 'Refund window = 30 days',
+            },
+          ]
+        )
+      ),
+      ...contextMapRun(
+        contextMapUpdate(
+          'Diagnosis: shipping cadence refined\nItem Tags: {"cu-1": "stale", "rr-00002": "helpful"}',
+          [
+            {
+              type: 'replace',
+              item_id: 'cu-1',
+              content: 'Orders ship every Monday',
+            },
+            {
+              type: 'add',
+              section: 'Domain Constants',
+              content: 'Refund window: 30 days',
+            },
+          ]
+        )
+      ),
+    ],
+    runtime_script: [...baseRuntime(), ...baseRuntime()],
+    forward_runs: 2,
+    first_requests: true,
+    pin_stage_requests: ['context_map'],
+    pin_context_map: true,
+  },
+  // No map: TS starts from its template of every section.
+  'agent-first-requests-context-map-template': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', contextMap: {} },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Diagnosis: nothing reusable yet', [])
+    ),
+    runtime_script: baseRuntime(),
+    first_requests: true,
+    pin_stage_requests: ['context_map'],
+    pin_context_map: true,
+  },
+  // A map in the ports' pre-25.0.0 format loads, keeps its items, numbers new
+  // ids after them and is normalized by the update.
+  'agent-context-map-legacy-text': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', contextMap: { map: LEGACY_MAP } },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Item Tags: {"rr-2": "helpful"}', [
+        {
+          type: 'ADD',
+          section: 'reusable_results',
+          content: 'Store credit is instant',
+        },
+      ])
+    ),
+    runtime_script: baseRuntime(),
+    request_contains: ['[rr-2] Refund window = 30 days'],
+    pin_context_map: true,
+  },
+  // The map's budget: an item tagged harmful goes first.
+  'agent-context-map-evict': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: {
+          version: 1,
+          text: '## CONTEXT UNDERSTANDING\n[cu-1] stale low value note about nothing useful at all here\n[cu-2] France is in Europe',
+          maxChars: 70,
+          infiniteEvolve: true,
+          steps: 0,
+          scores: {},
+        },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Item Tags: {"cu-1": "harmful"}', [])
+    ),
+    runtime_script: baseRuntime(),
+    pin_context_map: true,
+  },
+  // A finite map past its evolve steps is read but not updated.
+  'agent-context-map-read': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: {
+          version: 1,
+          text: '## REUSABLE RESULTS\n[rr-1] France capital is Paris',
+          infiniteEvolve: false,
+          evolveSteps: 0,
+          steps: 5,
+          scores: {},
+        },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    request_contains: ['[rr-1] France capital is Paris'],
+    pin_context_map: true,
+  },
+  // A map given as text: the scores follow the tags and an ADD lands in its
+  // own new section.
+  'agent-context-map-config': {
+    kind: 'agent_forward',
+    options: {
+      directResponse: 'off',
+      contextMap: {
+        map: '## DOMAIN CONSTANTS\n[dc-1] official capitals preferred',
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: contextMapRun(
+      contextMapUpdate('Item Tags: {"dc-1": "helpful"}', [
+        {
+          type: 'ADD',
+          section: 'context_understanding',
+          content: 'France resolves to Paris',
+        },
+      ])
+    ),
+    runtime_script: baseRuntime(),
+    pin_context_map: true,
+  },
+  // TS's own AxJSRuntime runs the model's code: variables of several types
+  // made by the distiller, what console.log prints, the live runtime state
+  // each stage sees (the executor shares the distiller's session), the
+  // evidence summary and the runtime's usage instructions.
+  'agent-runtime-real-ts-live-state': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor(
+        "const kept = 41; var items = [1, 2, 3, 4]; bare = { a: 1, b: 'x' }; let label = 'refunds'; console.log('seen', kept, items.length)"
+      ),
+      actor('final("Answer the question", { kept })'),
+      actor('console.log(kept + 1, items.length, typeof bare, label)'),
+      actor('final("Answer the question", { answer: String(kept + 1) })'),
+      { content: 'Answer: 42' },
+    ],
+    runtime_script: [],
+    real_runtime: true,
+    first_requests: true,
+    pin_stage_requests: ['distiller', 'executor'],
+  },
+  // TS's AxJSRuntime again: a distiller turn that makes no variable (the
+  // live state has no user variables) and a final with empty evidence (the
+  // executor still sees the distilledContext global).
+  'agent-runtime-real-ts-no-user-variables': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      actor("console.log('checked')"),
+      actor('final("Answer the question", {})'),
+      actor('console.log(Object.keys(distilledContext).length)'),
+      actor('final("Answer the question", { answer: "none" })'),
+      { content: 'Answer: none' },
+    ],
+    runtime_script: [],
+    real_runtime: true,
+    first_requests: true,
+    pin_stage_requests: ['distiller', 'executor'],
+  },
+  // Two forwards on one agent: each stage of the second run restores its own
+  // earlier actions and says so.
+  'agent-first-requests-second-forward': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [
+      ...baseActors(),
+      { content: 'Answer: Refunds take 30 days.' },
+      ...baseActors(),
+      { content: 'Answer: Refunds take 30 days.' },
+    ],
+    runtime_script: [...baseRuntime(), ...baseRuntime()],
+    forward_runs: 2,
+    first_requests: true,
+  },
+  // An oversized input that is not a context field: autoUpgrade keeps it in
+  // the runtime and gives the actors and the responder a truncated preview.
+  'agent-first-requests-auto-promotion': {
+    kind: 'agent_forward',
+    signature: 'document:string, question:string -> answer:string',
+    input: {
+      document: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+      question: 'How long do refunds take?',
+    },
+    options: {
+      directResponse: 'off',
+      autoUpgrade: {
+        contextFields: { promoteAboveChars: 20, previewChars: 8 },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  // The other promotion modes: an oversized json value previews as its JSON,
+  // an optional array is left out of the prompt, and a required array stays
+  // inline. Input names in sorted order: the fixture sync sorts input keys,
+  // and the context metadata lists the inputs in their order.
+  'agent-first-requests-auto-promotion-modes': {
+    kind: 'agent_forward',
+    signature:
+      'question:string, record:json, remarks?:string[], tags:string[] -> answer:string',
+    input: {
+      question: 'Refunds?',
+      // Keys in sorted order: the fixture sync sorts nested object keys.
+      record: { days: 30, id: 'order-1234', status: 'refunded' },
+      remarks: ['first long note here', 'second long note here'],
+      tags: ['billing-and-refunds', 'priority-customer'],
+    },
+    options: {
+      directResponse: 'off',
+      autoUpgrade: {
+        contextFields: { promoteAboveChars: 20, previewChars: 8 },
+      },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
   // ----- streaming -----
   'agent-streaming-forward-plain': {
     options: { directResponse: 'off' },
@@ -581,6 +1188,25 @@ const cases: Record<string, Case> = {
     runtime_script: [
       step(CLARIFY, 'askClarification', 'Which order do you mean?'),
     ],
+  },
+  // TS's clarification error carries the {question, ...} form; the ports
+  // carry it with clarificationShape: 'structured'.
+  'agent-streaming-forward-clarification-structured': {
+    options: { directResponse: 'off' },
+    responses: [actor(CLARIFY)],
+    runtime_script: [
+      step(CLARIFY, 'askClarification', 'Which order do you mean?'),
+    ],
+    pin_clarification: true,
+  },
+  'agent-forward-clarification-structured': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off' },
+    responses: [actor(CLARIFY)],
+    runtime_script: [
+      step(CLARIFY, 'askClarification', 'Which order do you mean?'),
+    ],
+    pin_clarification: true,
   },
   'agent-streaming-forward-citations': {
     options: { directResponse: 'off', citations: {} },
@@ -702,6 +1328,7 @@ const cases: Record<string, Case> = {
       cited('["made_up_source"]'),
     ],
     runtime_script: baseRuntime(),
+    no_request_roles: RETRY_MEMORY_GAP,
   },
   'agent-forward-citations-no-evidence': {
     kind: 'agent_forward',
@@ -763,6 +1390,7 @@ const cases: Record<string, Case> = {
       cited('["made_up_source"]'),
     ],
     runtime_script: baseRuntime(),
+    no_request_roles: RETRY_MEMORY_GAP,
   },
   'agent-forward-context-map': {
     kind: 'agent_forward',
@@ -833,4 +1461,153 @@ const cases: Record<string, Case> = {
 
 for (const [name, spec] of Object.entries(cases)) {
   await record(name, spec);
+}
+
+// ----- the run's inputs -----
+// TS checks an agent run's inputs before any request: a required context
+// field missing from the values fails first ('RLM contextField "<name>" is
+// missing from input values'), then a required input without a value
+// (missing, null, '' or []) fails as TS renders the distiller's inputs
+// ("Value for input field '<name>' is required."); whitespace is a value. The
+// ports always check the required inputs; they check the context fields with
+// inputValidation: 'fail'.
+const CONTEXTUAL = 'question:string, doc:string -> answer:string';
+const plainAnswer = (): ResponseSpec => ({
+  content: 'Answer: Refunds take 30 days.',
+});
+const inputCases: Record<string, Case> = {
+  'agent-forward-input-missing': {
+    kind: 'agent_forward',
+    input: {},
+    options: { directResponse: 'off' },
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
+  },
+  'agent-forward-input-empty-string': {
+    kind: 'agent_forward',
+    input: { question: '' },
+    options: { directResponse: 'off' },
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
+  },
+  'agent-forward-input-context-field-missing': {
+    kind: 'agent_forward',
+    signature: CONTEXTUAL,
+    input: {},
+    options: { directResponse: 'off', contextFields: ['doc'] },
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
+  },
+  'agent-forward-input-context-field-only-missing': {
+    kind: 'agent_forward',
+    signature: CONTEXTUAL,
+    input: { question: 'How long do refunds take?' },
+    options: { directResponse: 'off', contextFields: ['doc'] },
+    // TS fails the run before any request.
+    responses: [],
+    runtime_script: [],
+  },
+  'agent-forward-input-context-field-empty-is-a-value': {
+    kind: 'agent_forward',
+    signature: CONTEXTUAL,
+    input: { question: 'How long do refunds take?', doc: '' },
+    options: { directResponse: 'off', contextFields: ['doc'] },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+  'agent-forward-input-whitespace-is-a-value': {
+    kind: 'agent_forward',
+    input: { question: '   ' },
+    options: { directResponse: 'off' },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+  },
+};
+for (const [name, spec] of Object.entries(inputCases)) {
+  await record(name, spec);
+}
+
+// Explicit lenient mode preserves the legacy missing-context behavior.
+for (const [name, portOptions] of [
+  [
+    'agent-forward-input-context-field-missing-lenient',
+    { inputValidation: 'lenient' },
+  ],
+] as const) {
+  writeFixture(name, {
+    kind: 'agent_forward',
+    description:
+      "Port-only: explicit inputValidation: 'lenient' allows a missing required context field. The default and TypeScript fail before any request.",
+    signature: CONTEXTUAL,
+    input: { question: 'How long do refunds take?' },
+    options: {
+      directResponse: 'off',
+      contextFields: ['doc'],
+      ...portOptions,
+      runtime: { language: 'JavaScript' },
+    },
+    features: { functions: false, streaming: true, structured_outputs: false },
+    responses: [...baseActors(), plainAnswer()],
+    runtime_script: baseRuntime(),
+    expected_output: { answer: 'Refunds take 30 days.' },
+    expected_request_count: 3,
+  });
+}
+
+// Port-only: the forward call's inputValidation wins over the agent's.
+writeFixture('agent-forward-input-context-field-missing-fail-on-forward', {
+  kind: 'agent_forward',
+  description:
+    "Port-only: inputValidation: 'fail' on the forward call checks the context fields of an agent built without it, before any request.",
+  signature: CONTEXTUAL,
+  input: { question: 'How long do refunds take?' },
+  options: {
+    directResponse: 'off',
+    contextFields: ['doc'],
+    runtime: { language: 'JavaScript' },
+  },
+  forward_options: { inputValidation: 'fail' },
+  features: { functions: false, streaming: true, structured_outputs: false },
+  responses: [],
+  runtime_script: [],
+  expected_error_contains:
+    'RLM contextField "doc" is missing from input values',
+  expected_request_count: 0,
+  expected_transcript: [],
+});
+
+// Port-only: the ports' own agent options take only their named values; the
+// agent fails when it is built.
+for (const [name, option, message] of [
+  [
+    'agent-forward-clarification-shape-unknown',
+    { clarificationShape: 'normalized' },
+    "clarificationShape must be 'raw' or 'structured', received: \"normalized\"",
+  ],
+  [
+    'agent-forward-input-validation-unknown',
+    { inputValidation: 'strict' },
+    "inputValidation must be 'lenient' or 'fail', received: \"strict\"",
+  ],
+] as const) {
+  writeFixture(name, {
+    kind: 'agent_forward',
+    description:
+      'Port-only: an agent option of the ports with a value it does not name fails when the agent is built.',
+    signature: 'question:string -> answer:string',
+    input: { question: 'How long do refunds take?' },
+    options: {
+      directResponse: 'off',
+      ...option,
+      runtime: { language: 'JavaScript' },
+    },
+    features: { functions: false, streaming: true, structured_outputs: false },
+    responses: [],
+    runtime_script: [],
+    expected_error_contains: message,
+    expected_request_count: 0,
+  });
 }

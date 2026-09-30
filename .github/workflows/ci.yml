@@ -234,6 +234,33 @@ jobs:
       - name: Check generated package freshness
         run: npm run axir:check-packages
 
+  axir-go-fast:
+    name: AxIR Go Tests (fast)
+    # Every change: these static checks also read the docs, the examples and
+    # the backlog, which a documentation-only change can break.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Cache Go build outputs
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GOCACHE }}
+          key: ${{ runner.os }}-axir-go-fast-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-axir-go-fast-
+      - name: Run the fast tools/axir Go tests
+        run: npm run test:axir:go-fast
+
   website:
     name: Documentation Website
     runs-on: ubuntu-latest
@@ -440,6 +467,7 @@ jobs:
       - changes
       - build
       - repo-checks
+      - axir-go-fast
       - workspace-tests
       - generated-examples
       - axir-packages
@@ -464,6 +492,7 @@ jobs:
           for result in \
             "${{ needs.changes.result }}" \
             "${{ needs.repo-checks.result }}" \
+            "${{ needs.axir-go-fast.result }}" \
             "${{ needs.website.result }}"; do
             if [ "$result" != "success" ]; then
               echo "Required CI shard failed or was skipped: $result"

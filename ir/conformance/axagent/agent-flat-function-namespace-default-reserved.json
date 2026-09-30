@@ -1,0 +1,30 @@
+{
+  "name": "agent-flat-function-namespace-default-reserved",
+  "description": "Port-only: by default a flat function namespaced with a reserved runtime name (inputs) raises TypeScript's error at construction.",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "options": {
+    "directResponse": "off",
+    "functions": [
+      {
+        "name": "lookup",
+        "namespace": "inputs",
+        "description": "Look up a customer by id",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"]
+        }
+      }
+    ]
+  },
+  "responses": [],
+  "expected_error_contains": "Agent function namespace \"inputs\" conflicts with an AxAgent runtime global and is reserved"
+}

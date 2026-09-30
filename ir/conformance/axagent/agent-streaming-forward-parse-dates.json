@@ -27,6 +27,11 @@
     "when": "2024-05-09T18:30:00.000Z"
   },
   "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"]
+  ],
   "expected_transcript": [
     "request:distiller",
     "request:executor",

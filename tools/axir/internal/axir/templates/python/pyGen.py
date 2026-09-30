@@ -29,6 +29,7 @@ from .ai import (
     _coerce_runtime_hooks,
     _merge_runtime_hooks,
     _runtime_hook_scope,
+    _gen_metric_labels,
     _runtime_hooks_from_options,
     _strip_runtime_hooks,
     _snapshot_global_caching_function,
@@ -262,9 +263,15 @@ class AxGen:
             functions=self.functions,
             structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
             custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+            include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
         )
         if self.instruction:
             self.prompt_template.set_instruction(self.instruction)
+
+    def _include_optional_input_fields(self) -> bool:
+        # TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+        # every input field, provided or not. Off by default.
+        return bool(self.options.get("include_optional_input_fields_in_system_prompt", self.options.get("includeOptionalInputFieldsInSystemPrompt", False)))
 
     def set_rate_limiter(self, limiter: AxRateLimiter | None):
         self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
@@ -589,6 +596,7 @@ class AxGen:
             self.runtime_hooks,
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen"},
+            metric_labels=_gen_metric_labels(client, self.options, run_options),
         ):
             return self._forward_unscoped(client, values, {**run_options, "_ax_cache_lookup": lookup})
 
@@ -603,6 +611,7 @@ class AxGen:
                 functions=call_gen.functions,
                 structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
                 custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+                include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
             )
             if self.instruction:
                 call_gen.prompt_template.set_instruction(self.instruction)
@@ -680,6 +689,7 @@ class AxGen:
             self.runtime_hooks,
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
+            metric_labels=_gen_metric_labels(client, self.options, options),
         ):
             yield from self._streaming_forward_unscoped(client, values, _strip_runtime_hooks(options))
 
@@ -746,6 +756,7 @@ class AxGen:
             self.runtime_hooks,
             span_name="ax_gen_forward",
             attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
+            metric_labels=_gen_metric_labels(client, self.options, run_options),
         ):
             return self._streaming_forward_unscoped_with(client, values, {**run_options, "_ax_cache_lookup": lookup}, sink)
 
@@ -787,6 +798,7 @@ class AxGen:
                 functions=call_gen.functions,
                 structured_output_function_name=self.options.get("structured_output_function_name", self.options.get("structuredOutputFunctionName")),
                 custom_template=self.options.get("custom_template", self.options.get("customTemplate")),
+                include_optional_input_fields_in_system_prompt=self._include_optional_input_fields(),
             )
             if self.instruction:
                 call_gen.prompt_template.set_instruction(self.instruction)
@@ -840,7 +852,7 @@ class AxGen:
             call_gen = copy.copy(self)
             call_gen.execution_context = call_context
             call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
-            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions)
+            call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions, include_optional_input_fields_in_system_prompt=self._include_optional_input_fields())
             yield from call_gen._streaming_forward_unscoped(client, values, {**(options or {}), "executionContext": call_context})
             return
         validate_fields(self.signature.get_input_fields(), values, "input")
@@ -864,7 +876,7 @@ class AxGen:
         return _build_gen_chat_request(self, messages, request_options, selection, 0)
 
     def _execute_tool(self, call):
-        return _execute_tool_call(self.functions, call)
+        return _execute_tool_call(self.functions, call, self.options)
 
 
 def ax(
@@ -1365,7 +1377,24 @@ def _core_validation_error(message):
     return AxValidationError(str(message))
 
 
+_TOOL_EXTRA_KEYS = {"sessionId": "session_id", "executionPath": "execution_path", "eventContext": "event_context"}
+
+
+def _core_tool_context(context):
+    # A context handler's context: the run's extras (TS's sessionId,
+    # executionPath and eventContext, as session_id, execution_path and
+    # event_context, each when set) and a cancellation signal.
+    if context is None:
+        return None
+    out = {_TOOL_EXTRA_KEYS.get(key, key): value for key, value in context.items()}
+    if "signal" not in out:
+        import threading
+        out["signal"] = threading.Event()
+    return out
+
+
 def _core_tool_invoke(fn, params, context=None):
+    context = _core_tool_context(context)
     name = str(getattr(fn, "name", "") or "tool")
     with _runtime_hook_scope(
         None,

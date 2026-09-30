@@ -400,7 +400,6 @@ class _SessionClient:
 
     def _start(self, call):
         from . import gen as core
-        from .schema import validate_fields
         call = core.chat_session_normalize_call(call)
         name = call.get("function", {}).get("name")
         if name == "__axOutput":
@@ -418,12 +417,17 @@ class _SessionClient:
             args = json.loads(args) if isinstance(args, str) else args
             if tool is None:
                 raise ValueError(f"Function {name!r} not found")
-            validate_fields(tool.args, args, f"tool.{name}.args")
-            core.chat_session_validate_required_arguments(tool.parameters, args, f"tool.{name}.args")
         except Exception as error:
             core.chat_session_register_call(self.state, call, "blocking")
             message = core._tool_error_message_impl(call, error)
             core.chat_session_record_result(self.gen, self.state, call, message.get("result", str(error)), False, self.options)
+            return
+        # As TS's session does, a call whose arguments fail the tool's schema
+        # does not run: its result is TS's fixing instructions.
+        fixing = core.chat_session_tool_argument_error(name, tool.parameters, args)
+        if fixing is not None:
+            core.chat_session_register_call(self.state, call, "blocking")
+            core.chat_session_record_result(self.gen, self.state, call, fixing, False, self.options)
             return
         call = {**call, "params": args, "function": {**call["function"], "params": args}}
         core.chat_session_register_call(self.state, call, tool.execution)
@@ -434,7 +438,9 @@ class _SessionClient:
         events, cancel = self._queue, self._cancel
         def invoke():
             try:
-                result = core._core_tool_invoke(tool, args, {"signal": cancel, "call_id": call["id"]})
+                # As TS, the tool gets the run's extras (tool_call_extras).
+                extras = core.tool_call_extras(self.options, name)
+                result = core._core_tool_invoke(tool, args, {**extras, "signal": cancel, "call_id": call["id"]})
                 events.put(("tool", (call, result, None)))
             except BaseException as error:
                 events.put(("tool", (call, None, error)))

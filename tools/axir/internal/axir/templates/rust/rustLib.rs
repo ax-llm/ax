@@ -361,22 +361,71 @@ fn with_runtime_scope<T>(
     attributes: BTreeMap<String, Value>,
     operation: impl FnOnce() -> AxResult<T>,
 ) -> AxResult<T> {
+    with_labeled_runtime_scope(explicit, defaults, name, kind, attributes, &Value::Null, &Value::Null, operation)
+}
+
+// with_runtime_scope whose metrics also carry TS's custom labels, which the
+// span does not: `start_labels` on the request count, `finish_labels` on the
+// duration and errors.
+#[allow(clippy::too_many_arguments)]
+fn with_labeled_runtime_scope<T>(
+    explicit: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+    name: &str,
+    kind: &str,
+    attributes: BTreeMap<String, Value>,
+    start_labels: &Value,
+    finish_labels: &Value,
+    operation: impl FnOnce() -> AxResult<T>,
+) -> AxResult<T> {
     let hooks = merge_runtime_hooks(explicit, None, defaults);
     let span = start_runtime_span(&hooks, name, kind, &attributes);
     let started = Instant::now();
-    record_runtime_metrics(&hooks, kind, &attributes, None, None);
+    record_runtime_metrics(&hooks, kind, &labeled_attributes(&attributes, start_labels), None, None);
     let mut scope = RuntimeHookScope::enter(hooks, span);
     let result = operation();
     let active_hooks = current_runtime_hooks().unwrap_or_default();
     record_runtime_metrics(
         &active_hooks,
         kind,
-        &attributes,
+        &labeled_attributes(&attributes, finish_labels),
         Some(started.elapsed().as_secs_f64() * 1000.0),
         result.as_ref().err(),
     );
     scope.finish(&result);
     result
+}
+
+// A metric's attributes with custom labels (a JSON object) added.
+fn labeled_attributes(attributes: &BTreeMap<String, Value>, labels: &Value) -> BTreeMap<String, Value> {
+    let mut out = attributes.clone();
+    if let Some(labels) = labels.as_object() {
+        for (key, value) in labels {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    out
+}
+
+// TS's custom labels for a metric (ai_custom_labels): the service's
+// customLabels, then the call's, cut to 100 characters when `sanitize` is set
+// (TS cuts them for the request duration and errors, not the request count).
+fn custom_labels(service_options: &Value, call_options: &Value, sanitize: bool) -> Value {
+    ai_custom_labels(&[
+        core_value_from_json(service_options),
+        core_value_from_json(call_options),
+        CoreValue::Bool(sanitize),
+    ])
+    .map(|labels| core_value_to_json(&labels))
+    .unwrap_or_else(|_| json!({}))
+}
+
+// An AxGen run's custom labels, as TS's getMergedCustomLabels: the AI
+// service's, then the AxGen constructor's with the call's over them, each
+// value cut to 100 characters.
+fn gen_metric_labels(service_options: &Value, gen_options: &Value, call_options: &Value) -> Value {
+    let run_labels = custom_labels(gen_options, call_options, false);
+    custom_labels(service_options, &json!({"customLabels": run_labels}), true)
 }
 
 fn with_runtime_binding<T>(
@@ -597,9 +646,12 @@ fn response_model_usage(response: &Value) -> Option<Value> {
         })
 }
 
+// `labels` are the call's service and call options, for TS's custom labels
+// on the operation's metrics.
 fn run_ai_runtime_operation(
     hooks: AxRuntimeHooks,
     info: &AxRateLimitInfo,
+    labels: (&Value, &Value),
     next: &mut dyn FnMut() -> AxResult<Value>,
 ) -> AxResult<Value> {
     let mut attributes = BTreeMap::new();
@@ -608,12 +660,14 @@ fn run_ai_runtime_operation(
     attributes.insert("ax.model".to_string(), json!(info.model));
     attributes.insert("ax.streaming".to_string(), json!(info.streaming));
     let limiter = hooks.rate_limiter.clone();
-    with_runtime_scope(
+    with_labeled_runtime_scope(
         Some(&hooks),
         None,
         &format!("ax_llm_{}", info.operation),
         "client",
         attributes,
+        &custom_labels(labels.0, labels.1, false),
+        &custom_labels(labels.0, labels.1, true),
         || match limiter {
             Some(limiter) => limiter.run(next, info),
             None => next(),
@@ -1922,6 +1976,42 @@ pub enum AxTransportStream {
     Reader { status: u16, body: Box<dyn Read> },
 }
 
+// Where verbose blocks go: stdout, as TS's apiCall uses console.log, unless
+// a sink is set (the conformance runner sets one).
+static VERBOSE_SINK: OnceLock<Mutex<Option<Box<dyn Fn(&str) + Send>>>> = OnceLock::new();
+
+pub(crate) fn set_verbose_sink(sink: Option<Box<dyn Fn(&str) + Send>>) {
+    *VERBOSE_SINK.get_or_init(|| Mutex::new(None)).lock().unwrap() = sink;
+}
+
+fn verbose_log(text: &str) {
+    let sink = VERBOSE_SINK.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    match sink.as_ref() {
+        Some(sink) => sink(text),
+        None => println!("{text}"),
+    }
+}
+
+// The verbose block of a transport request, as TS's apiCall logs it.
+fn verbose_request_log(call: &Value) -> String {
+    ai_verbose_request_log(&[
+        core_value_from_json(call.get("url").unwrap_or(&json!(""))),
+        core_value_from_json(call.get("method").unwrap_or(&json!("POST"))),
+        core_value_from_json(call.get("headers").unwrap_or(&json!({}))),
+        core_value_from_json(call.get("json").unwrap_or(&Value::Null)),
+    ])
+    .map(|text| core_value_to_json(&text).as_str().unwrap_or_default().to_string())
+    .unwrap_or_default()
+}
+
+fn verbose_status_log(status: u64, body: Option<&Value>) -> String {
+    let text = match body {
+        Some(body) => ai_verbose_response_log(&[CoreValue::Num(status as f64), core_value_from_json(body)]),
+        None => ai_verbose_stream_log(&[CoreValue::Num(status as f64)]),
+    };
+    text.map(|text| core_value_to_json(&text).as_str().unwrap_or_default().to_string()).unwrap_or_default()
+}
+
 pub trait AxTransport: Send {
     fn owned_worker_factory(&self) -> Option<AxOwnedTransportFactory> { None }
     fn send(&mut self, request: Value) -> AxResult<Value>;
@@ -2256,6 +2346,15 @@ impl OpenAICompatibleClient {
     /// Reject a model marked expensive unless this call confirms it. Only the
     /// per-call options or the matching model-key entry can set
     /// `useExpensiveModel: "yes"`; the client's own options do not count.
+    /// The service options and this call's options, for TS's custom labels
+    /// on the call's metrics.
+    fn label_options(&self) -> (Value, Value) {
+        match &self.chat_option_scope {
+            Some((client_options, call_options)) => (client_options.clone(), call_options.clone()),
+            None => (self.options.clone(), json!({})),
+        }
+    }
+
     fn require_expensive_model_confirmation(&self, request: &Value) -> AxResult<()> {
         let no_call_options = json!({});
         let (client_options, call_options) = match &self.chat_option_scope {
@@ -2369,6 +2468,8 @@ impl OpenAICompatibleClient {
             streaming: false,
             previous_model_usage: self.last_model_usage.clone(),
         };
+        // For TS's custom labels on this call's metrics.
+        let (label_service, label_call) = self.label_options();
         let mut next = || -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
@@ -2426,7 +2527,7 @@ impl OpenAICompatibleClient {
         }
         response
         };
-        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        let result = run_ai_runtime_operation(hooks, &info, (&label_service, &label_call), &mut next);
         if let Ok(response) = &result {
             self.last_model_usage = response_model_usage(response);
         }
@@ -2455,7 +2556,11 @@ impl OpenAICompatibleClient {
         attributes.insert("ax.streaming".to_string(), json!(true));
         let span = start_runtime_span(&hooks, "ax_llm_chat", "client", &attributes);
         let started = Instant::now();
-        record_runtime_metrics(&hooks, "client", &attributes, None, None);
+        // The request count carries TS's custom labels whole; the duration
+        // and errors, which read the attributes afterwards, cut them.
+        let (label_service, label_call) = self.label_options();
+        record_runtime_metrics(&hooks, "client", &labeled_attributes(&attributes, &custom_labels(&label_service, &label_call, false)), None, None);
+        let attributes = labeled_attributes(&attributes, &custom_labels(&label_service, &label_call, true));
         if let Some(limiter) = hooks.rate_limiter.clone() {
             let mut next = || Ok(Value::Null);
             if let Err(error) = limiter.run(&mut next, &info) {
@@ -2698,6 +2803,13 @@ impl OpenAICompatibleClient {
         Ok(out)
     }
 
+    /// Whether this call logs its requests: the call's verbose, else the
+    /// client's (the options are the two merged for a call).
+    fn verbose_enabled(&self) -> bool {
+        self.options.get("verbose").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    // As TS's apiCall, a verbose call logs the request and its JSON response.
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
         self.dispatch_transport(call, false)
     }
@@ -2705,6 +2817,23 @@ impl OpenAICompatibleClient {
     // One request. raw keeps a status response as its {status, json, headers}
     // envelope (headers holding its Retry-After) instead of an error.
     fn dispatch_transport(&mut self, call: Value, raw: bool) -> AxResult<Value> {
+        let verbose = self.verbose_enabled();
+        if verbose { verbose_log(&verbose_request_log(&call)); }
+        let response = self.dispatch_transport_unlogged(call, raw)?;
+        if verbose {
+            match response.get("status").and_then(Value::as_u64) {
+                Some(status) if status < 400 => {
+                    let body = response.get("json").or_else(|| response.get("body")).or_else(|| response.get("data")).cloned().unwrap_or(Value::Null);
+                    verbose_log(&verbose_status_log(status, Some(&body)));
+                }
+                Some(_) => {}
+                None => verbose_log(&verbose_status_log(200, Some(&response))),
+            }
+        }
+        Ok(response)
+    }
+
+    fn dispatch_transport_unlogged(&mut self, call: Value, raw: bool) -> AxResult<Value> {
         let cancellation=current_cancellation_token();
         if let Some(token)=&cancellation{token.throw_if_cancelled()?;}
         if let Some(transport) = self.transport.as_mut() {
@@ -2813,15 +2942,25 @@ impl OpenAICompatibleClient {
     // Opens the stream, and on a status response also returns its Retry-After.
     fn dispatch_transport_stream(&mut self, call: Value) -> Result<Box<dyn Iterator<Item = AxResult<Value>>>, (AxError, Option<String>)> {
         let cancellation=current_cancellation_token();
+        let verbose = self.verbose_enabled();
+        if verbose { verbose_log(&verbose_request_log(&call)); }
         if let Some(token)=&cancellation{token.throw_if_cancelled().map_err(|error| (error, None))?;}
         if let Some(transport) = self.transport.as_mut() {
             let stream=match cancellation.as_ref(){Some(token)=>transport.stream_with_cancellation(call,token),None=>transport.stream(call)}.map_err(|error| (error, None))?;
+            if verbose {
+                let status = match &stream { AxTransportStream::Buffered(response) => response.get("status").and_then(Value::as_u64).unwrap_or(200), AxTransportStream::Reader { status, .. } => u64::from(*status) };
+                if status < 400 { verbose_log(&verbose_status_log(status, None)); }
+            }
             let retry_after = match &stream { AxTransportStream::Buffered(response) => retry_after_header(response), _ => None };
             let inner=Self::transport_stream_iter(stream).map_err(|error| (error, retry_after))?;
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});
         }
         if let Some(transport) = &self.session_transport {
             let stream = transport.lock().map_err(|_| (AxError::runtime("Transport lock poisoned"), None))?.stream(call).map_err(|error| (error, None))?;
+            if verbose {
+                let status = match &stream { AxTransportStream::Buffered(response) => response.get("status").and_then(Value::as_u64).unwrap_or(200), AxTransportStream::Reader { status, .. } => u64::from(*status) };
+                if status < 400 { verbose_log(&verbose_status_log(status, None)); }
+            }
             let retry_after = match &stream { AxTransportStream::Buffered(response) => retry_after_header(response), _ => None };
             return Self::transport_stream_iter(stream).map_err(|error| (error, retry_after));
         }
@@ -2849,6 +2988,7 @@ impl OpenAICompatibleClient {
             }
         };
         if let Some(token)=&cancellation{token.throw_if_cancelled().map_err(|error| (error, None))?;}
+        if verbose && status < 400 { verbose_log(&verbose_status_log(u64::from(status), None)); }
         let inner=Self::transport_stream_iter(AxTransportStream::Reader { status, body }).map_err(|error| (error, retry_after))?;
         Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner})
     }
@@ -3168,6 +3308,8 @@ impl OpenAICompatibleClient {
             streaming: false,
             previous_model_usage: self.last_model_usage.clone(),
         };
+        // For TS's custom labels on this call's metrics.
+        let (label_service, label_call) = self.label_options();
         let mut next = || -> AxResult<Value> {
         // python: AxBaseAI.embed validation + ProviderOperationClient._embed
         // (provider_build_embed_request -> transport -> provider_normalize_embed_response)
@@ -3235,7 +3377,7 @@ impl OpenAICompatibleClient {
         emit_usage_event("embed", &response, &self.options, false);
         Ok(response)
         };
-        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        let result = run_ai_runtime_operation(hooks, &info, (&label_service, &label_call), &mut next);
         if let Ok(response) = &result {
             self.last_model_usage = response_model_usage(response);
         }
@@ -4365,9 +4507,26 @@ pub struct AxToolContext {
     cancelled: Arc<std::sync::atomic::AtomicBool>,
     control: Option<AxRunControl>,
     cancellation: Option<AxCancellationToken>,
+    session_id: Option<String>,
+    execution_path: Option<String>,
+    event_context: Option<Value>,
 }
 impl AxToolContext {
     pub fn is_cancelled(&self)->bool {self.cancelled.load(std::sync::atomic::Ordering::SeqCst) || self.control.as_ref().is_some_and(AxRunControl::is_aborted) || self.cancellation.as_ref().is_some_and(AxCancellationToken::is_cancelled)}
+    /// The run's sessionId, as TypeScript gives a tool, when set.
+    pub fn session_id(&self) -> Option<&str> { self.session_id.as_deref() }
+    /// Under a run control, the tool's executionPath, as TypeScript gives it:
+    /// `<the run's path>/<the tool's name>`.
+    pub fn execution_path(&self) -> Option<&str> { self.execution_path.as_deref() }
+    /// The run's eventContext, as TypeScript gives a tool, when set.
+    pub fn event_context(&self) -> Option<&Value> { self.event_context.as_ref() }
+    // Sets the extras from a tool_call_extras map.
+    pub(crate) fn with_extras(mut self, extras: &Value) -> Self {
+        self.session_id = extras.get("sessionId").filter(|value| !value.is_null()).map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string()));
+        self.execution_path = extras.get("executionPath").filter(|value| !value.is_null()).map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string()));
+        self.event_context = extras.get("eventContext").filter(|value| !value.is_null()).cloned();
+        self
+    }
 }
 impl Tool {
     pub fn schema(&self) -> AxResult<Value> {
@@ -4422,8 +4581,11 @@ impl ToolBuilder {
         self
     }
 
+    /// An argument; the field type's description, when it has one, goes into
+    /// the tool's JSON schema, as TypeScript's `fn(...).arg(name, f.string("..."))`
+    /// puts it there.
     pub fn arg(mut self, name: &str, field_type: FieldType) -> Self {
-        self.args.insert(name.to_string(), field_type.to_payload());
+        self.args.insert(name.to_string(), field_type.to_payload_with_description());
         self
     }
 
@@ -4584,6 +4746,7 @@ pub struct AxGen {
     caching_function: Option<AxCachingFunction>,
     host_assertions: Vec<AxGenHostAssertionFn>,
     control: Option<AxRunControl>,
+    cancellation: Option<AxCancellationToken>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -4623,7 +4786,8 @@ impl AxGen {
         // share their program: a worker's run uses it unless a caller's
         // control reaches the worker (see session::with_program_control).
         let control=self.control.clone();
-        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,function_result_formatter,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control}))
+        let cancellation=self.cancellation.clone();
+        Some(Box::new(move || AxGen {execution_context:None,signature,options,function_call_traces,tools,base_tools,assertions,examples,demos,field_processors,stop_functions,memory,traces,chat_log,result_picker,function_result_formatter,runtime_hooks,streaming_assertions,feedback_processors,streaming_field_processors,field_transforms,caching_function,host_assertions,control,cancellation}))
     }
 
     // Adds a host-callable assertion, checked after the declarative ones.
@@ -4661,6 +4825,7 @@ impl AxGen {
             caching_function: None,
             host_assertions: Vec::new(),
             control: None,
+            cancellation: None,
         }
     }
 
@@ -4904,6 +5069,17 @@ impl AxGen {
         self
     }
 
+    /// Gives the program a cancellation token, as TypeScript's `abortSignal`
+    /// in the AxGen constructor: every forward and streaming forward stops
+    /// once it is cancelled (before its next request). A forward with its own
+    /// token ([`forward_with_cancellation`](Self::forward_with_cancellation)),
+    /// or inside a run that has one, uses that token instead, as a call's
+    /// `abortSignal` replaces the constructor's.
+    pub fn with_cancellation(mut self, cancellation: AxCancellationToken) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
     pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
         self.runtime_hooks = hooks;
         self
@@ -5074,6 +5250,12 @@ impl AxGen {
         options: AxForwardOptions,
         sink: Option<Rc<CoreDeltaSinkHost>>,
     ) -> AxResult<Value> {
+        // The program's cancellation token (with_cancellation) covers a run
+        // that has none from its call or from a run around it.
+        let _cancellation = match &self.cancellation {
+            Some(token) if current_cancellation_token().is_none() => Some(AxCancellationScope::enter(token)?),
+            _ => None,
+        };
         // The call's caching function and function result formatter, which
         // the forwards this run starts don't inherit.
         let caching_function = bound_caching_function();
@@ -5141,7 +5323,8 @@ impl AxGen {
         if sink.is_some() {
             attributes.insert("ax.streaming".to_string(), json!(true));
         }
-        with_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, || {
+        let run_labels = gen_metric_labels(&client.get_options(), &self.options, &options);
+        with_labeled_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, &run_labels, &run_labels, || {
         let state = match &prepared {
             Some(state) => state.clone(),
             None => core_gen_state(self)?,
@@ -6053,11 +6236,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         state,
         distiller: agent_stage_gen(
             distiller_signature,
-            json!({"validation_retries": actor_validation_retries.clone(), "id": "ctx.root.actor", "instruction": distiller_instruction}),
+            json!({"validation_retries": actor_validation_retries.clone(), "id": "ctx.root.actor", "instruction": distiller_instruction, "includeOptionalInputFieldsInSystemPrompt": true}),
         ),
         executor: agent_stage_gen(
             executor_signature,
-            json!({"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": executor_instruction}),
+            json!({"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": executor_instruction, "includeOptionalInputFieldsInSystemPrompt": true}),
         ),
         responder,
         llm_query_signature,
@@ -6235,11 +6418,11 @@ impl AxAgent {
                 ));
                 let distiller = agent_stage_gen(
                     s(&text("distiller_signature"))?,
-                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description")}),
+                    json!({"validation_retries": retries.clone(), "id": "ctx.root.actor", "instruction": text("distiller_description"), "includeOptionalInputFieldsInSystemPrompt": true}),
                 );
                 let executor = agent_stage_gen(
                     s(&text("executor_signature"))?,
-                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description")}),
+                    json!({"validation_retries": retries, "id": "task.root.actor", "instruction": text("executor_description"), "includeOptionalInputFieldsInSystemPrompt": true}),
                 );
                 let responder_signature = signature_from_record(&core_get(&self.state, &CoreValue::from("responder_signature"), CoreValue::Null))?;
                 let responder = agent_responder_gen(&self.state, &self.configured_options, responder_signature, json!(text("responder_description")))?;
@@ -6568,6 +6751,8 @@ impl AxAgent {
 
     fn learn_playbook_failures_with<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
         if self.playbook_config.is_null() || self.playbook_config.as_bool() == Some(false) { return; }
+        // An evaluated run learns nothing, as TS's evaluation path.
+        if self.state_json("playbook_learning_paused").as_bool() == Some(true) { return; }
         let _ = (|| -> AxResult<()> {
             let config = self.playbook_config.as_object().cloned().unwrap_or_default();
             if config.get("learn").and_then(Value::as_bool) == Some(false) { return Ok(()); }
@@ -6824,24 +7009,43 @@ impl AxAgent {
         ])?))
     }
 
+    /// Run one task and return its prediction. Clarifications and thrown
+    /// runs become askClarification and error predictions, matching TypeScript.
     pub fn evaluate_optimization_task<C: AxAIClient>(
         &mut self,
         client: &mut C,
         task: Value,
         options: Value,
     ) -> AxResult<Value> {
+        self.evaluate_optimization_task_with(client, task, options, true)
+    }
+
+    // thrown_as_prediction: a run that throws is a completionType 'error'
+    // prediction, as the other ports' evaluate_optimization_task returns it.
+    fn evaluate_optimization_task_with<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        task: Value,
+        options: Value,
+        thrown_as_prediction: bool,
+    ) -> AxResult<Value> {
         let input = task.get("input").cloned().unwrap_or_else(|| task.clone());
         let forward_options = options.get("forward_options").cloned().unwrap_or_else(|| json!({}));
         // As TS evaluates each task from a fresh state, the prediction carries
         // only this run's share of the agent's logs.
         let marks = _agent_eval_marks(&[self.state.clone()])?;
-        let completion = match self.forward_with_options(client, input, forward_options) {
+        // TS's evaluation path runs no playbook run-end learning.
+        core_set(&self.state, CoreValue::from("playbook_learning_paused"), CoreValue::Bool(true))?;
+        let forwarded = self.forward_with_options(client, input, forward_options);
+        let _ = core_map_delete(&[self.state.clone(), CoreValue::from("playbook_learning_paused")]);
+        let completion = match forwarded {
             Ok(output) => json!({"type": "final", "output": output}),
             Err(error) => match core_agent_clarification_detail(&error) {
                 Some(detail) => json!({
                     "type": "askClarification",
                     "clarification": detail.get("clarification").cloned().unwrap_or(Value::Null),
                 }),
+                None if thrown_as_prediction => json!({"type": "error", "message": error.message}),
                 None => return Err(error),
             },
         };
@@ -7059,7 +7263,9 @@ impl AxAgent {
                 } else {
                     json!({"input": raw_task})
                 };
-                let prediction = self.evaluate_optimization_task(client, task.clone(), opts.clone())?;
+                // A task that throws is a completionType 'error' row scored
+                // 0, and the evaluation goes on, as in the other ports.
+                let prediction = self.evaluate_optimization_task_with(client, task.clone(), opts.clone(), true)?;
                 let error = prediction.get("error").cloned().unwrap_or(Value::Null);
                 let score_task = if raw_task.is_object() { raw_task.clone() } else { json!({}) };
                 let (scores, scalar) = score_optimization_prediction(&score_task, &prediction, &opts)?;
@@ -7388,10 +7594,17 @@ impl AxFlow {
         if core_truthy(&core_get(&lookup, &CoreValue::from("hit"), CoreValue::Null)) {
             return Ok(core_value_to_json(&core_get(&lookup, &CoreValue::from("value"), CoreValue::Null)));
         }
+        // As TypeScript's AxFlow.forward does, a run control hears the flow's
+        // own lifecycle at its path; each node reports at <path>/<node>.
+        let control = session::current_control();
+        let run_path = options.get("execution_path").or_else(|| options.get("executionPath")).and_then(Value::as_str).unwrap_or("root").to_string();
+        if let Some(control) = &control {
+            control.emit(json!({"type": "started", "path": run_path}));
+        }
         let defaults = self.runtime_hooks.clone();
         let mut attributes = BTreeMap::new();
         attributes.insert("ax.program.kind".to_string(), json!("AxFlow"));
-        with_runtime_scope(None, Some(&defaults), "ax_gen_flow_forward", "flow", attributes, || {
+        let run = with_runtime_scope(None, Some(&defaults), "ax_gen_flow_forward", "flow", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
             if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
@@ -7415,7 +7628,14 @@ impl AxFlow {
             _flow_forward(&[self.state.clone(), CoreValue::Null, values.clone(), options])
         })?;
         Ok(core_value_to_json(&result))
-        })
+        });
+        if let Some(control) = &control {
+            match &run {
+                Ok(_) => control.emit(json!({"type": "completed", "path": run_path})),
+                Err(error) => control.emit(json!({"type": "failed", "path": run_path, "error": error.to_string()})),
+            }
+        }
+        run
         })
     }
 
@@ -7526,6 +7746,47 @@ impl AxFlow {
         Ok(core_value_to_json(&_flow_get_optimizable_components(&[
             self.state.clone(),
         ])?))
+    }
+
+    /// Evaluate a candidate component map over a dataset: each task runs the
+    /// flow on the client and is scored, and the flow's components are
+    /// restored afterwards, as `evaluate_optimization` does in the other
+    /// ports (the flow's Core evaluation).
+    pub fn evaluate_optimization<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        dataset: &Value,
+        candidate_map: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
+            if method.starts_with("route_") {return session::dispatch_run_route(client,method,request,options);}
+            if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "speak" {
+                client.speak(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else if method == "open_session" {
+                Ok(session::publish_open_session(client.open_chat_session(request, options)?))
+            } else if method == "observe_session" {
+                client.observe_chat_session_response(&request, &options); Ok(Value::Null)
+            } else {
+                client.chat_with_options(request, options)
+            }
+        };
+        let options = if options.is_object() { options.clone() } else { json!({}) };
+        let result = with_core_client(&mut chat, || {
+            _flow_evaluate_optimization(&[
+                self.state.clone(),
+                CoreValue::Null,
+                core_value_from_json(dataset),
+                core_value_from_json(candidate_map),
+                core_value_from_json(&options),
+            ])
+        })?;
+        Ok(core_value_to_json(&result))
     }
 
     pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
@@ -9145,6 +9406,10 @@ fn playbook_error_signature(value: &str) -> String {
 }
 
 fn playbook_record_signature(record: &Value) -> String {
+    // TS's record of a thrown run has only its error.
+    if let Some(error) = record.get("error").and_then(Value::as_str).filter(|error| !error.is_empty()) {
+        return playbook_error_signature(error);
+    }
     let prediction = record.get("prediction").unwrap_or(&Value::Null);
     let mut counts: Vec<(String, u64)> = Vec::new();
     for signal in prediction.get("failureSignals").and_then(Value::as_array).cloned().unwrap_or_default() {
@@ -9201,6 +9466,18 @@ fn run_agent_playbook_batch<C: AxAIClient>(
             if remaining.get() == 0 { exhausted = true; break; }
             remaining.set(remaining.get() - 1);
             let score = match agent.evaluate_optimization_task(client, task.clone(), options.clone()) {
+                // TS's harness sees a thrown run: a zero score with no metric
+                // call, and its message as the error.
+                Ok(value) if value.get("completionType").and_then(Value::as_str) == Some("error") => {
+                    let error = value.get("error").cloned().unwrap_or(Value::Null);
+                    last_error = Some(match &error {
+                        Value::Object(map) => map.get("message").and_then(Value::as_str).unwrap_or("").to_string(),
+                        Value::String(text) => text.clone(),
+                        Value::Null => String::new(),
+                        other => other.to_string(),
+                    });
+                    0.0
+                }
                 Ok(value) => {
                     prediction = value;
                     let raw_score = task.get("metric_score").or_else(|| task.get("scores")).or_else(|| task.get("score")).cloned().unwrap_or_else(|| if prediction.get("completionType").and_then(Value::as_str) == Some("error") { json!(0) } else { json!(1) });
@@ -9225,7 +9502,9 @@ fn run_agent_playbook_batch<C: AxAIClient>(
         weight_sum += weight;
         let mut record = json!({"task":task,"index":task_index,"score":score,"passed":score >= threshold && prediction.get("completionType").and_then(Value::as_str)==Some("final")});
         if !prediction.is_null() { record["prediction"] = prediction; }
-        else if let Some(error) = last_error { record["error"] = json!(error); }
+        else if let Some(error) = last_error {
+            record["error"] = json!(error);
+        }
         records.push(record);
         if completed_runs < runs_per_task { break; }
     }
@@ -11195,6 +11474,8 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
+        "ai_verbose" => run_ai_verbose_fixture(&fixture)?,
+        "ai_custom_labels" => run_ai_custom_labels_fixture(&fixture)?,
         "ai_credential_wrapper" => run_ai_credential_wrapper_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
@@ -11405,6 +11686,7 @@ fn run_prompt_fixture(fixture: &Value) -> AxResult<()> {
     for (key, names) in [
         ("custom_template", vec!["custom_template", "customTemplate"]),
         ("structured_output_function_name", vec!["structured_output_function_name", "structuredOutputFunctionName"]),
+        ("include_optional_input_fields_in_system_prompt", vec!["include_optional_input_fields_in_system_prompt", "includeOptionalInputFieldsInSystemPrompt"]),
         ("instruction", vec!["instruction"]),
     ] {
         for name in names {
@@ -11958,11 +12240,42 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
+    // A step with constructor_control gets a node run control of its own;
+    // expected_node_control_events pins its lifecycle events.
+    let node_control = run_control();
+    let node_events = Arc::new(Mutex::new(Vec::new()));
+    let recorded = node_events.clone();
+    node_control.on_event(move |event| {
+        if matches!(event["type"].as_str(), Some("started" | "completed" | "failed" | "aborted")) {
+            recorded.lock().unwrap().push(json!({"path": event["path"], "type": event["type"]}));
+        }
+    });
+    CONFORMANCE_NODE_CONTROL.with(|slot| *slot.borrow_mut() = Some(node_control.clone()));
+    CONFORMANCE_FLOW_EVENTS.with(|slot| *slot.borrow_mut() = None);
     let result = conformance_flow_result(fixture);
+    CONFORMANCE_NODE_CONTROL.with(|slot| *slot.borrow_mut() = None);
+    let flow_events = CONFORMANCE_FLOW_EVENTS.with(|slot| slot.borrow_mut().take());
     if fixture.get("expected_error_contains").is_some() {
-        return expect_validation_result(result.map(|_| ()), fixture);
+        expect_validation_result(result.map(|_| ()), fixture)?;
+        // A failed flow's lifecycle events are pinned too.
+        if let Some(expected) = fixture.get("expected_control_events") {
+            let events = flow_events.map(|events| events.lock().unwrap().clone()).unwrap_or_default();
+            expect_json_equal("flow run control events", &Value::Array(events), expected)?;
+        }
+        if let Some(expected) = fixture.get("expected_node_control_events") {
+            let events = Value::Array(node_events.lock().unwrap().clone());
+            expect_json_equal("node run control events", &events, expected)?;
+        }
+        return Ok(());
     }
     let actual = result?;
+    if let Some(expected) = fixture.get("expected_control_events") {
+        expect_json_equal("flow run control events", actual.get("control_events").unwrap_or(&json!([])), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_node_control_events") {
+        let events = Value::Array(node_events.lock().unwrap().clone());
+        expect_json_equal("node run control events", &events, expected)?;
+    }
     if let Some(expected) = fixture.get("expected_plan") {
         expect_json_equal("flow plan", actual.get("plan").unwrap_or(&Value::Null), expected)?;
     }
@@ -14094,6 +14407,26 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
         )?;
     }
     if let Some(expected)=fixture.get("expected_mcp_calls").and_then(Value::as_object){for (key,calls) in expected{let transport=&mcp_transports.iter().find(|(name,_)|name==key).ok_or_else(||AxError::runtime("Missing MCP test transport"))?.1;let requests=transport.lock().unwrap().sent_requests();let actual=requests.iter().filter(|r|r["method"]=="tools/call").map(|r|json!({"name":r["params"]["name"],"arguments":r["params"]["arguments"]})).collect::<Vec<_>>();expect_json_equal(&format!("delegated MCP calls {key}"),&json!(actual),calls)?;}}
+    // Each stage's first request in full: every message's role and content.
+    for spec in fixture.get("expected_stage_first_requests").and_then(Value::as_array).into_iter().flatten() {
+        let index = spec.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let stage = spec.get("stage").and_then(Value::as_str).unwrap_or("");
+        let request = client.requests.get(index).ok_or_else(|| {
+            AxError::new("fixture", format!("no request {index} for the {stage} stage"))
+        })?;
+        let actual: Vec<Value> = request
+            .get("chat_prompt")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|message| json!({"role": message.get("role").cloned().unwrap_or(Value::Null), "content": message.get("content").cloned().unwrap_or(Value::Null)}))
+            .collect();
+        expect_json_equal(
+            &format!("{stage} first request"),
+            &Value::Array(actual),
+            spec.get("messages").unwrap_or(&Value::Null),
+        )?;
+    }
     for check in fixture.get("expected_request_checks").and_then(Value::as_array).into_iter().flatten(){let request=&client.requests[check["index"].as_u64().unwrap() as usize];let text=stable_stringify(request);for value in check.get("contains").and_then(Value::as_array).into_iter().flatten(){if !text.contains(value.as_str().unwrap()){return Err(AxError::runtime(format!("Child request missing {value}")));}}for value in check.get("not_contains").and_then(Value::as_array).into_iter().flatten(){if text.contains(value.as_str().unwrap()){return Err(AxError::runtime(format!("Child request exposed {value}")));}}if check["functions_absent"]==true&&request.get("functions").and_then(Value::as_array).is_some_and(|functions|!functions.is_empty()){return Err(AxError::runtime("Agent runtime tools leaked into native functions"));}}
     if let Some(items) = fixture.get("expected_request_contains").and_then(Value::as_array) {
         let request_text = stable_stringify(&Value::Array(client.requests.clone()));
@@ -15375,6 +15708,15 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         .get("forward_options")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    // control gives the flow's call a recorded run control.
+    let flow_control = if fixture_flag(fixture, "control") {
+        Some(attach_fixture_control(fixture, &mut client))
+    } else {
+        None
+    };
+    if let Some((_, events)) = &flow_control {
+        CONFORMANCE_FLOW_EVENTS.with(|slot| *slot.borrow_mut() = Some(events.clone()));
+    }
     let (output, streaming_output) = if operation == "streaming" {
         // The public AxFlow::streaming_forward over the fixture's flow state.
         let mut streaming_flow = AxFlow { state: state.clone(), execution_context: None, runtime_hooks: AxRuntimeHooks::default() };
@@ -15385,6 +15727,15 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
             .map(|delta| json!({"version": delta.version, "index": delta.index, "delta": delta.delta}))
             .collect::<Vec<_>>();
         (output, Value::Array(envelopes))
+    } else if let Some((control, _)) = &flow_control {
+        // The public AxFlow::forward_with_options, which takes the control.
+        let mut controlled = AxFlow { state: state.clone(), execution_context: None, runtime_hooks: AxRuntimeHooks::default() };
+        let output = controlled.forward_with_options(
+            &mut client,
+            input,
+            AxForwardOptions::from(forward_options.clone()).with_control(control.clone()),
+        )?;
+        (output, json!([]))
     } else {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method=="owned_worker" {return Ok(publish_owned_client_factory(client.owned_worker_factory()));}
@@ -15422,6 +15773,9 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         "plan": plan,
         "output": output,
         "streaming_output": streaming_output,
+        "control_events": flow_control
+            .map(|(_, events)| Value::Array(events.lock().unwrap().clone()))
+            .unwrap_or_else(|| json!([])),
     }))
 }
 
@@ -15569,7 +15923,14 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                     if options.get("id").is_none() {
                         options["id"] = json!(name);
                     }
-                    GenHost::new(AxGen::with_options_and_tools(signature, options.clone(), Vec::new())?)
+                    let mut gen = AxGen::with_options_and_tools(signature, options.clone(), Vec::new())?;
+                    if step.get("constructor_control").and_then(Value::as_bool).unwrap_or(false) {
+                        if let Some(control) = CONFORMANCE_NODE_CONTROL.with(|slot| slot.borrow().clone()) {
+                            // The node's own run control, a constructor default.
+                            gen = gen.with_control(control);
+                        }
+                    }
+                    GenHost::new(gen)
                 }
             };
             _flow_step(&[
@@ -15821,15 +16182,9 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
             }
         }
         "evaluate" => {
-            if fixture
-                .get("eval_options")
-                .and_then(|options| options.get("maxMetricCalls"))
-                .and_then(Value::as_f64)
-                .is_some_and(|value| value <= 0.0)
-            {
-                return Err(AxError::runtime("max metric calls exceeded"));
-            }
-            let result = conformance_evaluation_result(fixture);
+            // The program's own evaluate_optimization on the fixture's
+            // scripted client, as the other runners do.
+            let (result, components_after) = conformance_evaluation_result(fixture)?;
             if let Some(expected) = fixture.get("expected_evaluation_subset") {
                 expect_json_subset("optimization evaluation", &result, expected)?;
             }
@@ -15841,11 +16196,7 @@ fn run_optimize_fixture_inner(fixture: &Value) -> AxResult<()> {
                 )?;
             }
             if let Some(expected) = fixture.get("expected_components_subset_after").and_then(Value::as_array) {
-                expect_json_list_subset(
-                    "post-eval components",
-                    &Value::Array(conformance_optimizable_components(fixture)),
-                    expected,
-                )?;
+                expect_json_list_subset("post-eval components", &components_after, expected)?;
             }
         }
         "engine" => {
@@ -16562,61 +16913,56 @@ fn build_optimizer_evidence_batch(eval_result: &Value, components: &[Value]) -> 
     ]).unwrap_or_else(|_| core_value_from_json(&json!({}))))
 }
 
-fn conformance_evaluation_result(fixture: &Value) -> Value {
-    let dataset = normalize_optimization_dataset(fixture.get("dataset").unwrap_or(&json!([])));
-    let rows = dataset
-        .get("train")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|task| {
-            let prediction = conformance_optimization_prediction_for_task(fixture, &task);
-            let (scores, scalar) = score_optimization_prediction(
-                &task,
-                &prediction,
-                fixture.get("eval_options").unwrap_or(&json!({})),
-            )
-            .unwrap_or_else(|_| {
-                let scalar = if prediction.get("completionType").and_then(Value::as_str) == Some("error") {
-                    0.0
-                } else {
-                    task.get("score").and_then(Value::as_f64).unwrap_or(1.0)
-                };
-                (json!({"score": scalar}), scalar)
-            });
-            let trace = prediction.get("trace").cloned().unwrap_or_else(|| json!({}));
-            let error = prediction
-                .get("error")
-                .cloned()
-                .unwrap_or(Value::Null);
-            core_value_to_json(&_build_optimization_eval_row(&[
-                core_value_from_json(&task),
-                core_value_from_json(&prediction),
-                core_value_from_json(&scores),
-                CoreValue::Num(scalar),
-                core_value_from_json(&trace),
-                core_value_from_json(&error),
-            ]).unwrap_or_else(|_| core_value_from_json(&json!({
-                "input": task.get("input").cloned().unwrap_or_else(|| json!({})),
-                "prediction": prediction,
-                "scalar": scalar,
-                "scores": scores,
-            }))))
-        })
-        .collect::<Vec<_>>();
-    let phase = fixture
-        .get("eval_options")
-        .and_then(|options| options.get("phase"))
+// The optimize evaluate operation: the fixture's program (agent, flow or
+// AxGen) evaluates the dataset with the candidate map on the fixture's
+// scripted client, and the program's components after the evaluation come
+// back with the result.
+fn conformance_evaluation_result(fixture: &Value) -> AxResult<(Value, Value)> {
+    let signature = fixture
+        .get("signature")
         .and_then(Value::as_str)
-        .unwrap_or("train");
-    let mut result = core_value_to_json(&_build_optimization_eval_result(&[
-        core_value_from_json(&Value::Array(rows)),
-        core_value_from_json(&fixture.get("candidate_map").cloned().unwrap_or_else(|| json!({}))),
-        CoreValue::from(phase),
-    ]).unwrap_or_else(|_| core_value_from_json(&json!({}))));
-    result["contractVersion"] = json!("axir-optimization-eval-v1");
-    result
+        .unwrap_or("question:string -> answer:string");
+    let dataset = fixture.get("dataset").cloned().unwrap_or_else(|| json!([]));
+    let candidate_map = fixture.get("candidate_map").cloned().unwrap_or_else(|| json!({}));
+    let eval_options = fixture.get("eval_options").cloned().unwrap_or_else(|| json!({}));
+    let responses = fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut client = FixtureClient::scripted(
+        responses,
+        fixture.get("features").cloned().unwrap_or_else(router_default_features),
+    );
+    let mut result = match fixture.get("program").and_then(Value::as_str).unwrap_or("agent") {
+        "flow" => {
+            let mut flow = AxFlow {
+                state: conformance_build_flow_state(fixture)?,
+                execution_context: None,
+                runtime_hooks: AxRuntimeHooks::default(),
+            };
+            let result = flow.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, flow.get_optimizable_components()?)
+        }
+        "axgen" => {
+            let mut gen = ax(signature)?;
+            let result = gen.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, Value::Array(gen.get_optimizable_components()))
+        }
+        _ => {
+            let mut program = agent_with_options(signature, fixture.get("options").cloned().unwrap_or_else(|| json!({})))?;
+            if let Some(script) = fixture.get("runtime_script").and_then(Value::as_array) {
+                let language = fixture
+                    .get("runtime_language")
+                    .and_then(Value::as_str)
+                    .unwrap_or("JavaScript")
+                    .to_string();
+                program = program.with_runtime(Box::new(ScriptedCodeRuntime::new(script.clone(), language, String::new())))?;
+            }
+            let result = program.evaluate_optimization(&mut client, &dataset, &candidate_map, &eval_options)?;
+            (result, Value::Array(program.get_optimizable_components()?))
+        }
+    };
+    if result.0.get("contractVersion").is_none() {
+        result.0["contractVersion"] = json!("axir-optimization-eval-v1");
+    }
+    Ok(result)
 }
 
 // The optimize eval operation runs the agent's evaluate_optimization_task on
@@ -16645,58 +16991,19 @@ fn conformance_agent_eval_prediction(fixture: &Value) -> AxResult<Value> {
         .get("task")
         .cloned()
         .unwrap_or_else(|| json!({"input": fixture.get("input").cloned().unwrap_or_else(|| json!({}))}));
-    program.evaluate_optimization_task(
+    let prediction = program.evaluate_optimization_task(
         &mut client,
         task,
         fixture.get("eval_options").cloned().unwrap_or_else(|| json!({})),
-    )
+    )?;
+    if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
+        if client.requests.len() != expected as usize {
+            return Err(AxError::new("fixture", format!("expected {expected} eval requests, got {}", client.requests.len())));
+        }
+    }
+    Ok(prediction)
 }
 
-fn conformance_optimization_prediction_for_task(fixture: &Value, task: &Value) -> Value {
-    if fixture
-        .get("expected_evaluation_rows_subset")
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter().any(|row| {
-                row.get("prediction")
-                    .and_then(|prediction| prediction.get("completionType"))
-                    .and_then(Value::as_str)
-                    == Some("error")
-            })
-        })
-        .unwrap_or(false)
-    {
-        return json!({"completionType": "error", "error": "runtime error"});
-    }
-    if fixture
-        .get("responses")
-        .and_then(Value::as_array)
-        .map(|responses| {
-            responses.iter().any(|response| {
-                response
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .contains("runtime error")
-            })
-        })
-        .unwrap_or(false)
-    {
-        return json!({"completionType": "error", "error": "runtime error"});
-    }
-    let output = task
-        .get("expectedOutput")
-        .or_else(|| task.get("expected"))
-        .cloned()
-        .or_else(|| fixture.get("expected_prediction_subset").and_then(|value| value.get("output")).cloned())
-        .unwrap_or_else(|| json!({"answer": "Paris"}));
-    json!({
-        "completionType": "final",
-        "output": output,
-        "functionCalls": [],
-        "turnCount": 2,
-    })
-}
 
 fn optimizer_engine_request(fixture: &Value, components: &[Value]) -> Value {
     let uses_evaluator = fixture.get("engine_uses_evaluator").and_then(Value::as_bool).unwrap_or(false);
@@ -16753,7 +17060,10 @@ fn engine_evaluations(fixture: &Value) -> Vec<Value> {
             if let Some(obj) = fixture_copy.as_object_mut() {
                 obj.insert("candidate_map".to_string(), candidate_map.clone());
             }
-            let result = conformance_evaluation_result(&fixture_copy);
+            // An evaluation that fails scores nothing, as before.
+            let result = conformance_evaluation_result(&fixture_copy)
+                .map(|(result, _)| result)
+                .unwrap_or_else(|_| json!({"count": 0, "avg": 0}));
             json!({
                 "candidateMap": candidate_map,
                 "count": result.get("count").cloned().unwrap_or_else(|| json!(0)),
@@ -17208,7 +17518,16 @@ fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     Some(current)
 }
 
+// The extras each record_extras tool of the running fixture saw
+// (build_fixture_tools_recording resets them).
+static FIXTURE_TOOL_EXTRAS: OnceLock<Mutex<Vec<Value>>> = OnceLock::new();
+
+fn fixture_tool_extras() -> Value {
+    Value::Array(FIXTURE_TOOL_EXTRAS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap().clone())
+}
+
 fn build_fixture_tools_recording(fixture: &Value) -> AxResult<(Vec<Tool>, std::sync::Arc<std::sync::Mutex<Vec<Value>>>)> {
+    FIXTURE_TOOL_EXTRAS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap().clear();
     let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut out = Vec::new();
     for raw in fixture
@@ -17233,13 +17552,29 @@ fn build_fixture_tools_recording(fixture: &Value) -> AxResult<(Vec<Tool>, std::s
         }
         let tool_name = name.to_string();
         let recorder = std::sync::Arc::clone(&calls);
-        let tool = builder.handler(move |args| {
+        let tool = if raw.get("record_extras").and_then(Value::as_bool).unwrap_or(false) {
+            // A context handler, recording the extras it gets.
+            builder.context_handler(move |args, context| {
+                let mut seen = Map::new();
+                if let Some(session) = context.session_id() { seen.insert("sessionId".into(), json!(session)); }
+                if let Some(path) = context.execution_path() { seen.insert("executionPath".into(), json!(path)); }
+                if let Some(event) = context.event_context() { seen.insert("eventContext".into(), event.clone()); }
+                FIXTURE_TOOL_EXTRAS.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap().push(json!({"name": tool_name, "extras": Value::Object(seen)}));
                 recorder.lock().unwrap().push(json!({"name": tool_name, "args": args}));
                 if let Some(error) = &error {
                     return Err(AxError::runtime(error.clone()));
                 }
                 Ok(result.clone())
-            });
+            })
+        } else {
+            builder.handler(move |args| {
+                recorder.lock().unwrap().push(json!({"name": tool_name, "args": args}));
+                if let Some(error) = &error {
+                    return Err(AxError::runtime(error.clone()));
+                }
+                Ok(result.clone())
+            })
+        };
         out.push(tool);
     }
     Ok((out, calls))
@@ -17275,6 +17610,8 @@ struct FixtureClient {
     // What the run did to its sessions: open, steer, thinking, continue (with
     // the IDs of the tool results it submitted) and close.
     session_log: Rc<RefCell<Vec<Value>>>,
+    // The tool results the run submitted to its sessions, in order.
+    session_tool_results: Rc<RefCell<Vec<Value>>>,
 }
 
 impl AxAIClient for FixtureClient {
@@ -17299,7 +17636,7 @@ impl AxAIClient for FixtureClient {
             .as_mut()
             .and_then(VecDeque::pop_front)
             .ok_or_else(|| AxError::runtime("scripted sessions exhausted"))?;
-        Ok(Some(Box::new(ScriptedChatSession::new(self.session_log.clone(), script)?)))
+        Ok(Some(Box::new(ScriptedChatSession::new(self.session_log.clone(), self.session_tool_results.clone(), script)?)))
     }
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
@@ -17435,6 +17772,7 @@ impl FixtureClient {
             chat_requests: 0,
             native_sessions: None,
             session_log: Rc::new(RefCell::new(Vec::new())),
+            session_tool_results: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -17494,15 +17832,16 @@ fn expect_fixture_speak_requests(fixture: &Value, requests: &[Value]) -> AxResul
 // delivered as {type, response_id, response: {results}}.
 struct ScriptedChatSession {
     log: Rc<RefCell<Vec<Value>>>,
+    tool_results: Rc<RefCell<Vec<Value>>>,
     script: VecDeque<Value>,
     events: VecDeque<Value>,
     closed: bool,
 }
 
 impl ScriptedChatSession {
-    fn new(log: Rc<RefCell<Vec<Value>>>, script: Value) -> AxResult<Self> {
+    fn new(log: Rc<RefCell<Vec<Value>>>, tool_results: Rc<RefCell<Vec<Value>>>, script: Value) -> AxResult<Self> {
         let script = script.as_array().cloned().unwrap_or_default().into();
-        let mut session = Self { log, script, events: VecDeque::new(), closed: false };
+        let mut session = Self { log, tool_results, script, events: VecDeque::new(), closed: false };
         session.play()?;
         Ok(session)
     }
@@ -17538,6 +17877,13 @@ impl AxChatSession for ScriptedChatSession {
     fn submit(&mut self, results: Vec<Value>) -> AxResult<()> {
         let ids = results.iter().map(|result| result.get("function_id").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>();
         self.log.borrow_mut().push(json!({"op": "continue", "call_ids": ids}));
+        for result in &results {
+            self.tool_results.borrow_mut().push(json!({
+                "call_id": result.get("function_id").cloned().unwrap_or(Value::Null),
+                "result": result.get("result").cloned().unwrap_or(Value::Null),
+                "is_error": result.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+            }));
+        }
         self.play()
     }
 
@@ -17563,6 +17909,9 @@ impl AxChatSession for ScriptedChatSession {
 // python: _assert_session_log. expected_session_log is what the run did to
 // its native sessions, in order.
 fn expect_fixture_session_log(fixture: &Value, client: &FixtureClient) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_session_tool_results") {
+        expect_json_equal("native session tool results", &Value::Array(client.session_tool_results.borrow().clone()), expected)?;
+    }
     if let Some(expected) = fixture.get("expected_session_log") {
         expect_json_equal("native session log", &Value::Array(client.session_log.borrow().clone()), expected)?;
     }
@@ -17693,6 +18042,14 @@ fn fixture_flag(fixture: &Value, key: &str) -> bool {
 // With control_steer ({during_request, text}) it records every event, and
 // the scripted client steers with the text while that chat request (1-based)
 // is in flight.
+thread_local! {
+    // The run control a flow fixture's execute step with constructor_control
+    // gets on its AxGen's constructor.
+    static CONFORMANCE_NODE_CONTROL: RefCell<Option<AxRunControl>> = RefCell::new(None);
+    // The events a flow fixture's run control recorded, read after a failed run.
+    static CONFORMANCE_FLOW_EVENTS: RefCell<Option<Arc<Mutex<Vec<Value>>>>> = RefCell::new(None);
+}
+
 fn attach_fixture_control(fixture: &Value, client: &mut FixtureClient) -> (AxRunControl, Arc<Mutex<Vec<Value>>>) {
     let control = run_control();
     let events = Arc::new(Mutex::new(Vec::new()));
@@ -17784,6 +18141,17 @@ fn expect_fixture_chat_prompt(fixture: &Value, client: &FixtureClient) -> AxResu
 // a run control records its events (see attach_fixture_control); with
 // `stop_after_deltas` the consumer stops the run from on_delta after that
 // many deltas, which is the expected outcome, and the output is not compared.
+// A fixture's constructor_cancellation or call_cancellation: a token,
+// cancelled with the reason when the spec says so.
+fn fixture_cancellation(spec: Option<&Value>) -> Option<AxCancellationToken> {
+    let spec = spec.filter(|spec| spec.is_object())?;
+    let token = AxCancellationToken::default();
+    if spec.get("cancelled").and_then(Value::as_bool).unwrap_or(false) {
+        token.cancel(spec.get("reason").and_then(Value::as_str).unwrap_or("fixture-stop"));
+    }
+    Some(token)
+}
+
 fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     let signature = build_fixture_signature(fixture)?;
     let (fixture_tools, recorded_calls) = build_fixture_tools_recording(fixture)?;
@@ -17830,6 +18198,12 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
         } else {
             options = options.with_control(control);
         }
+    }
+    if let Some(token) = fixture_cancellation(fixture.get("constructor_cancellation")) {
+        program = program.with_cancellation(token);
+    }
+    if fixture.get("call_cancellation").is_some() {
+        return Err(AxError::new("fixture", "a streaming forward takes no call cancellation token in Rust"));
     }
     let stop_after = fixture.get("stop_after_deltas").and_then(Value::as_u64);
     let deltas = Rc::new(RefCell::new(Vec::new()));
@@ -17889,6 +18263,9 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_tool_calls") {
         let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_equal("tool calls", &actual, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_tool_extras") {
+        expect_json_equal("tool extras", &fixture_tool_extras(), expected)?;
     }
     if let Some(expected) = fixture.get("expected_processor_calls") {
         let actual = Value::Array(processor_calls.lock().unwrap().clone());
@@ -18234,6 +18611,12 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     } else {
         None
     };
+    // constructor_cancellation gives the program its token (with_cancellation);
+    // call_cancellation gives the call its own (forward_with_cancellation).
+    if let Some(token) = fixture_cancellation(fixture.get("constructor_cancellation")) {
+        program = program.with_cancellation(token);
+    }
+    let call_cancellation = fixture_cancellation(fixture.get("call_cancellation"));
     // The process-wide formatter; the guard restores the default after the
     // forward.
     struct GlobalFormatterReset(bool);
@@ -18250,17 +18633,21 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         global_formatter_reset.0 = true;
     }
     // The forward call's formatter.
-    let result = match fixture.get("call_function_result_formatter") {
+    let result = (|| {
+        let _scope = call_cancellation.as_ref().map(AxCancellationScope::enter).transpose()?;
+        match fixture.get("call_function_result_formatter") {
         Some(spec) => {
             let formatter = fixture_function_result_formatter(spec);
             program.forward_with_function_result_formatter(&mut client, input, options, move |result| formatter(result))
         }
         None => program.forward_with_options(&mut client, input, options),
-    };
+        }
+    })();
     // expected_error_cause_contains is not checked: AxError gains its cause
     // (and source()) in the next major version.
     if fixture.get("expected_error_contains").is_some() {
         expect_validation_result(result.map(|_| ()), fixture)?;
+        expect_fixture_request_roles(fixture, &client)?;
         if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
             if client.requests.len() != expected as usize {
                 return Err(AxError::new(
@@ -18427,6 +18814,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_tool_calls").and_then(Value::as_array) {
         let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_list_exact_subsets("tool calls", &actual, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_tool_extras") {
+        expect_json_equal("tool extras", &fixture_tool_extras(), expected)?;
     }
     if let Some(expected) = fixture
         .get("expected_function_traces_subset")
@@ -18672,6 +19062,142 @@ impl AxMeter for ConformanceFailingMeter {
     fn create_counter(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxCounter>> { panic!("meter failure") }
     fn create_histogram(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxHistogram>> { panic!("meter failure") }
     fn create_gauge(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxGauge>> { panic!("meter failure") }
+}
+
+// A meter that records each metric's name and attributes.
+#[derive(Default)]
+struct LabelRecordingMeter {
+    records: Arc<Mutex<Vec<(String, BTreeMap<String, Value>)>>>,
+}
+struct LabelRecordingInstrument {
+    name: String,
+    records: Arc<Mutex<Vec<(String, BTreeMap<String, Value>)>>>,
+}
+impl AxCounter for LabelRecordingInstrument {
+    fn add(&self, _value: f64, attributes: &BTreeMap<String, Value>) {
+        self.records.lock().unwrap().push((self.name.clone(), attributes.clone()));
+    }
+}
+impl AxHistogram for LabelRecordingInstrument {
+    fn record(&self, _value: f64, attributes: &BTreeMap<String, Value>) {
+        self.records.lock().unwrap().push((self.name.clone(), attributes.clone()));
+    }
+}
+impl AxGauge for LabelRecordingInstrument {
+    fn record(&self, _value: f64, attributes: &BTreeMap<String, Value>) {
+        self.records.lock().unwrap().push((self.name.clone(), attributes.clone()));
+    }
+}
+impl AxMeter for LabelRecordingMeter {
+    fn create_counter(&self, name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxCounter>> {
+        Some(Arc::new(LabelRecordingInstrument { name: name.to_string(), records: self.records.clone() }))
+    }
+    fn create_histogram(&self, name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxHistogram>> {
+        Some(Arc::new(LabelRecordingInstrument { name: name.to_string(), records: self.records.clone() }))
+    }
+    fn create_gauge(&self, name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxGauge>> {
+        Some(Arc::new(LabelRecordingInstrument { name: name.to_string(), records: self.records.clone() }))
+    }
+}
+
+// A recording meter sees a chat (the service's and the call's custom labels)
+// and an AxGen forward on the same client (its constructor's labels with the
+// call's over them). Each expected metric's first record must carry the
+// expected labels besides the runtime's own "ax.*" attributes. Rust names the
+// metrics ax_llm_requests, ax_llm_duration_ms, ax_gen_requests and
+// ax_gen_duration_ms; the fixture uses TS's names.
+fn run_ai_custom_labels_fixture(fixture: &Value) -> AxResult<()> {
+    let rust_name = |name: &str| -> String {
+        match name {
+            "ax_llm_requests_total" => "ax_llm_requests",
+            "ax_llm_request_duration_ms" => "ax_llm_duration_ms",
+            "ax_gen_generation_requests_total" => "ax_gen_requests",
+            "ax_gen_generation_duration_ms" => "ax_gen_duration_ms",
+            other => other,
+        }
+        .to_string()
+    };
+    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let meter = Arc::new(LabelRecordingMeter::default());
+    let records = meter.records.clone();
+    let custom_part = |name: &str| -> AxResult<Value> {
+        let wanted = rust_name(name);
+        let records = records.lock().unwrap();
+        let Some((_, attributes)) = records.iter().find(|(recorded, _)| *recorded == wanted) else {
+            let names = records.iter().map(|(recorded, _)| recorded.clone()).collect::<Vec<_>>();
+            return Err(AxError::new("fixture", format!("no {wanted} metric was recorded: {names:?}")));
+        };
+        Ok(Value::Object(
+            attributes.iter().filter(|(key, _)| !key.starts_with("ax.")).map(|(key, value)| (key.clone(), value.clone())).collect(),
+        ))
+    };
+    set_meter(Some(meter.clone()));
+    let result = (|| -> AxResult<()> {
+        let chat = fixture.get("chat").cloned().unwrap_or_else(|| json!({}));
+        client.chat_with_options(
+            chat.get("request").cloned().unwrap_or_else(|| json!({})),
+            json!({"customLabels": chat.get("custom_labels").cloned().unwrap_or_else(|| json!({}))}),
+        )?;
+        if let Some(expected) = fixture.get("expected_chat_custom_labels").and_then(Value::as_object) {
+            for (name, labels) in expected {
+                expect_json_equal(&format!("chat {name} custom labels"), &custom_part(name)?, labels)?;
+            }
+        }
+        records.lock().unwrap().clear();
+        let spec = fixture.get("forward").cloned().unwrap_or_else(|| json!({}));
+        let mut program = ax(spec.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string"))?;
+        program.options = json!({"customLabels": spec.get("constructor_custom_labels").cloned().unwrap_or_else(|| json!({}))});
+        program.forward_with_options(
+            &mut client,
+            spec.get("input").cloned().unwrap_or_else(|| json!({})),
+            json!({"stream": false, "customLabels": spec.get("call_custom_labels").cloned().unwrap_or_else(|| json!({}))}),
+        )?;
+        if let Some(expected) = fixture.get("expected_forward_custom_labels").and_then(Value::as_object) {
+            for (name, labels) in expected {
+                expect_json_equal(&format!("forward {name} custom labels"), &custom_part(name)?, labels)?;
+            }
+        }
+        Ok(())
+    })();
+    set_meter(None);
+    result
+}
+
+// Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+// headers must mask the API key.
+fn run_ai_verbose_fixture(fixture: &Value) -> AxResult<()> {
+    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
+    let api_key = fixture.get("api_key").and_then(Value::as_str).unwrap_or("test-key").to_string();
+    let headers_json = regex::Regex::new(r" Headers: \{[\s\S]*?\n\} \nBody:").map_err(|error| AxError::runtime(error.to_string()))?;
+    let entries = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink_entries = entries.clone();
+    set_verbose_sink(Some(Box::new(move |text: &str| sink_entries.lock().unwrap().push(text.to_string()))));
+    let result = (|| -> AxResult<Value> {
+        let mut logs = Vec::new();
+        for call in fixture.get("calls").and_then(Value::as_array).cloned().unwrap_or_default() {
+            entries.lock().unwrap().clear();
+            let request = call.get("request").cloned().unwrap_or_else(|| json!({}));
+            let options = call.get("options").cloned().unwrap_or_else(|| json!({}));
+            if request.get("model_config").and_then(|config| config.get("stream")).and_then(Value::as_bool).unwrap_or(false) {
+                for event in client.stream_iter_with_options(request, options)? {
+                    event?;
+                }
+            } else {
+                client.chat_with_options(request, options)?;
+            }
+            let mut out = Vec::new();
+            for entry in entries.lock().unwrap().iter() {
+                if !api_key.is_empty() && entry.contains(&api_key) {
+                    return Err(AxError::new("fixture", format!("a verbose block shows the API key: {entry}")));
+                }
+                out.push(Value::String(headers_json.replace_all(entry, " Headers: {{HEADERS}} \nBody:").into_owned()));
+            }
+            logs.push(Value::Array(out));
+        }
+        Ok(Value::Array(logs))
+    })();
+    set_verbose_sink(None);
+    expect_json_equal("verbose logs", &result?, fixture.get("expected_verbose_logs").unwrap_or(&Value::Null))
 }
 
 fn run_ai_runtime_hooks_fixture(fixture: &Value) -> AxResult<()> {
@@ -22038,9 +22564,20 @@ fn core_prompt_has_complex_fields(signature: &CoreValue) -> Result<bool, AxError
     Ok(false)
 }
 
+// The input fields the system prompt shows: every one, cached first, with
+// TS's includeOptionalInputFieldsInSystemPrompt; otherwise the ones the user
+// message renders.
 #[allow(dead_code)]
-fn core_prompt_identity_section(signature: &CoreValue, values: &CoreValue) -> Result<String, AxError> {
-    let in_args = core_prompt_render_desc_fields(&core_prompt_input_fields_for_values(signature, values)?);
+fn core_prompt_system_input_fields(signature: &CoreValue, values: &CoreValue, include_optional: bool) -> Result<Vec<CoreValue>, AxError> {
+    if include_optional {
+        return core_prompt_input_fields_for_values(signature, &CoreValue::Null);
+    }
+    core_prompt_input_fields_for_values(signature, values)
+}
+
+#[allow(dead_code)]
+fn core_prompt_identity_section(signature: &CoreValue, values: &CoreValue, include_optional: bool) -> Result<String, AxError> {
+    let in_args = core_prompt_render_desc_fields(&core_prompt_system_input_fields(signature, values, include_optional)?);
     let out_args = core_prompt_render_desc_fields(&core_prompt_get_output_fields(signature)?);
     Ok(format!(
         "You will be provided with the following fields: {in_args}. Your task is to generate new fields: {out_args}."
@@ -22073,9 +22610,9 @@ fn core_prompt_input_fields_for_values(signature: &CoreValue, values: &CoreValue
 }
 
 #[allow(dead_code)]
-fn core_prompt_input_fields_section(signature: &CoreValue, values: &CoreValue) -> Result<String, AxError> {
+fn core_prompt_input_fields_section(signature: &CoreValue, values: &CoreValue, include_optional: bool) -> Result<String, AxError> {
     let fields = core_prompt_render_input_fields(
-        &core_prompt_input_fields_for_values(signature, values)?,
+        &core_prompt_system_input_fields(signature, values, include_optional)?,
         &core_prompt_field_name_to_title(signature)?,
     )?;
     Ok(format!(
@@ -22386,6 +22923,18 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("structured_output_function_name"),
         CoreValue::Null,
     );
+    // TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+    // every input field, provided or not. Off by default.
+    let include_optional_default = core_get(
+        &options,
+        &CoreValue::from("includeOptionalInputFieldsInSystemPrompt"),
+        CoreValue::Bool(false),
+    );
+    let include_optional = core_truthy(&core_get(
+        &options,
+        &CoreValue::from("include_optional_input_fields_in_system_prompt"),
+        include_optional_default,
+    ));
     let template_vars = CoreValue::new_map();
     core_set(&template_vars, CoreValue::from("hasFunctions"), CoreValue::Bool(!funcs.is_empty()))?;
     core_set(
@@ -22416,7 +22965,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("identityText"),
-        CoreValue::from_string(core_prompt_identity_section(&signature, &values)?),
+        CoreValue::from_string(core_prompt_identity_section(&signature, &values, include_optional)?),
     )?;
     core_set(
         &template_vars,
@@ -22435,7 +22984,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("inputFieldsSection"),
-        CoreValue::from_string(core_prompt_input_fields_section(&signature, &values)?),
+        CoreValue::from_string(core_prompt_input_fields_section(&signature, &values, include_optional)?),
     )?;
     core_set(
         &template_vars,
@@ -23053,7 +23602,9 @@ impl CoreHost for ToolHost {
                 } else {
                     core_value_to_json(&params)
                 };
-                let result = self.tool.call(payload)?;
+                // The run's extras (tool_call_extras), for a context handler.
+                let extras = core_value_to_json(&core_arg(args, 1));
+                let result = self.tool.call_with_context(payload, AxToolContext::default().with_extras(&extras))?;
                 Ok(core_value_from_json(&result))
             }
             "name" => Ok(CoreValue::from(self.tool.name.as_str())),
@@ -23633,8 +24184,9 @@ fn core_tool_invoke(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::Map(_) => core_get(&target, &CoreValue::from("__tool_host"), CoreValue::Null),
         _ => CoreValue::Null,
     };
+    let extras = core_arg(args, 2);
     match host {
-        CoreValue::Host(host) => host.call_method("call", &[params]),
+        CoreValue::Host(host) => host.call_method("call", &[params, extras]),
         _ => Err(AxError::runtime("intrinsic.tool.invoke target is not a tool")),
     }
 }
@@ -25134,6 +25686,9 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
             CoreValue::from("type"),
             core_field_type_value(&field_type_from_payload(payload))?,
         )?;
+        if let Some(description) = payload.get("description").and_then(Value::as_str) {
+            core_set(&values, CoreValue::from("description"), CoreValue::from(description))?;
+        }
         core_append(&fields, core_record_new(&[CoreValue::from("Field"), values])?)?;
     }
     Ok(fields)
@@ -25359,8 +25914,27 @@ impl CoreHost for FlowHost {
                 let values = core_arg(args, 1);
                 let options = core_arg(args, 2);
                 let state = self.flow.borrow().state.clone();
-                let result = _flow_forward(&[state, CoreValue::Null, values, options])?;
-                Ok(result)
+                // As TypeScript's AxFlow.forward does, the run control hears a
+                // nested flow's own lifecycle at its path.
+                let control = session::current_control();
+                let json_options = core_value_to_json(&options);
+                let run_path = json_options
+                    .get("execution_path")
+                    .or_else(|| json_options.get("executionPath"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("root")
+                    .to_string();
+                if let Some(control) = &control {
+                    control.emit(json!({"type": "started", "path": run_path}));
+                }
+                let result = _flow_forward(&[state, CoreValue::Null, values, options]);
+                if let Some(control) = &control {
+                    match &result {
+                        Ok(_) => control.emit(json!({"type": "completed", "path": run_path})),
+                        Err(error) => control.emit(json!({"type": "failed", "path": run_path, "error": error.to_string()})),
+                    }
+                }
+                result
             }
             "get_chat_log" => Ok(core_get(
                 &self.flow.borrow().state,
@@ -25551,6 +26125,23 @@ fn core_agent_stage_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     match &stage {
         CoreValue::Host(host) => host.call_method("forward", &[client, values, options]),
         _ => Err(AxError::runtime("flow stage is not a runnable program")),
+    }
+}
+
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+fn core_agent_program_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let signature = s(&core_arg(args, 0).text())?;
+    let program_options = core_arg(args, 1);
+    let program_options = if program_options.is_null() { json!({}) } else { core_value_to_json(&program_options) };
+    let program = agent_stage_gen(signature, program_options);
+    let values = core_arg(args, 3);
+    let values = if values.is_null() { CoreValue::new_map() } else { values };
+    let options = core_arg(args, 4);
+    let options = if options.is_null() { CoreValue::new_map() } else { options };
+    match &program {
+        CoreValue::Host(host) => host.call_method("forward", &[core_arg(args, 2), values, options]),
+        _ => Err(AxError::runtime("context-map program is not a runnable program")),
     }
 }
 
@@ -26011,6 +26602,21 @@ fn core_agent_runtime_language(args: &[CoreValue]) -> Result<CoreValue, AxError>
     };
     let trimmed = language.trim();
     Ok(CoreValue::from_string(if trimmed.is_empty() { "JavaScript".to_string() } else { trimmed.to_string() }))
+}
+
+// A runtime's own usage instructions, as TS's getUsageInstructions(): the
+// code runtime's own, else a runtime config's "usageInstructions", else none.
+fn core_agent_runtime_usage_instructions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let runtime = core_arg(args, 0);
+    let text = match core_host_try(&runtime, "usage_instructions", &[]) {
+        Some(result) => result?.text(),
+        None => {
+            let camel = core_get(&runtime, &CoreValue::from("usageInstructions"), CoreValue::Null);
+            let raw = if camel.is_null() { core_get(&runtime, &CoreValue::from("usage_instructions"), CoreValue::Null) } else { camel };
+            if raw.is_null() { String::new() } else { raw.text() }
+        }
+    };
+    Ok(CoreValue::from_string(text))
 }
 
 fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -26958,6 +27564,10 @@ fn run_ai_session_state_fixture(fixture: &Value) -> AxResult<()> {
         for case in cases {
             let valid = chat_session_validate_required_arguments(&[core_value_from_json(&case["schema"]), core_value_from_json(&case["arguments"]), CoreValue::from("arguments")]).is_ok();
             expect_json_equal(&format!("raw argument validation: {case}"), &json!(valid), &case["valid"])?;
+            if let Some(expected) = case.get("errors") {
+                let errors = core_value_to_json(&chat_session_tool_argument_errors(&[core_value_from_json(&case["schema"]), core_value_from_json(&case["arguments"])])?);
+                expect_json_equal(&format!("raw argument errors: {case}"), &errors, expected)?;
+            }
         }
     }
     let state = chat_session_create_state(&[core_value_from_json(&fixture["model"]), core_value_from_json(&fixture["path"]), core_value_from_json(&fixture["max_steps"])])?;

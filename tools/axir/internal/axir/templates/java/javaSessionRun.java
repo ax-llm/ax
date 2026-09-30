@@ -147,12 +147,14 @@ final class SessionRun implements AiClient,AutoCloseable {
       try {
         if(args instanceof String text) args=Json.parse(text);
         if(tool==null) throw new IllegalArgumentException("Function '"+name+"' not found");
-        Core.validate_fields(tool.args,args,"tool."+name+".args");
-        Core.chat_session_validate_required_arguments(tool.schema(),args,"tool."+name+".args");
       } catch(RuntimeException error) {
         Core.chat_session_register_call(state,call,"blocking");
         Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false,options);return;
       }
+      // As TS's session does, a call whose arguments fail the tool's schema
+      // does not run: its result is TS's fixing instructions.
+      Object fixing=Core.chat_session_tool_argument_error(name,tool.schema(),args);
+      if(fixing!=null){Core.chat_session_register_call(state,call,"blocking");Core.chat_session_record_result(gen,state,call,fixing,false,options);return;}
       Core.chat_session_register_call(state,call,execution);blocking=!"background".equals(execution);
       emit("tool.started",Map.of("call_id",id));
       final Map<String,Object> values=new LinkedHashMap<>(Core.asMap(args));
@@ -160,7 +162,8 @@ final class SessionRun implements AiClient,AutoCloseable {
       // A worker owns only the invocation and its result, which goes to the
       // session that started it, never to a later one.
       workers.execute(AxGlobals.inherit(()->{Object result=null;Throwable failure=null;
-        try {result=Core.toolInvoke(selected,values,()->cancelled || Thread.currentThread().isInterrupted());}catch(Throwable error){failure=error;}
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        try {result=Core.toolInvoke(selected,values,()->cancelled || Thread.currentThread().isInterrupted(),Core.tool_call_extras(options,name));}catch(Throwable error){failure=error;}
         if(!cancelled) queue.offer(new Delivery("tool",call,result,failure));
       }));
     }

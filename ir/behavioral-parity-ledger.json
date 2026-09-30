@@ -155,11 +155,14 @@
       "capability": "agent.rlm.real_execution",
       "summary": "A real embedded engine executes model-authored code end-to-end through forward() and produces the completion -- NOT a ScriptedCodeRuntime returning canned payloads.",
       "ir_ops": ["@agent_forward"],
-      "fixtures": ["axagent-real/agent-runtime-real-javascript-final.json"],
+      "fixtures": [
+        "axagent-real/agent-runtime-real-javascript-final.json",
+        "axagent-real/agent-runtime-real-console-output.json"
+      ],
       "gate": "G1 real-engine antidote",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code. Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: go (goja), rust (quickjs feature), cpp (quickjs profile -DAX_CONFORMANCE_QUICKJS), python (in-process quickjs wheel), java (quickjs4j/chicory via reflection). Each runs the full forward() loop through a real engine executing model-authored final() code, and an actor turn's console.log output reaches the next request's action log (agent-runtime-real-console-output). Engines are optional deps, so agent_runtime_real runs in engine-enabled build lanes, not the default conformance suite."
     },
     {
       "capability": "agent.rlm.multi_turn_convergence",
@@ -173,7 +176,7 @@
       "gate": "G1 real-engine antidote + G6 response perturbation",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED via a real-engine fixture driving a 2-turn distiller and a 2-turn executor: the later request must contain a marker produced by executing the earlier turn. distillProbe7731 can only reach the distiller's 2nd request through the newly-provided distiller actionLog/liveRuntimeState (@build_distiller_inputs); 'Current runtime state:' + execLiveStateProbe8842 can only reach the executor's 2nd request when @agent_runtime_refresh_state_summary repopulates runtime_session_state each non-error turn. Proven to FAIL without the fix (distiller request was input/context-only and liveRuntimeState rendered empty) and anti-hardcoded by the response-perturbation gate (mutating the probe responses drops the markers and fails the runner)."
+      "state": "VERIFIED via a real-engine fixture driving a 2-turn distiller and a 2-turn executor: the later request must contain a marker produced by executing the earlier turn. distillProbe7731 can only reach the distiller's 2nd request through the newly-provided distiller actionLog/liveRuntimeState (@build_distiller_inputs); the live state's 'distillProbe7731: ' line (TS's Live Runtime State lines, no 'Current runtime state:' prefix since 3a2 PR A) can only reach a request when @agent_runtime_refresh_state_summary repopulates runtime_session_state each non-error turn, and execLiveStateProbe8842 marks the executor's 2nd request. Proven to FAIL without the fix (distiller request was input/context-only and liveRuntimeState rendered empty) and anti-hardcoded by the response-perturbation gate (mutating the probe responses drops the markers and fails the runner)."
     },
     {
       "capability": "agent.rlm.llm_query_subquery",
@@ -217,30 +220,33 @@
     },
     {
       "capability": "agent.context.map_read_and_evolve",
-      "summary": "The cross-run context map is read (injected into the distiller's context + the distiller prompt's hasContextMap section) AND evolved by a full TS-parity two-stage pipeline: a context-map distiller (itemTags + cacheCandidates) then a cartographer (ADD/DELETE/REPLACE operations), both via intrinsic.ai.complete_once. Operations apply to parsed [id] items across 6 fixed sections; helpful/harmful/stale tags adjust per-item scores; score-based eviction trims the map to maxChars; evolution is gated by infiniteEvolve || steps<evolveSteps. The evolved map persists through export/restore. Distiller scores AND cartographer operations are both asserted from the model, not canned.",
+      "summary": "The cross-run context map is TypeScript's AxAgentContextMap in all five ports: the map text is normalized as TS does (trimmed, one trailing newline, TS's section template when empty) and injected into the distiller, and after each completed run TS's two AxGen programs (the context-map Distiller: task, contextMap, trajectory -> diagnosis, itemTags, cacheCandidates; the Cartographer: task, contextMap, distillerReflection, currentChars, maxChars -> operations) run with TS's descriptions on TS's trajectory (input summary, each stage's action log, executor result, final output). Operations edit the text in place as TS's applyOperations does (5-digit ids after the highest numbered one, new sections after the others, blank lines before headers); tags adjust scores; eviction drops the lowest score, then the oldest id, to maxChars; a finite map stops after evolveSteps updates. A 24.x map text or snapshot (every header, unpadded ids, next_id) loads with its items and is normalized.",
       "ir_ops": [
-        "@agent_factory",
         "@agent_evolve_context_map",
+        "@format_context_map_trajectory",
+        "@context_map_normalize_text",
+        "@context_map_initial_text",
         "@context_map_parse_items",
-        "@context_map_render_items",
         "@context_map_apply_operations",
+        "@context_map_normalize_operations",
         "@context_map_update_scores",
         "@context_map_evict_to_budget",
-        "@build_distiller_inputs",
-        "@render_rlm_distiller_description",
-        "@agent_export_runtime_state",
-        "@agent_restore_runtime_state"
+        "@context_map_distiller_program",
+        "@context_map_cartographer_program"
       ],
       "fixtures": [
+        "axagent/agent-first-requests-context-map.json",
+        "axagent/agent-first-requests-context-map-template.json",
         "axagent/agent-context-map-config.json",
         "axagent/agent-context-map-read.json",
-        "axagent/agent-context-map-evolve.json",
-        "axagent/agent-context-map-evict.json"
+        "axagent/agent-context-map-evict.json",
+        "axagent/agent-context-map-legacy-text.json",
+        "axagent/agent-context-map-legacy-restore.json"
       ],
       "gate": "G6 perturbation + cross-target coverage",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES (full TS parity). Create: @agent_factory builds state.context_map from options.contextMap (map string/snapshot + maxChars/infiniteEvolve/evolveSteps/scores/next_id) -- agent-context-map-config uses a FRESH agent (no restore), the cartographer ADDs an item, and the exported text+scores+steps are asserted. Read: agent-context-map-read restores a non-evolving map (infiniteEvolve:false, evolveSteps:0) and asserts the map text reaches the DISTILLER request, isolating read from evolve. Evolve: agent-context-map-evolve asserts the distiller itemTags update scores AND the cartographer ADD operation mints a new [id] item in the rendered text (mutating either model response fails the test). Evict: agent-context-map-evict tags an item harmful and asserts it is dropped under a tight maxChars while the neutral item survives (flipping the tag to helpful fails the test). next_id is a persisted counter (no numeric id parsing -- rust mul rejects string operands, so ids are minted from the counter and eviction tie-breaks on text order). context_map is part of the export/restore state contract."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens (tools/axir/extractors/agent-streaming-goldens.ts): agent-first-requests-context-map pins every request of two forwards, both context-map update calls of each included, and the map after them (an ADD, then a REPLACE by item_id and an ADD by section title, with the tag scores); agent-first-requests-context-map-template starts from TS's template; config, read (finite map past its steps: no update calls), evict (a harmful item evicted to maxChars) and legacy-text (a 24.x map text) pin the map TS leaves. The port-only agent-context-map-legacy-restore restores a 24.x snapshot and must leave the map TS leaves for the same text. The update programs run through the host intrinsic intrinsic.agent.program_forward (a one-off AxGen per port)."
     },
     {
       "capability": "agent.context.tombstone_llm",
@@ -770,6 +776,139 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. TS goldens: an earlier step's update to a key the input already held survives a later step in the group; each iteration of a while loop whose body is a parallel group keeps its updates, for program nodes and a derive step. Port-only fixtures: a spread field update survives, a field two steps spread ends with the later step's value, and it does so even when the later step writes the group's starting value back."
+    },
+    {
+      "capability": "agent.stages.first_request_prompts",
+      "summary": "Each agent stage's first request (distiller, executor, responder) is TypeScript's, message for message: the actor signatures of buildSplitPrograms with TypeScript's field names and descriptions, every input field listed in the actor system prompts (includeOptionalInputFieldsInSystemPrompt, also a public AxGen option on the constructor and the forward, the forward's winning), the runtime's own usage instructions, the stage's own action log, the live runtime state without the runtime's globals, the executor's shared-session notice, the context fields and their metadata, the callable blocks of child agents and tools, per-stage skills, and the responder's Context Data.",
+      "ir_ops": [
+        "@agent_actor_stage_signatures",
+        "@agent_rlm_actor_signatures",
+        "@agent_rlm_distiller_values",
+        "@agent_rlm_executor_values",
+        "@agent_rlm_loop_values",
+        "@agent_render_guidance_log",
+        "@agent_mark_stage_action_log_start",
+        "@agent_build_action_log_parts",
+        "@agent_render_runtime_state_summary",
+        "@agent_render_actor_functions_list",
+        "@agent_render_actor_modules_list",
+        "@agent_render_callable_block",
+        "@agent_render_context_metadata",
+        "@agent_context_input_fields",
+        "@agent_prompt_field_type",
+        "@rlm_context_var_list",
+        "@rlm_context_var_summary",
+        "@build_rlm_flags",
+        "@render_rlm_responder_description",
+        "@include_optional_render_option_impl"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-base.json",
+        "axagent/agent-first-requests-tools.json",
+        "axagent/agent-first-requests-discovery.json",
+        "axagent/agent-first-requests-context-field.json",
+        "axagent/agent-first-requests-skills.json",
+        "axagent/agent-first-requests-skills-catalog.json",
+        "axagent/agent-first-requests-memories.json",
+        "axagent/agent-first-requests-runtime-less.json",
+        "axgen/forward-request-layout-optional-input-listed.json",
+        "axgen/forward-request-layout-optional-input-forward-option.json",
+        "axgen/forward-request-layout-optional-input-forward-off.json",
+        "prompt/optional-input-listed-when-option-on.json",
+        "prompt/optional-input-omitted-by-default.json"
+      ],
+      "gate": "G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens (tools/axir/extractors/agent-streaming-goldens.ts): expected_stage_first_requests compares every message's role and content of each stage's first request, and every agent golden but two pins each request's roles. The port-only agent-first-requests-runtime-less pins the ports' runtime-less stages the same way. Under contextCache TypeScript splits the cached actor inputs into a user message of their own; the ports don't yet (open backlog entry)."
+    },
+    {
+      "capability": "agent.callables.flat_function_namespace",
+      "summary": "A flat agent function filed under its own namespace (TS fn().namespace('crm')) is listed and called as crm.<name>, as TS's agent does, and a namespace that shadows a runtime global raises TS's error (flatFunctionNamespace 'own', the default since 25.0.0). flatFunctionNamespace 'tools' calls every flat function tools.<name>, as the ports did before. A flat function without a namespace is tools.<name> either way (utils.<name> in TS). Go's Tool.WithNamespace and Java's fn(...).namespace(...) set it on a host Tool; JSON function specs in every port take a namespace key.",
+      "ir_ops": [
+        "@normalize_agent_callable_inventory",
+        "@agent_flat_function_namespace",
+        "@agent_flat_function_namespace_mode",
+        "@agent_check_flat_function_namespace",
+        "@agent_callable_implementation",
+        "@agent_append_runtime_modules",
+        "@agent_render_actor_functions_list"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-flat-namespace.json",
+        "axagent-real/agent-runtime-real-flat-namespace-call.json",
+        "axagent/agent-flat-function-namespace-default-own.json",
+        "axagent/agent-flat-function-namespace-tools-explicit.json",
+        "axagent/agent-flat-function-namespace-tools-reserved.json",
+        "axagent/agent-flat-function-namespace-default-reserved.json",
+        "axagent/agent-flat-function-namespace-own-reserved.json",
+        "axagent/agent-flat-function-namespace-invalid-mode.json",
+        "axagent/agent-flat-function-namespace-with-child.json"
+      ],
+      "gate": "G3 prompt-parity + G1 real-engine antidote",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: the TypeScript golden agent-first-requests-flat-namespace (interleaved crm/web flat functions) pins each stage's first request, whose function listing TS sorts by namespace and name; the port-only real-engine fixture agent-runtime-real-flat-namespace-call runs the executor's crm.lookup call through each port's JavaScript engine, and only an executed call puts the engine-computed gold:42 in the responder's request. Port-only fixtures pin the default without a deprecation warning, 'tools' (also with a reserved namespace), TS's reserved-namespace error by default and with 'own', an invalid mode, and the namespace kept after a child agent is registered."
+    },
+    {
+      "capability": "agent.context.auto_promotion_previews",
+      "summary": "autoUpgrade.contextFields moves an oversized undeclared input into the runtime as TypeScript's decideAutoPromotion does: a string over promoteAboveChars (UTF-16 units) previews as its first previewChars followed by '...[truncated N chars]'; another value, sized by its JSON, previews as its JSON when its field takes a string preview; one that can't is left out of the prompt when its field is optional or unknown and stays inline when required. The Context Metadata line names the mode, and the responder gets the same truncated preview (TS finalizeResponderNonContextValues).",
+      "ir_ops": [
+        "@agent_auto_promotion_decision",
+        "@agent_field_accepts_string_preview",
+        "@agent_truncate_preview",
+        "@agent_truncate_responder_values",
+        "@split_context_values",
+        "@agent_render_context_metadata"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-auto-promotion.json",
+        "axagent/agent-first-requests-auto-promotion-modes.json",
+        "axagent/auto-upgrade-discovery-and-context-promotion.json"
+      ],
+      "gate": "G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against TypeScript goldens: agent-first-requests-auto-promotion (a 52-char document and a 25-char question over promoteAboveChars 20, previewChars 8) and agent-first-requests-auto-promotion-modes (a json record as its JSON preview, an optional string[] left out, a required string[] inline) pin every stage's first request. Before, the ports' preview turned the optional array into a string and the forward failed with 'input.notes must be an array'."
+    },
+    {
+      "capability": "agent.stages.cross_forward_restore",
+      "summary": "As TypeScript's actor loop restores each stage's own state, a stage that completed on an earlier forward of the same agent opens its next run with its earlier actions in the action log and TS's Runtime Restore notice as the summarized actor log (its own notice wins over the executor's shared-session one); the notice shows on the stage's first turn only. A finished final() turn renders as its code and '(no output)'. Evaluation runs (optimize, playbook evolve) start without the stages' earlier actions and restore them afterwards, as TS's forwardPipelineForEvaluation does.",
+      "ir_ops": [
+        "@agent_restore_stage_actions",
+        "@agent_save_stage_actions",
+        "@agent_render_full_action_entry",
+        "@agent_eval_marks",
+        "@agent_eval_run"
+      ],
+      "fixtures": [
+        "axagent/agent-first-requests-second-forward.json",
+        "axagent/agent-playbook-evolve-miner-function-calls.json"
+      ],
+      "gate": "G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES against the TypeScript golden agent-first-requests-second-forward (two forwards on one agent; each run's first request of each stage pinned), and the playbook evolve golden keeps each evaluated run's action log to that run."
+    },
+    {
+      "capability": "agent.runtime.live_state_ts_format",
+      "summary": "The ports' JavaScript runtimes (Python QuickJS, goja, quickjs4j, rquickjs, C++ QuickJS) load one shared support script (scripts/axir-runtime-support.mjs): they describe user globals as TypeScript's AxJSRuntime does (type, constructor, size, preview, restorability), analyze each turn's code as TS's action log does (the variables it writes and reads, its qualified calls), and give TS's usage instructions. The live runtime state renders as TS's formatStructuredRuntimeState: salience order, '[from tN via source; read tM]' provenance from the stage's own actions, maxEntries and maxChars. The executor's shared session keeps the distiller's variables (a merge patch), receives its own inputs (inputs.distilledContext), and inherits the distilledContext global the distiller's final(task, evidence) kept, as TS's shared session does; the Distilled Context Summary follows TS's renderEvidenceDescriptor.",
+      "ir_ops": [
+        "@agent_render_structured_runtime_state",
+        "@agent_runtime_state_provenance",
+        "@agent_attach_code_analysis",
+        "@normalize_agent_runtime_snapshot",
+        "@agent_build_evidence_descriptor",
+        "@agent_render_evidence_descriptor"
+      ],
+      "fixtures": [
+        "axagent-real/agent-runtime-real-ts-live-state.json",
+        "axagent-real/agent-runtime-real-ts-no-user-variables.json"
+      ],
+      "gate": "G1 real-engine antidote + G3 prompt-parity",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE ENGINES against two TypeScript goldens recorded with TS's own AxJSRuntime (tools/axir/extractors/agent-streaming-goldens.ts real_runtime): in one the distiller makes variables of four types and logs, the executor reads them; in the other the distiller makes no variable ('(no user variables)') and keeps empty evidence the executor still sees. Every distiller and executor request is pinned (usage instructions, action log output, live state with provenance, evidence summary); the Go runner now checks the pinned requests, request roles and transcript for agent_runtime_real as the other runners do. Before: Go, Rust, Java and C++ lost the distiller's variables in the executor (a replacing patch), no port gave the executor inputs.distilledContext in the shared session, Python showed Python type names and repr, Go showed its captured console output as '- __ax_stdout', and the C++ and Rust QuickJS sessions reported engine globals as user bindings ('- Atomics: {}', '- performance: {...}'); both now leave out the engine's own globals, captured after bootstrap, from the bindings snapshot, from a replacing patch's clear and from a restored snapshot. scripts/axir-runtime-support.test.js checks the support script against the TS sources."
     }
   ]
 }

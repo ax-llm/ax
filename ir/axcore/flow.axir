@@ -587,15 +587,18 @@ module @ax.flow version "0.1" {
       %base_options = core.get %flow["options"] default %empty_map
       %runtime_base = core.call intrinsic.map.merge(%base_options, %options)
       %runtime_options = core.call intrinsic.map.merge(%runtime_base, %step_options)
+      // As TS's executeNodeProgram, every node runs at <parent>/<node>, with
+      // or without a flow control, so a node's own run control reports the
+      // node's path; the flow's control, when it has one, goes to the node.
+      %parent_path_snake = core.get %runtime_base["execution_path"] default "root"
+      %parent_path = core.get %runtime_base["executionPath"] default %parent_path_snake
+      %node_path = core.call intrinsic.string.format("{}/{}", %parent_path, %name)
+      core.set %runtime_options["execution_path"] = %node_path
+      core.set %runtime_options["executionPath"] = %node_path
       %controller = core.get %runtime_base["control"] default null
       %controlled = core.call intrinsic.is_not_none(%controller)
       core.if %controlled {
-        %parent_path_snake = core.get %runtime_base["execution_path"] default "root"
-        %parent_path = core.get %runtime_base["executionPath"] default %parent_path_snake
-        %node_path = core.call intrinsic.string.format("{}/{}", %parent_path, %name)
         core.set %runtime_options["control"] = %controller
-        core.set %runtime_options["execution_path"] = %node_path
-        core.set %runtime_options["executionPath"] = %node_path
       }
       %trace_label_in = core.get %options["traceLabel"] default ""
       %has_trace_label = core.call intrinsic.truthy(%trace_label_in)

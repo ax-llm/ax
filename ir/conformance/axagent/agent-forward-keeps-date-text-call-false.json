@@ -5,6 +5,11 @@
     "when": "2024-05-09 14:30 America/New_York"
   },
   "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"]
+  ],
   "expected_transcript": [
     "request:distiller",
     "request:executor",

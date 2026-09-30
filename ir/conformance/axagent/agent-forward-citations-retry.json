@@ -13,6 +13,12 @@
     "Invalid evidenceCitations entries: made_up_source. Cite only evidence ids that exist: policy"
   ],
   "expected_request_count": 4,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user", "assistant", "user"]
+  ],
   "expected_transcript": [
     "request:distiller",
     "request:executor",

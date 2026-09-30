@@ -35,9 +35,13 @@ from .gen import (
     _core_ai_complete_once,
     _core_ai_client_features,
     _core_axgen_deprecation,
+    _core_fields_from_map,
+    _core_exception_message,
     _core_string_index_of,
     _core_string_str,
+    _core_string_utf16_units,
     _core_tool_invoke,
+    _core_validation_error,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -1100,6 +1104,14 @@ def _agent_playbook_weakness_miner_signature():
     )
 
 
+def _agent_evolve_prediction_error(prediction):
+    # The message of the ports' error prediction (TS's thrown run).
+    error = (prediction or {}).get("error")
+    if isinstance(error, dict):
+        return str(error.get("message") or "")
+    return str(error or "")
+
+
 def _playbook_option(options, *keys, default=None):
     for key in keys:
         if isinstance(options, dict) and key in options and options.get(key) is not None:
@@ -1524,11 +1536,18 @@ class AxAgentPlaybook:
                         break
                     remaining[0] -= 1
                     try:
-                        prediction = self.agent.evaluate_optimization_task(client, task, opts)
-                        if callable(metric):
-                            score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                        candidate = self.agent.evaluate_optimization_task(client, task, opts)
+                        if (candidate or {}).get("completionType") == "error":
+                            # TS's harness sees a thrown run: a zero score with
+                            # no metric call, and its message as the error.
+                            score = 0.0
+                            error = _agent_evolve_prediction_error(candidate)
                         else:
-                            _, score = _score_optimization_prediction(task, prediction, opts)
+                            prediction = candidate
+                            if callable(metric):
+                                score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                            else:
+                                _, score = _score_optimization_prediction(task, prediction, opts)
                     except Exception as exc:
                         score = 0.0
                         error = str(exc)
@@ -1556,6 +1575,9 @@ class AxAgentPlaybook:
             return match.group(1) if match else text[:80]
 
         def record_signature(record):
+            # TS's record of a thrown run has only its error.
+            if record.get("error"):
+                return error_signature(record.get("error"))
             prediction = record.get("prediction") or {}
             counts = {}
             for signal in prediction.get("failureSignals") or []:
@@ -1767,10 +1789,12 @@ class AxAgent:
         self.llm_query = AxGen(_core_get(self.state, "llm_query_signature", "task:string, context:json -> answer:string"), {"validation_retries": 1, "id": "rlm.llmquery", "instruction": _core_get(self.state, "llm_query_description", "")})
         self._rebind_playbook()
 
+    # The actor stages list every input field in their system prompt, as TS's
+    # actor AxGen does (includeOptionalInputFieldsInSystemPrompt).
     def _build_stage_set(self, record):
         actor_validation_retries = self.options.get("validation_retries", self.options.get("validationRetries", 1))
-        distiller = AxGen(record["distiller_signature"], {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": record.get("distiller_description") or ""})
-        executor = AxGen(record["executor_signature"], {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": record.get("executor_description") or ""})
+        distiller = AxGen(record["distiller_signature"], {"validation_retries": actor_validation_retries, "id": "ctx.root.actor", "instruction": record.get("distiller_description") or "", "includeOptionalInputFieldsInSystemPrompt": True})
+        executor = AxGen(record["executor_signature"], {"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": record.get("executor_description") or "", "includeOptionalInputFieldsInSystemPrompt": True})
         responder_options = {"id": "task.root.responder", "instruction": record.get("responder_description") or ""}
         # As in TS, the responder's validation budget is maxRetries (3 by
         # default) unless validation_retries is set.
@@ -2166,6 +2190,8 @@ class AxAgent:
         # As TS evaluates each task from a fresh state, the prediction carries
         # only this run's share of the agent's logs.
         marks = _agent_eval_marks(self.state)
+        # TS's evaluation path runs no playbook run-end learning.
+        self.state["playbook_learning_paused"] = True
         try:
             output = self.forward(client, task.get("input") or task, forward_options)
             completion = {"type": "final", "output": output}
@@ -2173,6 +2199,8 @@ class AxAgent:
             completion = {"type": "askClarification", "clarification": exc.clarification}
         except Exception as exc:
             completion = {"type": "error", "message": str(exc)}
+        finally:
+            self.state.pop("playbook_learning_paused", None)
         return _build_agent_run_prediction(self.state, marks, completion, self.get_usage(), self.export_trace())
 
     def evaluate_optimization(self, client, dataset, candidate_map: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
@@ -2247,6 +2275,9 @@ class AxAgent:
 
     def _learn_playbook_failures(self, output):
         if self._playbook_handle is None or self._playbook_config in (None, False):
+            return
+        # An evaluated run learns nothing, as TS's evaluation path.
+        if _core_get(self.state, "playbook_learning_paused", False):
             return
         config = dict(self._playbook_config) if isinstance(self._playbook_config, dict) else {}
         learn = config.get("learn", True)
@@ -2594,6 +2625,13 @@ def _core_agent_stage_forward(stage, client, values, options):
     return stage.forward(client, values or {}, options)
 
 
+def _core_agent_program_forward(signature, program_options, client, values, options):
+    # A one-off AxGen (the context map's distiller and cartographer),
+    # forwarded like an agent stage.
+    program = AxGen(signature, dict(program_options or {}))
+    return program.forward(client, dict(values or {}), dict(options or {}))
+
+
 def _core_agent_stage_chat_log(stage):
     if hasattr(stage, "get_chat_log"):
         return stage.get_chat_log()
@@ -2688,6 +2726,20 @@ def _core_agent_runtime_language(runtime):
             language = language()
     language = str(language or "").strip()
     return language or "JavaScript"
+
+
+def _core_agent_runtime_usage_instructions(runtime):
+    # A runtime's own usage instructions, as TS's getUsageInstructions(): a
+    # runtime config's "usageInstructions", else the code runtime's own, else
+    # none.
+    if isinstance(runtime, dict):
+        text = runtime.get("usageInstructions", runtime.get("usage_instructions"))
+    else:
+        method = getattr(runtime, "get_usage_instructions", None)
+        text = method() if callable(method) else getattr(runtime, "usage_instructions", None)
+        if callable(text):
+            text = text()
+    return str(text or "")
 
 
 def _core_agent_memory_search(state, searches, already_loaded):

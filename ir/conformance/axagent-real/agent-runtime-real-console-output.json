@@ -1,0 +1,34 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-console-output",
+  "description": "Port-only real-engine antidote: an actor turn's console.log output reaches the next request's action log, as TS's AxJSRuntime returns console output as the execution result. The logged value is computed by the engine (6 * 7), so only an executed log can put probe-console-4471:42 in a request.",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Log a probe, then answer"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"console.log('probe-console-4471:' + (6 * 7));\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer\\\", {\\\"answer\\\": \\\"logged\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"logged\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "logged"
+  },
+  "expected_request_count": 4,
+  "expected_request_contains": ["probe-console-4471:42"]
+}

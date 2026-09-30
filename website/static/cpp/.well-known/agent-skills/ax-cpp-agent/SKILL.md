@@ -71,6 +71,15 @@ Give the agent a code runtime on the constructor (`"runtime"`: `axllm::Core::cod
 - A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.
 - Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.
 
+## Flat Function Namespaces
+
+- A flat function (one in the agent's `functions` outside a module) that names its own namespace is called `<namespace>.<name>`, as in TypeScript; one without a namespace is `tools.<name>` (TypeScript's is `utils.<name>`). A namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error.
+- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'`, the default since 25.0.0, is the above; `'tools'` calls every flat function `tools.<name>`, as the ports did before 25.0.0.
+- A flat function without its own namespace uses `utils`, matching TypeScript. Explicit `'tools'` mode retains the legacy namespace.
+- `clarificationShape` / `clarification_shape` defaults to `'structured'`: clarifications carry `{question, ...}`. Explicit `'raw'` retains the original payload. `inputValidation` / `input_validation` defaults to `'fail'`: missing required context fails before any request; explicit `'lenient'` retains the old behavior.
+- Task evaluation returns an error prediction for a thrown run in every language. Playbook evolve records keep the error without an extra error prediction, and evaluation does not trigger run-end learning.
+- Host `Tool`s go under a namespace with `add_tool_module("crm", tools)`, which needs no option; `'own'` reads a function spec's `"namespace"` key.
+
 ## Streaming An Agent Run
 
 `agent.streaming_forward(client, values, options, handler)` runs the agent, calls `handler(const AxGenDelta&)` with each delta of the responder as TypeScript's `streamingForward` yields it, on the calling thread, and returns the responder's output. Returning false stops the run without an exception; an exception the handler throws stops it and propagates.
