@@ -469,24 +469,15 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
 
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
 
-  // TS reads a per-call timeout in milliseconds; this port ignores it until the
-  // next major version and warns once, naming timeoutMs.
-  private static void warnCallTimeout(Map<String, Object> callOptions) {
-    Core.provider_warn_call_timeout(AxRuntimeHooks.strip(callOptions == null ? Map.of() : callOptions), false);
-  }
-
   @Override public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
-    warnCallTimeout(callOptions);
     return super.chat(request, callOptions);
   }
 
   @Override public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
-    warnCallTimeout(callOptions);
     return super.embed(request, callOptions);
   }
 
   @Override public AxChatStream openStream(Map<String,Object> request,Map<String,Object> options,AxCancellationToken cancellation)throws Exception {
-    warnCallTimeout(options);
     Map<String, Object> resolved = resolveModelKey(Core.coerceChatRequest(request), options, false);
     request = Core.asMap(resolved.get("request"));
     Map<String,Object> callOptions=new LinkedHashMap<>(Core.asMap(resolved.get("options")));

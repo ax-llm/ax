@@ -4,12 +4,12 @@
   "emitted_functions": 973,
   "files": {
     "axllm/agent.py": {
-      "emitted_lines": 9808,
-      "total_lines": 12622
+      "emitted_lines": 9804,
+      "total_lines": 12618
     },
     "axllm/ai.py": {
-      "emitted_lines": 13140,
-      "total_lines": 16936
+      "emitted_lines": 13137,
+      "total_lines": 16927
     },
     "axllm/flow.py": {
       "emitted_lines": 2615,

@@ -381,10 +381,10 @@ async function record(name: string, spec: Case): Promise<void> {
     }
     fixture.forward_options = {
       ...clone(spec.forward_options ?? {}),
-      timeoutMs: timeout,
+      timeout,
     };
     fixture.expected_chat_options_all_subset = { timeoutMs: timeout };
-    fixture.description = `Port-only: an agent forward timeoutMs reaches each of the ${chatOptions.length} stage ai.chat calls, as TS's forward timeout does (this extractor checks TS with timeout: ${timeout}).`;
+    fixture.description = `An agent forward timeout reaches each of the ${chatOptions.length} stage ai.chat calls, as TS's forward timeout does (this extractor checks TS with timeout: ${timeout}).`;
   }
   if (spec.keeps_date_text) {
     if (kind !== 'agent_forward') {

@@ -234,6 +234,7 @@ module @ax.ai version "0.1" {
     tag "src/ax/ai/base.ts"
     type signature = "(client_options:json, request:json, options:json, default_model:json, embed:bool) -> json"
     body @entry(%client_options: json, %request: json, %options: json, %default_model: json, %embed: bool) {
+      %options = core.call @provider_normalize_call_options(%options)
       %empty_models = core.list
       %model_list_camel = core.get %client_options["modelList"] default %empty_models
       %model_list_snake = core.get %client_options["model_list"] default %model_list_camel

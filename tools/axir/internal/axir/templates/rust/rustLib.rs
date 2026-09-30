@@ -3149,7 +3149,11 @@ impl OpenAICompatibleClient {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        let (request, key_options) = self.resolve_model_key_request(&request, &json!({}), true)?;
+        self.embed_with_options(request, Value::Null)
+    }
+
+    pub fn embed_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, key_options) = self.resolve_model_key_request(&request, &options, true)?;
         self.with_key_options(&key_options, |client| client.embed_resolved(request))
     }
 
@@ -3979,7 +3983,6 @@ impl AxAIClient for OpenAICompatibleClient {
     fn transcribe(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::transcribe(self, request) }
     fn speak(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::speak(self, request) }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
-        warn_call_timeout(&options);
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
@@ -3991,7 +3994,6 @@ impl AxAIClient for OpenAICompatibleClient {
         response
     }
     fn stream_iter_with_options(&mut self, request: Value, options: Value) -> AxResult<AxChatStream> {
-        warn_call_timeout(&options);
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
@@ -18593,7 +18595,8 @@ fn run_ai_cancellation_fixture(fixture:&Value)->AxResult<()> {
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let output = client.embed(request)?;
+    let call_options = if fixture.get("service_options").is_some() { fixture.get("options").cloned().unwrap_or(Value::Null) } else { Value::Null };
+    let output = client.embed_with_options(request, call_options)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai embed output", &output, expected)?;
     }
@@ -27071,12 +27074,6 @@ fn core_flow_dispatch_group(args:&[CoreValue])->AxResult<CoreValue>{
     }
     for token in tokens{token.cancel("Flow dispatcher closed");}
     Ok(core_value_from_json(&Value::Array(reports.into_iter().map(Option::unwrap).collect())))
-}
-
-// TS reads a per-call timeout in milliseconds; Rust reads it in seconds until
-// the next major version, so a call that gives it without timeoutMs warns once.
-fn warn_call_timeout(options: &Value) {
-    let _ = provider_warn_call_timeout(&[core_value_from_json(options), CoreValue::Bool(true)]);
 }
 
 // The call's timeoutMs: TS apiCall's timer bounds the wait for the headers.

@@ -1,7 +1,7 @@
 // ax-example:start
 // title: Go Prompt-Cached Generation
 // group: generation
-// description: Runs GPT-5.6 structured generation with stable OpenAI prompt-cache affinity.
+// description: Runs GPT-6 structured generation with stable OpenAI prompt-cache affinity.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -30,7 +30,7 @@ func openAIClient() ax.AIClient {
 	}
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.6-luna"
+		model = "gpt-6-luna"
 	}
 	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model})
 }
@@ -48,7 +48,7 @@ func main() {
 	defer cancel()
 	client := openAIClient()
 	program := ax.NewAx("question:string -> answer:string", nil)
-	output, err := program.Forward(ctx, client, map[string]ax.Value{"question": "In one sentence, explain Ax as a language-agnostic LLM programming library."}, map[string]ax.Value{"promptCacheKey": "ax-openai-example", "contextCache": ax.Object()})
+	output, err := program.Forward(ctx, client, map[string]ax.Value{"question": "In one sentence, explain Ax as a language-agnostic LLM programming library."}, map[string]ax.Value{"timeout": 30000, "promptCacheKey": "ax-openai-example", "contextCache": ax.Object()})
 	if err != nil {
 		panic(err)
 	}

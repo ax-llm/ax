@@ -15,7 +15,7 @@ import (
 )
 
 // timeout_http_roundtrip times requests out through the REAL HTTPTransport
-// against in-process loopback servers. A call's timeoutMs (TypeScript's
+// against in-process loopback servers. A call's timeout (TypeScript's
 // per-call timeout, in milliseconds) ends a chat or a stream whose response
 // has not started, and the request layer does not retry it. A stream whose
 // response has started runs past it, because the timer stops at the response
@@ -61,11 +61,11 @@ func main() {
 		}
 	}
 	expectTimeout("chat", func() error {
-		_, err := client.Chat(context.Background(), request, map[string]ax.Value{"timeoutMs": 200})
+		_, err := client.Chat(context.Background(), request, map[string]ax.Value{"timeout": 200})
 		return err
 	})
 	expectTimeout("stream", func() error {
-		_, err := client.Stream(context.Background(), request, map[string]ax.Value{"timeoutMs": 200})
+		_, err := client.Stream(context.Background(), request, map[string]ax.Value{"timeout": 200})
 		return err
 	})
 	if count := accepted.Load(); count != 2 {
@@ -73,7 +73,7 @@ func main() {
 	}
 
 	// A stream whose headers arrive at once and whose second event comes
-	// after more than the timeoutMs.
+	// after more than the timeout.
 	event := func(content, finish string) string {
 		return `{"id":"chatcmpl_slow","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"` + content + `"},"finish_reason":` + finish + `}]}`
 	}
@@ -93,7 +93,7 @@ func main() {
 		"base_url": slow.URL,
 		"model":    "gpt-5.4-mini",
 	})
-	events, err := slowClient.Stream(context.Background(), request, map[string]ax.Value{"timeoutMs": 1000})
+	events, err := slowClient.Stream(context.Background(), request, map[string]ax.Value{"timeout": 1000})
 	if err != nil {
 		panic(fmt.Sprintf("a started stream was cut off: %v", err))
 	}

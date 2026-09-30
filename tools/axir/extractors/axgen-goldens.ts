@@ -1189,23 +1189,22 @@ writeFixture('prompt-cache-key-forward-options', {
 });
 
 // TS AxGen passes a call's timeout (milliseconds) to ai.chat, from the call or
-// else the constructor. Until the next major version the ports take it as
-// timeoutMs.
-for (const [name, forwardOptions, timeoutMs] of [
-  ['call-timeout-ms-forward-option', { timeoutMs: 250 }, 250],
+// else the constructor.
+for (const [name, forwardOptions, timeout] of [
+  ['call-timeout-ms-forward-option', { timeout: 250 }, 250],
   ['call-timeout-ms-constructor-option', undefined, 1000],
 ] as const) {
   writeFixture(name, {
     description:
-      'Port-only: AxGen passes timeoutMs to ai.chat from the forward call, else the constructor, as TS passes its per-call timeout.',
+      'AxGen passes timeout to ai.chat from the forward call, else the constructor, as TS passes its per-call timeout.',
     kind: 'forward',
     signature: 'question:string -> answer:string',
     input: { question: 'Answer within the timeout' },
-    options: { timeoutMs: 1000 },
+    options: { timeout: 1000 },
     ...(forwardOptions ? { forward_options: forwardOptions } : {}),
-    responses: [{ content: '{"answer":"on time"}' }],
+    responses: [{ content: 'Answer: on time' }],
     expected_output: { answer: 'on time' },
-    expected_chat_options_subset: { timeoutMs },
+    expected_chat_options_subset: { timeoutMs: timeout },
     expected_request_count: 1,
   });
 }

@@ -1350,13 +1350,9 @@ class ProviderOperationClient(AxBaseAI):
         )
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        # TS reads a per-call timeout in milliseconds; this port ignores it
-        # until the next major version and warns once, naming timeoutMs.
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         return super().chat(request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         return super().embed(request, options)
 
     def open_chat_session(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1521,7 +1517,6 @@ class ProviderOperationClient(AxBaseAI):
             return self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), base_url=call_base_url, cancellation=cancellation, error_options=options, retry_options=options, timeout_ms=timeout_ms)
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        provider_warn_call_timeout(_strip_runtime_hooks(options), False)
         request, options = self._resolve_model_key(_coerce_chat_request(request), options)
         if self.get_features(request.get("model")).get("streaming") is False:
             yield self.chat(request, {**(options or {}), "stream": False})
@@ -2170,7 +2165,7 @@ class AxAITypesafeClient:
         return typesafe_decode_models(self._request("GET", "/v1/models", None, "models", options))
 
     def _request(self, method, path, payload, operation, options):
-        opts = {**self._client.options, **(options or {})}
+        opts = {**self._client.options, **provider_normalize_call_options(options)}
         inherited = _check_cancelled(self._client.options)
         per_call = _check_cancelled(options)
         cancellation = inherited or per_call
@@ -2187,8 +2182,7 @@ class AxAITypesafeClient:
 
     def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
         client = copy.copy(self._client)
-        client.timeout = float(opts.get("timeout", client.timeout))
-        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts)
+        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts, timeout_ms=provider_call_timeout_ms(opts))
 
 
 def typesafe(**options) -> AxAITypesafeClient:

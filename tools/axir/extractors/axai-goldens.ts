@@ -10176,21 +10176,21 @@ for (const [name, fixture, key] of [
 const callTimeoutChat = {
   kind: 'ai_chat',
   provider: 'openai',
-  model: 'gpt-5.4-mini',
+  model: 'gpt-6-luna',
   service_options: {},
   request: {
     chat_prompt: [{ role: 'user', content: 'hi' }],
     model_config: { stream: false },
   },
   transport_responses: [
-    compatibleResponse('chatcmpl_call_timeout', 'gpt-5.4-mini'),
+    compatibleResponse('chatcmpl_call_timeout', 'gpt-6-luna'),
   ],
 };
 writeFixture('call-timeout-ms-reaches-transport', {
   description:
     "Port-only: a call's timeoutMs (TS's per-call timeout, in milliseconds) reaches the transport as timeout_ms.",
   ...callTimeoutChat,
-  options: { timeoutMs: 250 },
+  options: { timeout: 250 },
   expected_transport_request: { timeout_ms: 250 },
   expected_warnings: [],
 });
@@ -10199,9 +10199,9 @@ writeFixture('call-timeout-ms-reaches-stream-transport', {
     "Port-only: a stream call's timeoutMs reaches the transport as timeout_ms.",
   kind: 'ai_stream',
   provider: 'openai',
-  model: 'gpt-5.4-mini',
+  model: 'gpt-6-luna',
   service_options: {},
-  options: { timeoutMs: 250 },
+  options: { timeout: 250 },
   request: {
     chat_prompt: [{ role: 'user', content: 'hi' }],
     model_config: { stream: true },
@@ -10209,7 +10209,7 @@ writeFixture('call-timeout-ms-reaches-stream-transport', {
   transport_responses: [
     {
       status: 200,
-      body: 'data: {"id":"chatcmpl_call_timeout","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      body: 'data: {"id":"chatcmpl_call_timeout","model":"gpt-6-luna","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
     },
   ],
   expected_transport_request: { timeout_ms: 250 },
@@ -10234,12 +10234,13 @@ writeFixture('call-timeout-ms-from-client-options-embed', {
   ],
   expected_transport_request: { timeout_ms: 250 },
 });
-writeFixture('call-timeout-without-timeout-ms-warns', {
+writeFixture('call-timeout-milliseconds-default', {
   description:
-    'Port-only: a per-call timeout without timeoutMs is ignored (Rust reads it in seconds) until the next major version, so the call warns once, naming timeoutMs.',
+    'A per-call timeout is milliseconds and reaches the transport without warnings.',
   ...callTimeoutChat,
   options: { timeout: 30 },
-  expected_warnings_containing: ['per-call timeout', 'timeoutMs'],
+  expected_transport_request: { timeout_ms: 30 },
+  expected_warnings: [],
 });
 writeFixture('call-timeout-with-timeout-ms-does-not-warn', {
   description:

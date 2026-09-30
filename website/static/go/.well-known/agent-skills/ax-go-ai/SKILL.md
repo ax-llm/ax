@@ -90,7 +90,7 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 ## Request Timeouts
 
 - `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.
-- A per-call `timeout` is ignored until the next major version, which reads it in milliseconds as TypeScript does. A call that gives it without `timeoutMs` warns once, naming `timeoutMs`. Go's HTTP transport sets no timeout of its own; give `HTTPTransport` an `http.Client` with one for a client-wide bound.
+- A per-call `timeout` is milliseconds. `timeoutMs` remains an alias and wins when both are supplied. Model-call timeouts are not forwarded to the agent runtime; configure execution deadlines on the runtime itself. Go's HTTP transport sets no timeout of its own; give HTTPTransport an http.Client for a client-wide bound.
 
 ## Transport Errors
 

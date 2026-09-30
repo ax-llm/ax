@@ -4087,7 +4087,6 @@ writeFixture('runtime-host-boundary-globals-options', {
       expected_options_subset: {
         traceId: 'runtime-trace-1',
         sessionId: 'session-from-options',
-        timeout: 1234,
         abort: true,
         reservedNames: [
           'inputs',
@@ -4120,7 +4119,6 @@ writeFixture('runtime-host-boundary-globals-options', {
   expected_create_options_subset: {
     traceId: 'runtime-trace-1',
     sessionId: 'session-from-options',
-    timeout: 1234,
     abort: true,
     reservedNames: [
       'inputs',
@@ -4140,7 +4138,6 @@ writeFixture('runtime-host-boundary-globals-options', {
   expected_execute_options_subset: {
     traceId: 'runtime-trace-1',
     sessionId: 'session-from-options',
-    timeout: 1234,
     abort: true,
     reservedNames: [
       'inputs',

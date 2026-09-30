@@ -607,14 +607,9 @@ func skillStreamingForwardText(target string) string {
 }
 
 func skillCallTimeoutText(target string) string {
-	ignored := "A per-call `timeout` is ignored until the next major version, which reads it in milliseconds as TypeScript does. A call that gives it without `timeoutMs` warns once, naming `timeoutMs`. "
-	return map[string]string{
-		"python": ignored + "The client's `timeout` argument stays in seconds.",
-		"go":     ignored + "Go's HTTP transport sets no timeout of its own; give `HTTPTransport` an `http.Client` with one for a client-wide bound.",
-		"java":   ignored + "The client's `timeout` option stays in seconds.",
-		"cpp":    ignored + "The client's `timeout` option stays in seconds.",
-		"rust":   "Rust reads a per-call `timeout` in seconds, for streams too. The next major version reads it in milliseconds, as TypeScript does, so a call that gives it without `timeoutMs` warns once, naming `timeoutMs`. The client's `timeout` option stays in seconds.",
-	}[target]
+    text := "A per-call `timeout` is milliseconds. `timeoutMs` remains an alias and wins when both are supplied. Model-call timeouts are not forwarded to the agent runtime; configure execution deadlines on the runtime itself. "
+    if target == "go" { return text + "Go's HTTP transport sets no timeout of its own; give HTTPTransport an http.Client for a client-wide bound." }
+    return text + "The client's constructor timeout stays in seconds."
 }
 
 func skillTransportErrorsText(target string) string {

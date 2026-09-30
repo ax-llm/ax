@@ -4249,7 +4249,11 @@ impl OpenAICompatibleClient {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        let (request, key_options) = self.resolve_model_key_request(&request, &json!({}), true)?;
+        self.embed_with_options(request, Value::Null)
+    }
+
+    pub fn embed_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let (request, key_options) = self.resolve_model_key_request(&request, &options, true)?;
         self.with_key_options(&key_options, |client| client.embed_resolved(request))
     }
 
@@ -5345,7 +5349,6 @@ impl AxAIClient for OpenAICompatibleClient {
         OpenAICompatibleClient::speak(self, request)
     }
     fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
-        warn_call_timeout(&options);
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
         let previous = self.options.clone();
         self.options = merge_ai_options(&previous, &options)?;
@@ -5367,7 +5370,6 @@ impl AxAIClient for OpenAICompatibleClient {
         request: Value,
         options: Value,
     ) -> AxResult<AxChatStream> {
-        warn_call_timeout(&options);
         // The request is built and sent (first event peeked) inside stream_iter,
         // so the call options only need to apply until it returns.
         let (request, options) = self.resolve_model_key_request(&request, &options, false)?;
@@ -25930,7 +25932,12 @@ fn run_ai_cancellation_fixture(fixture: &Value) -> AxResult<()> {
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let output = client.embed(request)?;
+    let call_options = if fixture.get("service_options").is_some() {
+        fixture.get("options").cloned().unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
+    let output = client.embed_with_options(request, call_options)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai embed output", &output, expected)?;
     }
@@ -41524,6 +41531,7 @@ fn resolve_model_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_target = CoreValue::Null;
     let mut v_target_snake = CoreValue::Null;
     let mut v_unmatched = CoreValue::Null;
+    v_options = provider_normalize_call_options(&[v_options.clone()])?;
     v_empty_models = CoreValue::new_list();
     v_model_list_camel = core_get(
         &v_client_options,
@@ -45489,6 +45497,45 @@ fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
+fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_finish_reason_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_call = CoreValue::Null;
+    let mut v_is_content_filter = CoreValue::Null;
+    let mut v_is_function_call = CoreValue::Null;
+    let mut v_is_length = CoreValue::Null;
+    let mut v_is_stop = CoreValue::Null;
+    let mut v_is_tool_calls = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
+    if core_truthy(&v_is_stop) {
+        return Ok(CoreValue::from("stop"));
+    }
+    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
+    if core_truthy(&v_is_length) {
+        return Ok(CoreValue::from("length"));
+    }
+    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
+    if core_truthy(&v_is_content_filter) {
+        return Ok(CoreValue::from("error"));
+    }
+    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
+    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
+    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
+    if core_truthy(&v_is_call) {
+        return Ok(CoreValue::from("function_call"));
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn ai_context_cache_rejection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("ai_context_cache_rejection");
     let mut v_status = core_arg(args, 0);
@@ -45544,45 +45591,6 @@ fn ai_context_cache_rejection(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     v_cache_rejection = core_or(&[v_names_cache.clone(), v_invalid_cache.clone()])?;
     v_out = core_and(&[v_valid_status.clone(), v_cache_rejection.clone()])?;
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_finish_reason_impl");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_call = CoreValue::Null;
-    let mut v_is_content_filter = CoreValue::Null;
-    let mut v_is_function_call = CoreValue::Null;
-    let mut v_is_length = CoreValue::Null;
-    let mut v_is_stop = CoreValue::Null;
-    let mut v_is_tool_calls = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
-    if core_truthy(&v_is_stop) {
-        return Ok(CoreValue::from("stop"));
-    }
-    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
-    if core_truthy(&v_is_length) {
-        return Ok(CoreValue::from("length"));
-    }
-    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
-    if core_truthy(&v_is_content_filter) {
-        return Ok(CoreValue::from("error"));
-    }
-    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
-    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
-    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
-    if core_truthy(&v_is_call) {
-        return Ok(CoreValue::from("function_call"));
-    }
-    v_none = core_none(&[])?;
-    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -67678,31 +67686,26 @@ fn provider_call_timeout_message(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
-fn provider_warn_call_timeout(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("provider_warn_call_timeout");
+fn provider_normalize_call_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_normalize_call_options");
     let mut v_options = core_arg(args, 0);
-    let mut v_seconds = core_arg(args, 1);
+    let mut v_alias = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
     let mut v_has_timeout = CoreValue::Null;
-    let mut v_has_timeout_ms = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
     let mut v_timeout = CoreValue::Null;
-    let mut v_timeout_ms = CoreValue::Null;
-    let mut v_warn = CoreValue::Null;
-    let mut v_without_ms = CoreValue::Null;
-    v_timeout = core_get(&v_options, &CoreValue::from("timeout"), CoreValue::Null);
-    v_timeout_ms = core_get(&v_options, &CoreValue::from("timeoutMs"), CoreValue::Null);
-    v_has_timeout = core_is_not_none(&[v_timeout.clone()])?;
-    v_has_timeout_ms = core_is_not_none(&[v_timeout_ms.clone()])?;
-    v_without_ms = core_not(&[v_has_timeout_ms.clone()])?;
-    v_warn = core_and(&[v_has_timeout.clone(), v_without_ms.clone()])?;
-    if core_truthy(&v_warn) {
-        v_message = CoreValue::from("Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.");
-        if core_truthy(&v_seconds) {
-            v_message = CoreValue::from("Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).");
-        }
-        core_ai_warn_once(&[CoreValue::from("call-timeout"), v_message.clone()])?;
+    v_empty = CoreValue::new_map();
+    v_source = core_coalesce(&[v_options.clone(), v_empty.clone()])?;
+    v_out = core_map_merge(&[v_empty.clone(), v_source.clone()])?;
+    v_timeout = core_get(&v_source, &CoreValue::from("timeout"), CoreValue::Null);
+    v_alias = core_get(&v_source, &CoreValue::from("timeoutMs"), v_timeout.clone());
+    v_has_timeout = core_is_not_none(&[v_alias.clone()])?;
+    if core_truthy(&v_has_timeout) {
+        core_set(&v_out, CoreValue::from("timeoutMs"), v_alias.clone())?;
     }
-    return Ok(CoreValue::Null);
+    core_map_delete(&[v_out.clone(), CoreValue::from("timeout")])?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -110780,15 +110783,12 @@ fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_empty_map = CoreValue::Null;
     let mut v_has_abort = CoreValue::Null;
     let mut v_has_session_id = CoreValue::Null;
-    let mut v_has_timeout = CoreValue::Null;
     let mut v_has_trace_id = CoreValue::Null;
     let mut v_reserved_names = CoreValue::Null;
     let mut v_runtime_options = CoreValue::Null;
     let mut v_session_id = CoreValue::Null;
     let mut v_session_id_snake = CoreValue::Null;
     let mut v_signal_aborted = CoreValue::Null;
-    let mut v_timeout = CoreValue::Null;
-    let mut v_timeout_ms = CoreValue::Null;
     let mut v_trace_id = CoreValue::Null;
     let mut v_trace_id_snake = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
@@ -110816,20 +110816,9 @@ fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxE
         CoreValue::from("reservedNames"),
         v_reserved_names.clone(),
     )?;
-    v_timeout_ms = core_get(&v_options, &CoreValue::from("timeout_ms"), CoreValue::Null);
-    v_timeout = core_get(
-        &v_options,
-        &CoreValue::from("timeout"),
-        v_timeout_ms.clone(),
-    );
-    v_has_timeout = core_is_not_none(&[v_timeout.clone()])?;
-    if core_truthy(&v_has_timeout) {
-        core_set(
-            &v_runtime_options,
-            CoreValue::from("timeout"),
-            v_timeout.clone(),
-        )?;
-    }
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("timeout")])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("timeout_ms")])?;
+    core_map_delete(&[v_runtime_options.clone(), CoreValue::from("timeoutMs")])?;
     v_abort_snake = core_get(
         &v_options,
         &CoreValue::from("abort"),
@@ -131034,12 +131023,6 @@ fn core_flow_dispatch_group(args: &[CoreValue]) -> AxResult<CoreValue> {
     Ok(core_value_from_json(&Value::Array(
         reports.into_iter().map(Option::unwrap).collect(),
     )))
-}
-
-// TS reads a per-call timeout in milliseconds; Rust reads it in seconds until
-// the next major version, so a call that gives it without timeoutMs warns once.
-fn warn_call_timeout(options: &Value) {
-    let _ = provider_warn_call_timeout(&[core_value_from_json(options), CoreValue::Bool(true)]);
 }
 
 // The call's timeoutMs: TS apiCall's timer bounds the wait for the headers.

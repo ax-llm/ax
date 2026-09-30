@@ -8624,13 +8624,9 @@ def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
     _core_map_delete(runtime_options, "mcpContext")
     _core_map_delete(runtime_options, "functions")
     runtime_options["reservedNames"] = reserved_names
-    timeout_ms = _core_get(options, "timeout_ms", None)
-    timeout = _core_get(options, "timeout", timeout_ms)
-    has_timeout = _core_is_not_none(timeout)
-    if has_timeout:
-        runtime_options["timeout"] = timeout
-    else:
-        pass
+    _core_map_delete(runtime_options, "timeout")
+    _core_map_delete(runtime_options, "timeout_ms")
+    _core_map_delete(runtime_options, "timeoutMs")
     abort_snake = _core_get(options, "abort", False)
     aborted = _core_get(options, "aborted", abort_snake)
     abort_signal = _core_get(options, "abortSignal", aborted)

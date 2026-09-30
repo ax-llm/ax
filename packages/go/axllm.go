@@ -8929,6 +8929,7 @@ func resolve_model_key(args ...Value) (Value, error) {
 	_ = v_target
 	_ = v_target_snake
 	_ = v_unmatched
+	{ v, err := provider_normalize_call_options(v_options); if err != nil { return nil, err }; v_options = v }
 	v_empty_models = MutableArray()
 	v_model_list_camel = coreGet(v_client_options, "modelList", v_empty_models)
 	v_model_list_snake = coreGet(v_client_options, "model_list", v_model_list_camel)
@@ -12696,6 +12697,55 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
+	var v_value Value
+	var v_is_call Value
+	var v_is_content_filter Value
+	var v_is_function_call Value
+	var v_is_length Value
+	var v_is_stop Value
+	var v_is_tool_calls Value
+	var v_none Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_call
+	_ = v_is_content_filter
+	_ = v_is_function_call
+	_ = v_is_length
+	_ = v_is_stop
+	_ = v_is_tool_calls
+	_ = v_none
+	v_is_stop = _core_eq(v_value, "stop")
+	if coreTruthy(v_is_stop) {
+		return "stop", nil
+	} else {
+	// empty
+	}
+	v_is_length = _core_eq(v_value, "length")
+	if coreTruthy(v_is_length) {
+		return "length", nil
+	} else {
+	// empty
+	}
+	v_is_content_filter = _core_eq(v_value, "content_filter")
+	if coreTruthy(v_is_content_filter) {
+		return "error", nil
+	} else {
+	// empty
+	}
+	v_is_tool_calls = _core_eq(v_value, "tool_calls")
+	v_is_function_call = _core_eq(v_value, "function_call")
+	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
+	if coreTruthy(v_is_call) {
+		return "function_call", nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
 func ai_context_cache_rejection(args ...Value) (Value, error) {
 	axirCoverageMark("ai_context_cache_rejection")
 	var v_status Value
@@ -12780,55 +12830,6 @@ func ai_context_cache_rejection(args ...Value) (Value, error) {
 	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
 	v_out = _core_and(v_valid_status, v_cache_rejection)
 	return v_out, nil
-}
-
-func _openai_finish_reason_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_finish_reason_impl")
-	var v_value Value
-	var v_is_call Value
-	var v_is_content_filter Value
-	var v_is_function_call Value
-	var v_is_length Value
-	var v_is_stop Value
-	var v_is_tool_calls Value
-	var v_none Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_call
-	_ = v_is_content_filter
-	_ = v_is_function_call
-	_ = v_is_length
-	_ = v_is_stop
-	_ = v_is_tool_calls
-	_ = v_none
-	v_is_stop = _core_eq(v_value, "stop")
-	if coreTruthy(v_is_stop) {
-		return "stop", nil
-	} else {
-	// empty
-	}
-	v_is_length = _core_eq(v_value, "length")
-	if coreTruthy(v_is_length) {
-		return "length", nil
-	} else {
-	// empty
-	}
-	v_is_content_filter = _core_eq(v_value, "content_filter")
-	if coreTruthy(v_is_content_filter) {
-		return "error", nil
-	} else {
-	// empty
-	}
-	v_is_tool_calls = _core_eq(v_value, "tool_calls")
-	v_is_function_call = _core_eq(v_value, "function_call")
-	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
-	if coreTruthy(v_is_call) {
-		return "function_call", nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
@@ -33370,46 +33371,36 @@ func provider_call_timeout_message(args ...Value) (Value, error) {
 	return v_message, nil
 }
 
-func provider_warn_call_timeout(args ...Value) (Value, error) {
-	axirCoverageMark("provider_warn_call_timeout")
+func provider_normalize_call_options(args ...Value) (Value, error) {
+	axirCoverageMark("provider_normalize_call_options")
 	var v_options Value
-	var v_seconds Value
+	var v_alias Value
+	var v_empty Value
 	var v_has_timeout Value
-	var v_has_timeout_ms Value
-	var v_message Value
+	var v_out Value
+	var v_source Value
 	var v_timeout Value
-	var v_timeout_ms Value
-	var v_warn Value
-	var v_without_ms Value
 	if len(args) > 0 { v_options = args[0] }
 	_ = v_options
-	if len(args) > 1 { v_seconds = args[1] }
-	_ = v_seconds
+	_ = v_alias
+	_ = v_empty
 	_ = v_has_timeout
-	_ = v_has_timeout_ms
-	_ = v_message
+	_ = v_out
+	_ = v_source
 	_ = v_timeout
-	_ = v_timeout_ms
-	_ = v_warn
-	_ = v_without_ms
-	v_timeout = coreGet(v_options, "timeout", nil)
-	v_timeout_ms = coreGet(v_options, "timeoutMs", nil)
-	v_has_timeout = _core_is_not_none(v_timeout)
-	v_has_timeout_ms = _core_is_not_none(v_timeout_ms)
-	v_without_ms = _core_not(v_has_timeout_ms)
-	v_warn = _core_and(v_has_timeout, v_without_ms)
-	if coreTruthy(v_warn) {
-		v_message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does."
-		if coreTruthy(v_seconds) {
-			v_message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds)."
-		} else {
-		// empty
-		}
-		_core_ai_warn_once("call-timeout", v_message)
+	v_empty = Object()
+	v_source = _core_coalesce(v_options, v_empty)
+	v_out = _core_map_merge(v_empty, v_source)
+	v_timeout = coreGet(v_source, "timeout", nil)
+	v_alias = coreGet(v_source, "timeoutMs", v_timeout)
+	v_has_timeout = _core_is_not_none(v_alias)
+	if coreTruthy(v_has_timeout) {
+		if err := coreSet(v_out, "timeoutMs", v_alias); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	return nil, nil
+	_core_map_delete(v_out, "timeout")
+	return v_out, nil
 }
 
 func _provider_sampling_is_one_impl(args ...Value) (Value, error) {
@@ -76190,15 +76181,12 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_has_abort Value
 	var v_has_session_id Value
-	var v_has_timeout Value
 	var v_has_trace_id Value
 	var v_reserved_names Value
 	var v_runtime_options Value
 	var v_session_id Value
 	var v_session_id_snake Value
 	var v_signal_aborted Value
-	var v_timeout Value
-	var v_timeout_ms Value
 	var v_trace_id Value
 	var v_trace_id_snake Value
 	if len(args) > 0 { v_state = args[0] }
@@ -76213,15 +76201,12 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_has_abort
 	_ = v_has_session_id
-	_ = v_has_timeout
 	_ = v_has_trace_id
 	_ = v_reserved_names
 	_ = v_runtime_options
 	_ = v_session_id
 	_ = v_session_id_snake
 	_ = v_signal_aborted
-	_ = v_timeout
-	_ = v_timeout_ms
 	_ = v_trace_id
 	_ = v_trace_id_snake
 	v_empty_map = Object()
@@ -76236,14 +76221,9 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_core_map_delete(v_runtime_options, "mcpContext")
 	_core_map_delete(v_runtime_options, "functions")
 	if err := coreSet(v_runtime_options, "reservedNames", v_reserved_names); err != nil { return nil, err }
-	v_timeout_ms = coreGet(v_options, "timeout_ms", nil)
-	v_timeout = coreGet(v_options, "timeout", v_timeout_ms)
-	v_has_timeout = _core_is_not_none(v_timeout)
-	if coreTruthy(v_has_timeout) {
-		if err := coreSet(v_runtime_options, "timeout", v_timeout); err != nil { return nil, err }
-	} else {
-	// empty
-	}
+	_core_map_delete(v_runtime_options, "timeout")
+	_core_map_delete(v_runtime_options, "timeout_ms")
+	_core_map_delete(v_runtime_options, "timeoutMs")
 	v_abort_snake = coreGet(v_options, "abort", false)
 	v_aborted = coreGet(v_options, "aborted", v_abort_snake)
 	v_abort_signal = coreGet(v_options, "abortSignal", v_aborted)
@@ -95933,12 +95913,6 @@ func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first
 	}
 }
 
-// warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
-// ignores it until the next major version and warns once, naming timeoutMs.
-func warnCallTimeout(options map[string]Value) {
-	mustCore(provider_warn_call_timeout(stripRuntimeHooks(options), false))
-}
-
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
 	ctx, timer := startRequestTimer(ctx, req)
@@ -96108,7 +96082,7 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
     return models, err
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
-    opts := mergeAIOptions(c.client.optionsSnapshot(), options)
+    opts := mergeAIOptions(c.client.optionsSnapshot(), asMap(mustCore(provider_normalize_call_options(options))))
     timeout := num(coreGet(opts, "timeout", 0))
     config := mustCore(resolve_stream_retry(Value(opts)))
     for attempt := 0; ; attempt++ {
@@ -96413,7 +96387,6 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -96677,7 +96650,6 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -96805,7 +96777,6 @@ func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, req
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
-    warnCallTimeout(options)
     request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
@@ -97144,7 +97115,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	}
 	// The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds the
 	// wait for the response headers; HTTPTransport honors it.
-	if operation == "chat" || operation == "stream_chat" || operation == "embed" {
+	if operation == "chat" || operation == "stream_chat" || operation == "embed" || operation == "models" {
 		if timeoutMs := mustCore(provider_call_timeout_ms(opts)); timeoutMs != nil {
 			coreSet(out, "timeout_ms", timeoutMs)
 		}

@@ -5498,7 +5498,7 @@ int main() {
 `
 
 const pyTimeoutHTTPRoundtripExample = `"""Time requests out through the REAL urllib transport against in-process
-loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+loopback servers. A call's timeout (TypeScript's per-call timeout, in
 milliseconds) ends a chat or a stream whose response has not started, and the
 request layer does not retry it. A stream whose response has started runs past
 it, because the timer stops at the response headers, as in TypeScript's
@@ -5546,13 +5546,13 @@ def expect_timeout(label, run):
     raise AssertionError(f"{label}: the request did not time out")
 
 
-expect_timeout("chat", lambda: client.chat(request, {"timeoutMs": 200}))
-expect_timeout("stream", lambda: list(client.stream(request, {"timeoutMs": 200})))
+expect_timeout("chat", lambda: client.chat(request, {"timeout": 200}))
+expect_timeout("stream", lambda: list(client.stream(request, {"timeout": 200})))
 assert len(accepted) == 2, f"a timed-out request was retried: {len(accepted)} connections"
 
 
 # A stream whose headers arrive at once and whose second event comes after more
-# than the timeoutMs.
+# than the timeout.
 def event(content, finish):
     return (
         '{"id":"chatcmpl_slow","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"'
@@ -5585,7 +5585,7 @@ try:
     slow = OpenAICompatibleClient(
         api_key="test-key", base_url=f"http://127.0.0.1:{server.server_address[1]}", model="gpt-5.4-mini"
     )
-    events = list(slow.stream(request, {"timeoutMs": 1000}))
+    events = list(slow.stream(request, {"timeout": 1000}))
     text = "".join((event.get("results") or [{}])[0].get("content") or "" for event in events)
     assert text == "Hello", f"a started stream was cut off: {text!r}"
 finally:
@@ -5608,7 +5608,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // Time requests out through the REAL HttpClient transport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -5635,9 +5635,9 @@ public final class TimeoutHTTPRoundtripExample {
     Map<String, Object> request = Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hi")));
     OpenAICompatibleClient client = new OpenAICompatibleClient(
         Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + silent.getLocalPort(), "model", "gpt-5.4-mini"));
-    expectTimeout("chat", () -> client.chat(request, new LinkedHashMap<>(Map.of("timeoutMs", 200))));
+    expectTimeout("chat", () -> client.chat(request, new LinkedHashMap<>(Map.of("timeout", 200))));
     expectTimeout("stream", () -> {
-      try (AxChatStream stream = client.openStream(request, new LinkedHashMap<>(Map.of("timeoutMs", 200)), null)) {
+      try (AxChatStream stream = client.openStream(request, new LinkedHashMap<>(Map.of("timeout", 200)), null)) {
         for (Object ignored : stream) {}
       }
       return null;
@@ -5645,7 +5645,7 @@ public final class TimeoutHTTPRoundtripExample {
     if (accepted.get() != 2) throw new RuntimeException("a timed-out request was retried: " + accepted.get() + " connections");
 
     // A stream whose headers arrive at once and whose second event comes after
-    // more than the timeoutMs.
+    // more than the timeout.
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/",
@@ -5670,7 +5670,7 @@ public final class TimeoutHTTPRoundtripExample {
       OpenAICompatibleClient slow = new OpenAICompatibleClient(
           Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + server.getAddress().getPort(), "model", "gpt-5.4-mini"));
       StringBuilder text = new StringBuilder();
-      try (AxChatStream stream = slow.openStream(request, new LinkedHashMap<>(Map.of("timeoutMs", 1000)), null)) {
+      try (AxChatStream stream = slow.openStream(request, new LinkedHashMap<>(Map.of("timeout", 1000)), null)) {
         for (Map<String, Object> event : stream) {
           Object results = event.get("results");
           if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first && first.get("content") instanceof String content) text.append(content);
@@ -5722,7 +5722,7 @@ const cppTimeoutHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 #include <vector>
 
 // Time requests out through the REAL libcurl HttpTransport against in-process
-// loopback servers. A call's timeoutMs (TypeScript's per-call timeout, in
+// loopback servers. A call's timeout (TypeScript's per-call timeout, in
 // milliseconds) ends a chat or a stream whose response has not started, and
 // the request layer does not retry it. A stream whose response has started
 // runs past it, because the timer stops at the response headers, as in
@@ -5821,12 +5821,12 @@ int main() {
   OpenAICompatibleClient client(
       object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port_of(silent))}, {"model", "gpt-5.4-mini"}}),
       nullptr);
-  expect_timeout("chat", [&] { client.chat(request, object({{"timeoutMs", 200}})); });
-  expect_timeout("stream", [&] { client.stream(request, object({{"timeoutMs", 200}})); });
+  expect_timeout("chat", [&] { client.chat(request, object({{"timeout", 200}})); });
+  expect_timeout("stream", [&] { client.stream(request, object({{"timeout", 200}})); });
   if (accepted.load() != 2) throw std::runtime_error("a timed-out request was retried: " + std::to_string(accepted.load()) + " connections");
 
   // A stream whose headers arrive at once and whose second event comes after
-  // more than the timeoutMs.
+  // more than the timeout.
   int slow = listen_loopback();
   std::thread server([slow] {
     int fd = accept(slow, nullptr, nullptr);
@@ -5842,7 +5842,7 @@ int main() {
       object({{"api_key", "test-key"}, {"base_url", "http://127.0.0.1:" + std::to_string(port_of(slow))}, {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::string text;
-  for (const auto& event : slow_client.stream(request, object({{"timeoutMs", 1000}}))) {
+  for (const auto& event : slow_client.stream(request, object({{"timeout", 1000}}))) {
     text += display(Core::get(Core::get(Core::get(event, "results"), 0), "content", ""));
   }
   server.join();

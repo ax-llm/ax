@@ -6342,6 +6342,7 @@ Value Core::_openai_apply_cache_breakpoint_impl(Value message) {
 
 Value Core::resolve_model_key(Value client_options, Value request, Value options, Value default_model, Value embed) {
   axir_coverage_mark("resolve_model_key");
+  options = Core::provider_normalize_call_options(options);
   Value empty_models = Value::array();
   Value model_list_camel = Core::get(client_options, Value("modelList"), empty_models);
   Value model_list_snake = Core::get(client_options, Value("model_list"), model_list_camel);
@@ -8137,6 +8138,30 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   return out;
 }
 
+Value Core::_openai_finish_reason_impl(Value value) {
+  axir_coverage_mark("_openai_finish_reason_impl");
+  Value is_stop = Core::eq(value, Value("stop"));
+  if (Core::truthy(is_stop)) {
+    return Value("stop");
+  }
+  Value is_length = Core::eq(value, Value("length"));
+  if (Core::truthy(is_length)) {
+    return Value("length");
+  }
+  Value is_content_filter = Core::eq(value, Value("content_filter"));
+  if (Core::truthy(is_content_filter)) {
+    return Value("error");
+  }
+  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
+  Value is_function_call = Core::eq(value, Value("function_call"));
+  Value is_call = Core::or_(is_tool_calls, is_function_call);
+  if (Core::truthy(is_call)) {
+    return Value("function_call");
+  }
+  Value none = Core::none();
+  return none;
+}
+
 Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   axir_coverage_mark("ai_context_cache_rejection");
   Value status_400_min = Core::gte(status, Value(400));
@@ -8165,30 +8190,6 @@ Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   Value cache_rejection = Core::or_(names_cache, invalid_cache);
   Value out = Core::and_(valid_status, cache_rejection);
   return out;
-}
-
-Value Core::_openai_finish_reason_impl(Value value) {
-  axir_coverage_mark("_openai_finish_reason_impl");
-  Value is_stop = Core::eq(value, Value("stop"));
-  if (Core::truthy(is_stop)) {
-    return Value("stop");
-  }
-  Value is_length = Core::eq(value, Value("length"));
-  if (Core::truthy(is_length)) {
-    return Value("length");
-  }
-  Value is_content_filter = Core::eq(value, Value("content_filter"));
-  if (Core::truthy(is_content_filter)) {
-    return Value("error");
-  }
-  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
-  Value is_function_call = Core::eq(value, Value("function_call"));
-  Value is_call = Core::or_(is_tool_calls, is_function_call);
-  if (Core::truthy(is_call)) {
-    return Value("function_call");
-  }
-  Value none = Core::none();
-  return none;
 }
 
 Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
@@ -17967,22 +17968,19 @@ Value Core::provider_call_timeout_message(Value timeout_ms) {
   return message;
 }
 
-Value Core::provider_warn_call_timeout(Value options, Value seconds) {
-  axir_coverage_mark("provider_warn_call_timeout");
-  Value timeout = Core::get(options, Value("timeout"), Value());
-  Value timeout_ms = Core::get(options, Value("timeoutMs"), Value());
-  Value has_timeout = Core::is_not_none(timeout);
-  Value has_timeout_ms = Core::is_not_none(timeout_ms);
-  Value without_ms = Core::not_(has_timeout_ms);
-  Value warn = Core::and_(has_timeout, without_ms);
-  if (Core::truthy(warn)) {
-    Value message = Value("Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.");
-    if (Core::truthy(seconds)) {
-      message = Value("Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).");
-    }
-    Core::ai_warn_once(Value("call-timeout"), message);
+Value Core::provider_normalize_call_options(Value options) {
+  axir_coverage_mark("provider_normalize_call_options");
+  Value empty = Value::object();
+  Value source = Core::coalesce(options, empty);
+  Value out = Core::map_merge(empty, source);
+  Value timeout = Core::get(source, Value("timeout"), Value());
+  Value alias = Core::get(source, Value("timeoutMs"), timeout);
+  Value has_timeout = Core::is_not_none(alias);
+  if (Core::truthy(has_timeout)) {
+    Core::set(out, Value("timeoutMs"), alias);
   }
-  return Value();
+  Core::map_delete(out, Value("timeout"));
+  return out;
 }
 
 Value Core::_provider_sampling_is_one_impl(Value value) {
@@ -37970,12 +37968,9 @@ Value Core::_agent_runtime_execution_options(Value state, Value options) {
   Core::map_delete(runtime_options, Value("mcpContext"));
   Core::map_delete(runtime_options, Value("functions"));
   Core::set(runtime_options, Value("reservedNames"), reserved_names);
-  Value timeout_ms = Core::get(options, Value("timeout_ms"), Value());
-  Value timeout = Core::get(options, Value("timeout"), timeout_ms);
-  Value has_timeout = Core::is_not_none(timeout);
-  if (Core::truthy(has_timeout)) {
-    Core::set(runtime_options, Value("timeout"), timeout);
-  }
+  Core::map_delete(runtime_options, Value("timeout"));
+  Core::map_delete(runtime_options, Value("timeout_ms"));
+  Core::map_delete(runtime_options, Value("timeoutMs"));
   Value abort_snake = Core::get(options, Value("abort"), Value(false));
   Value aborted = Core::get(options, Value("aborted"), abort_snake);
   Value abort_signal = Core::get(options, Value("abortSignal"), aborted);
@@ -49420,10 +49415,8 @@ static std::string ax_call_base_url(const std::string& profile, const Value& des
   return resolved.is_null() ? base_url : strip_trailing_slashes(str(resolved));
 }
 
-// TS reads a per-call timeout in milliseconds; this port ignores it until the
-// next major version and warns once, naming timeoutMs.
 void OpenAICompatibleClient::check_call_options(const Value& call_options) {
-  Core::provider_warn_call_timeout(call_options, false);
+  (void)call_options;
 }
 
 Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {

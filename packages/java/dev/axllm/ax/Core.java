@@ -4582,6 +4582,7 @@ final class Core {
 
   static Object resolve_model_key(Object client_options, Object request, Object options, Object default_model, Object embed) {
     axirCoverageMark("resolve_model_key");
+    options = Core.provider_normalize_call_options(options);
     Object empty_models = new java.util.ArrayList<Object>();
     Object model_list_camel = Core.get(client_options, "modelList", empty_models);
     Object model_list_snake = Core.get(client_options, "model_list", model_list_camel);
@@ -6375,6 +6376,30 @@ final class Core {
     return out;
   }
 
+  static Object _openai_finish_reason_impl(Object value) {
+    axirCoverageMark("_openai_finish_reason_impl");
+    Object is_stop = Core.eq(value, "stop");
+    if (Core.truthy(is_stop)) {
+      return "stop";
+    }
+    Object is_length = Core.eq(value, "length");
+    if (Core.truthy(is_length)) {
+      return "length";
+    }
+    Object is_content_filter = Core.eq(value, "content_filter");
+    if (Core.truthy(is_content_filter)) {
+      return "error";
+    }
+    Object is_tool_calls = Core.eq(value, "tool_calls");
+    Object is_function_call = Core.eq(value, "function_call");
+    Object is_call = Core.or(is_tool_calls, is_function_call);
+    if (Core.truthy(is_call)) {
+      return "function_call";
+    }
+    Object none = Core.none();
+    return none;
+  }
+
   static Object ai_context_cache_rejection(Object status, Object body_json) {
     axirCoverageMark("ai_context_cache_rejection");
     Object status_400_min = Core.gte(status, 400);
@@ -6403,30 +6428,6 @@ final class Core {
     Object cache_rejection = Core.or(names_cache, invalid_cache);
     Object out = Core.and(valid_status, cache_rejection);
     return out;
-  }
-
-  static Object _openai_finish_reason_impl(Object value) {
-    axirCoverageMark("_openai_finish_reason_impl");
-    Object is_stop = Core.eq(value, "stop");
-    if (Core.truthy(is_stop)) {
-      return "stop";
-    }
-    Object is_length = Core.eq(value, "length");
-    if (Core.truthy(is_length)) {
-      return "length";
-    }
-    Object is_content_filter = Core.eq(value, "content_filter");
-    if (Core.truthy(is_content_filter)) {
-      return "error";
-    }
-    Object is_tool_calls = Core.eq(value, "tool_calls");
-    Object is_function_call = Core.eq(value, "function_call");
-    Object is_call = Core.or(is_tool_calls, is_function_call);
-    if (Core.truthy(is_call)) {
-      return "function_call";
-    }
-    Object none = Core.none();
-    return none;
   }
 
   static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
@@ -16243,22 +16244,19 @@ final class Core {
     return message;
   }
 
-  static Object provider_warn_call_timeout(Object options, Object seconds) {
-    axirCoverageMark("provider_warn_call_timeout");
-    Object timeout = Core.get(options, "timeout", null);
-    Object timeout_ms = Core.get(options, "timeoutMs", null);
-    Object has_timeout = Core.isNotNone(timeout);
-    Object has_timeout_ms = Core.isNotNone(timeout_ms);
-    Object without_ms = Core.not(has_timeout_ms);
-    Object warn = Core.and(has_timeout, without_ms);
-    if (Core.truthy(warn)) {
-      Object message = "Ax ignores a per-call timeout; pass timeoutMs (milliseconds). The next major version reads timeout in milliseconds, as TypeScript does.";
-      if (Core.truthy(seconds)) {
-        message = "Ax reads a per-call timeout in seconds in Rust; the next major version reads it in milliseconds, as TypeScript does. Pass timeoutMs (milliseconds).";
-      }
-      Core.aiWarnOnce("call-timeout", message);
+  static Object provider_normalize_call_options(Object options) {
+    axirCoverageMark("provider_normalize_call_options");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object source = Core.coalesce(options, empty);
+    Object out = Core.mapMerge(empty, source);
+    Object timeout = Core.get(source, "timeout", null);
+    Object alias = Core.get(source, "timeoutMs", timeout);
+    Object has_timeout = Core.isNotNone(alias);
+    if (Core.truthy(has_timeout)) {
+      Core.set(out, "timeoutMs", alias);
     }
-    return null;
+    Core.mapDelete(out, "timeout");
+    return out;
   }
 
   static Object _provider_sampling_is_one_impl(Object value) {
@@ -36229,12 +36227,9 @@ final class Core {
     Core.mapDelete(runtime_options, "mcpContext");
     Core.mapDelete(runtime_options, "functions");
     Core.set(runtime_options, "reservedNames", reserved_names);
-    Object timeout_ms = Core.get(options, "timeout_ms", null);
-    Object timeout = Core.get(options, "timeout", timeout_ms);
-    Object has_timeout = Core.isNotNone(timeout);
-    if (Core.truthy(has_timeout)) {
-      Core.set(runtime_options, "timeout", timeout);
-    }
+    Core.mapDelete(runtime_options, "timeout");
+    Core.mapDelete(runtime_options, "timeout_ms");
+    Core.mapDelete(runtime_options, "timeoutMs");
     Object abort_snake = Core.get(options, "abort", Boolean.FALSE);
     Object aborted = Core.get(options, "aborted", abort_snake);
     Object abort_signal = Core.get(options, "abortSignal", aborted);

@@ -3934,12 +3934,6 @@ func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first
 	}
 }
 
-// warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
-// ignores it until the next major version and warns once, naming timeoutMs.
-func warnCallTimeout(options map[string]Value) {
-	mustCore(provider_warn_call_timeout(stripRuntimeHooks(options), false))
-}
-
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
 	ctx, timer := startRequestTimer(ctx, req)
@@ -4109,7 +4103,7 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
     return models, err
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
-    opts := mergeAIOptions(c.client.optionsSnapshot(), options)
+    opts := mergeAIOptions(c.client.optionsSnapshot(), asMap(mustCore(provider_normalize_call_options(options))))
     timeout := num(coreGet(opts, "timeout", 0))
     config := mustCore(resolve_stream_retry(Value(opts)))
     for attempt := 0; ; attempt++ {
@@ -4414,7 +4408,6 @@ func requireExpensiveModelConfirmation(provider string, request map[string]Value
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, false)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -4678,7 +4671,6 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if err := contextCancellationError(ctx); err != nil { return nil, err }
-	warnCallTimeout(options)
 	request, options = c.resolveModelKey(request, options, true)
 	hooks, previousUsage := c.runtimeHooksSnapshot()
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
@@ -4806,7 +4798,6 @@ func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, req
 }
 
 func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
-    warnCallTimeout(options)
     request, options = c.resolveModelKey(request, options, false)
     if !coreTruthy(coreGet(c.GetFeatures(display(coreGet(request,"model",""))),"streaming",true)) {
         response,err:=c.Chat(ctx,request,mergeAIOptions(options,Object("stream",false)));if err!=nil{return nil,err}
@@ -5145,7 +5136,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	}
 	// The call's timeoutMs (TS's per-call timeout, in milliseconds) bounds the
 	// wait for the response headers; HTTPTransport honors it.
-	if operation == "chat" || operation == "stream_chat" || operation == "embed" {
+	if operation == "chat" || operation == "stream_chat" || operation == "embed" || operation == "models" {
 		if timeoutMs := mustCore(provider_call_timeout_ms(opts)); timeoutMs != nil {
 			coreSet(out, "timeout_ms", timeoutMs)
 		}
