@@ -1,9 +1,8 @@
 # Breaking changes planned for the next major
 
-Each item keeps today's behavior until the next major version, 25.0.0, and flips
-then.
-The list sets out today's behavior, the flip, and the source PR. When a PR defers
-a breaking change, it appends a line here. See [RELEASE.md](RELEASE.md) for the
-release flow.
+No breaking changes are currently queued.
 
-
+The changes previously queued for 25.0.0 are implemented and documented in
+[Migrating to Ax 25.0.0](MIGRATION_25.md). When a PR defers a future breaking
+change, add its current behavior, planned change, and source PR here.
+See [RELEASE.md](RELEASE.md) for the release flow.
