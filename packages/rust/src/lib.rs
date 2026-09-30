@@ -3006,7 +3006,7 @@ impl OpenAICompatibleClient {
             let call = self.provider_transport_request("chat", &payload, &model, false)?;
             let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
                 Some(value) => value,
-                None => self.dispatch_transport_request(call)?,
+                None => self.retried_transport_request(call, Some(("chat", &payload, &model)))?,
             };
             let profile = self.profile.clone();
             let response_context = if profile == "typesafe" {
@@ -3116,23 +3116,25 @@ impl OpenAICompatibleClient {
             .get("backoff_factor")
             .and_then(Value::as_f64)
             .unwrap_or(2.0);
-        let mut attempt: i64 = 0;
+        let mut start_attempt: i64 = 0;
+        let mut open_attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            // As in TS apiCall, a timeout is not retried here.
+            // The stream's request goes through apiCall's request-layer retry;
+            // its first event is read once, as TS reads it after apiCall
+            // returns, and a failure to read it surfaces.
             let mut raw = match self.dispatch_transport_stream(call) {
                 Ok(value) => value,
-                Err(error)
-                    if is_retryable_ai_error(&error)
-                        && !is_timeout_error(&error)
-                        && attempt < max_retries =>
-                {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
-                Err(error) => {
+                Err((error, retry_after)) => {
+                    let cancelled = current_cancellation_token()
+                        .map(|token| token.is_cancelled())
+                        .unwrap_or(false);
+                    if !cancelled
+                        && request_retry_wait(&cfg, open_attempt, &error, retry_after.as_deref())?
+                    {
+                        open_attempt += 1;
+                        continue;
+                    }
                     record_runtime_metrics(
                         &hooks,
                         "client",
@@ -3172,16 +3174,6 @@ impl OpenAICompatibleClient {
                         })),
                     ));
                 }
-                Some(Err(error))
-                    if is_retryable_ai_error(&error)
-                        && !is_timeout_error(&error)
-                        && attempt < max_retries =>
-                {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
-                    continue;
-                }
                 Some(Err(error)) => {
                     record_runtime_metrics(
                         &hooks,
@@ -3199,13 +3191,19 @@ impl OpenAICompatibleClient {
                 CoreValue::from(self.profile.as_str()),
                 core_value_from_json(&first),
             ])?;
+            // TS retryTransientStreamStart: a first event with a listed status
+            // goes out again, with its own budget and without jitter.
             if !status.is_null()
-                && core_truthy(&is_retryable_status(&[status.clone()])?)
-                && attempt < max_retries
+                && core_truthy(&retry_status_listed(&[
+                    core_value_from_json(&cfg),
+                    status.clone(),
+                ])?)
+                && start_attempt < max_retries
             {
-                attempt += 1;
-                let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))?;
+                start_attempt += 1;
+                request_retry_sleep(
+                    (initial_delay * backoff.powi((start_attempt - 1) as i32)).min(max_delay),
+                )?;
                 continue;
             }
             let mut normalized = NormalizedProviderStream {
@@ -3456,6 +3454,12 @@ impl OpenAICompatibleClient {
     }
 
     fn dispatch_transport_request(&mut self, call: Value) -> AxResult<Value> {
+        self.dispatch_transport(call, false)
+    }
+
+    // One request. raw keeps a status response as its {status, json, headers}
+    // envelope (headers holding its Retry-After) instead of an error.
+    fn dispatch_transport(&mut self, call: Value, raw: bool) -> AxResult<Value> {
         let cancellation = current_cancellation_token();
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
@@ -3478,12 +3482,12 @@ impl OpenAICompatibleClient {
             .and_then(Value::as_f64)
             .unwrap_or(60.0);
         if let Some(token) = &cancellation {
-            return cancellable_http_json(&call, timeout, token);
+            return cancellable_http_json(&call, timeout, token, raw);
         }
         // A call's timeoutMs bounds only the wait for the response headers (TS
         // apiCall's timer), which the async client can time on its own.
         if call_header_timeout_ms(&call).is_some() {
-            return cancellable_http_json(&call, timeout, &AxCancellationToken::default());
+            return cancellable_http_json(&call, timeout, &AxCancellationToken::default(), raw);
         }
         let url = call
             .get("url")
@@ -3524,6 +3528,11 @@ impl OpenAICompatibleClient {
             token.throw_if_cancelled()?;
         }
         let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let bytes = response
             .bytes()
             .map_err(|error| transport_failure(error, timeout))?;
@@ -3536,7 +3545,59 @@ impl OpenAICompatibleClient {
             serde_json::from_slice(&bytes)
                 .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
         };
-        normalize_passthrough_response(json!({"status": status, "json": body}))
+        let envelope = status_envelope(status, body, retry_after);
+        if raw {
+            Ok(envelope)
+        } else {
+            normalize_passthrough_response(envelope)
+        }
+    }
+
+    // One request: the provider's body, or the error and a status response's
+    // Retry-After.
+    fn transport_attempt(&mut self, call: Value) -> Result<Value, (AxError, Option<String>)> {
+        let raw = self
+            .dispatch_transport(call, true)
+            .map_err(|error| (error, None))?;
+        let retry_after = retry_after_header(&raw);
+        normalize_passthrough_response(raw).map_err(|error| (error, retry_after))
+    }
+
+    // TS apiCall's request-layer retry around one request: a listed status or
+    // a network failure goes out again after its jittered backoff (or its
+    // Retry-After), under the call's retry options, else the client's. Each
+    // retry builds the request again (rebuild: operation, payload, model), as
+    // apiCall resolves its headers again; without rebuild it resends the call.
+    fn retried_transport_request(
+        &mut self,
+        first: Value,
+        rebuild: Option<(&str, &Value, &str)>,
+    ) -> AxResult<Value> {
+        let config = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
+            &self.options,
+        )])?);
+        let mut call = first;
+        let mut attempt: i64 = 0;
+        loop {
+            match self.transport_attempt(call.clone()) {
+                Ok(body) => return Ok(body),
+                Err((error, retry_after)) => {
+                    if current_cancellation_token()
+                        .map(|token| token.is_cancelled())
+                        .unwrap_or(false)
+                    {
+                        return Err(error);
+                    }
+                    if !request_retry_wait(&config, attempt, &error, retry_after.as_deref())? {
+                        return Err(error);
+                    }
+                    attempt += 1;
+                    if let Some((operation, payload, model)) = rebuild {
+                        call = self.provider_transport_request(operation, payload, model, false)?;
+                    }
+                }
+            }
+        }
     }
 
     fn transport_stream_iter(
@@ -3563,20 +3624,27 @@ impl OpenAICompatibleClient {
         }
     }
 
+    // Opens the stream, and on a status response also returns its Retry-After.
     fn dispatch_transport_stream(
         &mut self,
         call: Value,
-    ) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+    ) -> Result<Box<dyn Iterator<Item = AxResult<Value>>>, (AxError, Option<String>)> {
         let cancellation = current_cancellation_token();
         if let Some(token) = &cancellation {
-            token.throw_if_cancelled()?;
+            token.throw_if_cancelled().map_err(|error| (error, None))?;
         }
         if let Some(transport) = self.transport.as_mut() {
             let stream = match cancellation.as_ref() {
-                Some(token) => transport.stream_with_cancellation(call, token)?,
-                None => transport.stream(call)?,
+                Some(token) => transport.stream_with_cancellation(call, token),
+                None => transport.stream(call),
+            }
+            .map_err(|error| (error, None))?;
+            let retry_after = match &stream {
+                AxTransportStream::Buffered(response) => retry_after_header(response),
+                _ => None,
             };
-            let inner = Self::transport_stream_iter(stream)?;
+            let inner =
+                Self::transport_stream_iter(stream).map_err(|error| (error, retry_after))?;
             return Ok(match cancellation {
                 Some(token) => Box::new(CancellableProviderIterator { inner, token })
                     as Box<dyn Iterator<Item = AxResult<Value>>>,
@@ -3584,12 +3652,16 @@ impl OpenAICompatibleClient {
             });
         }
         if let Some(transport) = &self.session_transport {
-            return Self::transport_stream_iter(
-                transport
-                    .lock()
-                    .map_err(|_| AxError::runtime("Transport lock poisoned"))?
-                    .stream(call)?,
-            );
+            let stream = transport
+                .lock()
+                .map_err(|_| (AxError::runtime("Transport lock poisoned"), None))?
+                .stream(call)
+                .map_err(|error| (error, None))?;
+            let retry_after = match &stream {
+                AxTransportStream::Buffered(response) => retry_after_header(response),
+                _ => None,
+            };
+            return Self::transport_stream_iter(stream).map_err(|error| (error, retry_after));
         }
         // The per-call or client timeout in seconds, as for non-streaming
         // requests, else 60 s.
@@ -3598,43 +3670,57 @@ impl OpenAICompatibleClient {
             .get("timeout")
             .and_then(Value::as_f64)
             .unwrap_or(60.0);
-        let (status, body): (u16, Box<dyn Read>) = match call_header_timeout_ms(&call) {
-            Some(header_ms) => open_timed_stream(&call, header_ms, timeout)?,
-            None => {
-                let url = call
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let method = call
-                    .get("method")
-                    .and_then(Value::as_str)
-                    .unwrap_or("POST")
-                    .parse::<reqwest::Method>()
-                    .map_err(|error| {
-                        AxError::new("validation", format!("invalid HTTP method: {error}"))
-                    })?;
-                let mut builder = HttpClient::builder()
-                    .timeout(Duration::from_secs_f64(timeout.max(0.001)))
-                    .build()?
-                    .request(method, url);
-                if let Some(headers) = call.get("headers").and_then(Value::as_object) {
-                    for (key, value) in headers {
-                        builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
-                    }
+        let (status, body, retry_after): (u16, Box<dyn Read>, Option<String>) =
+            match call_header_timeout_ms(&call) {
+                Some(header_ms) => {
+                    open_timed_stream(&call, header_ms, timeout).map_err(|error| (error, None))?
                 }
-                let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-                let response = builder
-                    .js_json(&body)
-                    .send()
-                    .map_err(|error| transport_failure(error, timeout))?;
-                (response.status().as_u16(), Box::new(response))
-            }
-        };
+                None => {
+                    let url = call
+                        .get("url")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let method = call
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or("POST")
+                        .parse::<reqwest::Method>()
+                        .map_err(|error| {
+                            (
+                                AxError::new("validation", format!("invalid HTTP method: {error}")),
+                                None,
+                            )
+                        })?;
+                    let mut builder = HttpClient::builder()
+                        .timeout(Duration::from_secs_f64(timeout.max(0.001)))
+                        .build()
+                        .map_err(|error| (AxError::from(error), None))?
+                        .request(method, url);
+                    if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+                        for (key, value) in headers {
+                            builder =
+                                builder.header(key.as_str(), value.as_str().unwrap_or_default());
+                        }
+                    }
+                    let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+                    let response = builder
+                        .js_json(&body)
+                        .send()
+                        .map_err(|error| (transport_failure(error, timeout), None))?;
+                    let retry_after = response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_string);
+                    (response.status().as_u16(), Box::new(response), retry_after)
+                }
+            };
         if let Some(token) = &cancellation {
-            token.throw_if_cancelled()?;
+            token.throw_if_cancelled().map_err(|error| (error, None))?;
         }
-        let inner = Self::transport_stream_iter(AxTransportStream::Reader { status, body })?;
+        let inner = Self::transport_stream_iter(AxTransportStream::Reader { status, body })
+            .map_err(|error| (error, retry_after))?;
         Ok(match cancellation {
             Some(token) => Box::new(CancellableProviderIterator { inner, token })
                 as Box<dyn Iterator<Item = AxResult<Value>>>,
@@ -3643,7 +3729,7 @@ impl OpenAICompatibleClient {
     }
 
     fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
-        normalize_passthrough_response(self.dispatch_transport_request(call)?)
+        self.retried_transport_request(call, None)
     }
 
     fn context_cache_get(&mut self, namespace: &str, key: &str) -> Value {
@@ -4239,8 +4325,7 @@ impl OpenAICompatibleClient {
                 .or_else(|| string_at(&payload, "model"))
                 .unwrap_or_else(|| self.embed_model.clone());
             let call = self.provider_transport_request("embed", &payload, &model, false)?;
-            let raw = self.dispatch_transport_request(call)?;
-            let body = normalize_passthrough_response(raw)?;
+            let body = self.retried_transport_request(call, Some(("embed", &payload, &model)))?;
             if profile == "openai-compatible" {
                 let _ = normalize_embed_response(&[core_value_from_json(&body)])?;
             }
@@ -5505,50 +5590,20 @@ impl AxAITypesafeClient {
         Ok(serde_json::from_value(core_value_to_json(&decoded))?)
     }
     fn request(&mut self, operation: &str, payload: &Value) -> AxResult<Value> {
-        let retry = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
-            &self.client.options,
-        )])?);
-        let retries = retry["max_retries"].as_u64().unwrap_or(0);
-        let cancellation = current_cancellation_token();
-        for attempt in 0.. {
-            if let Some(token) = &cancellation {
-                token.throw_if_cancelled()?;
-            }
-            let model = payload
-                .get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(&self.client.model);
-            let call = self
-                .client
-                .provider_transport_request(operation, payload, model, false)?;
-            let outcome = self
-                .client
-                .dispatch_transport_request(call)
-                .and_then(normalize_passthrough_response);
-            match outcome {
-                Ok(raw) => return Ok(raw),
-                Err(error) => {
-                    // As in TS apiCall, a timeout is not retried here.
-                    if !error.retryable || is_timeout_error(&error) || attempt >= retries {
-                        return Err(error);
-                    }
-                    let delay = (retry["initial_delay_ms"].as_f64().unwrap_or(1000.0)
-                        * retry["backoff_factor"]
-                            .as_f64()
-                            .unwrap_or(2.0)
-                            .powf(attempt as f64))
-                    .min(retry["max_delay_ms"].as_f64().unwrap_or(32000.0));
-                    let duration = Duration::from_secs_f64(delay.max(0.0) / 1000.0);
-                    if let Some(token) = &cancellation {
-                        token.wait_timeout(duration);
-                        token.throw_if_cancelled()?;
-                    } else {
-                        std::thread::sleep(duration);
-                    }
-                }
-            }
+        if let Some(token) = current_cancellation_token() {
+            token.throw_if_cancelled()?;
         }
-        unreachable!()
+        let model = payload
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or(&self.client.model)
+            .to_string();
+        let call = self
+            .client
+            .provider_transport_request(operation, payload, &model, false)?;
+        // TS apiCall's request-layer retry, as the client's chat requests use.
+        self.client
+            .retried_transport_request(call, Some((operation, payload, &model)))
     }
 }
 
@@ -15329,6 +15384,44 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
             }
         }
     }
+    // The request-layer retry records its delays instead of waiting, and a
+    // fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    // pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    // checks that a cancellation ends the wait, so it waits for real.
+    let expected_delays = fixture.get("expected_retry_delays_ms").cloned();
+    let real_wait = fixture.get("kind").and_then(Value::as_str) == Some("ai_cancellation");
+    REQUEST_RETRY_HOOKS.with(|hooks| {
+        *hooks.borrow_mut() = RequestRetryHooks {
+            delays: if real_wait { None } else { Some(Vec::new()) },
+            random: fixture.get("retry_random").and_then(Value::as_f64),
+            now_ms: fixture.get("retry_now_ms").and_then(Value::as_f64),
+        };
+    });
+    let result = run_conformance_fixture_with_deprecations(fixture);
+    let delays = REQUEST_RETRY_HOOKS.with(|hooks| {
+        std::mem::take(&mut *hooks.borrow_mut())
+            .delays
+            .unwrap_or_default()
+    });
+    result?;
+    if let Some(expected) = expected_delays {
+        let want = expected.as_array().cloned().unwrap_or_default();
+        let matches = want.len() == delays.len()
+            && want
+                .iter()
+                .zip(&delays)
+                .all(|(want, got)| (want.as_f64().unwrap_or(f64::NAN) - got).abs() <= 1e-6);
+        if !matches {
+            return Err(AxError::new(
+                "fixture",
+                format!("retry delays: expected {expected}, got {delays:?}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn run_conformance_fixture_with_deprecations(fixture: Value) -> AxResult<()> {
     // expected_deprecations pins the one-time deprecation warnings the run
     // gives (the ones already shown are forgotten first).
     if let Some(expected) = fixture.get("expected_deprecations").cloned() {
@@ -24306,9 +24399,23 @@ impl RecordingTransport {
 impl AxTransport for RecordingTransport {
     fn send(&mut self, request: Value) -> AxResult<Value> {
         self.requests.lock().unwrap().push(request);
-        self.responses
+        let response = self
+            .responses
             .pop_front()
-            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))
+            .ok_or_else(|| AxError::new("fixture", "fixture transport response exhausted"))?;
+        // {"network_error": message} stands for a request that failed to
+        // connect, send or read, which the transport reports as TS does.
+        if let Some(message) = response.get("network_error") {
+            let text = message
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| message.to_string());
+            let mut error = AxError::new("network", format!("Network Error: {text}"));
+            error.error_type = Some("AxAIServiceNetworkError".to_string());
+            error.retryable = true;
+            return Err(error);
+        }
+        Ok(response)
     }
 }
 
@@ -55104,6 +55211,7 @@ fn is_retryable_status(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 )]
 fn default_retry_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("default_retry_config");
+    let mut v_codes = CoreValue::Null;
     let mut v_config = CoreValue::Null;
     v_config = CoreValue::new_map();
     core_set(
@@ -55125,6 +55233,19 @@ fn default_retry_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_config,
         CoreValue::from("backoff_factor"),
         CoreValue::Num(2f64),
+    )?;
+    v_codes = CoreValue::new_list();
+    core_append(&v_codes, CoreValue::Num(500f64))?;
+    core_append(&v_codes, CoreValue::Num(408f64))?;
+    core_append(&v_codes, CoreValue::Num(429f64))?;
+    core_append(&v_codes, CoreValue::Num(502f64))?;
+    core_append(&v_codes, CoreValue::Num(503f64))?;
+    core_append(&v_codes, CoreValue::Num(504f64))?;
+    core_append(&v_codes, CoreValue::Num(529f64))?;
+    core_set(
+        &v_config,
+        CoreValue::from("retryable_status_codes"),
+        v_codes.clone(),
     )?;
     return Ok(v_config.clone());
 }
@@ -55171,7 +55292,9 @@ fn resolve_stream_retry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_options = core_arg(args, 0);
     let mut v_backoff = CoreValue::Null;
     let mut v_cfg = CoreValue::Null;
+    let mut v_codes = CoreValue::Null;
     let mut v_def_backoff = CoreValue::Null;
+    let mut v_def_codes = CoreValue::Null;
     let mut v_def_initial = CoreValue::Null;
     let mut v_def_max = CoreValue::Null;
     let mut v_def_max_delay = CoreValue::Null;
@@ -55214,6 +55337,17 @@ fn resolve_stream_retry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("backoff_factor"),
         v_def_backoff.clone(),
     ])?;
+    v_def_codes = core_get(
+        &v_cfg,
+        &CoreValue::from("retryable_status_codes"),
+        CoreValue::Null,
+    );
+    v_codes = retry_opt_value(&[
+        v_retry.clone(),
+        CoreValue::from("retryableStatusCodes"),
+        CoreValue::from("retryable_status_codes"),
+        v_def_codes.clone(),
+    ])?;
     v_out = CoreValue::new_map();
     core_set(
         &v_out,
@@ -55227,6 +55361,11 @@ fn resolve_stream_retry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     core_set(&v_out, CoreValue::from("max_delay_ms"), v_max_delay.clone())?;
     core_set(&v_out, CoreValue::from("backoff_factor"), v_backoff.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("retryable_status_codes"),
+        v_codes.clone(),
+    )?;
     return Ok(v_out.clone());
 }
 
@@ -67907,6 +68046,612 @@ fn _ai_error_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_view.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn retry_status_listed(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("retry_status_listed");
+    let mut v_config = core_arg(args, 0);
+    let mut v_status = core_arg(args, 1);
+    let mut v_code = CoreValue::Null;
+    let mut v_codes = CoreValue::Null;
+    let mut v_defaults = CoreValue::Null;
+    let mut v_no_codes = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    v_codes = core_get(
+        &v_config,
+        &CoreValue::from("retryable_status_codes"),
+        CoreValue::Null,
+    );
+    v_no_codes = core_is_none(&[v_codes.clone()])?;
+    if core_truthy(&v_no_codes) {
+        v_defaults = default_retry_config(&[])?;
+        v_codes = core_get(
+            &v_defaults,
+            &CoreValue::from("retryable_status_codes"),
+            CoreValue::Null,
+        );
+    }
+    for v_code in core_iter(&v_codes)? {
+        let mut v_code = v_code;
+        v_same = core_eq(&[v_code.clone(), v_status.clone()])?;
+        if core_truthy(&v_same) {
+            return Ok(CoreValue::Bool(true));
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn retry_backoff_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("retry_backoff_ms");
+    let mut v_config = core_arg(args, 0);
+    let mut v_attempt = core_arg(args, 1);
+    let mut v_random = core_arg(args, 2);
+    let mut v_base = CoreValue::Null;
+    let mut v_capped = CoreValue::Null;
+    let mut v_delay = CoreValue::Null;
+    let mut v_factor = CoreValue::Null;
+    let mut v_initial = CoreValue::Null;
+    let mut v_jitter = CoreValue::Null;
+    let mut v_max_delay = CoreValue::Null;
+    let mut v_scale = CoreValue::Null;
+    let mut v_spread = CoreValue::Null;
+    v_initial = core_get(
+        &v_config,
+        &CoreValue::from("initial_delay_ms"),
+        CoreValue::Num(1000f64),
+    );
+    v_max_delay = core_get(
+        &v_config,
+        &CoreValue::from("max_delay_ms"),
+        CoreValue::Num(60000f64),
+    );
+    v_factor = core_get(
+        &v_config,
+        &CoreValue::from("backoff_factor"),
+        CoreValue::Num(2f64),
+    );
+    v_scale = core_math_pow(&[v_factor.clone(), v_attempt.clone()])?;
+    v_base = core_mul(&[v_initial.clone(), v_scale.clone()])?;
+    v_capped = core_gt(&[v_base.clone(), v_max_delay.clone()])?;
+    if core_truthy(&v_capped) {
+        v_base = v_max_delay.clone();
+    }
+    v_spread = core_mul(&[v_random.clone(), CoreValue::Num(0.5f64)])?;
+    v_jitter = core_add(&[v_spread.clone(), CoreValue::Num(0.75f64)])?;
+    v_delay = core_mul(&[v_base.clone(), v_jitter.clone()])?;
+    return Ok(v_delay.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_digits_value(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_digits_value");
+    let mut v_text = core_arg(args, 0);
+    let mut v_ch = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_digit = CoreValue::Null;
+    let mut v_digits = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_digit = CoreValue::Null;
+    let mut v_scaled = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_count = core_len(&[v_text.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Ok(v_none.clone());
+    }
+    v_digits = CoreValue::new_map();
+    core_set(&v_digits, CoreValue::from("0"), CoreValue::Num(0f64))?;
+    core_set(&v_digits, CoreValue::from("1"), CoreValue::Num(1f64))?;
+    core_set(&v_digits, CoreValue::from("2"), CoreValue::Num(2f64))?;
+    core_set(&v_digits, CoreValue::from("3"), CoreValue::Num(3f64))?;
+    core_set(&v_digits, CoreValue::from("4"), CoreValue::Num(4f64))?;
+    core_set(&v_digits, CoreValue::from("5"), CoreValue::Num(5f64))?;
+    core_set(&v_digits, CoreValue::from("6"), CoreValue::Num(6f64))?;
+    core_set(&v_digits, CoreValue::from("7"), CoreValue::Num(7f64))?;
+    core_set(&v_digits, CoreValue::from("8"), CoreValue::Num(8f64))?;
+    core_set(&v_digits, CoreValue::from("9"), CoreValue::Num(9f64))?;
+    v_total = CoreValue::Num(0f64);
+    v_cursor = CoreValue::Num(0f64);
+    loop {
+        v_done = core_gte(&[v_cursor.clone(), v_count.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_next = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+        v_ch = core_string_slice(&[v_text.clone(), v_cursor.clone(), v_next.clone()])?;
+        v_digit = core_get(&v_digits, &v_ch.clone(), CoreValue::Null);
+        v_not_digit = core_is_none(&[v_digit.clone()])?;
+        if core_truthy(&v_not_digit) {
+            return Ok(v_none.clone());
+        }
+        v_scaled = core_mul(&[v_total.clone(), CoreValue::Num(10f64)])?;
+        v_total = core_add(&[v_scaled.clone(), v_digit.clone()])?;
+        v_cursor = v_next.clone();
+    }
+    return Ok(v_total.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_after_seconds(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_after_seconds");
+    let mut v_text = core_arg(args, 0);
+    let mut v_blank = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_decimal = CoreValue::Null;
+    let mut v_exponent = CoreValue::Null;
+    let mut v_exponent_digits = CoreValue::Null;
+    let mut v_exponent_split = CoreValue::Null;
+    let mut v_fraction = CoreValue::Null;
+    let mut v_fraction_length = CoreValue::Null;
+    let mut v_has_exponent = CoreValue::Null;
+    let mut v_has_fraction = CoreValue::Null;
+    let mut v_has_point = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_leading_zero = CoreValue::Null;
+    let mut v_literal = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_many_digits = CoreValue::Null;
+    let mut v_minus = CoreValue::Null;
+    let mut v_no_whole = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_decimal = CoreValue::Null;
+    let mut v_plus = CoreValue::Null;
+    let mut v_point_split = CoreValue::Null;
+    let mut v_sign = CoreValue::Null;
+    let mut v_strip = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_whole = CoreValue::Null;
+    let mut v_whole_length = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_trimmed = core_string_trim(&v_text);
+    v_blank = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_blank) {
+        return Ok(CoreValue::Num(0f64));
+    }
+    v_decimal = core_regex_match(
+        CoreValue::from("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"),
+        &v_trimmed,
+    )?;
+    v_not_decimal = core_not(&[v_decimal.clone()])?;
+    if core_truthy(&v_not_decimal) {
+        return Ok(v_none.clone());
+    }
+    v_sign = CoreValue::from("");
+    v_body = v_trimmed.clone();
+    v_plus = core_string_starts_with(&[v_body.clone(), CoreValue::from("+")])?;
+    if core_truthy(&v_plus) {
+        v_body = core_string_slice(&[v_body.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_minus = core_string_starts_with(&[v_body.clone(), CoreValue::from("-")])?;
+    if core_truthy(&v_minus) {
+        v_sign = CoreValue::from("-");
+        v_body = core_string_slice(&[v_body.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_lower = core_string_lower(&[v_body.clone()])?;
+    v_exponent = CoreValue::from("");
+    v_exponent_split = core_string_split_once(&[v_lower.clone(), CoreValue::from("e")])?;
+    v_has_exponent = core_get(
+        &v_exponent_split,
+        &CoreValue::from("found"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_has_exponent) {
+        v_exponent_digits = core_get(
+            &v_exponent_split,
+            &CoreValue::from("right"),
+            CoreValue::Null,
+        );
+        v_exponent = core_string_format(&[CoreValue::from("e{}"), v_exponent_digits.clone()])?;
+        v_lower = core_get(&v_exponent_split, &CoreValue::from("left"), CoreValue::Null);
+    }
+    v_whole = v_lower.clone();
+    v_fraction = CoreValue::from("");
+    v_point_split = core_string_split_once(&[v_lower.clone(), CoreValue::from(".")])?;
+    v_has_point = core_get(
+        &v_point_split,
+        &CoreValue::from("found"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_has_point) {
+        v_whole = core_get(&v_point_split, &CoreValue::from("left"), CoreValue::Null);
+        v_fraction = core_get(&v_point_split, &CoreValue::from("right"), CoreValue::Null);
+    }
+    loop {
+        v_whole_length = core_len(&[v_whole.clone()])?;
+        v_many_digits = core_gt(&[v_whole_length.clone(), CoreValue::Num(1f64)])?;
+        v_leading_zero = core_string_starts_with(&[v_whole.clone(), CoreValue::from("0")])?;
+        v_strip = core_and(&[v_many_digits.clone(), v_leading_zero.clone()])?;
+        v_keep = core_not(&[v_strip.clone()])?;
+        if core_truthy(&v_keep) {
+            break;
+        }
+        v_whole = core_string_slice(&[v_whole.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_no_whole = core_eq(&[v_whole.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_no_whole) {
+        v_whole = CoreValue::from("0");
+    }
+    v_literal = core_string_format(&[CoreValue::from("{}{}"), v_sign.clone(), v_whole.clone()])?;
+    v_fraction_length = core_len(&[v_fraction.clone()])?;
+    v_has_fraction = core_gt(&[v_fraction_length.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_fraction) {
+        v_literal = core_string_format(&[
+            CoreValue::from("{}.{}"),
+            v_literal.clone(),
+            v_fraction.clone(),
+        ])?;
+    }
+    v_literal = core_string_format(&[
+        CoreValue::from("{}{}"),
+        v_literal.clone(),
+        v_exponent.clone(),
+    ])?;
+    v_value = core_json_parse(&[v_literal.clone()])?;
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_days_from_civil(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_days_from_civil");
+    let mut v_year = core_arg(args, 0);
+    let mut v_month = core_arg(args, 1);
+    let mut v_day = core_arg(args, 2);
+    let mut v_days = CoreValue::Null;
+    let mut v_doe = CoreValue::Null;
+    let mut v_doy = CoreValue::Null;
+    let mut v_early = CoreValue::Null;
+    let mut v_era = CoreValue::Null;
+    let mut v_era_ratio = CoreValue::Null;
+    let mut v_era_years = CoreValue::Null;
+    let mut v_leap100 = CoreValue::Null;
+    let mut v_leap100_negated = CoreValue::Null;
+    let mut v_leap100_ratio = CoreValue::Null;
+    let mut v_leap4 = CoreValue::Null;
+    let mut v_leap4_ratio = CoreValue::Null;
+    let mut v_month_days = CoreValue::Null;
+    let mut v_month_days_ratio = CoreValue::Null;
+    let mut v_month_index = CoreValue::Null;
+    let mut v_month_ratio = CoreValue::Null;
+    let mut v_month_wraps = CoreValue::Null;
+    let mut v_shifted = CoreValue::Null;
+    let mut v_year_of_era = CoreValue::Null;
+    let mut v_yoe = CoreValue::Null;
+    v_year_of_era = v_year.clone();
+    v_early = core_lte(&[v_month.clone(), CoreValue::Num(2f64)])?;
+    if core_truthy(&v_early) {
+        v_year_of_era = core_add(&[v_year.clone(), CoreValue::Num(-1f64)])?;
+    }
+    v_era_ratio = core_div(&[v_year_of_era.clone(), CoreValue::Num(400f64)])?;
+    v_era = core_math_floor(&[v_era_ratio.clone()])?;
+    v_era_years = core_mul(&[v_era.clone(), CoreValue::Num(-400f64)])?;
+    v_yoe = core_add(&[v_year_of_era.clone(), v_era_years.clone()])?;
+    v_shifted = core_add(&[v_month.clone(), CoreValue::Num(9f64)])?;
+    v_month_ratio = core_div(&[v_shifted.clone(), CoreValue::Num(12f64)])?;
+    v_month_wraps = core_math_floor(&[v_month_ratio.clone()])?;
+    v_month_wraps = core_mul(&[v_month_wraps.clone(), CoreValue::Num(-12f64)])?;
+    v_month_index = core_add(&[v_shifted.clone(), v_month_wraps.clone()])?;
+    v_month_days = core_mul(&[v_month_index.clone(), CoreValue::Num(153f64)])?;
+    v_month_days = core_add(&[v_month_days.clone(), CoreValue::Num(2f64)])?;
+    v_month_days_ratio = core_div(&[v_month_days.clone(), CoreValue::Num(5f64)])?;
+    v_month_days = core_math_floor(&[v_month_days_ratio.clone()])?;
+    v_doy = core_add(&[v_month_days.clone(), v_day.clone()])?;
+    v_doy = core_add(&[v_doy.clone(), CoreValue::Num(-1f64)])?;
+    v_doe = core_mul(&[v_yoe.clone(), CoreValue::Num(365f64)])?;
+    v_leap4_ratio = core_div(&[v_yoe.clone(), CoreValue::Num(4f64)])?;
+    v_leap4 = core_math_floor(&[v_leap4_ratio.clone()])?;
+    v_leap100_ratio = core_div(&[v_yoe.clone(), CoreValue::Num(100f64)])?;
+    v_leap100 = core_math_floor(&[v_leap100_ratio.clone()])?;
+    v_doe = core_add(&[v_doe.clone(), v_leap4.clone()])?;
+    v_leap100_negated = core_mul(&[v_leap100.clone(), CoreValue::Num(-1f64)])?;
+    v_doe = core_add(&[v_doe.clone(), v_leap100_negated.clone()])?;
+    v_doe = core_add(&[v_doe.clone(), v_doy.clone()])?;
+    v_days = core_mul(&[v_era.clone(), CoreValue::Num(146097f64)])?;
+    v_days = core_add(&[v_days.clone(), v_doe.clone()])?;
+    v_days = core_add(&[v_days.clone(), CoreValue::Num(-719468f64)])?;
+    return Ok(v_days.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _retry_http_date_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_retry_http_date_ms");
+    let mut v_text = core_arg(args, 0);
+    let mut v_bad = CoreValue::Null;
+    let mut v_bad_clock = CoreValue::Null;
+    let mut v_bad_day = CoreValue::Null;
+    let mut v_day = CoreValue::Null;
+    let mut v_day_high = CoreValue::Null;
+    let mut v_day_low = CoreValue::Null;
+    let mut v_day_text = CoreValue::Null;
+    let mut v_days = CoreValue::Null;
+    let mut v_fixdate = CoreValue::Null;
+    let mut v_hour = CoreValue::Null;
+    let mut v_hour_high = CoreValue::Null;
+    let mut v_hour_ms = CoreValue::Null;
+    let mut v_hour_text = CoreValue::Null;
+    let mut v_millis = CoreValue::Null;
+    let mut v_minute = CoreValue::Null;
+    let mut v_minute_high = CoreValue::Null;
+    let mut v_minute_ms = CoreValue::Null;
+    let mut v_minute_text = CoreValue::Null;
+    let mut v_month = CoreValue::Null;
+    let mut v_month_text = CoreValue::Null;
+    let mut v_months = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_fixdate = CoreValue::Null;
+    let mut v_second = CoreValue::Null;
+    let mut v_second_high = CoreValue::Null;
+    let mut v_second_ms = CoreValue::Null;
+    let mut v_second_text = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    let mut v_year = CoreValue::Null;
+    let mut v_year_text = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_trimmed = core_string_trim(&v_text);
+    v_fixdate = core_regex_match(CoreValue::from("^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT$"), &v_trimmed)?;
+    v_not_fixdate = core_not(&[v_fixdate.clone()])?;
+    if core_truthy(&v_not_fixdate) {
+        return Ok(v_none.clone());
+    }
+    v_day_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(5f64),
+        CoreValue::Num(7f64),
+    ])?;
+    v_month_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(8f64),
+        CoreValue::Num(11f64),
+    ])?;
+    v_year_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(12f64),
+        CoreValue::Num(16f64),
+    ])?;
+    v_hour_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(17f64),
+        CoreValue::Num(19f64),
+    ])?;
+    v_minute_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(20f64),
+        CoreValue::Num(22f64),
+    ])?;
+    v_second_text = core_string_slice(&[
+        v_trimmed.clone(),
+        CoreValue::Num(23f64),
+        CoreValue::Num(25f64),
+    ])?;
+    v_day = _retry_digits_value(&[v_day_text.clone()])?;
+    v_year = _retry_digits_value(&[v_year_text.clone()])?;
+    v_hour = _retry_digits_value(&[v_hour_text.clone()])?;
+    v_minute = _retry_digits_value(&[v_minute_text.clone()])?;
+    v_second = _retry_digits_value(&[v_second_text.clone()])?;
+    v_months = CoreValue::new_map();
+    core_set(&v_months, CoreValue::from("Jan"), CoreValue::Num(1f64))?;
+    core_set(&v_months, CoreValue::from("Feb"), CoreValue::Num(2f64))?;
+    core_set(&v_months, CoreValue::from("Mar"), CoreValue::Num(3f64))?;
+    core_set(&v_months, CoreValue::from("Apr"), CoreValue::Num(4f64))?;
+    core_set(&v_months, CoreValue::from("May"), CoreValue::Num(5f64))?;
+    core_set(&v_months, CoreValue::from("Jun"), CoreValue::Num(6f64))?;
+    core_set(&v_months, CoreValue::from("Jul"), CoreValue::Num(7f64))?;
+    core_set(&v_months, CoreValue::from("Aug"), CoreValue::Num(8f64))?;
+    core_set(&v_months, CoreValue::from("Sep"), CoreValue::Num(9f64))?;
+    core_set(&v_months, CoreValue::from("Oct"), CoreValue::Num(10f64))?;
+    core_set(&v_months, CoreValue::from("Nov"), CoreValue::Num(11f64))?;
+    core_set(&v_months, CoreValue::from("Dec"), CoreValue::Num(12f64))?;
+    v_month = core_get(&v_months, &v_month_text.clone(), CoreValue::Null);
+    v_day_low = core_lt(&[v_day.clone(), CoreValue::Num(1f64)])?;
+    v_day_high = core_gt(&[v_day.clone(), CoreValue::Num(31f64)])?;
+    v_hour_high = core_gt(&[v_hour.clone(), CoreValue::Num(23f64)])?;
+    v_minute_high = core_gt(&[v_minute.clone(), CoreValue::Num(59f64)])?;
+    v_second_high = core_gt(&[v_second.clone(), CoreValue::Num(59f64)])?;
+    v_bad_day = core_or(&[v_day_low.clone(), v_day_high.clone()])?;
+    v_bad_clock = core_or(&[v_hour_high.clone(), v_minute_high.clone()])?;
+    v_bad_clock = core_or(&[v_bad_clock.clone(), v_second_high.clone()])?;
+    v_bad = core_or(&[v_bad_day.clone(), v_bad_clock.clone()])?;
+    if core_truthy(&v_bad) {
+        return Ok(v_none.clone());
+    }
+    v_days = _retry_days_from_civil(&[v_year.clone(), v_month.clone(), v_day.clone()])?;
+    v_millis = core_mul(&[v_days.clone(), CoreValue::Num(86400000f64)])?;
+    v_hour_ms = core_mul(&[v_hour.clone(), CoreValue::Num(3600000f64)])?;
+    v_minute_ms = core_mul(&[v_minute.clone(), CoreValue::Num(60000f64)])?;
+    v_second_ms = core_mul(&[v_second.clone(), CoreValue::Num(1000f64)])?;
+    v_millis = core_add(&[v_millis.clone(), v_hour_ms.clone()])?;
+    v_millis = core_add(&[v_millis.clone(), v_minute_ms.clone()])?;
+    v_millis = core_add(&[v_millis.clone(), v_second_ms.clone()])?;
+    return Ok(v_millis.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn retry_after_ms(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("retry_after_ms");
+    let mut v_header = core_arg(args, 0);
+    let mut v_now_ms = core_arg(args, 1);
+    let mut v_date_ms = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_date = CoreValue::Null;
+    let mut v_has_seconds = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_negative_now = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_past = CoreValue::Null;
+    let mut v_seconds = CoreValue::Null;
+    let mut v_seconds_ms = CoreValue::Null;
+    let mut v_wait = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_is_string = core_type_is(&v_header, CoreValue::from("string"));
+    v_not_string = core_not(&[v_is_string.clone()])?;
+    if core_truthy(&v_not_string) {
+        return Ok(v_none.clone());
+    }
+    v_empty = core_eq(&[v_header.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        return Ok(v_none.clone());
+    }
+    v_seconds = _retry_after_seconds(&[v_header.clone()])?;
+    v_has_seconds = core_is_not_none(&[v_seconds.clone()])?;
+    if core_truthy(&v_has_seconds) {
+        v_seconds_ms = core_mul(&[v_seconds.clone(), CoreValue::Num(1000f64)])?;
+        return Ok(v_seconds_ms.clone());
+    }
+    v_date_ms = _retry_http_date_ms(&[v_header.clone()])?;
+    v_has_date = core_is_not_none(&[v_date_ms.clone()])?;
+    if core_truthy(&v_has_date) {
+        v_negative_now = core_mul(&[v_now_ms.clone(), CoreValue::Num(-1f64)])?;
+        v_wait = core_add(&[v_date_ms.clone(), v_negative_now.clone()])?;
+        v_past = core_lt(&[v_wait.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_past) {
+            return Ok(CoreValue::Num(0f64));
+        }
+        return Ok(v_wait.clone());
+    }
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn request_retry_delay(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("request_retry_delay");
+    let mut v_config = core_arg(args, 0);
+    let mut v_attempt = core_arg(args, 1);
+    let mut v_failure = core_arg(args, 2);
+    let mut v_now_ms = core_arg(args, 3);
+    let mut v_random = core_arg(args, 4);
+    let mut v_after = CoreValue::Null;
+    let mut v_auth = CoreValue::Null;
+    let mut v_delay = CoreValue::Null;
+    let mut v_has_after = CoreValue::Null;
+    let mut v_has_status = CoreValue::Null;
+    let mut v_header = CoreValue::Null;
+    let mut v_is_401 = CoreValue::Null;
+    let mut v_is_403 = CoreValue::Null;
+    let mut v_is_network = CoreValue::Null;
+    let mut v_listed = CoreValue::Null;
+    let mut v_max_delay = CoreValue::Null;
+    let mut v_max_retries = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_network = CoreValue::Null;
+    let mut v_network_delay = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_listed = CoreValue::Null;
+    let mut v_spent = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_within = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_max_retries = core_get(
+        &v_config,
+        &CoreValue::from("max_retries"),
+        CoreValue::Num(3f64),
+    );
+    v_spent = core_gte(&[v_attempt.clone(), v_max_retries.clone()])?;
+    if core_truthy(&v_spent) {
+        return Ok(v_none.clone());
+    }
+    v_status = core_get(&v_failure, &CoreValue::from("status"), CoreValue::Null);
+    v_has_status = core_is_not_none(&[v_status.clone()])?;
+    if core_truthy(&v_has_status) {
+        v_is_401 = core_eq(&[v_status.clone(), CoreValue::Num(401f64)])?;
+        v_is_403 = core_eq(&[v_status.clone(), CoreValue::Num(403f64)])?;
+        v_auth = core_or(&[v_is_401.clone(), v_is_403.clone()])?;
+        if core_truthy(&v_auth) {
+            return Ok(v_none.clone());
+        }
+        v_listed = retry_status_listed(&[v_config.clone(), v_status.clone()])?;
+        v_not_listed = core_not(&[v_listed.clone()])?;
+        if core_truthy(&v_not_listed) {
+            return Ok(v_none.clone());
+        }
+        v_delay = retry_backoff_ms(&[v_config.clone(), v_attempt.clone(), v_random.clone()])?;
+        v_header = core_get(&v_failure, &CoreValue::from("retry_after"), CoreValue::Null);
+        v_after = retry_after_ms(&[v_header.clone(), v_now_ms.clone()])?;
+        v_has_after = core_is_not_none(&[v_after.clone()])?;
+        if core_truthy(&v_has_after) {
+            v_max_delay = core_get(
+                &v_config,
+                &CoreValue::from("max_delay_ms"),
+                CoreValue::Num(60000f64),
+            );
+            v_within = core_lte(&[v_after.clone(), v_max_delay.clone()])?;
+            if core_truthy(&v_within) {
+                v_delay = v_after.clone();
+            }
+        }
+        v_negative = core_lt(&[v_delay.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_negative) {
+            return Ok(CoreValue::Num(0f64));
+        }
+        return Ok(v_delay.clone());
+    }
+    v_network = core_get(
+        &v_failure,
+        &CoreValue::from("network"),
+        CoreValue::Bool(false),
+    );
+    v_is_network = core_truthy_value(&[v_network.clone()])?;
+    if core_truthy(&v_is_network) {
+        v_network_delay =
+            retry_backoff_ms(&[v_config.clone(), v_attempt.clone(), v_random.clone()])?;
+        return Ok(v_network_delay.clone());
+    }
+    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -129689,7 +130434,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (964 of 964 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (972 of 972 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -130158,7 +130903,7 @@ fn open_timed_stream(
     call: &Value,
     header_ms: f64,
     read_timeout: f64,
-) -> AxResult<(u16, Box<dyn Read>)> {
+) -> AxResult<(u16, Box<dyn Read>, Option<String>)> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -130187,6 +130932,11 @@ fn open_timed_stream(
             Err(_) => return Err(call_timeout_error(call)),
         };
     let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     Ok((
         status,
         Box::new(TimedStreamBody {
@@ -130196,6 +130946,7 @@ fn open_timed_stream(
             offset: 0,
             idle: Duration::from_secs_f64(read_timeout.max(0.001)),
         }),
+        retry_after,
     ))
 }
 
@@ -130206,6 +130957,7 @@ fn cancellable_http_json(
     call: &Value,
     timeout: f64,
     token: &AxCancellationToken,
+    raw: bool,
 ) -> AxResult<Value> {
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = cancelled.clone();
@@ -130252,6 +131004,11 @@ fn cancellable_http_json(
         token.throw_if_cancelled()?;
         let response = response.ok_or_else(|| AxError::new("aborted", "Request aborted"))?;
         let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let bytes = session::http_wait(response.bytes(), &cancelled)
             .await
             .map_err(|error| transport_failure(error, total))?;
@@ -130263,8 +131020,145 @@ fn cancellable_http_json(
             serde_json::from_slice(&bytes)
                 .unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)))
         };
-        normalize_passthrough_response(json!({"status":status,"json":body}))
+        let envelope = status_envelope(status, body, retry_after);
+        if raw {
+            Ok(envelope)
+        } else {
+            normalize_passthrough_response(envelope)
+        }
     })
+}
+
+// A status response's {status, json} envelope, with its Retry-After in
+// headers.
+fn status_envelope(status: u16, body: Value, retry_after: Option<String>) -> Value {
+    let mut envelope = json!({"status": status, "json": body});
+    if let (Some(value), true) = (retry_after, status >= 400) {
+        envelope["headers"] = json!({"Retry-After": value});
+    }
+    envelope
+}
+
+// A transport result's Retry-After header.
+fn retry_after_header(raw: &Value) -> Option<String> {
+    raw.get("headers")?
+        .as_object()?
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
+        .and_then(|(_, value)| match value {
+            Value::String(text) => Some(text.clone()),
+            Value::Null => None,
+            other => Some(other.to_string()),
+        })
+}
+
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources.
+#[derive(Default)]
+pub(crate) struct RequestRetryHooks {
+    pub(crate) delays: Option<Vec<f64>>,
+    pub(crate) random: Option<f64>,
+    pub(crate) now_ms: Option<f64>,
+}
+
+thread_local! {
+    pub(crate) static REQUEST_RETRY_HOOKS: std::cell::RefCell<RequestRetryHooks> = std::cell::RefCell::new(RequestRetryHooks::default());
+}
+
+static REQUEST_RETRY_RANDOM_STATE: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+// A number in [0, 1) for the backoff's jitter.
+fn request_retry_random() -> f64 {
+    let mut state = REQUEST_RETRY_RANDOM_STATE.load(std::sync::atomic::Ordering::Relaxed);
+    if state == 0 {
+        state = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
+            | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    REQUEST_RETRY_RANDOM_STATE.store(state, std::sync::atomic::Ordering::Relaxed);
+    (state >> 11) as f64 / (1u64 << 53) as f64
+}
+
+fn request_retry_sleep(delay: f64) -> AxResult<()> {
+    let recorded = REQUEST_RETRY_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        match hooks.delays.as_mut() {
+            Some(delays) => {
+                delays.push(delay);
+                true
+            }
+            None => false,
+        }
+    });
+    if recorded {
+        if let Some(token) = current_cancellation_token() {
+            token.throw_if_cancelled()?;
+        }
+        return Ok(());
+    }
+    cancellation_backoff(Duration::from_millis(delay.max(0.0) as u64))
+}
+
+// TS apiCall's view of a failed request: its HTTP status (with its
+// Retry-After) or a network failure. Anything else is None and not retried.
+fn request_retry_failure(error: &AxError, retry_after: Option<&str>) -> Option<Value> {
+    if matches!(
+        error.error_type.as_deref(),
+        Some("AxAIServiceAuthenticationError") | Some("AxAIServiceAbortedError")
+    ) || error.category == "aborted"
+    {
+        return None;
+    }
+    if let Some(status) = error.status {
+        let mut failure = json!({"status": status});
+        if let Some(value) = retry_after {
+            failure["retry_after"] = json!(value);
+        }
+        return Some(failure);
+    }
+    (error.error_type.as_deref() == Some("AxAIServiceNetworkError"))
+        .then(|| json!({"network": true}))
+}
+
+// Waits before the failed request goes out again, as TS apiCall does, and
+// says whether it does.
+fn request_retry_wait(
+    config: &Value,
+    attempt: i64,
+    error: &AxError,
+    retry_after: Option<&str>,
+) -> AxResult<bool> {
+    let Some(failure) = request_retry_failure(error, retry_after) else {
+        return Ok(false);
+    };
+    let (random, now_ms) = REQUEST_RETRY_HOOKS.with(|hooks| {
+        let hooks = hooks.borrow();
+        (hooks.random, hooks.now_ms)
+    });
+    let now_ms = now_ms.unwrap_or_else(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as f64
+    });
+    let delay = request_retry_delay(&[
+        core_value_from_json(config),
+        CoreValue::Num(attempt as f64),
+        core_value_from_json(&failure),
+        CoreValue::Num(now_ms),
+        CoreValue::Num(random.unwrap_or_else(request_retry_random)),
+    ])?;
+    if delay.is_null() {
+        return Ok(false);
+    }
+    request_retry_sleep(core_value_to_json(&delay).as_f64().unwrap_or(0.0))?;
+    Ok(true)
 }
 
 #[cfg(test)]

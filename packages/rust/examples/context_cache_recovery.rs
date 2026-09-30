@@ -53,12 +53,7 @@ fn failure(status: u16, message: &str) -> Value {
     json!({"status":status,"json":{"error":{"message":message}}})
 }
 fn service(script: Script) -> OpenAICompatibleClient {
-    OpenAICompatibleClient::new("gemini-key", "gemini-3.5-flash")
-        .with_profile("google-gemini")
-        .with_options(
-            json!({"contextCache":{"minTokens":0,"ttlSeconds":3600,"refreshWindowSeconds":300}}),
-        )
-        .with_transport(script)
+    OpenAICompatibleClient::new("gemini-key","gemini-3.8-flash").with_profile("google-gemini").with_options(json!({"retry":{"maxRetries":1,"initialDelayMs":1,"maxDelayMs":1},"contextCache":{"minTokens":0,"ttlSeconds":3600,"refreshWindowSeconds":300}})).with_transport(script)
 }
 fn main() -> AxResult<()> {
     let request = json!({"chat_prompt":[{"role":"system","content":"stable context"},{"role":"user","content":"answer briefly"}]});
@@ -76,6 +71,7 @@ fn main() -> AxResult<()> {
         cache("cachedContents/old", 120),
         success("old"),
         failure(500, "refresh failed"),
+        failure(500, "refresh failed"),
         cache("cachedContents/new", 3600),
         success("recreated"),
     ]);
@@ -84,12 +80,14 @@ fn main() -> AxResult<()> {
     refresh_client.chat(request.clone())?;
     assert_eq!(
         refresh.methods(),
-        vec!["POST", "POST", "PATCH", "POST", "POST"]
+        vec!["POST", "POST", "PATCH", "PATCH", "POST", "POST"]
     );
     let fallback = Script::new(vec![
         cache("cachedContents/old", 120),
         success("old"),
         failure(500, "refresh failed"),
+        failure(500, "refresh failed"),
+        failure(500, "recreate failed"),
         failure(500, "recreate failed"),
         success("uncached fallback"),
     ]);
@@ -98,7 +96,7 @@ fn main() -> AxResult<()> {
     fallback_client.chat(request)?;
     assert_eq!(
         fallback.methods(),
-        vec!["POST", "POST", "PATCH", "POST", "POST"]
+        vec!["POST", "POST", "PATCH", "PATCH", "POST", "POST", "POST"]
     );
     println!("rust-context-cache-recovery-ok");
     Ok(())

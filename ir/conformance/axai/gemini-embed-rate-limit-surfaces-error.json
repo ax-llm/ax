@@ -9,6 +9,11 @@
   "request": {
     "texts": ["one"]
   },
+  "service_options": {
+    "retry": {
+      "maxRetries": 0
+    }
+  },
   "transport_responses": [
     {
       "json": {
