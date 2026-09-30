@@ -1,7 +1,5 @@
 {
-  "expected_deprecations": [
-    "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version."
-  ],
+  "expected_deprecations": [],
   "expected_output": {
     "answer": "done"
   },
@@ -10,6 +8,9 @@
   ],
   "expected_request_count": 2,
   "expected_tool_calls": [],
+  "forward_options": {
+    "function_call_validation": "correct"
+  },
   "input": {
     "question": "Status?"
   },

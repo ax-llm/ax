@@ -883,6 +883,10 @@ module @ax.ai version "0.1" {
     type signature = "(json, number) -> json"
     body @entry(%result: json, %fallback_index: number) {
       %content = core.get %result["content"] default ""
+      // TS's checks of the result's calls need the nested calls this
+      // flattens, so their outcome goes with the completion (AxGen's check
+      // takes it off; see @completion_function_call_problems).
+      %call_problems = core.call @chat_result_function_call_problems(%result, %fallback_index)
       %calls = core.list
       %empty_calls = core.list
       %function_calls = core.get %result["function_calls"] default %empty_calls
@@ -942,6 +946,10 @@ module @ax.ai version "0.1" {
       %has_finish = core.call intrinsic.is_not_none(%finish)
       core.if %has_finish {
         core.set %completion["finish_reason"] = %finish
+      }
+      %has_call_problems = core.call intrinsic.is_not_none(%call_problems)
+      core.if %has_call_problems {
+        core.set %completion["function_call_problems"] = %call_problems
       }
       core.return %completion
     }
@@ -1380,6 +1388,210 @@ module @ax.ai version "0.1" {
         core.set %target["finish_reason"] = %finish
       }
       core.return
+    }
+  }
+
+  op ax.ai.semantic @chat_result_function_call_problems {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "source:src/ax/ai/validate.ts#validateChatResponseFunctionCalls"
+    type signature = "(json, number) -> json"
+    body @entry(%result: json, %result_index: number) {
+      // TS's checks of one result's function calls, in its order for each
+      // call: the call is not null, its id is a non-empty string, its type is
+      // 'function', it has a function object, its name is a non-empty string,
+      // and its params, when given, are a string or an object. The messages
+      // are TS's, with each value as JSON.stringify(value, null, 2) and
+      // undefined for a missing one.
+      //
+      // Returns null when every call passes, else {first, unnamed, call}:
+      // first is the message TS fails with; unnamed is the first failure the
+      // ports' default handles as a call without a name (a null call, one
+      // without a function object or without a name: a correction and
+      // another request); call is the first failure whose call the ports'
+      // default runs as given (the id, type and params checks).
+      //
+      // A flat {id, name, params} call, the ports' completion shape (no type
+      // and no function object), gets the id, name and params checks.
+      %empty = core.list
+      %calls = core.get %result["function_calls"] default %empty
+      %calls_is_list = core.type_is %calls type "list"
+      core.if %calls_is_list {
+      } else {
+        %calls = core.let %empty
+      }
+      %first = core.call intrinsic.none()
+      %unnamed = core.call intrinsic.none()
+      %call_problem = core.call intrinsic.none()
+      %call_index = core.let 0
+      core.for %call in %calls {
+        %problem = core.let ""
+        %kind = core.let ""
+        %is_map = core.type_is %call type "object"
+        core.if %is_map {
+          %has_function = core.call intrinsic.map.contains(%call, "function")
+          %has_type = core.call intrinsic.map.contains(%call, "type")
+          %nested = core.call intrinsic.or(%has_function, %has_type)
+          // The id.
+          %has_id = core.call intrinsic.map.contains(%call, "id")
+          %id = core.get %call["id"]
+          %id_ok = core.let false
+          %id_is_text = core.type_is %id type "string"
+          core.if %id_is_text {
+            %id_trimmed = core.string_trim %id
+            %id_ok = core.call intrinsic.ne(%id_trimmed, "")
+          }
+          %id_bad = core.call intrinsic.not(%id_ok)
+          core.if %id_bad {
+            %id_received = core.let "undefined"
+            core.if %has_id {
+              %id_received = core.call intrinsic.json.pretty(%id)
+            }
+            %problem = core.call intrinsic.string.format("Function call at index {} in result {} must have a non-empty string id, received: {}", %call_index, %result_index, %id_received)
+            %kind = core.let "call"
+          }
+          %fn = core.get %call["function"]
+          %fn_is_map = core.type_is %fn type "object"
+          // The type and the function object (a nested call only).
+          %check_nested = core.call intrinsic.eq(%problem, "")
+          %check_nested = core.call intrinsic.and(%check_nested, %nested)
+          core.if %check_nested {
+            %type = core.get %call["type"]
+            %type_ok = core.call intrinsic.eq(%type, "function")
+            %type_bad = core.call intrinsic.not(%type_ok)
+            core.if %type_bad {
+              %type_received = core.let "undefined"
+              core.if %has_type {
+                %type_received = core.call intrinsic.json.pretty(%type)
+              }
+              %problem = core.call intrinsic.string.format("Function call at index {} in result {} must have type 'function', received: {}", %call_index, %result_index, %type_received)
+              %kind = core.let "call"
+            } else {
+              // TS's !functionCall.function: a missing, null, false, 0 or ''
+              // function fails; any other value goes on to the name.
+              %fn_falsy = core.call intrinsic.is_none(%fn)
+              %fn_false = core.call intrinsic.eq(%fn, false)
+              %fn_zero = core.call intrinsic.eq(%fn, 0)
+              %fn_empty = core.call intrinsic.eq(%fn, "")
+              %fn_falsy = core.call intrinsic.or(%fn_falsy, %fn_false)
+              %fn_falsy = core.call intrinsic.or(%fn_falsy, %fn_zero)
+              %fn_falsy = core.call intrinsic.or(%fn_falsy, %fn_empty)
+              core.if %fn_falsy {
+                %fn_received = core.let "undefined"
+                core.if %has_function {
+                  %fn_received = core.call intrinsic.json.pretty(%fn)
+                }
+                %problem = core.call intrinsic.string.format("Function call at index {} in result {} must have a function object, received: {}", %call_index, %result_index, %fn_received)
+                %kind = core.let "unnamed"
+              }
+            }
+          }
+          // The name: the function object's, or the flat call's.
+          %check_name = core.call intrinsic.eq(%problem, "")
+          core.if %check_name {
+            %has_name = core.let false
+            %name = core.call intrinsic.none()
+            core.if %nested {
+              core.if %fn_is_map {
+                %has_name = core.call intrinsic.map.contains(%fn, "name")
+                %name = core.get %fn["name"]
+              }
+            } else {
+              %has_name = core.call intrinsic.map.contains(%call, "name")
+              %name = core.get %call["name"]
+            }
+            %named = core.let false
+            %name_is_text = core.type_is %name type "string"
+            core.if %name_is_text {
+              %name_trimmed = core.string_trim %name
+              %named = core.call intrinsic.ne(%name_trimmed, "")
+            }
+            %unnamed_call = core.call intrinsic.not(%named)
+            core.if %unnamed_call {
+              %name_received = core.let "undefined"
+              core.if %has_name {
+                %name_received = core.call intrinsic.json.pretty(%name)
+              }
+              %problem = core.call intrinsic.string.format("Function call at index {} in result {} must have a non-empty function name, received: {}", %call_index, %result_index, %name_received)
+              %kind = core.let "unnamed"
+            }
+          }
+          // The params, when given: a string or an object (TS's typeof, so
+          // null and lists pass too); a number or a boolean fails.
+          %check_params = core.call intrinsic.eq(%problem, "")
+          core.if %check_params {
+            %has_params = core.let false
+            %params = core.call intrinsic.none()
+            core.if %nested {
+              core.if %fn_is_map {
+                %has_params = core.call intrinsic.map.contains(%fn, "params")
+                %params = core.get %fn["params"]
+              }
+            } else {
+              %has_params = core.call intrinsic.map.contains(%call, "params")
+              %params = core.get %call["params"]
+            }
+            %params_number = core.type_is %params type "number"
+            %params_bool = core.type_is %params type "boolean"
+            %params_bad = core.call intrinsic.or(%params_number, %params_bool)
+            %params_bad = core.call intrinsic.and(%params_bad, %has_params)
+            core.if %params_bad {
+              %params_received = core.call intrinsic.json.pretty(%params)
+              %problem = core.call intrinsic.string.format("Function call params at index {} in result {} must be a string or object, received: {}", %call_index, %result_index, %params_received)
+              %kind = core.let "call"
+            }
+          }
+        } else {
+          // TS's !functionCall: a null, false, 0 or '' call fails as null;
+          // any other value has no id.
+          %call_null = core.call intrinsic.is_none(%call)
+          %call_false = core.call intrinsic.eq(%call, false)
+          %call_zero = core.call intrinsic.eq(%call, 0)
+          %call_empty = core.call intrinsic.eq(%call, "")
+          %call_falsy = core.call intrinsic.or(%call_null, %call_false)
+          %call_falsy = core.call intrinsic.or(%call_falsy, %call_zero)
+          %call_falsy = core.call intrinsic.or(%call_falsy, %call_empty)
+          core.if %call_falsy {
+            %call_received = core.call intrinsic.json.pretty(%call)
+            %problem = core.call intrinsic.string.format("Function call at index {} in result {} cannot be null or undefined, received: {}", %call_index, %result_index, %call_received)
+          } else {
+            %problem = core.call intrinsic.string.format("Function call at index {} in result {} must have a non-empty string id, received: undefined", %call_index, %result_index)
+          }
+          %kind = core.let "unnamed"
+        }
+        %failed = core.call intrinsic.ne(%problem, "")
+        core.if %failed {
+          %first_unset = core.call intrinsic.is_none(%first)
+          core.if %first_unset {
+            %first = core.let %problem
+          }
+          %is_unnamed = core.call intrinsic.eq(%kind, "unnamed")
+          core.if %is_unnamed {
+            %unnamed_unset = core.call intrinsic.is_none(%unnamed)
+            core.if %unnamed_unset {
+              %unnamed = core.let %problem
+            }
+          } else {
+            %call_unset = core.call intrinsic.is_none(%call_problem)
+            core.if %call_unset {
+              %call_problem = core.let %problem
+            }
+          }
+        }
+        %next_call_index = core.call intrinsic.add(%call_index, 1)
+        %call_index = core.let %next_call_index
+      }
+      %none_failed = core.call intrinsic.is_none(%first)
+      core.if %none_failed {
+        %nothing = core.call intrinsic.none()
+        core.return %nothing
+      }
+      %out = core.map
+      core.set %out["first"] = %first
+      core.set %out["unnamed"] = %unnamed
+      core.set %out["call"] = %call_problem
+      core.return %out
     }
   }
 }
