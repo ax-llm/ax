@@ -23,5 +23,8 @@
   "operation": "evaluate",
   "program": "agent",
   "responses": [],
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

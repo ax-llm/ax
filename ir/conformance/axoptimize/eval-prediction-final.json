@@ -25,5 +25,8 @@
     "input": {
       "question": "Capital of France?"
     }
+  },
+  "options": {
+    "actorMode": "completion"
   }
 }

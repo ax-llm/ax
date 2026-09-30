@@ -3639,7 +3639,7 @@ def _run_ai_cancellation(fixture):
     cancellation_flow.execute("answer", ax("question:string -> answer:string"))
     programs = [
         ("AxGen", ax("question:string -> answer:string")),
-        ("AxAgent", agent("question:string -> answer:string")),
+        ("AxAgent", agent("question:string -> answer:string", {"actorMode":"completion"})),
         ("AxFlow", cancellation_flow),
     ]
     for program_name, program in programs:

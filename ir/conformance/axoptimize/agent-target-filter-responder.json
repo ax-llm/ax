@@ -5,5 +5,8 @@
   "operation": "filter",
   "program": "agent",
   "signature": "question:string -> answer:string",
-  "target": "responder"
+  "target": "responder",
+  "options": {
+    "actorMode": "completion"
+  }
 }

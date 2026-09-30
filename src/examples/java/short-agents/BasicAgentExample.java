@@ -25,7 +25,7 @@ public final class BasicAgentExample {
   static AxAIService client() {
     return Ax.ai("openai", Map.of(
         "api_key", apiKey(),
-        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+        "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-6-luna"),
         "model_config", Map.of("temperature", 0.0)));
   }
 
@@ -57,7 +57,7 @@ public final class BasicAgentExample {
     AxAgent assistant = Ax.agent(
         "question:string, handbook:string -> answer:string, citations:string[] \"Handbook sections the answer relies on\"",
         // Keep the handbook in the runtime, out of the prompt.
-        Map.of("contextFields", List.of("handbook"), "runtime", Map.of("language", "JavaScript")));
+        Map.of("contextFields", List.of("handbook")));
 
     try (AxQuickJsCodeRuntime runtime = new AxQuickJsCodeRuntime()) {
       Map<String, Object> result = assistant.forward(

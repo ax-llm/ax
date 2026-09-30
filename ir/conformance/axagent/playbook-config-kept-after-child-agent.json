@@ -86,7 +86,8 @@
       "name": "helper",
       "signature": "question:string -> answer:string",
       "options": {
-        "directResponse": "off"
+        "directResponse": "off",
+        "actorMode": "completion"
       }
     }
   ]

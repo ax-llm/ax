@@ -32,7 +32,7 @@ func openAIClient() ax.AIClient {
 	}
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.4-mini"
+		model = "gpt-6-luna"
 	}
 	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
@@ -78,7 +78,7 @@ func main() {
 	// Keep the handbook in the runtime, out of the prompt.
 	assistant := ax.NewAgent(
 		`question:string, handbook:string -> answer:string, citations:string[] "Handbook sections the answer relies on"`,
-		map[string]ax.Value{"contextFields": ax.Array("handbook"), "runtime": ax.Object("language", "JavaScript")},
+		map[string]ax.Value{"contextFields": ax.Array("handbook")},
 	)
 
 	output, err := assistant.Forward(

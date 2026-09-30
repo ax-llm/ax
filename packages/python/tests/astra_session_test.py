@@ -202,7 +202,7 @@ def agent_transport(request):
     assert body.get('reasoning')==agent_requests[2]['json'].get('reasoning'), 'reasoning update changed original cache prefix'
     return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':agent_response('executor2','{"completion":{"type":"final","args":["Report reference",{"answer":"REF-42"}]}}')})+'\n\n'}
 agent_tool=fn('lookup').description('Lookup').arg('query',f.string()).execution('background').context_handler(agent_lookup).build()
-agent_program=agent('question -> answer',{'functions':[agent_tool],'directResponse':'off'})
+agent_program=agent('question -> answer',{'actorMode':'completion','functions':[agent_tool],'directResponse':'off'})
 assert agent_program.forward(ai('openai',model='gpt-6-astra',api_key='test',transport=agent_transport),{'question':'Find reference'},{'control':agent_control})=={'answer':'REF-42'}
 assert agent_calls==['REF-42'] and len(agent_requests)==6
 assert len([event for event in agent_control_events if event['type']=='applied'])==5
@@ -229,7 +229,7 @@ def stream_session_transport(request):
         {'type':'response.output_text.delta','delta':'-42'},
         {'type':'response.completed','response':agent_response('responder','Answer: REF-42')}]
     return {'status':200,'body':''.join('data: '+json.dumps(event)+'\n\n' for event in events)}
-stream_agent=agent('question -> answer',{'directResponse':'off'})
+stream_agent=agent('question -> answer',{'actorMode':'completion','directResponse':'off'})
 stream_deltas=list(stream_agent.streaming_forward(ai('openai',model='gpt-6-astra',api_key='test',transport=stream_session_transport),{'question':'Find reference'},{'control':run_control()}))
 streamed_answer=''.join(str(delta['delta'].get('answer','')) for delta in stream_deltas)
 assert streamed_answer=='REF-42', stream_deltas
@@ -578,7 +578,7 @@ def native_mcp_agent_discovery():
     assert not calls
     allowed.set()
     native=replace(native,execution='background')
-    program=agent('question -> answer',{'functions':[{'namespace':'orders','functions':[native]}],'functionDiscovery':True,'directResponse':'off'})
+    program=agent('question -> answer',{'actorMode':'completion','functions':[{'namespace':'orders','functions':[native]}],'functionDiscovery':True,'directResponse':'off'})
     hidden=True
     def model(request):
         nonlocal hidden
@@ -689,7 +689,7 @@ def test_owned_child_controls():
                 raise AxAIServiceAbortedError('Child MCP invocation aborted')
         mcp=AxMCPClient(MCP(),{'namespace':'inventory'})
         mcp.tools=[{'name':'lookup','inputSchema':{'type':'object','additionalProperties':False}}]
-        child_options={'directResponse':'off'}
+        child_options={'actorMode':'completion','directResponse':'off'}
         if cancel:child_options.update({'functionDiscovery':False,'functions':[replace(mcp.native_tools()[0],execution='background')]})
         child=agent('question -> answer',child_options)
         parent=agent('question -> answer',{'directResponse':'off','runtime':runtime}).add_child_agent('team','researcher',child)
@@ -774,7 +774,7 @@ def test_actor_mcp_cancellation_context():
             raise AxAIServiceAbortedError('MCP invocation cancelled')
     client = AxMCPClient(MCP(), {'namespace':'inventory'})
     client.tools = [{'name':'lookup','inputSchema':{'type':'object'}}]
-    program = agent('question -> answer', {'functions':client.native_tools(),'functionDiscovery':False})
+    program = agent('question -> answer', {'actorMode':'completion','functions':client.native_tools(),'functionDiscovery':False})
     try:
         result = program.invoke_callable('utils.lookup', {'query':'probe'}, {'control':control})
         assert result['status']=='error' and 'cancel' in str(result).lower(), result

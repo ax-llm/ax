@@ -7,7 +7,8 @@
     "playbook": {
       "learn": false,
       "now": "2024-01-02T03:04:05.000Z"
-    }
+    },
+    "actorMode": "completion"
   },
   "input": {
     "question": "What should I check?"

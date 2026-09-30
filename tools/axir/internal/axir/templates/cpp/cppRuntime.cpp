@@ -2432,6 +2432,10 @@ Value Core::agent_clarification_error(Value payload, Value state) {
       {"payload", payload},
   });
 }
+Value Core::agent_runtime_is_executable(Value runtime) {
+  auto it = code_runtime_registry().find(str(get_key(runtime, "__code_runtime_id")));
+  return Value(it != code_runtime_registry().end() && it->second != nullptr);
+}
 Value Core::agent_runtime_create_session(Value runtime, Value globals, Value options) {
   std::string runtime_id = str(get_key(runtime, "__code_runtime_id"));
   auto it = code_runtime_registry().find(runtime_id);

@@ -10,7 +10,8 @@
   "kind": "agent_forward",
   "name": "clarification",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {

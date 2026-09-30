@@ -22,5 +22,8 @@
   "name": "agent-component-inventory",
   "operation": "components",
   "program": "agent",
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

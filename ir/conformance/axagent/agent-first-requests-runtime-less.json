@@ -64,7 +64,8 @@
   "kind": "agent_forward",
   "name": "agent-first-requests-runtime-less",
   "options": {
-    "directResponse": "off"
+    "directResponse": "off",
+    "actorMode": "completion"
   },
   "responses": [
     {

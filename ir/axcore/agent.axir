@@ -52,11 +52,8 @@ module @ax.agent version "0.1" {
       %status_log = core.list
       %state = core.map
       %runtime_contract = core.call @normalize_agent_runtime(%options)
-      %has_runtime_direct = core.call intrinsic.map.contains(%options, "runtime")
-      %has_runtime_config = core.call intrinsic.map.contains(%options, "runtimeConfig")
-      %has_runtime_config_snake = core.call intrinsic.map.contains(%options, "runtime_config")
-      %has_any_runtime_config = core.call intrinsic.or(%has_runtime_config, %has_runtime_config_snake)
-      %runtime_enabled = core.call intrinsic.or(%has_runtime_direct, %has_any_runtime_config)
+      %actor_mode = core.call @agent_resolve_actor_mode(%options)
+      %runtime_enabled = core.call intrinsic.eq(%actor_mode, "runtime")
       %context_policy = core.call @resolve_agent_context_policy(%options)
       %executor_model_policy = core.call @resolve_agent_executor_model_policy(%options)
       %callable_inventory = core.call @normalize_agent_callable_inventory(%options)
@@ -343,7 +340,8 @@ module @ax.agent version "0.1" {
     type signature = "(json) -> json"
     body @entry(%options: json) {
       %empty_map = core.map
-      %runtime_camel = core.get %options["runtimeConfig"] default %empty_map
+      %runtime_snake = core.get %options["runtime_config"] default %empty_map
+      %runtime_camel = core.get %options["runtimeConfig"] default %runtime_snake
       %runtime = core.get %options["runtime"] default %runtime_camel
       %raw_language = core.get %runtime["language"] default "JavaScript"
       %trimmed_language = core.string_trim %raw_language
@@ -10713,6 +10711,92 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_resolve_actor_mode {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string throws"
+    body @entry(%options: json) {
+      %camel = core.get %options["actorMode"] default "runtime"
+      %mode = core.get %options["actor_mode"] default %camel
+      %runtime = core.call intrinsic.eq(%mode, "runtime")
+      %completion = core.call intrinsic.eq(%mode, "completion")
+      %valid = core.call intrinsic.or(%runtime, %completion)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %error = core.call intrinsic.error.runtime("actorMode must be 'runtime' or 'completion'")
+        core.raise %error
+      }
+      core.if %completion {
+        %direct = core.get %options["runtime"] default null
+        %camel_config = core.get %options["runtimeConfig"] default null
+        %config = core.get %options["runtime_config"] default %camel_config
+        %has_direct = core.call intrinsic.is_not_none(%direct)
+        %has_config = core.call intrinsic.is_not_none(%config)
+        %conflict = core.call intrinsic.or(%has_direct, %has_config)
+        core.if %conflict {
+          %error = core.call intrinsic.error.runtime("actorMode 'completion' cannot be combined with a runtime")
+          core.raise %error
+        }
+      }
+      core.return %mode
+    }
+  }
+
+  op ax.agent.semantic @agent_resolve_run_actor_mode {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> string throws"
+    body @entry(%state: json, %options: json) {
+      %configured = core.get %state["options"]
+      %default_mode = core.call @agent_resolve_actor_mode(%configured)
+      %camel = core.get %options["actorMode"] default %default_mode
+      %mode = core.get %options["actor_mode"] default %camel
+      %copy = core.map
+      %copy = core.call intrinsic.map.merge(%copy, %configured)
+      core.set %copy["actorMode"] = %mode
+      core.set %copy["actor_mode"] = %mode
+      %resolved = core.call @agent_resolve_actor_mode(%copy)
+      core.return %resolved
+    }
+  }
+
+  op ax.agent.semantic @agent_validate_run_runtime {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %options: json) {
+      %configured = core.get %state["options"]
+      %mode = core.call @agent_resolve_run_actor_mode(%state, %options)
+      %call_runtime = core.get %options["runtime"] default null
+      %completion = core.call intrinsic.eq(%mode, "completion")
+      core.if %completion {
+        %has_runtime = core.call intrinsic.is_not_none(%call_runtime)
+        core.if %has_runtime {
+          %error = core.call intrinsic.error.runtime("actorMode 'completion' cannot be combined with a runtime")
+          core.raise %error
+        }
+        core.return %call_runtime
+      }
+      %constructor_runtime = core.get %configured["runtime"] default null
+      %constructor_executable = core.call intrinsic.agent.runtime.is_executable(%constructor_runtime)
+      %runtime = core.let %call_runtime
+      core.if %constructor_executable {
+        %runtime = core.let %constructor_runtime
+      }
+      %executable = core.call intrinsic.agent.runtime.is_executable(%runtime)
+      %missing = core.call intrinsic.not(%executable)
+      core.if %missing {
+        %error = core.call intrinsic.error.runtime("Agent runtime mode requires an executable AxCodeRuntime before forward; pass a runtime or select actorMode 'completion'")
+        core.raise %error
+      }
+      core.set %options["runtime"] = %runtime
+      core.return %runtime
+    }
+  }
+
   op ax.agent.semantic @agent_runtime_configured {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -10803,19 +10887,24 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(json, json) -> json throws"
     body @entry(%state: json, %options: json) {
-      // TS's agent always runs the RLM stages: its default runtime is
-      // JavaScript. The ports run them when the run has a runtime, the
-      // constructor's, else the forward call's, and their runtime-less stages
-      // otherwise. Each run picks its stages: state keeps the fields of both
-      // stage sets, and the host keeps a stage set for each mode, so switching
-      // keeps each set's instructions and optimized components.
+      // Runtime actors are the default. A constructor's executable runtime
+      // takes precedence; metadata-only configs can use a per-call runtime.
+      %state_options = core.get %state["options"]
+      %actor_mode = core.call @agent_resolve_run_actor_mode(%state, %options)
+      %runtime_mode = core.call intrinsic.eq(%actor_mode, "runtime")
       %configured = core.call @agent_runtime_configured(%state)
-      %runtime = core.get %options["runtime"] default null
-      %has_runtime = core.call intrinsic.is_not_none(%runtime)
-      %runtime_mode = core.call intrinsic.or(%configured, %has_runtime)
+      %runtime = core.call @agent_validate_run_runtime(%state, %options)
       %mode = core.let "plain"
       core.if %runtime_mode {
         %mode = core.let "runtime"
+        %unconfigured = core.call intrinsic.not(%configured)
+        core.if %unconfigured {
+          // Separate cached stage sets when the supplied runtime language or
+          // usage guidance changes between calls.
+          %language = core.call intrinsic.agent.runtime.language(%runtime)
+          %usage = core.call intrinsic.agent.runtime.usage_instructions(%runtime)
+          %mode = core.call intrinsic.string.format("runtime:{}:{}", %language, %usage)
+        }
       }
       %state_runtime = core.get %state["runtime_enabled"] default false
       %active_default = core.let "plain"
@@ -10836,7 +10925,17 @@ module @ax.agent version "0.1" {
           // Only an agent without a constructor runtime switches, and it
           // starts with the runtime-less stages, so the set to build is the
           // forward runtime's.
-          %target = core.call @agent_runtime_stage_fields(%state, %runtime)
+          core.if %runtime_mode {
+            %target = core.call @agent_runtime_stage_fields(%state, %runtime)
+          } else {
+            %plain_options = core.map
+            %plain_options = core.call intrinsic.map.merge(%plain_options, %state_options)
+            core.set %plain_options["actorMode"] = "completion"
+            core.set %plain_options["actor_mode"] = "completion"
+            %signature = core.get %state["signature"]
+            %plain_state = core.call @agent_factory(%signature, %plain_options)
+            %target = core.call @agent_stage_mode_fields(%plain_state)
+          }
         }
         core.for %field in %target {
           %field_value = core.get %target[%field] default null

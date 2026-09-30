@@ -26683,7 +26683,10 @@ fn run_ai_cancellation_fixture(fixture: &Value) -> AxResult<()> {
             "AxGen cancellation retried or reached transport",
         ));
     }
-    let mut cancellation_agent = agent("question:string -> answer:string")?;
+    let mut cancellation_agent = agent_with_options(
+        "question:string -> answer:string",
+        json!({"actorMode":"completion"}),
+    )?;
     let started = std::time::Instant::now();
     let error = cancellation_agent
         .forward_with_cancellation(
@@ -35866,6 +35869,12 @@ fn core_agent_map(entries: &[(&str, CoreValue)]) -> Result<CoreValue, AxError> {
 
 // python: _core_agent_runtime_create_session(runtime, globals_, options)
 #[allow(dead_code)]
+fn core_agent_runtime_is_executable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Bool(
+        matches!(core_arg(args, 0), CoreValue::Host(host) if host.host_type() == "AxCodeRuntime"),
+    ))
+}
+
 fn core_agent_runtime_create_session(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let runtime = core_arg(args, 0);
     let globals = core_agent_or_empty_map(core_arg(args, 1));
@@ -98373,6 +98382,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     let mut v_options = core_arg(args, 1);
     let mut v_action_log = CoreValue::Null;
+    let mut v_actor_mode = CoreValue::Null;
     let mut v_actor_model_state = CoreValue::Null;
     let mut v_actor_prompt_policy = CoreValue::Null;
     let mut v_actor_signatures = CoreValue::Null;
@@ -98423,11 +98433,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_found = CoreValue::Null;
     let mut v_function_call_traces = CoreValue::Null;
     let mut v_guidance_log = CoreValue::Null;
-    let mut v_has_any_runtime_config = CoreValue::Null;
     let mut v_has_cm_config = CoreValue::Null;
-    let mut v_has_runtime_config = CoreValue::Null;
-    let mut v_has_runtime_config_snake = CoreValue::Null;
-    let mut v_has_runtime_direct = CoreValue::Null;
     let mut v_input_fields = CoreValue::Null;
     let mut v_instruction_addenda = CoreValue::Null;
     let mut v_instruction_addenda_camel = CoreValue::Null;
@@ -98569,19 +98575,8 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_status_log = CoreValue::new_list();
     v_state = CoreValue::new_map();
     v_runtime_contract = _normalize_agent_runtime(&[v_options.clone()])?;
-    v_has_runtime_direct = core_map_contains(&[v_options.clone(), CoreValue::from("runtime")])?;
-    v_has_runtime_config =
-        core_map_contains(&[v_options.clone(), CoreValue::from("runtimeConfig")])?;
-    v_has_runtime_config_snake =
-        core_map_contains(&[v_options.clone(), CoreValue::from("runtime_config")])?;
-    v_has_any_runtime_config = core_or(&[
-        v_has_runtime_config.clone(),
-        v_has_runtime_config_snake.clone(),
-    ])?;
-    v_runtime_enabled = core_or(&[
-        v_has_runtime_direct.clone(),
-        v_has_any_runtime_config.clone(),
-    ])?;
+    v_actor_mode = _agent_resolve_actor_mode(&[v_options.clone()])?;
+    v_runtime_enabled = core_eq(&[v_actor_mode.clone(), CoreValue::from("runtime")])?;
     v_context_policy = _resolve_agent_context_policy(&[v_options.clone()])?;
     v_executor_model_policy = _resolve_agent_executor_model_policy(&[v_options.clone()])?;
     v_callable_inventory = _normalize_agent_callable_inventory(&[v_options.clone()])?;
@@ -99369,16 +99364,22 @@ fn _normalize_agent_runtime(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_raw_language = CoreValue::Null;
     let mut v_runtime = CoreValue::Null;
     let mut v_runtime_camel = CoreValue::Null;
+    let mut v_runtime_snake = CoreValue::Null;
     let mut v_runtime_usage_instructions = CoreValue::Null;
     let mut v_state_hooks = CoreValue::Null;
     let mut v_trimmed_language = CoreValue::Null;
     let mut v_usage_camel = CoreValue::Null;
     let mut v_usage_instructions = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
+    v_runtime_snake = core_get(
+        &v_options,
+        &CoreValue::from("runtime_config"),
+        v_empty_map.clone(),
+    );
     v_runtime_camel = core_get(
         &v_options,
         &CoreValue::from("runtimeConfig"),
-        v_empty_map.clone(),
+        v_runtime_snake.clone(),
     );
     v_runtime = core_get(
         &v_options,
@@ -123597,6 +123598,155 @@ fn _agent_actor_stage_signatures(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _agent_resolve_actor_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_resolve_actor_mode");
+    let mut v_options = core_arg(args, 0);
+    let mut v_camel = CoreValue::Null;
+    let mut v_camel_config = CoreValue::Null;
+    let mut v_completion = CoreValue::Null;
+    let mut v_config = CoreValue::Null;
+    let mut v_conflict = CoreValue::Null;
+    let mut v_direct = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_has_config = CoreValue::Null;
+    let mut v_has_direct = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_runtime = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_camel = core_get(
+        &v_options,
+        &CoreValue::from("actorMode"),
+        CoreValue::from("runtime"),
+    );
+    v_mode = core_get(&v_options, &CoreValue::from("actor_mode"), v_camel.clone());
+    v_runtime = core_eq(&[v_mode.clone(), CoreValue::from("runtime")])?;
+    v_completion = core_eq(&[v_mode.clone(), CoreValue::from("completion")])?;
+    v_valid = core_or(&[v_runtime.clone(), v_completion.clone()])?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "actorMode must be 'runtime' or 'completion'",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    if core_truthy(&v_completion) {
+        v_direct = core_get(&v_options, &CoreValue::from("runtime"), CoreValue::Null);
+        v_camel_config = core_get(
+            &v_options,
+            &CoreValue::from("runtimeConfig"),
+            CoreValue::Null,
+        );
+        v_config = core_get(
+            &v_options,
+            &CoreValue::from("runtime_config"),
+            v_camel_config.clone(),
+        );
+        v_has_direct = core_is_not_none(&[v_direct.clone()])?;
+        v_has_config = core_is_not_none(&[v_config.clone()])?;
+        v_conflict = core_or(&[v_has_direct.clone(), v_has_config.clone()])?;
+        if core_truthy(&v_conflict) {
+            v_error = core_runtime_error(&[CoreValue::from(
+                "actorMode 'completion' cannot be combined with a runtime",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(v_mode.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_resolve_run_actor_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_resolve_run_actor_mode");
+    let mut v_state = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_camel = CoreValue::Null;
+    let mut v_configured = CoreValue::Null;
+    let mut v_copy = CoreValue::Null;
+    let mut v_default_mode = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    v_configured = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
+    v_default_mode = _agent_resolve_actor_mode(&[v_configured.clone()])?;
+    v_camel = core_get(
+        &v_options,
+        &CoreValue::from("actorMode"),
+        v_default_mode.clone(),
+    );
+    v_mode = core_get(&v_options, &CoreValue::from("actor_mode"), v_camel.clone());
+    v_copy = CoreValue::new_map();
+    v_copy = core_map_merge(&[v_copy.clone(), v_configured.clone()])?;
+    core_set(&v_copy, CoreValue::from("actorMode"), v_mode.clone())?;
+    core_set(&v_copy, CoreValue::from("actor_mode"), v_mode.clone())?;
+    v_resolved = _agent_resolve_actor_mode(&[v_copy.clone()])?;
+    return Ok(v_resolved.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_validate_run_runtime(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_validate_run_runtime");
+    let mut v_state = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_call_runtime = CoreValue::Null;
+    let mut v_completion = CoreValue::Null;
+    let mut v_configured = CoreValue::Null;
+    let mut v_constructor_executable = CoreValue::Null;
+    let mut v_constructor_runtime = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_executable = CoreValue::Null;
+    let mut v_has_runtime = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_mode = CoreValue::Null;
+    let mut v_runtime = CoreValue::Null;
+    v_configured = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
+    v_mode = _agent_resolve_run_actor_mode(&[v_state.clone(), v_options.clone()])?;
+    v_call_runtime = core_get(&v_options, &CoreValue::from("runtime"), CoreValue::Null);
+    v_completion = core_eq(&[v_mode.clone(), CoreValue::from("completion")])?;
+    if core_truthy(&v_completion) {
+        v_has_runtime = core_is_not_none(&[v_call_runtime.clone()])?;
+        if core_truthy(&v_has_runtime) {
+            v_error = core_runtime_error(&[CoreValue::from(
+                "actorMode 'completion' cannot be combined with a runtime",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+        return Ok(v_call_runtime.clone());
+    }
+    v_constructor_runtime = core_get(&v_configured, &CoreValue::from("runtime"), CoreValue::Null);
+    v_constructor_executable = core_agent_runtime_is_executable(&[v_constructor_runtime.clone()])?;
+    v_runtime = v_call_runtime.clone();
+    if core_truthy(&v_constructor_executable) {
+        v_runtime = v_constructor_runtime.clone();
+    }
+    v_executable = core_agent_runtime_is_executable(&[v_runtime.clone()])?;
+    v_missing = core_not(&[v_executable.clone()])?;
+    if core_truthy(&v_missing) {
+        v_error = core_runtime_error(&[CoreValue::from("Agent runtime mode requires an executable AxCodeRuntime before forward; pass a runtime or select actorMode 'completion'")])?;
+        return Err(core_as_error(&v_error));
+    }
+    core_set(&v_options, CoreValue::from("runtime"), v_runtime.clone())?;
+    return Ok(v_runtime.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _agent_runtime_configured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_runtime_configured");
     let mut v_state = core_arg(args, 0);
@@ -123779,15 +123929,18 @@ fn _agent_use_stage_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_options = core_arg(args, 1);
     let mut v_active = CoreValue::Null;
     let mut v_active_default = CoreValue::Null;
+    let mut v_actor_mode = CoreValue::Null;
     let mut v_cached = CoreValue::Null;
     let mut v_configured = CoreValue::Null;
     let mut v_current_fields = CoreValue::Null;
     let mut v_empty_modes = CoreValue::Null;
     let mut v_field = CoreValue::Null;
     let mut v_field_value = CoreValue::Null;
-    let mut v_has_runtime = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
     let mut v_mode = CoreValue::Null;
     let mut v_modes = CoreValue::Null;
+    let mut v_plain_options = CoreValue::Null;
+    let mut v_plain_state = CoreValue::Null;
     let mut v_prompt_policy = CoreValue::Null;
     let mut v_record = CoreValue::Null;
     let mut v_record_distiller_description = CoreValue::Null;
@@ -123797,16 +123950,31 @@ fn _agent_use_stage_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_record_responder_description = CoreValue::Null;
     let mut v_runtime = CoreValue::Null;
     let mut v_runtime_mode = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_state_options = CoreValue::Null;
     let mut v_state_runtime = CoreValue::Null;
     let mut v_switching = CoreValue::Null;
     let mut v_target = CoreValue::Null;
+    let mut v_unconfigured = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_state_options = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
+    v_actor_mode = _agent_resolve_run_actor_mode(&[v_state.clone(), v_options.clone()])?;
+    v_runtime_mode = core_eq(&[v_actor_mode.clone(), CoreValue::from("runtime")])?;
     v_configured = _agent_runtime_configured(&[v_state.clone()])?;
-    v_runtime = core_get(&v_options, &CoreValue::from("runtime"), CoreValue::Null);
-    v_has_runtime = core_is_not_none(&[v_runtime.clone()])?;
-    v_runtime_mode = core_or(&[v_configured.clone(), v_has_runtime.clone()])?;
+    v_runtime = _agent_validate_run_runtime(&[v_state.clone(), v_options.clone()])?;
     v_mode = CoreValue::from("plain");
     if core_truthy(&v_runtime_mode) {
         v_mode = CoreValue::from("runtime");
+        v_unconfigured = core_not(&[v_configured.clone()])?;
+        if core_truthy(&v_unconfigured) {
+            v_language = core_agent_runtime_language(&[v_runtime.clone()])?;
+            v_usage = core_agent_runtime_usage_instructions(&[v_runtime.clone()])?;
+            v_mode = core_string_format(&[
+                CoreValue::from("runtime:{}:{}"),
+                v_language.clone(),
+                v_usage.clone(),
+            ])?;
+        }
     }
     v_state_runtime = core_get(
         &v_state,
@@ -123836,7 +124004,26 @@ fn _agent_use_stage_mode(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_cached = core_is_not_none(&[v_target.clone()])?;
         if core_truthy(&v_cached) {
         } else {
-            v_target = _agent_runtime_stage_fields(&[v_state.clone(), v_runtime.clone()])?;
+            if core_truthy(&v_runtime_mode) {
+                v_target = _agent_runtime_stage_fields(&[v_state.clone(), v_runtime.clone()])?;
+            } else {
+                v_plain_options = CoreValue::new_map();
+                v_plain_options =
+                    core_map_merge(&[v_plain_options.clone(), v_state_options.clone()])?;
+                core_set(
+                    &v_plain_options,
+                    CoreValue::from("actorMode"),
+                    CoreValue::from("completion"),
+                )?;
+                core_set(
+                    &v_plain_options,
+                    CoreValue::from("actor_mode"),
+                    CoreValue::from("completion"),
+                )?;
+                v_signature = core_get(&v_state, &CoreValue::from("signature"), CoreValue::Null);
+                v_plain_state = _agent_factory(&[v_signature.clone(), v_plain_options.clone()])?;
+                v_target = _agent_stage_mode_fields(&[v_plain_state.clone()])?;
+            }
         }
         for v_field in core_iter(&v_target)? {
             let mut v_field = v_field;
@@ -138472,7 +138659,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (1043 of 1043 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (1046 of 1046 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));

@@ -429,6 +429,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicAgentStageTraces:          "Core.agentStageTraces",
 	IntrinsicAgentClarificationErr:     "Core.agentClarificationError",
 	IntrinsicAgentRuntimeCreate:        "Core.agentRuntimeCreateSession",
+	IntrinsicAgentRuntimeExecutable:        "Core.agentRuntimeIsExecutable",
 	IntrinsicAgentRuntimeExecute:       "Core.agentRuntimeExecute",
 	IntrinsicAgentRuntimeInspect:       "Core.agentRuntimeInspect",
 	IntrinsicAgentRuntimeExport:        "Core.agentRuntimeExportState",

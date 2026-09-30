@@ -1,0 +1,12 @@
+{
+  "expected_description_contains": {
+    "executor_description": [
+      "Your ONLY job is to write JavaScript code",
+      "JavaScript runtime (REPL)"
+    ]
+  },
+  "kind": "agent_prompt",
+  "name": "actor-default-javascript-prompt",
+  "options": {},
+  "signature": "question:string -> answer:string"
+}

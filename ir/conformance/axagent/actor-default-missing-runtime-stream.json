@@ -1,0 +1,14 @@
+{
+  "expected_error_contains": "requires an executable AxCodeRuntime before forward",
+  "expected_request_count": 0,
+  "expected_request_roles": [],
+  "input": {
+    "question": "Hello"
+  },
+  "kind": "agent_streaming_forward",
+  "name": "actor-default-missing-runtime-stream",
+  "options": {},
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "expected_deltas": []
+}

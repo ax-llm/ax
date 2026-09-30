@@ -1614,6 +1614,7 @@ final class Core {
     Object clarification = asList(args).isEmpty() ? payload : asList(args).get(0);
     return new AxAgentClarificationException(clarification, get(state, "runtime_state", Map.of()), payload);
   }
+  static Object agentRuntimeIsExecutable(Object runtime) { return runtime instanceof AxCodeRuntime; }
   static Object agentRuntimeCreateSession(Object runtime, Object globals, Object options) {
     if (!(runtime instanceof AxCodeRuntime rt)) throw new RuntimeException("agent runtime does not implement AxCodeRuntime");
     AxCodeSession session = rt.createSession(asMap(globals), asMap(options));

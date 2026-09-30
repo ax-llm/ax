@@ -136,6 +136,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.agent.observer.notify":                 "core_agent_observer_notify",
 	"intrinsic.agent.transcribe":                      "core_agent_transcribe",
 	"intrinsic.agent.runtime.create_session":          "core_agent_runtime_create_session",
+	"intrinsic.agent.runtime.is_executable":          "core_agent_runtime_is_executable",
 	"intrinsic.agent.runtime.execute":                 "core_agent_runtime_execute",
 	"intrinsic.agent.runtime.inspect":                 "core_agent_runtime_inspect",
 	"intrinsic.agent.runtime.export_state":            "core_agent_runtime_export_state",

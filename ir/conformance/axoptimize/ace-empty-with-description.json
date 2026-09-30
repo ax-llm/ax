@@ -15,5 +15,8 @@
   "kind": "optimize",
   "name": "ace-empty-with-description",
   "now": "2024-01-02T03:04:05.000Z",
-  "operation": "playbook-empty"
+  "operation": "playbook-empty",
+  "options": {
+    "actorMode": "completion"
+  }
 }

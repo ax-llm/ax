@@ -440,7 +440,7 @@ func TestAstraAgentNativeToolsAndActionLog(t *testing.T) {
 	})
 	tool.Description = "Lookup"
 	tool.Args = map[string]Field{"query": {Name: "query", Type: FieldType{Name: "string"}}}
-	program := NewAgent("question -> answer", Object("functions", Array(tool), "directResponse", "off"))
+	program := NewAgent("question -> answer", Object("actorMode","completion","functions", Array(tool), "directResponse", "off"))
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -725,7 +725,7 @@ func TestNativeMCPAgentDiscoveryAndInvocation(t *testing.T){
     authorize:=func(call map[string]Value)(bool,error){if call["client"]!=mcp||call["namespace"]!="orders"||coreGet(coreGet(call,"arguments",nil),"query",nil)!="REF-42"||stableStringify(coreGet(coreGet(call,"tool",nil),"inputSchema",nil))!=stableStringify(schema){return false,fmt.Errorf("Lost MCP authorization context")};authorizations.Add(1);return allowed.Load(),nil}
     mcp=NewAxMCPClient(transport,Object("era","modern","namespace","orders","authorizeToolCall",authorize));if err:=mcp.Init();err!=nil{t.Fatal(err)};native:=mcp.NativeTools()[0];if native.ExecutionMode=="background"{t.Fatal("MCP hints enabled background work")};native=native.Execution("background")
     if _,err:=native.Handler(Object("query","REF-42"));err==nil||!strings.Contains(err.Error(),"MCP tool call denied by host policy: lookup"){t.Fatalf("Denied MCP tool executed: %v",err)};if transport.calls.Load()!=0{t.Fatal("Denied MCP request reached transport")};allowed.Store(true)
-    program:=NewAgent("question -> answer",Object("functions",Array(Object("namespace","orders","functions",Array(native))),"functionDiscovery",true,"directResponse","off"))
+    program:=NewAgent("question -> answer",Object("actorMode","completion","functions",Array(Object("namespace","orders","functions",Array(native))),"functionDiscovery",true,"directResponse","off"))
     model:=&mcpAgentModelTransport{mcp:transport,hidden:true};client:=NewAI("openai",Object("api_key","test","model","gpt-6-astra","transport",model))
     output,err:=program.Forward(context.Background(),client,Object("question","Find reference"),nil);if err!=nil||coreGet(output,"answer",nil)!="not discovered"||transport.calls.Load()!=0||model.requests!=3{t.Fatalf("Discovery boundary failed: %v %v",output,err)}
     program.Discover(Object("tools",Array("orders")));model.hidden=false;model.requests=0
@@ -775,7 +775,7 @@ func TestOwnedChildControlsAndCancellation(t *testing.T){
    raw,_:=json.Marshal(output);var data strings.Builder;event:=sessionCompleted(fmt.Sprintf("child-r%d",n),string(raw));if cancel&&number==6{coreSet(coreGet(event,"response",nil),"output",Array(Object("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")))};sessionSSE(&data,event)
    return AxHTTPStreamResponse{Status:200,Body:io.NopCloser(strings.NewReader(data.String()))},nil
   }
-  mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
+  mcpTransport:=&childMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),control:control,settled:make(chan struct{})};mcp:=NewAxMCPClient(mcpTransport,Object("namespace","inventory"));mcp.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object","additionalProperties",false))};childOptions:=Object("actorMode","completion","directResponse","off");if cancel{childOptions["functionDiscovery"]=false;childOptions["functions"]=Array(mcp.NativeTools()[0].Execution("background"))};child:=NewAgent("question -> answer",childOptions);parent:=NewAgent("question -> answer",Object("directResponse","off","runtime",runtime)).AddChildAgent("team","researcher",child)
   client:=NewAI("openai",Object("model","gpt-6-astra","api_key","test","transport",transport))
   result,err:=parent.Forward(context.Background(),client,Object("question","Find reference"),Object("control",control))
   requestMu.Lock();requestCount:=len(requests);requestMu.Unlock()
@@ -812,7 +812,7 @@ func(t *actorMCPCancellationTransport)SendWithContext(ctx context.Context,m map[
 }
 func TestActorMCPInvocationCancellation(t *testing.T){
  ctx,cancel:=context.WithCancel(context.Background());defer cancel();transport:=&actorMCPCancellationTransport{AxMCPScriptedTransport:NewAxMCPScriptedTransport(nil),cancel:cancel};client:=NewAxMCPClient(transport,Object("namespace","inventory"));client.tools=[]map[string]Value{Object("name","lookup","inputSchema",Object("type","object"))}
- program:=NewAgent("question -> answer",Object("functions",Array(client.NativeTools()[0]),"functionDiscovery",false))
+ program:=NewAgent("question -> answer",Object("actorMode","completion","functions",Array(client.NativeTools()[0]),"functionDiscovery",false))
  defer func(){failure:=recover();if failure==nil||transport.calls!=1{t.Fatal("expected one aborted invocation",failure,transport.calls)};if _,ok:=failure.(AxAIServiceAbortedError);!ok{t.Fatalf("unexpected invocation failure: %T %v",failure,failure)}}()
  program.InvokeCallable("utils.lookup",Object("query","probe"),Object("context",ctx))
 }
@@ -1072,7 +1072,7 @@ func TestAstraAgentStreamingForwardUnderControl(t *testing.T) {
 			mu.Unlock()
 		}
 	})
-	program := NewAgent("question -> answer", Object("directResponse", "off"))
+	program := NewAgent("question -> answer", Object("actorMode","completion","directResponse", "off"))
 	client := NewAI("openai", Object("api_key", "test", "model", "gpt-6-astra", "transport", transport))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

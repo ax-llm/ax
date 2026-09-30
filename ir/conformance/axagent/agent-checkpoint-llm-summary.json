@@ -16,7 +16,8 @@
   "name": "agent-checkpoint-llm-summary",
   "options": {
     "contextFields": [],
-    "summarizerOptions": {}
+    "summarizerOptions": {},
+    "actorMode": "completion"
   },
   "restore_runtime_state": {
     "checkpoint_state": {

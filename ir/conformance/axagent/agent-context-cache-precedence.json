@@ -38,7 +38,8 @@
         "cacheBreakpoint": "after-examples",
         "ttlSeconds": 4444
       }
-    }
+    },
+    "actorMode": "completion"
   },
   "responses": [
     {

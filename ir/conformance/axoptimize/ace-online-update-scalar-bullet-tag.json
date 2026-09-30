@@ -208,5 +208,8 @@
     "prediction": {
       "answer": "bad"
     }
+  },
+  "options": {
+    "actorMode": "completion"
   }
 }

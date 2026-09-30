@@ -12281,6 +12281,7 @@ func _core_agent_clarification_error(values ...Value) Value {
 	}
 	return Object("__error", "clarification", "message", message, "payload", payload)
 }
+func _core_agent_runtime_is_executable(runtime Value) Value { _, ok := runtime.(CodeRuntime); return ok }
 func _core_agent_runtime_create_session(values ...Value) (Value, error) {
 	if len(values) < 1 {
 		return nil, AxError{Category: "runtime", Message: "agent runtime create session missing arguments"}
@@ -15781,7 +15782,7 @@ func runConformanceAICancellation(fixture map[string]Value) {
 	cancellationFlow := NewFlow(Object("id", "cancellation-flow"))
 	cancellationFlow.Execute("answer", flowGen, nil)
 	cancellationGen := NewAx("question:string -> answer:string", nil)
-	cancellationAgent := NewAgent("question:string -> answer:string", nil)
+	cancellationAgent := NewAgent("question:string -> answer:string", Object("actorMode", "completion"))
 	programs := []struct{name string; forward func() (Value, error)}{
 		{"AxGen", func() (Value, error) { return cancellationGen.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
 		{"AxAgent", func() (Value, error) { return cancellationAgent.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},

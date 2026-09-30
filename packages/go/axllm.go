@@ -65651,6 +65651,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_signature Value
 	var v_options Value
 	var v_action_log Value
+	var v_actor_mode Value
 	var v_actor_model_state Value
 	var v_actor_prompt_policy Value
 	var v_actor_signatures Value
@@ -65701,11 +65702,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_found Value
 	var v_function_call_traces Value
 	var v_guidance_log Value
-	var v_has_any_runtime_config Value
 	var v_has_cm_config Value
-	var v_has_runtime_config Value
-	var v_has_runtime_config_snake Value
-	var v_has_runtime_direct Value
 	var v_input_fields Value
 	var v_instruction_addenda Value
 	var v_instruction_addenda_camel Value
@@ -65759,6 +65756,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	if len(args) > 1 { v_options = args[1] }
 	_ = v_options
 	_ = v_action_log
+	_ = v_actor_mode
 	_ = v_actor_model_state
 	_ = v_actor_prompt_policy
 	_ = v_actor_signatures
@@ -65809,11 +65807,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_found
 	_ = v_function_call_traces
 	_ = v_guidance_log
-	_ = v_has_any_runtime_config
 	_ = v_has_cm_config
-	_ = v_has_runtime_config
-	_ = v_has_runtime_config_snake
-	_ = v_has_runtime_direct
 	_ = v_input_fields
 	_ = v_instruction_addenda
 	_ = v_instruction_addenda_camel
@@ -65910,11 +65904,8 @@ func _agent_factory(args ...Value) (Value, error) {
 	v_status_log = MutableArray()
 	v_state = Object()
 	{ v, err := _normalize_agent_runtime(v_options); if err != nil { return nil, err }; v_runtime_contract = v }
-	v_has_runtime_direct = _core_map_contains(v_options, "runtime")
-	v_has_runtime_config = _core_map_contains(v_options, "runtimeConfig")
-	v_has_runtime_config_snake = _core_map_contains(v_options, "runtime_config")
-	v_has_any_runtime_config = _core_or(v_has_runtime_config, v_has_runtime_config_snake)
-	v_runtime_enabled = _core_or(v_has_runtime_direct, v_has_any_runtime_config)
+	{ v, err := _agent_resolve_actor_mode(v_options); if err != nil { return nil, err }; v_actor_mode = v }
+	v_runtime_enabled = _core_eq(v_actor_mode, "runtime")
 	{ v, err := _resolve_agent_context_policy(v_options); if err != nil { return nil, err }; v_context_policy = v }
 	{ v, err := _resolve_agent_executor_model_policy(v_options); if err != nil { return nil, err }; v_executor_model_policy = v }
 	{ v, err := _normalize_agent_callable_inventory(v_options); if err != nil { return nil, err }; v_callable_inventory = v }
@@ -66369,6 +66360,7 @@ func _normalize_agent_runtime(args ...Value) (Value, error) {
 	var v_raw_language Value
 	var v_runtime Value
 	var v_runtime_camel Value
+	var v_runtime_snake Value
 	var v_runtime_usage_instructions Value
 	var v_state_hooks Value
 	var v_trimmed_language Value
@@ -66397,13 +66389,15 @@ func _normalize_agent_runtime(args ...Value) (Value, error) {
 	_ = v_raw_language
 	_ = v_runtime
 	_ = v_runtime_camel
+	_ = v_runtime_snake
 	_ = v_runtime_usage_instructions
 	_ = v_state_hooks
 	_ = v_trimmed_language
 	_ = v_usage_camel
 	_ = v_usage_instructions
 	v_empty_map = Object()
-	v_runtime_camel = coreGet(v_options, "runtimeConfig", v_empty_map)
+	v_runtime_snake = coreGet(v_options, "runtime_config", v_empty_map)
+	v_runtime_camel = coreGet(v_options, "runtimeConfig", v_runtime_snake)
 	v_runtime = coreGet(v_options, "runtime", v_runtime_camel)
 	v_raw_language = coreGet(v_runtime, "language", "JavaScript")
 	v_trimmed_language = coreStringTrim(v_raw_language)
@@ -86622,6 +86616,166 @@ func _agent_actor_stage_signatures(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_resolve_actor_mode(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_resolve_actor_mode")
+	var v_options Value
+	var v_camel Value
+	var v_camel_config Value
+	var v_completion Value
+	var v_config Value
+	var v_conflict Value
+	var v_direct Value
+	var v_error Value
+	var v_has_config Value
+	var v_has_direct Value
+	var v_invalid Value
+	var v_mode Value
+	var v_runtime Value
+	var v_valid Value
+	if len(args) > 0 { v_options = args[0] }
+	_ = v_options
+	_ = v_camel
+	_ = v_camel_config
+	_ = v_completion
+	_ = v_config
+	_ = v_conflict
+	_ = v_direct
+	_ = v_error
+	_ = v_has_config
+	_ = v_has_direct
+	_ = v_invalid
+	_ = v_mode
+	_ = v_runtime
+	_ = v_valid
+	v_camel = coreGet(v_options, "actorMode", "runtime")
+	v_mode = coreGet(v_options, "actor_mode", v_camel)
+	v_runtime = _core_eq(v_mode, "runtime")
+	v_completion = _core_eq(v_mode, "completion")
+	v_valid = _core_or(v_runtime, v_completion)
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_error = _core_runtime_error("actorMode must be 'runtime' or 'completion'")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_completion) {
+		v_direct = coreGet(v_options, "runtime", nil)
+		v_camel_config = coreGet(v_options, "runtimeConfig", nil)
+		v_config = coreGet(v_options, "runtime_config", v_camel_config)
+		v_has_direct = _core_is_not_none(v_direct)
+		v_has_config = _core_is_not_none(v_config)
+		v_conflict = _core_or(v_has_direct, v_has_config)
+		if coreTruthy(v_conflict) {
+			v_error = _core_runtime_error("actorMode 'completion' cannot be combined with a runtime")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_mode, nil
+}
+
+func _agent_resolve_run_actor_mode(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_resolve_run_actor_mode")
+	var v_state Value
+	var v_options Value
+	var v_camel Value
+	var v_configured Value
+	var v_copy Value
+	var v_default_mode Value
+	var v_mode Value
+	var v_resolved Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_camel
+	_ = v_configured
+	_ = v_copy
+	_ = v_default_mode
+	_ = v_mode
+	_ = v_resolved
+	v_configured = coreGet(v_state, "options", nil)
+	{ v, err := _agent_resolve_actor_mode(v_configured); if err != nil { return nil, err }; v_default_mode = v }
+	v_camel = coreGet(v_options, "actorMode", v_default_mode)
+	v_mode = coreGet(v_options, "actor_mode", v_camel)
+	v_copy = Object()
+	v_copy = _core_map_merge(v_copy, v_configured)
+	if err := coreSet(v_copy, "actorMode", v_mode); err != nil { return nil, err }
+	if err := coreSet(v_copy, "actor_mode", v_mode); err != nil { return nil, err }
+	{ v, err := _agent_resolve_actor_mode(v_copy); if err != nil { return nil, err }; v_resolved = v }
+	return v_resolved, nil
+}
+
+func _agent_validate_run_runtime(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_validate_run_runtime")
+	var v_state Value
+	var v_options Value
+	var v_call_runtime Value
+	var v_completion Value
+	var v_configured Value
+	var v_constructor_executable Value
+	var v_constructor_runtime Value
+	var v_error Value
+	var v_executable Value
+	var v_has_runtime Value
+	var v_missing Value
+	var v_mode Value
+	var v_runtime Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_call_runtime
+	_ = v_completion
+	_ = v_configured
+	_ = v_constructor_executable
+	_ = v_constructor_runtime
+	_ = v_error
+	_ = v_executable
+	_ = v_has_runtime
+	_ = v_missing
+	_ = v_mode
+	_ = v_runtime
+	v_configured = coreGet(v_state, "options", nil)
+	{ v, err := _agent_resolve_run_actor_mode(v_state, v_options); if err != nil { return nil, err }; v_mode = v }
+	v_call_runtime = coreGet(v_options, "runtime", nil)
+	v_completion = _core_eq(v_mode, "completion")
+	if coreTruthy(v_completion) {
+		v_has_runtime = _core_is_not_none(v_call_runtime)
+		if coreTruthy(v_has_runtime) {
+			v_error = _core_runtime_error("actorMode 'completion' cannot be combined with a runtime")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		return v_call_runtime, nil
+	} else {
+	// empty
+	}
+	v_constructor_runtime = coreGet(v_configured, "runtime", nil)
+	v_constructor_executable = _core_agent_runtime_is_executable(v_constructor_runtime)
+	v_runtime = v_call_runtime
+	if coreTruthy(v_constructor_executable) {
+		v_runtime = v_constructor_runtime
+	} else {
+	// empty
+	}
+	v_executable = _core_agent_runtime_is_executable(v_runtime)
+	v_missing = _core_not(v_executable)
+	if coreTruthy(v_missing) {
+		v_error = _core_runtime_error("Agent runtime mode requires an executable AxCodeRuntime before forward; pass a runtime or select actorMode 'completion'")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	if err := coreSet(v_options, "runtime", v_runtime); err != nil { return nil, err }
+	return v_runtime, nil
+}
+
 func _agent_runtime_configured(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_runtime_configured")
 	var v_state Value
@@ -86757,15 +86911,18 @@ func _agent_use_stage_mode(args ...Value) (Value, error) {
 	var v_options Value
 	var v_active Value
 	var v_active_default Value
+	var v_actor_mode Value
 	var v_cached Value
 	var v_configured Value
 	var v_current_fields Value
 	var v_empty_modes Value
 	var v_field Value
 	var v_field_value Value
-	var v_has_runtime Value
+	var v_language Value
 	var v_mode Value
 	var v_modes Value
+	var v_plain_options Value
+	var v_plain_state Value
 	var v_prompt_policy Value
 	var v_record Value
 	var v_record_distiller_description Value
@@ -86775,24 +86932,31 @@ func _agent_use_stage_mode(args ...Value) (Value, error) {
 	var v_record_responder_description Value
 	var v_runtime Value
 	var v_runtime_mode Value
+	var v_signature Value
+	var v_state_options Value
 	var v_state_runtime Value
 	var v_switching Value
 	var v_target Value
+	var v_unconfigured Value
+	var v_usage Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_options = args[1] }
 	_ = v_options
 	_ = v_active
 	_ = v_active_default
+	_ = v_actor_mode
 	_ = v_cached
 	_ = v_configured
 	_ = v_current_fields
 	_ = v_empty_modes
 	_ = v_field
 	_ = v_field_value
-	_ = v_has_runtime
+	_ = v_language
 	_ = v_mode
 	_ = v_modes
+	_ = v_plain_options
+	_ = v_plain_state
 	_ = v_prompt_policy
 	_ = v_record
 	_ = v_record_distiller_description
@@ -86802,16 +86966,29 @@ func _agent_use_stage_mode(args ...Value) (Value, error) {
 	_ = v_record_responder_description
 	_ = v_runtime
 	_ = v_runtime_mode
+	_ = v_signature
+	_ = v_state_options
 	_ = v_state_runtime
 	_ = v_switching
 	_ = v_target
+	_ = v_unconfigured
+	_ = v_usage
+	v_state_options = coreGet(v_state, "options", nil)
+	{ v, err := _agent_resolve_run_actor_mode(v_state, v_options); if err != nil { return nil, err }; v_actor_mode = v }
+	v_runtime_mode = _core_eq(v_actor_mode, "runtime")
 	{ v, err := _agent_runtime_configured(v_state); if err != nil { return nil, err }; v_configured = v }
-	v_runtime = coreGet(v_options, "runtime", nil)
-	v_has_runtime = _core_is_not_none(v_runtime)
-	v_runtime_mode = _core_or(v_configured, v_has_runtime)
+	{ v, err := _agent_validate_run_runtime(v_state, v_options); if err != nil { return nil, err }; v_runtime = v }
 	v_mode = "plain"
 	if coreTruthy(v_runtime_mode) {
 		v_mode = "runtime"
+		v_unconfigured = _core_not(v_configured)
+		if coreTruthy(v_unconfigured) {
+			v_language = _core_agent_runtime_language(v_runtime)
+			v_usage = _core_agent_runtime_usage_instructions(v_runtime)
+			v_mode = _core_string_format("runtime:{}:{}", v_language, v_usage)
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
@@ -86834,7 +87011,17 @@ func _agent_use_stage_mode(args ...Value) (Value, error) {
 		if coreTruthy(v_cached) {
 		// empty
 		} else {
-			{ v, err := _agent_runtime_stage_fields(v_state, v_runtime); if err != nil { return nil, err }; v_target = v }
+			if coreTruthy(v_runtime_mode) {
+				{ v, err := _agent_runtime_stage_fields(v_state, v_runtime); if err != nil { return nil, err }; v_target = v }
+			} else {
+				v_plain_options = Object()
+				v_plain_options = _core_map_merge(v_plain_options, v_state_options)
+				if err := coreSet(v_plain_options, "actorMode", "completion"); err != nil { return nil, err }
+				if err := coreSet(v_plain_options, "actor_mode", "completion"); err != nil { return nil, err }
+				v_signature = coreGet(v_state, "signature", nil)
+				{ v, err := _agent_factory(v_signature, v_plain_options); if err != nil { return nil, err }; v_plain_state = v }
+				{ v, err := _agent_stage_mode_fields(v_plain_state); if err != nil { return nil, err }; v_target = v }
+			}
 		}
 		for _, v_field = range coreIter(v_target) {
 			v_field_value = coreGet(v_target, v_field, nil)
@@ -110941,6 +111128,7 @@ func _core_agent_clarification_error(values ...Value) Value {
 	}
 	return Object("__error", "clarification", "message", message, "payload", payload)
 }
+func _core_agent_runtime_is_executable(runtime Value) Value { _, ok := runtime.(CodeRuntime); return ok }
 func _core_agent_runtime_create_session(values ...Value) (Value, error) {
 	if len(values) < 1 {
 		return nil, AxError{Category: "runtime", Message: "agent runtime create session missing arguments"}
@@ -114441,7 +114629,7 @@ func runConformanceAICancellation(fixture map[string]Value) {
 	cancellationFlow := NewFlow(Object("id", "cancellation-flow"))
 	cancellationFlow.Execute("answer", flowGen, nil)
 	cancellationGen := NewAx("question:string -> answer:string", nil)
-	cancellationAgent := NewAgent("question:string -> answer:string", nil)
+	cancellationAgent := NewAgent("question:string -> answer:string", Object("actorMode", "completion"))
 	programs := []struct{name string; forward func() (Value, error)}{
 		{"AxGen", func() (Value, error) { return cancellationGen.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},
 		{"AxAgent", func() (Value, error) { return cancellationAgent.Forward(preflightCtx, preflight, Object("question", "cancel"), Object("infraRetries", 2)) }},

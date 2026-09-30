@@ -11,7 +11,8 @@
   "kind": "agent_forward",
   "name": "agent-audio-transcription",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {

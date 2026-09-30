@@ -28,7 +28,8 @@
     },
     "responderOptions": {
       "excludeFields": ["scratch"]
-    }
+    },
+    "actorMode": "completion"
   },
   "responses": [
     {

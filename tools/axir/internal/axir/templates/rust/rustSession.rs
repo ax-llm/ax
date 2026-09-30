@@ -1734,7 +1734,7 @@ mod tests {
         let gate=Arc::new(MCPAgentGate{started:AtomicBool::new(false),release:Mutex::new(false),ready:Condvar::new(),calls:AtomicUsize::new(0),schema});
         let mut mcp=AxMCPClient::new(Box::new(MCPAgentTransport(gate.clone())),json!({"era":"modern","namespace":"orders"}));mcp.init()?;let allowed=Arc::new(AtomicBool::new(false));let authorizations=Arc::new(AtomicUsize::new(0));let permission=allowed.clone();let counted=authorizations.clone();let schema=gate.schema.clone();mcp.set_tool_authorizer(move|client,call|{assert_eq!(client.namespace(),"orders");assert_eq!(call["namespace"],"orders");assert_eq!(call["tool"]["inputSchema"],schema);assert_eq!(call["arguments"],json!({"query":"REF-42"}));counted.fetch_add(1,Ordering::SeqCst);Ok(Some(permission.load(Ordering::SeqCst)))});let mut native=mcp.native_tools().remove(0);assert_eq!(native.execution,"blocking");native.execution="background".into();
         let denied=native.call(json!({"query":"REF-42"})).unwrap_err();assert!(denied.to_string().contains("MCP tool call denied by host policy: lookup"));assert_eq!(gate.calls.load(Ordering::SeqCst),0);allowed.store(true,Ordering::SeqCst);
-        let mut program=agent_with_options("question -> answer",json!({"functionDiscovery":true,"directResponse":"off"}))?.with_tool_module("orders",vec![native])?;
+        let mut program=agent_with_options("question -> answer",json!({"actorMode":"completion","functionDiscovery":true,"directResponse":"off"}))?.with_tool_module("orders",vec![native])?;
         let hidden=Arc::new(AtomicBool::new(true));let requests=Arc::new(AtomicUsize::new(0));let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(MCPAgentModel{gate:gate.clone(),hidden:hidden.clone(),requests:requests.clone()});
         assert_eq!(program.forward(&mut client,json!({"question":"Find reference"}))?,json!({"answer":"not discovered"}));assert_eq!(gate.calls.load(Ordering::SeqCst),0);assert_eq!(requests.load(Ordering::SeqCst),3);
         program.discover(json!({"tools":["orders"]}))?;hidden.store(false,Ordering::SeqCst);requests.store(0,Ordering::SeqCst);
@@ -1824,7 +1824,7 @@ mod tests {
             let delegated=Arc::new(AtomicBool::new(false));let closed=Arc::new(AtomicUsize::new(0));let requests=Arc::new(Mutex::new(Vec::new()));
             let mcp_calls=Arc::new(AtomicUsize::new(0));let settled=Arc::new(AtomicBool::new(false));
             let mut mcp=AxMCPClient::new(Box::new(ChildMCPCancellation{control:control.clone(),calls:mcp_calls.clone(),settled:settled.clone()}),json!({"era":"legacy","namespace":"inventory"}));mcp.init()?;
-            let mut child=agent_with_options("question -> answer",json!({"directResponse":"off","functionDiscovery":false}))?;
+            let mut child=agent_with_options("question -> answer",json!({"actorMode":"completion","directResponse":"off","functionDiscovery":false}))?;
             if cancel{let mut native=mcp.native_tools().remove(0);native.execution="background".into();child=child.with_tool_module("tools",vec![native])?;}
             let callbacks=Arc::new(Mutex::new(std::collections::BTreeMap::new()));
             let mut parent=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_child_agent("team","researcher",child)?.with_runtime(Box::new(ChildControlRuntime{delegated:delegated.clone(),closed:closed.clone(),callbacks:callbacks.clone()}))?;
@@ -1849,7 +1849,7 @@ mod tests {
         let lookup=tool("lookup").description("Lookup").arg("query",FieldType::string()).execution("background").handler(move |args|{called.fetch_add(1,Ordering::SeqCst);started_tx.send(()).unwrap();release.lock().unwrap().recv_timeout(Duration::from_secs(2)).expect("model should overlap agent tool");Ok(args["query"].clone())});
         let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(AgentSessionTransport{requests:requests.clone(),started:Some(started_rx),release:release_tx});
         let mut client=AxBalancer::from_clients(vec![Box::new(client)],AxBalancerOptions::default())?;
-        let mut program=agent_with_options("question -> answer",json!({"directResponse":"off"}))?.with_tool_module("tools",vec![lookup])?;
+        let mut program=agent_with_options("question -> answer",json!({"actorMode":"completion","directResponse":"off"}))?.with_tool_module("tools",vec![lookup])?;
         assert_eq!(program.forward_with_options(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control))?,json!({"answer":"REF-42"}));assert_eq!(calls.load(Ordering::SeqCst),1);assert_eq!(requests.load(Ordering::SeqCst),6);
         let activity:Vec<Value>=program.get_action_log().into_iter().filter(|v|v["type"]=="function_call").collect();assert_eq!(activity.len(),1);assert_eq!(activity[0]["qualified_name"],"tools.lookup");assert_eq!(activity[0]["call_id"],"agent-call");
         assert_eq!(program.invoke_callable("tools.lookup",json!({"query":"REF-42"}),json!({}))?["status"],"error");assert_eq!(calls.load(Ordering::SeqCst),1);Ok(())
@@ -1960,7 +1960,7 @@ mod tests {
         let mut client=ai("openai",json!({"api_key":"test","model":"gpt-6-astra"}))?.with_transport(AgentStreamTransport{requests:requests.clone()});
         let control=run_control();let events=Arc::new(Mutex::new(Vec::new()));let seen=events.clone();
         control.on_event(move |event|{if matches!(event["type"].as_str(),Some("started"|"completed"|"failed"|"aborted")){seen.lock().unwrap().push(format!("{}@{}",event["type"].as_str().unwrap_or(""),event["path"].as_str().unwrap_or("")));}});
-        let mut program=agent_with_options("question -> answer",json!({"directResponse":"off"}))?;
+        let mut program=agent_with_options("question -> answer",json!({"actorMode":"completion","directResponse":"off"}))?;
         let answer=Rc::new(RefCell::new(String::new()));let streamed=answer.clone();
         program.streaming_forward(&mut client,json!({"question":"Find reference"}),AxForwardOptions::from(json!({})).with_control(control),move |update|{if let Some(text)=update.delta["answer"].as_str(){streamed.borrow_mut().push_str(text);}Ok(())})?;
         assert_eq!(answer.borrow().as_str(),"REF-42");assert_eq!(requests.load(Ordering::SeqCst),3);
