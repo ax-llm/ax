@@ -4741,9 +4741,6 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 	if normalizedErr != nil {
 		return nil, normalizedErr
 	}
-	if verbose {
-		verboseLog(display(mustCore(ai_verbose_stream_log(transportStatus(raw)))))
-	}
 	switch body.(type) {
 	case []any, *AxArray:
 		return &sliceProviderStream{values: asSlice(body)}, nil

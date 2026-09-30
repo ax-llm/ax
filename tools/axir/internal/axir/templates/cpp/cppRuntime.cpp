@@ -5398,7 +5398,6 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         // started (with the first chunk).
         bool verbose = verbose_enabled(merged_options);
         bool stream_logged = false;
-        if (verbose) log_verbose_request(call);
         auto consume = [&](Value chunk) {
           Value raw = chunk;
           Value status = transport_status(chunk);

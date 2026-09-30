@@ -2891,9 +2891,7 @@ impl OpenAICompatibleClient {
                     AxTransportStream::Buffered(response) => response.get("status").and_then(Value::as_u64).unwrap_or(200),
                     AxTransportStream::Reader { status, .. } => u64::from(*status),
                 };
-                if status < 400 {
-                    verbose_log(&verbose_status_log(status, None));
-                }
+                let _ = status;
             }
             let inner=Self::transport_stream_iter(stream)?;
             return Ok(match cancellation{Some(token)=>Box::new(CancellableProviderIterator{inner,token}) as Box<dyn Iterator<Item=AxResult<Value>>>,None=>inner});

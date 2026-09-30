@@ -1027,7 +1027,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Map<String, Object> errorRequest = errorRequest(call, errorOptions);
     // As TS's apiCall, a verbose call (the call's verbose, else the client's)
     // logs the request, then its JSON response or the stream's start.
-    boolean verbose = Core.truthy((errorOptions == null ? options : errorOptions).get("verbose"));
+    boolean verbose = Core.truthy(options.get("verbose"));
     if (verbose) AxGlobals.verboseLog(String.valueOf(Core.ai_verbose_request_log(requestUrl, method, resolvedHeaders, payload)));
     if (transport != null){Object value=transport.call(call,cancellation);if(cancellation!=null)cancellation.throwIfCancelled();if(binaryResponse)return binaryTransportResult(value,errorRequest);Object result=transportResult(value,errorRequest);if(verbose)AxGlobals.verboseLog(String.valueOf(stream?Core.ai_verbose_stream_log(AxGlobals.transportStatus(value)):Core.ai_verbose_response_log(AxGlobals.transportStatus(value),result)));return result;}
     if (credentialProvider == null && (apiKey == null || apiKey.isBlank() || "null".equals(apiKey))) throw new AxAIServiceAuthenticationError("api_key or credential_provider is required", null, null, null, errorRequest);
