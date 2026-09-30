@@ -13,9 +13,6 @@
   },
   "kind": "forward",
   "name": "date-forward-parse-dates-zone-retry",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "results": [

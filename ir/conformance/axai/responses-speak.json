@@ -1,6 +1,5 @@
 {
   "expected_output": {
-    "audio": "base64-speech",
     "data": "base64-speech",
     "format": "mp3",
     "mimeType": "audio/mpeg",
@@ -26,7 +25,7 @@
   "transport_responses": [
     {
       "json": {
-        "audio": "base64-speech"
+        "data": "base64-speech"
       },
       "status": 200
     }

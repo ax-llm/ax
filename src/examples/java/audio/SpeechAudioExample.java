@@ -25,12 +25,12 @@ public final class SpeechAudioExample {
 
   static OpenAIResponsesClient client() {
     return new OpenAIResponsesClient(
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-6-luna"), "model_config", Map.of("temperature", 0.0)));
   }
 
   public static void main(String[] args) throws Exception {
     OpenAIResponsesClient audio = client();
     Map<String, Object> speech = audio.speak(Map.of("text", "Ax turns LLM prompts into typed programs.", "voice", "alloy", "format", "mp3"));
-    System.out.println(Json.stringify(Map.of("format", speech.get("format"), "audioBytesBase64", String.valueOf(speech.get("audio")).length())));
+    System.out.println(Json.stringify(Map.of("format", speech.get("format"), "audioBytesBase64", String.valueOf(speech.get("data")).length())));
   }
 }

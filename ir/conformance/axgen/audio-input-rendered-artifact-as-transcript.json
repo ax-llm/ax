@@ -5,9 +5,7 @@
   },
   "expected_request_count": 1,
   "expected_speak_requests": [],
-  "forward_options": {
-    "renderAudio": true
-  },
+  "forward_options": {},
   "input": {
     "speech": {
       "audio": "SUQzBAA=",

@@ -1,7 +1,7 @@
 // ax-example:start
 // title: Go Date Fields
 // group: generation
-// description: Parses date, datetime and range outputs into ISO 8601 as TypeScript does with parseDates, and passes a time.Time as an input.
+// description: Parses date, datetime and range outputs into ISO 8601 by default as TypeScript does, and passes a time.Time as an input.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: intermediate
@@ -28,17 +28,14 @@ func main() {
 	}
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.4-mini"
+		model = "gpt-6-luna"
 	}
 	client := ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model})
 
-	// parseDates reads the date-typed outputs as TypeScript does: an IANA
-	// zone, an offset or an abbreviation at its literal offset, then
-	// toISOString text. Without it (the default until the next major
-	// version) they keep the model's text.
+	// Date outputs parse by default; set parseDates (or parse_dates) to false to keep text.
 	planner := ax.NewAx(
 		`emailText:string, sentAt:datetime -> meetingStartsAt:datetime "Start time with its time zone", meetingDay:date, travelWindow:dateRange "First and last day away"`,
-		map[string]ax.Value{"parseDates": true},
+        nil,
 	)
 	out, err := planner.Forward(context.Background(), client, map[string]ax.Value{
 		"emailText": "Can we meet next Tuesday at 3pm New York time? I'm travelling from the 8th to the 12th.",

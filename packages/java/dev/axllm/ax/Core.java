@@ -5288,7 +5288,7 @@ final class Core {
           if (Core.truthy(item_not_map)) {
             Object item_json = Core.jsonPretty(item);
             Object item_text = Core.stringFormat("User message content item at index {} must be an object, received: {}", item_index, item_json);
-            Object item_error = Core.aiErrorUnsupported(item_text);
+            Object item_error = Core.aiErrorResponse(item_text);
             throw Core.asRuntime(item_error);
           }
           Object item_type = Core.get(item, "type", null);
@@ -5304,7 +5304,7 @@ final class Core {
               received_type = Core.jsonPretty(item_type);
             }
             Object type_text = Core.stringFormat("User message content item at index {} must have a type, received: {}", item_index, received_type);
-            Object type_error = Core.aiErrorUnsupported(type_text);
+            Object type_error = Core.aiErrorResponse(type_text);
             throw Core.asRuntime(type_error);
           }
           Object next_item_index = Core.add(item_index, 1);
@@ -11169,11 +11169,7 @@ final class Core {
       Object json_speech = Core._speech_json_response_impl(raw, format, transcript);
       speech = json_speech;
     }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object data = Core.get(speech, "data", null);
-    Core.set(out, "audio", data);
-    out = Core.mapMerge(out, speech);
-    return out;
+    return speech;
   }
 
   static Object provider_normalize_realtime_event(Object profile, Object event, Object state, Object ai_name, Object model) {
@@ -12417,18 +12413,7 @@ final class Core {
     Object transcript = Core._speech_request_text_impl(request);
     Object none = Core.none();
     Object speech = Core._speech_json_response_impl(raw, none, transcript);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object data = Core.get(speech, "data", null);
-    Core.set(out, "audio", data);
-    Object named_mime = Core._speech_json_named_mime_type_impl(raw);
-    Object has_named_mime = Core.truthyValue(named_mime);
-    if (Core.truthy(has_named_mime)) {
-      Core.set(out, "mime_type", named_mime);
-      Object mime_params = Core._audio_mime_params_impl(named_mime);
-      out = Core.mapMerge(out, mime_params);
-    }
-    out = Core.mapMerge(out, speech);
-    return out;
+    return speech;
   }
 
   static Object _speech_request_text_impl(Object request) {
@@ -12491,20 +12476,8 @@ final class Core {
       // empty
     }
     if (!Core.truthy(data_is_text)) {
-      Object json_is_object = Core.typeIs(json, "object");
-      Object older = Core.none();
-      if (Core.truthy(json_is_object)) {
-        older = Core.get(json, "audio", null);
-      }
-      Object older_is_text = Core.typeIs(older, "string");
-      if (Core.truthy(older_is_text)) {
-        Core.axgenDeprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.");
-        data = older;
-      }
-      if (!Core.truthy(older_is_text)) {
-        Object error = Core.aiErrorResponse("Speech response JSON did not include audio data", json);
-        throw Core.asRuntime(error);
-      }
+      Object error = Core.aiErrorResponse("Speech response JSON did not include audio data", json);
+      throw Core.asRuntime(error);
     }
     Object mime_type = Core._speech_json_named_mime_type_impl(json);
     Object has_mime = Core.truthyValue(mime_type);
@@ -16927,9 +16900,10 @@ final class Core {
     axirCoverageMark("_render_audio_outputs_impl");
     Object base_options = Core.get(gen, "options", null);
     Object runtime_options = Core.mapMerge(base_options, options);
-    Object render_snake = Core.get(runtime_options, "render_audio", null);
-    Object render = Core.get(runtime_options, "renderAudio", render_snake);
-    Object render_unset = Core.isNone(render);
+    Object gen_snake = Core.get(base_options, "render_audio", Boolean.TRUE);
+    Object gen_render = Core.get(base_options, "renderAudio", gen_snake);
+    Object call_snake = Core.get(options, "render_audio", gen_render);
+    Object render = Core.get(options, "renderAudio", call_snake);
     Object render_on = Core.truthyValue(render);
     Object no_speech = new java.util.LinkedHashMap<String, Object>();
     Object speech = Core.get(runtime_options, "speech", no_speech);
@@ -16954,9 +16928,6 @@ final class Core {
         Object value = Core.get(out, name, null);
         Object is_text = Core.typeIs(value, "string");
         if (Core.truthy(is_text)) {
-          if (Core.truthy(render_unset)) {
-            Core.axgenDeprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.");
-          }
           if (Core.truthy(render_on)) {
             Object request_base = new java.util.LinkedHashMap<String, Object>();
             Object request = Core.mapMerge(request_base, speak_defaults);
@@ -17208,7 +17179,7 @@ final class Core {
     Object empty = new java.util.LinkedHashMap<String, Object>();
     Object call_options = Core.mapMerge(empty, options);
     Object gen_options = Core.mapMerge(empty, base_options);
-    Object gen_snake = Core.get(gen_options, "parse_dates", Boolean.FALSE);
+    Object gen_snake = Core.get(gen_options, "parse_dates", Boolean.TRUE);
     Object gen_parse = Core.get(gen_options, "parseDates", gen_snake);
     Object call_snake = Core.get(call_options, "parse_dates", gen_parse);
     Object parse = Core.get(call_options, "parseDates", call_snake);

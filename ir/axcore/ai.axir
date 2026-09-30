@@ -467,7 +467,7 @@ module @ax.ai version "0.1" {
             core.if %item_not_map {
               %item_json = core.call intrinsic.json.pretty(%item)
               %item_text = core.call intrinsic.string.format("User message content item at index {} must be an object, received: {}", %item_index, %item_json)
-              %item_error = core.call intrinsic.ai.error.unsupported(%item_text)
+              %item_error = core.call intrinsic.ai.error.response(%item_text)
               core.raise %item_error
             }
             %item_type = core.get %item["type"]
@@ -483,7 +483,7 @@ module @ax.ai version "0.1" {
                 %received_type = core.call intrinsic.json.pretty(%item_type)
               }
               %type_text = core.call intrinsic.string.format("User message content item at index {} must have a type, received: {}", %item_index, %received_type)
-              %type_error = core.call intrinsic.ai.error.unsupported(%type_text)
+              %type_error = core.call intrinsic.ai.error.response(%type_text)
               core.raise %type_error
             }
             %next_item_index = core.call intrinsic.add(%item_index, 1)

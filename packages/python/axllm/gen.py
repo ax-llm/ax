@@ -1763,9 +1763,10 @@ def _render_audio_outputs_impl(gen: AxGen, client: AIClient, values: Any, option
     _core_coverage_mark("_render_audio_outputs_impl")
     base_options = _core_get(gen, "options", None)
     runtime_options = _core_map_merge(base_options, options)
-    render_snake = _core_get(runtime_options, "render_audio", None)
-    render = _core_get(runtime_options, "renderAudio", render_snake)
-    render_unset = _core_is_none(render)
+    gen_snake = _core_get(base_options, "render_audio", True)
+    gen_render = _core_get(base_options, "renderAudio", gen_snake)
+    call_snake = _core_get(options, "render_audio", gen_render)
+    render = _core_get(options, "renderAudio", call_snake)
     render_on = _core_truthy(render)
     no_speech = {}
     speech = _core_get(runtime_options, "speech", no_speech)
@@ -1790,10 +1791,6 @@ def _render_audio_outputs_impl(gen: AxGen, client: AIClient, values: Any, option
             value = _core_get(out, name, None)
             is_text = _core_type_is(value, "string")
             if is_text:
-                if render_unset:
-                    _core_axgen_deprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.")
-                else:
-                    pass
                 if render_on:
                     request_base = {}
                     request = _core_map_merge(request_base, speak_defaults)
@@ -2067,7 +2064,7 @@ def _date_parse_dates_option_impl(base_options: Any, options: Any) -> bool:
     empty = {}
     call_options = _core_map_merge(empty, options)
     gen_options = _core_map_merge(empty, base_options)
-    gen_snake = _core_get(gen_options, "parse_dates", False)
+    gen_snake = _core_get(gen_options, "parse_dates", True)
     gen_parse = _core_get(gen_options, "parseDates", gen_snake)
     call_snake = _core_get(call_options, "parse_dates", gen_parse)
     parse = _core_get(call_options, "parseDates", call_snake)

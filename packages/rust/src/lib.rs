@@ -22609,7 +22609,7 @@ fn verification_instruments_summary() -> AxResult<Value> {
         "toolName": tool_call.pointer("/function/name").cloned().unwrap_or(Value::Null),
         "profileId": profile.get("id").cloned().unwrap_or(Value::Null),
         "geminiText": gemini_transcript.get("text").cloned().unwrap_or(Value::Null),
-        "geminiAudio": gemini_speech.get("audio").cloned().unwrap_or(Value::Null),
+        "geminiAudio": gemini_speech.get("data").cloned().unwrap_or(Value::Null),
         "grokCodec": grok_speak.pointer("/output_format/codec").cloned().unwrap_or(Value::Null),
         "grokFormat": grok_transcribe.get("format").cloned().unwrap_or(Value::Null),
         "policyActions": core_value_to_json(&_select_protocol_actions(&[core_value_from_json(&registry)])?).as_array().map(|items| items.len()).unwrap_or(0),
@@ -43082,7 +43082,7 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                         v_item_index.clone(),
                         v_item_json.clone(),
                     ])?;
-                    v_item_error = core_ai_error_unsupported(&[v_item_text.clone()])?;
+                    v_item_error = core_ai_error_response(&[v_item_text.clone()])?;
                     return Err(core_as_error(&v_item_error));
                 }
                 v_item_type = core_get(&v_item, &CoreValue::from("type"), CoreValue::Null);
@@ -43104,7 +43104,7 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                         v_item_index.clone(),
                         v_received_type.clone(),
                     ])?;
-                    v_type_error = core_ai_error_unsupported(&[v_type_text.clone()])?;
+                    v_type_error = core_ai_error_response(&[v_type_text.clone()])?;
                     return Err(core_as_error(&v_type_error));
                 }
                 v_next_item_index = core_add(&[v_item_index.clone(), CoreValue::Num(1f64)])?;
@@ -56449,7 +56449,6 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_request = core_arg(args, 2);
     let mut v_content_type = core_arg(args, 3);
     let mut v_binary_speech = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
     let mut v_descriptor = CoreValue::Null;
     let mut v_dialect = CoreValue::Null;
     let mut v_format = CoreValue::Null;
@@ -56458,7 +56457,6 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_json_speech = CoreValue::Null;
     let mut v_operation = CoreValue::Null;
     let mut v_operations = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
     let mut v_provider_id = CoreValue::Null;
     let mut v_raw_is_text = CoreValue::Null;
     let mut v_speech = CoreValue::Null;
@@ -56505,11 +56503,7 @@ fn provider_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, Ax
             _speech_json_response_impl(&[v_raw.clone(), v_format.clone(), v_transcript.clone()])?;
         v_speech = v_json_speech.clone();
     }
-    v_out = CoreValue::new_map();
-    v_data = core_get(&v_speech, &CoreValue::from("data"), CoreValue::Null);
-    core_set(&v_out, CoreValue::from("audio"), v_data.clone())?;
-    v_out = core_map_merge(&[v_out.clone(), v_speech.clone()])?;
-    return Ok(v_out.clone());
+    return Ok(v_speech.clone());
 }
 
 #[allow(
@@ -59377,29 +59371,13 @@ fn _gemini_normalize_speak_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     axir_coverage_mark("_gemini_normalize_speak_response");
     let mut v_raw = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
-    let mut v_data = CoreValue::Null;
-    let mut v_has_named_mime = CoreValue::Null;
-    let mut v_mime_params = CoreValue::Null;
-    let mut v_named_mime = CoreValue::Null;
     let mut v_none = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
     let mut v_speech = CoreValue::Null;
     let mut v_transcript = CoreValue::Null;
     v_transcript = _speech_request_text_impl(&[v_request.clone()])?;
     v_none = core_none(&[])?;
     v_speech = _speech_json_response_impl(&[v_raw.clone(), v_none.clone(), v_transcript.clone()])?;
-    v_out = CoreValue::new_map();
-    v_data = core_get(&v_speech, &CoreValue::from("data"), CoreValue::Null);
-    core_set(&v_out, CoreValue::from("audio"), v_data.clone())?;
-    v_named_mime = _speech_json_named_mime_type_impl(&[v_raw.clone()])?;
-    v_has_named_mime = core_truthy_value(&[v_named_mime.clone()])?;
-    if core_truthy(&v_has_named_mime) {
-        core_set(&v_out, CoreValue::from("mime_type"), v_named_mime.clone())?;
-        v_mime_params = _audio_mime_params_impl(&[v_named_mime.clone()])?;
-        v_out = core_map_merge(&[v_out.clone(), v_mime_params.clone()])?;
-    }
-    v_out = core_map_merge(&[v_out.clone(), v_speech.clone()])?;
-    return Ok(v_out.clone());
+    return Ok(v_speech.clone());
 }
 
 #[allow(
@@ -59523,31 +59501,17 @@ fn _speech_json_response_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_data_is_text = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_has_mime = CoreValue::Null;
-    let mut v_json_is_object = CoreValue::Null;
     let mut v_mime_type = CoreValue::Null;
-    let mut v_older = CoreValue::Null;
-    let mut v_older_is_text = CoreValue::Null;
     let mut v_speech = CoreValue::Null;
     v_data = _speech_json_data_impl(&[v_json.clone()])?;
     v_data_is_text = core_type_is(&v_data, CoreValue::from("string"));
     if core_truthy(&v_data_is_text) {
     } else {
-        v_json_is_object = core_type_is(&v_json, CoreValue::from("object"));
-        v_older = core_none(&[])?;
-        if core_truthy(&v_json_is_object) {
-            v_older = core_get(&v_json, &CoreValue::from("audio"), CoreValue::Null);
-        }
-        v_older_is_text = core_type_is(&v_older, CoreValue::from("string"));
-        if core_truthy(&v_older_is_text) {
-            core_axgen_deprecation(&[CoreValue::from("speech-json-audio-key"), CoreValue::from("A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")])?;
-            v_data = v_older.clone();
-        } else {
-            v_error = core_ai_error_response(&[
-                CoreValue::from("Speech response JSON did not include audio data"),
-                v_json.clone(),
-            ])?;
-            return Err(core_as_error(&v_error));
-        }
+        v_error = core_ai_error_response(&[
+            CoreValue::from("Speech response JSON did not include audio data"),
+            v_json.clone(),
+        ])?;
+        return Err(core_as_error(&v_error));
     }
     v_mime_type = _speech_json_named_mime_type_impl(&[v_json.clone()])?;
     v_has_mime = core_truthy_value(&[v_mime_type.clone()])?;
@@ -69042,9 +69006,12 @@ fn _render_audio_outputs_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_audio = CoreValue::Null;
     let mut v_audio_field = CoreValue::Null;
     let mut v_base_options = CoreValue::Null;
+    let mut v_call_snake = CoreValue::Null;
     let mut v_field = CoreValue::Null;
     let mut v_field_defaults = CoreValue::Null;
     let mut v_field_speech = CoreValue::Null;
+    let mut v_gen_render = CoreValue::Null;
+    let mut v_gen_snake = CoreValue::Null;
     let mut v_is_array = CoreValue::Null;
     let mut v_is_audio = CoreValue::Null;
     let mut v_is_text = CoreValue::Null;
@@ -69060,8 +69027,6 @@ fn _render_audio_outputs_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_output_fields = CoreValue::Null;
     let mut v_render = CoreValue::Null;
     let mut v_render_on = CoreValue::Null;
-    let mut v_render_snake = CoreValue::Null;
-    let mut v_render_unset = CoreValue::Null;
     let mut v_request = CoreValue::Null;
     let mut v_request_base = CoreValue::Null;
     let mut v_runtime_options = CoreValue::Null;
@@ -69075,17 +69040,26 @@ fn _render_audio_outputs_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_value = CoreValue::Null;
     v_base_options = core_get(&v_gen, &CoreValue::from("options"), CoreValue::Null);
     v_runtime_options = core_map_merge(&[v_base_options.clone(), v_options.clone()])?;
-    v_render_snake = core_get(
-        &v_runtime_options,
+    v_gen_snake = core_get(
+        &v_base_options,
         &CoreValue::from("render_audio"),
-        CoreValue::Null,
+        CoreValue::Bool(true),
+    );
+    v_gen_render = core_get(
+        &v_base_options,
+        &CoreValue::from("renderAudio"),
+        v_gen_snake.clone(),
+    );
+    v_call_snake = core_get(
+        &v_options,
+        &CoreValue::from("render_audio"),
+        v_gen_render.clone(),
     );
     v_render = core_get(
-        &v_runtime_options,
+        &v_options,
         &CoreValue::from("renderAudio"),
-        v_render_snake.clone(),
+        v_call_snake.clone(),
     );
-    v_render_unset = core_is_none(&[v_render.clone()])?;
     v_render_on = core_truthy_value(&[v_render.clone()])?;
     v_no_speech = CoreValue::new_map();
     v_speech = core_get(
@@ -69127,9 +69101,6 @@ fn _render_audio_outputs_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             v_value = core_get(&v_out, &v_name.clone(), CoreValue::Null);
             v_is_text = core_type_is(&v_value, CoreValue::from("string"));
             if core_truthy(&v_is_text) {
-                if core_truthy(&v_render_unset) {
-                    core_axgen_deprecation(&[CoreValue::from("axgen-audio-output-text"), CoreValue::from("AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.")])?;
-                }
                 if core_truthy(&v_render_on) {
                     v_request_base = CoreValue::new_map();
                     v_request =
@@ -69669,7 +69640,7 @@ fn _date_parse_dates_option_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     v_gen_snake = core_get(
         &v_gen_options,
         &CoreValue::from("parse_dates"),
-        CoreValue::Bool(false),
+        CoreValue::Bool(true),
     );
     v_gen_parse = core_get(
         &v_gen_options,

@@ -4711,7 +4711,7 @@ async function writeAgentAudioOutputOracles(): Promise<void> {
     {
       name: 'agent-forward-render-audio-constructor',
       agentOptions: {},
-      portOptions: { renderAudio: true },
+      portOptions: {},
     },
     {
       name: 'agent-forward-render-audio-call',
@@ -4754,7 +4754,7 @@ async function writeAgentAudioOutputOracles(): Promise<void> {
   // (renderAudio's default flips at the next major version).
   writeFixture('agent-forward-audio-text-by-default', {
     ...base,
-    options: { runtime: { language: 'JavaScript' } },
+    options: { runtime: { language: 'JavaScript' }, renderAudio: false },
     speak_responses: [],
     expected_speak_requests: [],
     expected_output: { speech: 'Hello there' },

@@ -20,9 +20,10 @@ module @ax.audio_output version "0.1" {
       // win over the AxGen constructor's.
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
-      %render_snake = core.get %runtime_options["render_audio"]
-      %render = core.get %runtime_options["renderAudio"] default %render_snake
-      %render_unset = core.call intrinsic.is_none(%render)
+      %gen_snake = core.get %base_options["render_audio"] default true
+      %gen_render = core.get %base_options["renderAudio"] default %gen_snake
+      %call_snake = core.get %options["render_audio"] default %gen_render
+      %render = core.get %options["renderAudio"] default %call_snake
       %render_on = core.call intrinsic.truthy(%render)
       %no_speech = core.map
       %speech = core.get %runtime_options["speech"] default %no_speech
@@ -47,12 +48,6 @@ module @ax.audio_output version "0.1" {
           %value = core.get %out[%name]
           %is_text = core.type_is %value type "string"
           core.if %is_text {
-            // Without the option the text stays, as the ports have always
-            // returned it; TS's rendering becomes the default at the next
-            // major version.
-            core.if %render_unset {
-              core.call intrinsic.axgen.deprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.")
-            }
             core.if %render_on {
               %request_base = core.map
               %request = core.call intrinsic.map.merge(%request_base, %speak_defaults)

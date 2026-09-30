@@ -170,7 +170,7 @@ int main() {
     std::cerr << "transcribe response not normalized: " << axllm::stringify(transcript) << "\n";
     return 1;
   }
-  if (!axllm::equal(axllm::Core::get(speech, "audio"), want_audio)) {
+  if (!axllm::equal(axllm::Core::get(speech, "data"), want_audio)) {
     std::cerr << "speak binary response not base64-encoded as expected: "
               << axllm::stringify(speech) << "\n";
     return 1;

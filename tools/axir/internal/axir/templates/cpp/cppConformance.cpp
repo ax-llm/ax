@@ -2062,7 +2062,7 @@ static Value verification_instruments_summary() {
       {"toolName", Core::get(Core::get(tool_call, "function", Value::object()), "name", Value())},
       {"profileId", Core::get(profile, "id", Value())},
       {"geminiText", Core::get(gemini_transcript, "text", Value())},
-      {"geminiAudio", Core::get(gemini_speech, "audio", Value())},
+      {"geminiAudio", Core::get(gemini_speech, "data", Value())},
       {"grokCodec", Core::get(Core::get(grok_speak, "output_format", Value::object()), "codec", Value())},
       {"grokFormat", Core::get(grok_transcribe, "format", Value())},
       {"policyActions", static_cast<int>(Core::iter(Core::_select_protocol_actions(registry)).size())},

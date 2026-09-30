@@ -153,7 +153,7 @@ fn main() -> AxResult<()> {
         "transcribe response not normalized: {transcript}"
     );
     assert!(
-        speech["audio"] == want_audio,
+        speech["data"] == want_audio,
         "speak binary response not base64-encoded as expected: {speech}"
     );
 

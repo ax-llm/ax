@@ -10,7 +10,7 @@ struct ScriptedTransport : axllm::Transport {
     requests.push_back(request);
     std::string url = axllm::stringify(axllm::Core::get(request, "url"));
     if (url.find("/audio/speech") != std::string::npos) {
-      return axllm::object({{"status", 200}, {"json", axllm::object({{"audio", "base64-speech"}})}});
+      return axllm::object({{"status", 200}, {"json", axllm::object({{"data", "base64-speech"}})}});
     }
     if (url.find("/audio/transcriptions") != std::string::npos) {
       return axllm::object({
@@ -33,7 +33,7 @@ int main() {
       {"model", "whisper-1"},
       {"format", "json"},
   }));
-  if (!axllm::equal(axllm::Core::get(speech, "audio"), "base64-speech")) return 1;
+  if (!axllm::equal(axllm::Core::get(speech, "data"), "base64-speech")) return 1;
   if (!axllm::equal(axllm::Core::get(transcript, "text"), "hello world")) return 2;
 
   std::cout << "normalized output:\n"

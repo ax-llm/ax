@@ -4719,7 +4719,7 @@ def validate_chat_request(request: AxChatRequest) -> None:
                 if item_not_map:
                     item_json = _core_json_pretty(item)
                     item_text = _core_string_format("User message content item at index {} must be an object, received: {}", item_index, item_json)
-                    item_error = _core_ai_error_unsupported(item_text)
+                    item_error = _core_ai_error_response(item_text)
                     raise item_error
                 else:
                     pass
@@ -4738,7 +4738,7 @@ def validate_chat_request(request: AxChatRequest) -> None:
                     else:
                         pass
                     type_text = _core_string_format("User message content item at index {} must have a type, received: {}", item_index, received_type)
-                    type_error = _core_ai_error_unsupported(type_text)
+                    type_error = _core_ai_error_response(type_text)
                     raise type_error
                 else:
                     pass
@@ -10779,11 +10779,7 @@ def provider_normalize_speak_response(profile: str, raw: Any, request: Any, cont
     else:
         json_speech = _speech_json_response_impl(raw, format, transcript)
         speech = json_speech
-    out = {}
-    data = _core_get(speech, "data", None)
-    out["audio"] = data
-    out = _core_map_merge(out, speech)
-    return out
+    return speech
 
 
 def provider_normalize_realtime_event(profile: str, event: Any, state: Any, ai_name: str, model: str) -> AxChatResponse:
@@ -12071,19 +12067,7 @@ def _gemini_normalize_speak_response(raw: Any, request: Any) -> Any:
     transcript = _speech_request_text_impl(request)
     none = _core_none()
     speech = _speech_json_response_impl(raw, none, transcript)
-    out = {}
-    data = _core_get(speech, "data", None)
-    out["audio"] = data
-    named_mime = _speech_json_named_mime_type_impl(raw)
-    has_named_mime = _core_truthy(named_mime)
-    if has_named_mime:
-        out["mime_type"] = named_mime
-        mime_params = _audio_mime_params_impl(named_mime)
-        out = _core_map_merge(out, mime_params)
-    else:
-        pass
-    out = _core_map_merge(out, speech)
-    return out
+    return speech
 
 
 def _speech_request_text_impl(request: Any) -> Any:
@@ -12148,19 +12132,8 @@ def _speech_json_response_impl(json: Any, format: Any, transcript: Any) -> Any:
     if data_is_text:
         pass
     else:
-        json_is_object = _core_type_is(json, "object")
-        older = _core_none()
-        if json_is_object:
-            older = _core_get(json, "audio", None)
-        else:
-            pass
-        older_is_text = _core_type_is(older, "string")
-        if older_is_text:
-            _core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
-            data = older
-        else:
-            error = _core_ai_error_response("Speech response JSON did not include audio data", json)
-            raise error
+        error = _core_ai_error_response("Speech response JSON did not include audio data", json)
+        raise error
     mime_type = _speech_json_named_mime_type_impl(json)
     has_mime = _core_truthy(mime_type)
     if has_mime:

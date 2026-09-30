@@ -16129,7 +16129,7 @@ fn verification_instruments_summary() -> AxResult<Value> {
         "toolName": tool_call.pointer("/function/name").cloned().unwrap_or(Value::Null),
         "profileId": profile.get("id").cloned().unwrap_or(Value::Null),
         "geminiText": gemini_transcript.get("text").cloned().unwrap_or(Value::Null),
-        "geminiAudio": gemini_speech.get("audio").cloned().unwrap_or(Value::Null),
+        "geminiAudio": gemini_speech.get("data").cloned().unwrap_or(Value::Null),
         "grokCodec": grok_speak.pointer("/output_format/codec").cloned().unwrap_or(Value::Null),
         "grokFormat": grok_transcribe.get("format").cloned().unwrap_or(Value::Null),
         "policyActions": core_value_to_json(&_select_protocol_actions(&[core_value_from_json(&registry)])?).as_array().map(|items| items.len()).unwrap_or(0),

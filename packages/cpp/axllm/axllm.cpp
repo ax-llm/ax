@@ -7048,7 +7048,7 @@ Value Core::validate_chat_request(Value request) {
         if (Core::truthy(item_not_map)) {
           Value item_json = Core::json_pretty(item);
           Value item_text = Core::string_format(Value("User message content item at index {} must be an object, received: {}"), item_index, item_json);
-          Value item_error = Core::ai_error_unsupported(item_text);
+          Value item_error = Core::ai_error_response(item_text);
           Core::raise_error(item_error);
         }
         Value item_type = Core::get(item, Value("type"), Value());
@@ -7064,7 +7064,7 @@ Value Core::validate_chat_request(Value request) {
             received_type = Core::json_pretty(item_type);
           }
           Value type_text = Core::string_format(Value("User message content item at index {} must have a type, received: {}"), item_index, received_type);
-          Value type_error = Core::ai_error_unsupported(type_text);
+          Value type_error = Core::ai_error_response(type_text);
           Core::raise_error(type_error);
         }
         Value next_item_index = Core::add(item_index, Value(1));
@@ -12892,11 +12892,7 @@ Value Core::provider_normalize_speak_response(Value profile, Value raw, Value re
     Value json_speech = Core::_speech_json_response_impl(raw, format, transcript);
     speech = json_speech;
   }
-  Value out = Value::object();
-  Value data = Core::get(speech, Value("data"), Value());
-  Core::set(out, Value("audio"), data);
-  out = Core::map_merge(out, speech);
-  return out;
+  return speech;
 }
 
 Value Core::provider_normalize_realtime_event(Value profile, Value event, Value state, Value ai_name, Value model) {
@@ -14141,18 +14137,7 @@ Value Core::_gemini_normalize_speak_response(Value raw, Value request) {
   Value transcript = Core::_speech_request_text_impl(request);
   Value none = Core::none();
   Value speech = Core::_speech_json_response_impl(raw, none, transcript);
-  Value out = Value::object();
-  Value data = Core::get(speech, Value("data"), Value());
-  Core::set(out, Value("audio"), data);
-  Value named_mime = Core::_speech_json_named_mime_type_impl(raw);
-  Value has_named_mime = Core::truthy_value(named_mime);
-  if (Core::truthy(has_named_mime)) {
-    Core::set(out, Value("mime_type"), named_mime);
-    Value mime_params = Core::_audio_mime_params_impl(named_mime);
-    out = Core::map_merge(out, mime_params);
-  }
-  out = Core::map_merge(out, speech);
-  return out;
+  return speech;
 }
 
 Value Core::_speech_request_text_impl(Value request) {
@@ -14215,20 +14200,8 @@ Value Core::_speech_json_response_impl(Value json, Value format, Value transcrip
     // empty
   }
   if (!Core::truthy(data_is_text)) {
-    Value json_is_object = Core::type_is(json, Value("object"));
-    Value older = Core::none();
-    if (Core::truthy(json_is_object)) {
-      older = Core::get(json, Value("audio"), Value());
-    }
-    Value older_is_text = Core::type_is(older, Value("string"));
-    if (Core::truthy(older_is_text)) {
-      Core::axgen_deprecation(Value("speech-json-audio-key"), Value("A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version."));
-      data = older;
-    }
-    if (!Core::truthy(older_is_text)) {
-      Value error = Core::ai_error_response(Value("Speech response JSON did not include audio data"), json);
-      Core::raise_error(error);
-    }
+    Value error = Core::ai_error_response(Value("Speech response JSON did not include audio data"), json);
+    Core::raise_error(error);
   }
   Value mime_type = Core::_speech_json_named_mime_type_impl(json);
   Value has_mime = Core::truthy_value(mime_type);
@@ -18651,9 +18624,10 @@ Value Core::_render_audio_outputs_impl(Value gen, Value client, Value values, Va
   axir_coverage_mark("_render_audio_outputs_impl");
   Value base_options = Core::get(gen, Value("options"), Value());
   Value runtime_options = Core::map_merge(base_options, options);
-  Value render_snake = Core::get(runtime_options, Value("render_audio"), Value());
-  Value render = Core::get(runtime_options, Value("renderAudio"), render_snake);
-  Value render_unset = Core::is_none(render);
+  Value gen_snake = Core::get(base_options, Value("render_audio"), Value(true));
+  Value gen_render = Core::get(base_options, Value("renderAudio"), gen_snake);
+  Value call_snake = Core::get(options, Value("render_audio"), gen_render);
+  Value render = Core::get(options, Value("renderAudio"), call_snake);
   Value render_on = Core::truthy_value(render);
   Value no_speech = Value::object();
   Value speech = Core::get(runtime_options, Value("speech"), no_speech);
@@ -18678,9 +18652,6 @@ Value Core::_render_audio_outputs_impl(Value gen, Value client, Value values, Va
       Value value = Core::get(out, name, Value());
       Value is_text = Core::type_is(value, Value("string"));
       if (Core::truthy(is_text)) {
-        if (Core::truthy(render_unset)) {
-          Core::axgen_deprecation(Value("axgen-audio-output-text"), Value("AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version."));
-        }
         if (Core::truthy(render_on)) {
           Value request_base = Value::object();
           Value request = Core::map_merge(request_base, speak_defaults);
@@ -18932,7 +18903,7 @@ Value Core::_date_parse_dates_option_impl(Value base_options, Value options) {
   Value empty = Value::object();
   Value call_options = Core::map_merge(empty, options);
   Value gen_options = Core::map_merge(empty, base_options);
-  Value gen_snake = Core::get(gen_options, Value("parse_dates"), Value(false));
+  Value gen_snake = Core::get(gen_options, Value("parse_dates"), Value(true));
   Value gen_parse = Core::get(gen_options, Value("parseDates"), gen_snake);
   Value call_snake = Core::get(call_options, Value("parse_dates"), gen_parse);
   Value parse = Core::get(call_options, Value("parseDates"), call_snake);

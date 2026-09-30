@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-cpp-audio/SKILL.md",
-      "digest": "sha256:feab5be48ca0b9b4bcc15a819862b44915cf9978f82e91de43229c74c9b3ae10"
+      "digest": "sha256:c4683b6b553bc05d439710a21232b377c0838ddae48fa98e8871ae6e4a6f9039"
     },
     {
       "name": "ax-cpp-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:d25f20cf87e619d6b00826a202987f01165430e7e416ecf52329cc39ee59dd43"
+      "digest": "sha256:8b0566f06e96e20b1f59fb2c94df955166014af70a2773e30b82ddd85c0108b8"
     },
     {
       "name": "ax-cpp-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:f61db5dcb451f775f154e5c4d761eb7233d2e7957a7d82e93ac968fafae211fa"
+      "digest": "sha256:b292e9561b241fe75a842e0d33ec775df334e254ca4bbcdd6e1f4cf18e92df80"
     },
     {
       "name": "ax-cpp-agent-rlm",

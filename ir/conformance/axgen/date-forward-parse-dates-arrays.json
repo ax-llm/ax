@@ -19,9 +19,6 @@
   },
   "kind": "forward",
   "name": "date-forward-parse-dates-arrays",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "results": [

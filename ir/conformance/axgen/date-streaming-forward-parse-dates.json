@@ -50,13 +50,13 @@
     }
   ],
   "expected_output": {
-    "note": "all set",
     "due": "2024-05-09T00:00:00.000Z",
-    "when": "2024-05-09T09:00:00.000Z",
+    "note": "all set",
     "span": {
       "end": "2024-05-12T00:00:00.000Z",
       "start": "2024-05-09T00:00:00.000Z"
     },
+    "when": "2024-05-09T09:00:00.000Z",
     "window": {
       "end": "2024-05-09T15:30:00.000Z",
       "start": "2024-05-09T14:30:00.000Z"
@@ -68,9 +68,6 @@
   },
   "kind": "streaming_forward",
   "name": "date-streaming-forward-parse-dates",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "stream": [

@@ -10383,7 +10383,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 				if coreTruthy(v_item_not_map) {
 					v_item_json = _core_json_pretty(v_item)
 					v_item_text = _core_string_format("User message content item at index {} must be an object, received: {}", v_item_index, v_item_json)
-					v_item_error = _core_ai_error_unsupported(v_item_text)
+					v_item_error = _core_ai_error_response(v_item_text)
 					return nil, asError(v_item_error)
 				} else {
 				// empty
@@ -10405,7 +10405,7 @@ func validate_chat_request(args ...Value) (Value, error) {
 					// empty
 					}
 					v_type_text = _core_string_format("User message content item at index {} must have a type, received: {}", v_item_index, v_received_type)
-					v_type_error = _core_ai_error_unsupported(v_type_text)
+					v_type_error = _core_ai_error_response(v_type_text)
 					return nil, asError(v_type_error)
 				} else {
 				// empty
@@ -22979,7 +22979,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	var v_request Value
 	var v_content_type Value
 	var v_binary_speech Value
-	var v_data Value
 	var v_descriptor Value
 	var v_dialect Value
 	var v_format Value
@@ -22988,7 +22987,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	var v_json_speech Value
 	var v_operation Value
 	var v_operations Value
-	var v_out Value
 	var v_provider_id Value
 	var v_raw_is_text Value
 	var v_speech Value
@@ -23002,7 +23000,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	if len(args) > 3 { v_content_type = args[3] }
 	_ = v_content_type
 	_ = v_binary_speech
-	_ = v_data
 	_ = v_descriptor
 	_ = v_dialect
 	_ = v_format
@@ -23011,7 +23008,6 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 	_ = v_json_speech
 	_ = v_operation
 	_ = v_operations
-	_ = v_out
 	_ = v_provider_id
 	_ = v_raw_is_text
 	_ = v_speech
@@ -23039,11 +23035,7 @@ func provider_normalize_speak_response(args ...Value) (Value, error) {
 		{ v, err := _speech_json_response_impl(v_raw, v_format, v_transcript); if err != nil { return nil, err }; v_json_speech = v }
 		v_speech = v_json_speech
 	}
-	v_out = Object()
-	v_data = coreGet(v_speech, "data", nil)
-	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
-	v_out = _core_map_merge(v_out, v_speech)
-	return v_out, nil
+	return v_speech, nil
 }
 
 func provider_normalize_realtime_event(args ...Value) (Value, error) {
@@ -25530,43 +25522,20 @@ func _gemini_normalize_speak_response(args ...Value) (Value, error) {
 	axirCoverageMark("_gemini_normalize_speak_response")
 	var v_raw Value
 	var v_request Value
-	var v_data Value
-	var v_has_named_mime Value
-	var v_mime_params Value
-	var v_named_mime Value
 	var v_none Value
-	var v_out Value
 	var v_speech Value
 	var v_transcript Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
-	_ = v_data
-	_ = v_has_named_mime
-	_ = v_mime_params
-	_ = v_named_mime
 	_ = v_none
-	_ = v_out
 	_ = v_speech
 	_ = v_transcript
 	{ v, err := _speech_request_text_impl(v_request); if err != nil { return nil, err }; v_transcript = v }
 	v_none = _core_none()
 	{ v, err := _speech_json_response_impl(v_raw, v_none, v_transcript); if err != nil { return nil, err }; v_speech = v }
-	v_out = Object()
-	v_data = coreGet(v_speech, "data", nil)
-	if err := coreSet(v_out, "audio", v_data); err != nil { return nil, err }
-	{ v, err := _speech_json_named_mime_type_impl(v_raw); if err != nil { return nil, err }; v_named_mime = v }
-	v_has_named_mime = _core_truthy(v_named_mime)
-	if coreTruthy(v_has_named_mime) {
-		if err := coreSet(v_out, "mime_type", v_named_mime); err != nil { return nil, err }
-		{ v, err := _audio_mime_params_impl(v_named_mime); if err != nil { return nil, err }; v_mime_params = v }
-		v_out = _core_map_merge(v_out, v_mime_params)
-	} else {
-	// empty
-	}
-	v_out = _core_map_merge(v_out, v_speech)
-	return v_out, nil
+	return v_speech, nil
 }
 
 func _speech_request_text_impl(args ...Value) (Value, error) {
@@ -25696,10 +25665,7 @@ func _speech_json_response_impl(args ...Value) (Value, error) {
 	var v_data_is_text Value
 	var v_error Value
 	var v_has_mime Value
-	var v_json_is_object Value
 	var v_mime_type Value
-	var v_older Value
-	var v_older_is_text Value
 	var v_speech Value
 	if len(args) > 0 { v_json = args[0] }
 	_ = v_json
@@ -25711,31 +25677,15 @@ func _speech_json_response_impl(args ...Value) (Value, error) {
 	_ = v_data_is_text
 	_ = v_error
 	_ = v_has_mime
-	_ = v_json_is_object
 	_ = v_mime_type
-	_ = v_older
-	_ = v_older_is_text
 	_ = v_speech
 	{ v, err := _speech_json_data_impl(v_json); if err != nil { return nil, err }; v_data = v }
 	v_data_is_text = coreTypeIs(v_data, "string")
 	if coreTruthy(v_data_is_text) {
 	// empty
 	} else {
-		v_json_is_object = coreTypeIs(v_json, "object")
-		v_older = _core_none()
-		if coreTruthy(v_json_is_object) {
-			v_older = coreGet(v_json, "audio", nil)
-		} else {
-		// empty
-		}
-		v_older_is_text = coreTypeIs(v_older, "string")
-		if coreTruthy(v_older_is_text) {
-			_core_axgen_deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
-			v_data = v_older
-		} else {
-			v_error = _core_ai_error_response("Speech response JSON did not include audio data", v_json)
-			return nil, asError(v_error)
-		}
+		v_error = _core_ai_error_response("Speech response JSON did not include audio data", v_json)
+		return nil, asError(v_error)
 	}
 	{ v, err := _speech_json_named_mime_type_impl(v_json); if err != nil { return nil, err }; v_mime_type = v }
 	v_has_mime = _core_truthy(v_mime_type)
@@ -34891,9 +34841,12 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	var v_audio Value
 	var v_audio_field Value
 	var v_base_options Value
+	var v_call_snake Value
 	var v_field Value
 	var v_field_defaults Value
 	var v_field_speech Value
+	var v_gen_render Value
+	var v_gen_snake Value
 	var v_is_array Value
 	var v_is_audio Value
 	var v_is_text Value
@@ -34909,8 +34862,6 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	var v_output_fields Value
 	var v_render Value
 	var v_render_on Value
-	var v_render_snake Value
-	var v_render_unset Value
 	var v_request Value
 	var v_request_base Value
 	var v_runtime_options Value
@@ -34935,9 +34886,12 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	_ = v_audio
 	_ = v_audio_field
 	_ = v_base_options
+	_ = v_call_snake
 	_ = v_field
 	_ = v_field_defaults
 	_ = v_field_speech
+	_ = v_gen_render
+	_ = v_gen_snake
 	_ = v_is_array
 	_ = v_is_audio
 	_ = v_is_text
@@ -34953,8 +34907,6 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	_ = v_output_fields
 	_ = v_render
 	_ = v_render_on
-	_ = v_render_snake
-	_ = v_render_unset
 	_ = v_request
 	_ = v_request_base
 	_ = v_runtime_options
@@ -34968,9 +34920,10 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 	_ = v_value
 	v_base_options = coreGet(v_gen, "options", nil)
 	v_runtime_options = _core_map_merge(v_base_options, v_options)
-	v_render_snake = coreGet(v_runtime_options, "render_audio", nil)
-	v_render = coreGet(v_runtime_options, "renderAudio", v_render_snake)
-	v_render_unset = _core_is_none(v_render)
+	v_gen_snake = coreGet(v_base_options, "render_audio", true)
+	v_gen_render = coreGet(v_base_options, "renderAudio", v_gen_snake)
+	v_call_snake = coreGet(v_options, "render_audio", v_gen_render)
+	v_render = coreGet(v_options, "renderAudio", v_call_snake)
 	v_render_on = _core_truthy(v_render)
 	v_no_speech = Object()
 	v_speech = coreGet(v_runtime_options, "speech", v_no_speech)
@@ -34995,11 +34948,6 @@ func _render_audio_outputs_impl(args ...Value) (Value, error) {
 			v_value = coreGet(v_out, v_name, nil)
 			v_is_text = coreTypeIs(v_value, "string")
 			if coreTruthy(v_is_text) {
-				if coreTruthy(v_render_unset) {
-					_core_axgen_deprecation("axgen-audio-output-text", "AxGen audio output fields return the model's text; TypeScript Ax turns them into audio with the AI client's speak(). Pass renderAudio: true to render them now, or renderAudio: false to keep the text. Rendering becomes the default in the next major version.")
-				} else {
-				// empty
-				}
 				if coreTruthy(v_render_on) {
 					v_request_base = Object()
 					v_request = _core_map_merge(v_request_base, v_speak_defaults)
@@ -35552,7 +35500,7 @@ func _date_parse_dates_option_impl(args ...Value) (Value, error) {
 	v_empty = Object()
 	v_call_options = _core_map_merge(v_empty, v_options)
 	v_gen_options = _core_map_merge(v_empty, v_base_options)
-	v_gen_snake = coreGet(v_gen_options, "parse_dates", false)
+	v_gen_snake = coreGet(v_gen_options, "parse_dates", true)
 	v_gen_parse = coreGet(v_gen_options, "parseDates", v_gen_snake)
 	v_call_snake = coreGet(v_call_options, "parse_dates", v_gen_parse)
 	v_parse = coreGet(v_call_options, "parseDates", v_call_snake)

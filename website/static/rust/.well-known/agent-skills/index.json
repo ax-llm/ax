@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-rust-audio/SKILL.md",
-      "digest": "sha256:4a0731b92c25ea8e23c7c782e55aaf08b76e0b0f39d8b24a5615c4a27a6f7584"
+      "digest": "sha256:578672ea4513a8871e90b84c815288c4158a067d1caf01f1438f10de575042e9"
     },
     {
       "name": "ax-rust-signature",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:48987080b4694255d9ead3fdfa7f162d18b6302054ef75c2d501fd0b257b4d46"
+      "digest": "sha256:19ffc32545fa5fcf308f3f1f3ee6fbec011eefb860f178a816b19cd979d90c73"
     },
     {
       "name": "ax-rust-flow",
@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:195bac726bee8cf72bdf869d538382cdfd3021937c3578ed27f741d55c2886ad"
+      "digest": "sha256:c318e74a519f95172c2649263ecc238d07556ae2987a79923de8ecc53d737c86"
     },
     {
       "name": "ax-rust-agent-rlm",

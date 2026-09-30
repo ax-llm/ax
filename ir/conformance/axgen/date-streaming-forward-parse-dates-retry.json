@@ -32,9 +32,6 @@
   },
   "kind": "streaming_forward",
   "name": "date-streaming-forward-parse-dates-retry",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "stream": [

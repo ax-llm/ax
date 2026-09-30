@@ -5733,12 +5733,7 @@ module @ax.provider version "0.1" {
         %json_speech = core.call @speech_json_response_impl(%raw, %format, %transcript)
         %speech = core.let %json_speech
       }
-      // The older key, kept until the next major version: audio beside data.
-      %out = core.map
-      %data = core.get %speech["data"]
-      core.set %out["audio"] = %data
-      %out = core.call intrinsic.map.merge(%out, %speech)
-      core.return %out
+      core.return %speech
     }
   }
 
@@ -7142,21 +7137,7 @@ module @ax.provider version "0.1" {
       %transcript = core.call @speech_request_text_impl(%request)
       %none = core.call intrinsic.none()
       %speech = core.call @speech_json_response_impl(%raw, %none, %transcript)
-      // The older keys, kept until the next major version: audio beside data,
-      // and mime_type, sample_rate and channels when the body names a mime
-      // type.
-      %out = core.map
-      %data = core.get %speech["data"]
-      core.set %out["audio"] = %data
-      %named_mime = core.call @speech_json_named_mime_type_impl(%raw)
-      %has_named_mime = core.call intrinsic.truthy(%named_mime)
-      core.if %has_named_mime {
-        core.set %out["mime_type"] = %named_mime
-        %mime_params = core.call @audio_mime_params_impl(%named_mime)
-        %out = core.call intrinsic.map.merge(%out, %mime_params)
-      }
-      %out = core.call intrinsic.map.merge(%out, %speech)
-      core.return %out
+      core.return %speech
     }
   }
 
@@ -7242,27 +7223,13 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/audio/api.ts"
     type signature = "(json, json, json) -> json throws"
     body @entry(%json: json, %format: json, %transcript: json) {
-      // TS axFetchJsonSpeech: the audio is audio_data, audioData, data,
-      // audio.data, output.audio.data, or a Gemini candidate part's inline
-      // data. The ports' older `audio` text still works, with a deprecation
-      // warning, until the next major version; anything else is TS's error.
+      // Read the same JSON audio keys as TypeScript's axFetchJsonSpeech.
       %data = core.call @speech_json_data_impl(%json)
       %data_is_text = core.type_is %data type "string"
       core.if %data_is_text {
       } else {
-        %json_is_object = core.type_is %json type "object"
-        %older = core.call intrinsic.none()
-        core.if %json_is_object {
-          %older = core.get %json["audio"]
-        }
-        %older_is_text = core.type_is %older type "string"
-        core.if %older_is_text {
-          core.call intrinsic.axgen.deprecation("speech-json-audio-key", "A JSON speech response read from its `audio` key: TypeScript Ax reads the audio from audio_data, audioData, data or audio.data and rejects this body. Send one of those keys; the `audio` key stops working in the next major version.")
-          %data = core.let %older
-        } else {
-          %error = core.call intrinsic.ai.error.response("Speech response JSON did not include audio data", %json)
-          core.raise %error
-        }
+        %error = core.call intrinsic.ai.error.response("Speech response JSON did not include audio data", %json)
+        core.raise %error
       }
       %mime_type = core.call @speech_json_named_mime_type_impl(%json)
       %has_mime = core.call intrinsic.truthy(%mime_type)

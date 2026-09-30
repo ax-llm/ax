@@ -2512,7 +2512,7 @@ transport_requests = []
 def scripted_transport(request):
     transport_requests.append(request)
     if request["url"].endswith("/audio/speech"):
-        return {"status": 200, "json": {"audio": "base64-speech"}}
+        return {"status": 200, "json": {"data": "base64-speech"}}
     if request["url"].endswith("/audio/transcriptions"):
         return {
             "status": 200,
@@ -2526,7 +2526,7 @@ speech = client.speak({"text": "hello", "voice": "alloy", "format": "mp3"})
 transcript = client.transcribe(
     {"audio": "base64-audio", "language": "en", "model": "whisper-1", "format": "json"}
 )
-assert speech["audio"] == "base64-speech", speech
+assert speech["data"] == "base64-speech", speech
 assert transcript["text"] == "hello world", transcript
 
 print("normalized output:")
@@ -2623,7 +2623,7 @@ try:
     speech = client.speak(
         {"text": "hello", "voice": "alloy", "format": "mp3", "model": "gpt-4o-mini-tts"}
     )
-    assert speech["audio"] == want_audio, f"speak binary base64 mismatch: {speech}"
+    assert speech["data"] == want_audio, f"speak binary base64 mismatch: {speech}"
 finally:
     server.shutdown()
 
@@ -3315,7 +3315,7 @@ public final class AudioResponsesMappingExample {
           transportRequests.add(new LinkedHashMap<>(request));
           String url = String.valueOf(request.get("url"));
           if (url.endsWith("/audio/speech")) {
-            return Map.of("status", 200, "json", Map.of("audio", "base64-speech"));
+            return Map.of("status", 200, "json", Map.of("data", "base64-speech"));
           }
           if (url.endsWith("/audio/transcriptions")) {
             return Map.of(
@@ -3334,7 +3334,7 @@ public final class AudioResponsesMappingExample {
     Map<String, Object> transcript =
         client.transcribe(
             Map.of("audio", "base64-audio", "language", "en", "model", "whisper-1", "format", "json"));
-    if (!"base64-speech".equals(speech.get("audio"))) throw new RuntimeException("bad speech: " + speech);
+    if (!"base64-speech".equals(speech.get("data"))) throw new RuntimeException("bad speech: " + speech);
     if (!"hello world".equals(transcript.get("text"))) throw new RuntimeException("bad transcript: " + transcript);
 
     System.out.println("normalized output:");
@@ -3421,7 +3421,7 @@ public final class AudioHTTPRoundtripExample {
       Map<String, Object> speech =
           client.speak(
               Map.of("text", "hello", "voice", "alloy", "format", "mp3", "model", "gpt-4o-mini-tts"));
-      if (!wantAudio.equals(speech.get("audio")))
+      if (!wantAudio.equals(speech.get("data")))
         throw new RuntimeException("speak binary response not base64-encoded as expected: " + speech);
     } finally {
       server.stop(0);
@@ -4450,7 +4450,7 @@ int main() {
     std::cerr << "transcribe response not normalized: " << axllm::stringify(transcript) << "\n";
     return 1;
   }
-  if (!axllm::equal(axllm::Core::get(speech, "audio"), want_audio)) {
+  if (!axllm::equal(axllm::Core::get(speech, "data"), want_audio)) {
     std::cerr << "speak binary response not base64-encoded as expected: "
               << axllm::stringify(speech) << "\n";
     return 1;
@@ -4968,7 +4968,7 @@ struct ScriptedTransport : axllm::Transport {
     requests.push_back(request);
     std::string url = axllm::stringify(axllm::Core::get(request, "url"));
     if (url.find("/audio/speech") != std::string::npos) {
-      return axllm::object({{"status", 200}, {"json", axllm::object({{"audio", "base64-speech"}})}});
+      return axllm::object({{"status", 200}, {"json", axllm::object({{"data", "base64-speech"}})}});
     }
     if (url.find("/audio/transcriptions") != std::string::npos) {
       return axllm::object({
@@ -4991,7 +4991,7 @@ int main() {
       {"model", "whisper-1"},
       {"format", "json"},
   }));
-  if (!axllm::equal(axllm::Core::get(speech, "audio"), "base64-speech")) return 1;
+  if (!axllm::equal(axllm::Core::get(speech, "data"), "base64-speech")) return 1;
   if (!axllm::equal(axllm::Core::get(transcript, "text"), "hello world")) return 2;
 
   std::cout << "normalized output:\n"

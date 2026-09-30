@@ -1,16 +1,16 @@
 {
   "expected_output": {
     "due": "2024-05-09T00:00:00.000Z",
-    "when": "2024-05-09T18:30:00.000Z",
+    "note": "all set",
     "span": {
       "end": "2024-05-12T00:00:00.000Z",
       "start": "2024-05-09T00:00:00.000Z"
     },
+    "when": "2024-05-09T18:30:00.000Z",
     "window": {
       "end": "2024-05-09T15:30:00.000Z",
       "start": "2024-05-09T14:30:00.000Z"
-    },
-    "note": "all set"
+    }
   },
   "expected_request_count": 1,
   "input": {
@@ -18,9 +18,6 @@
   },
   "kind": "forward",
   "name": "date-forward-parse-dates",
-  "options": {
-    "parse_dates": true
-  },
   "responses": [
     {
       "results": [

@@ -26,7 +26,7 @@ func openAIClient() ax.AxAIService {
 	if apiKey == "" { apiKey = os.Getenv("OPENAI_APIKEY") }
 	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
 	model := os.Getenv("AX_OPENAI_MODEL")
-	if model == "" { model = "gpt-5.4-mini" }
+	if model == "" { model = "gpt-6-luna" }
 	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)}).(ax.AxAIService)
 }
 
@@ -43,6 +43,6 @@ func main() {
 	speech, err := client.Speak(ctx, map[string]ax.Value{"text": "Ax turns LLM prompts into typed programs.", "voice": "alloy", "format": "mp3"}, nil)
 	if err != nil { panic(err) }
 	sp := speech.(map[string]ax.Value)
-	audio, _ := sp["audio"].(string)
+	audio, _ := sp["data"].(string)
 	printJSON(ax.Object("format", sp["format"], "audioBytesBase64", len(audio)))
 }

@@ -1,7 +1,7 @@
 // ax-example:start
 // title: Rust Date Fields
 // group: generation
-// description: Parses date, datetime and range outputs into ISO 8601 as TypeScript does with parse_dates; named zones read the platform tz database.
+// description: Parses date, datetime and range outputs into ISO 8601 by default as TypeScript does; named zones read the platform tz database.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: intermediate
@@ -17,17 +17,13 @@ fn main() -> AxResult<()> {
         .map_err(|_| {
             axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.")
         })?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-6-luna".to_string());
     let mut client = ai("openai", json!({"api_key": api_key, "model": model}))?;
 
-    // parse_dates reads the date-typed outputs as TypeScript does: an IANA
-    // zone (from $TZDIR or /usr/share/zoneinfo), an offset or an abbreviation
-    // at its literal offset, then toISOString text. Without it (the default
-    // until the next major version) they keep the model's text.
+    // Date outputs parse by default; set parseDates (or parse_dates) to false to keep text.
     let mut planner = ax(
         r#"emailText:string, sentAt:datetime -> meetingStartsAt:datetime "Start time with its time zone", meetingDay:date, travelWindow:dateRange "First and last day away""#,
     )?;
-    planner.options = json!({"parse_dates": true});
     let out = planner.forward_with_options(
         &mut client,
         json!({

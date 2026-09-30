@@ -1,6 +1,5 @@
 {
   "expected_output": {
-    "audio": "AAAAAA==",
     "data": "AAAAAA==",
     "format": "pcm",
     "mimeType": "audio/pcm;rate=24000",
