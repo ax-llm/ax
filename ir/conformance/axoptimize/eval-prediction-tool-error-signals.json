@@ -1,0 +1,151 @@
+{
+  "expected_prediction_fields": {
+    "failureSignals": [
+      {
+        "code": "{\"url\":\"https://example.com/a\"}",
+        "detail": "tools.download failed: Download failed: upstream returned 503 Service Unavailable please retry later, please retry later, please retry later, …",
+        "kind": "tool_error",
+        "occurrences": 2,
+        "signature": "tools.download: Download failed: upstream returned 503 Service Unavailable p",
+        "turn": 1
+      }
+    ],
+    "functionCalls": [
+      {
+        "arguments": {
+          "url": "https://example.com/a"
+        },
+        "error": "Download failed:\n  upstream   returned 503 Service Unavailable  \nplease retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, ",
+        "name": "download",
+        "qualifiedName": "tools.download"
+      },
+      {
+        "arguments": {
+          "url": "https://example.com/a"
+        },
+        "error": "Download failed:\n  upstream   returned 503 Service Unavailable  \nplease retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, ",
+        "name": "download",
+        "qualifiedName": "tools.download"
+      }
+    ],
+    "toolErrors": [
+      "tools.download: Download failed:\n  upstream   returned 503 Service Unavailable  \nplease retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, ",
+      "tools.download: Download failed:\n  upstream   returned 503 Service Unavailable  \nplease retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, "
+    ],
+    "turnCount": 3
+  },
+  "expected_prediction_subset": {
+    "completionType": "final",
+    "output": {
+      "answer": "Docs"
+    }
+  },
+  "kind": "optimize",
+  "name": "eval-prediction-tool-error-signals",
+  "operation": "eval",
+  "options": {
+    "callable_results": {
+      "tools.download": {
+        "error": "Download failed:\n  upstream   returned 503 Service Unavailable  \nplease retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, please retry later, "
+      }
+    },
+    "contextFields": [],
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Download a file",
+            "name": "download",
+            "parameters": {
+              "properties": {
+                "url": {
+                  "description": "File URL",
+                  "type": "string"
+                }
+              },
+              "required": ["url"],
+              "type": "object"
+            }
+          }
+        ],
+        "namespace": "tools",
+        "title": "Tools"
+      }
+    ]
+  },
+  "program": "agent",
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"downloadCaught\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"downloadCaught\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "Answer: Docs"
+    }
+  ],
+  "runtime_language": "JavaScript",
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "downloadCaught",
+      "result": {
+        "callable": {
+          "args": {
+            "url": "https://example.com/a"
+          },
+          "qualified_name": "tools.download"
+        },
+        "output": "download failed; skipping"
+      }
+    },
+    {
+      "expected_code": "downloadCaught",
+      "result": {
+        "callable": {
+          "args": {
+            "url": "https://example.com/a"
+          },
+          "qualified_name": "tools.download"
+        },
+        "output": "download failed; skipping"
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "task": {
+    "input": {
+      "question": "Find the docs."
+    }
+  }
+}

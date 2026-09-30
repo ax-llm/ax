@@ -3351,10 +3351,23 @@ const evalToolSpecs = {
       required: ['url'],
     },
   },
+  download: {
+    name: 'download',
+    description: 'Download a file',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string', description: 'File URL' } },
+      required: ['url'],
+    },
+  },
 } as const;
+// A long, multi-line tool error: TS's failure signal collapses it to one line
+// and cuts it to 120 characters with an ellipsis.
+const evalLongToolError = `Download failed:\n  upstream   returned 503 Service Unavailable  \n${'please retry later, '.repeat(8)}`;
 const evalToolResults = {
   search: { value: { title: 'Docs' } },
   fetch: { error: 'fetch failed' },
+  download: { error: evalLongToolError },
 } as const;
 const evalSteps = {
   final: {
@@ -3397,6 +3410,17 @@ const evalSteps = {
   respond: {
     expected_code: "respond('Ready', {})",
     result: { type: 'respond', args: ['Ready', {}] },
+  },
+  // The step's code catches the tool's error and goes on.
+  downloadCaught: {
+    expected_code: 'downloadCaught',
+    result: {
+      callable: {
+        qualified_name: 'tools.download',
+        args: { url: 'https://example.com/a' },
+      },
+      output: 'download failed; skipping',
+    },
   },
 } as const;
 
@@ -3454,6 +3478,14 @@ function evalToolRuntime(): AxCodeRuntime {
             return JSON.stringify(
               await g.tools.fetch({ url: 'https://example.com' })
             );
+          }
+          if (code === 'downloadCaught') {
+            try {
+              await g.tools.download({ url: 'https://example.com/a' });
+            } catch {
+              return 'download failed; skipping';
+            }
+            return '';
           }
           if (code === evalFinalCode) {
             g.final('Answer', { answer: 'Docs' });
@@ -3623,6 +3655,27 @@ await (async () => {
       ],
       completionType: 'final',
     },
+    {
+      // Only tool errors (the code catches them): TS's failure signals are
+      // one merged tool_error signal, pinned below.
+      name: 'eval-prediction-tool-error-signals',
+      tools: ['download'] as const,
+      responses: [
+        evalCode(evalFinalCode),
+        evalCode('downloadCaught'),
+        evalCode('downloadCaught'),
+        evalCode(evalFinalCode),
+        { content: 'Answer: Docs' },
+      ],
+      runtime_script: [
+        evalSteps.final,
+        evalSteps.downloadCaught,
+        evalSteps.downloadCaught,
+        evalSteps.final,
+      ],
+      completionType: 'final',
+      pinSignals: true,
+    },
   ];
   for (const scenario of scenarios) {
     const student = evalStudent(scenario.responses);
@@ -3670,6 +3723,9 @@ await (async () => {
         // TS's structured clarification (normalizeClarificationForError).
         ...(prediction.completionType === 'askClarification'
           ? { clarification: prediction.clarification }
+          : {}),
+        ...('pinSignals' in scenario
+          ? { failureSignals: prediction.failureSignals ?? [] }
           : {}),
       },
     } as never);

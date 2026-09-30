@@ -5082,6 +5082,14 @@ module @ax.agent version "0.1" {
       core.set %record["arguments"] = %args
       core.set %record["status"] = %status
       core.set %record["result"] = %result
+      // The turn of the step the call belongs to, as TS's action log entry
+      // numbers it (see @agent_stage_step_turn).
+      %step_turn = core.get %state["active_step_turn"]
+      %no_step_turn = core.call intrinsic.is_none(%step_turn)
+      core.if %no_step_turn {
+        %step_turn = core.call @agent_stage_step_turn(%state)
+      }
+      core.set %record["turn"] = %step_turn
       core.append %trace, %record
       core.set %state["function_call_traces"] = %trace
       %action_log = core.get %state["action_log"] default %empty_list
@@ -6158,6 +6166,10 @@ module @ax.agent version "0.1" {
       core.if %missing_session {
         %session = core.call @agent_runtime_create_session(%state, %runtime, %globals, %runtime_options)
       }
+      // The step's turn, for the tool calls it makes: while it runs, or after
+      // its entry is logged when its result asks for the call.
+      %step_turn = core.call @agent_stage_step_turn(%state)
+      core.set %state["active_step_turn"] = %step_turn
       %raw = core.call intrinsic.agent.runtime.execute(%session, %code, %runtime_options)
       %normalized = core.call @normalize_agent_runtime_step_result(%raw, %code)
       core.call @agent_attach_code_analysis(%normalized, %raw)
@@ -6242,6 +6254,7 @@ module @ax.agent version "0.1" {
         core.set %state["status_log"] = %status_log
         core.call @agent_record_trace_event(%state, "status", %status)
       }
+      core.call intrinsic.map.delete(%state, "active_step_turn")
       core.return %normalized
     }
   }
@@ -8436,27 +8449,52 @@ module @ax.agent version "0.1" {
         %next_call_index = core.call intrinsic.add(%call_index, 1)
         %call_index = core.let %next_call_index
         core.if %failed {
+          // As TS's failure report: the error on one line, cut to 120
+          // characters; a signature of the qualified name and the line's
+          // first 60; the turn of the call's step; the JSON arguments as the
+          // code; and one signal per signature, counting its occurrences.
           %result = core.get %call["result"] default null
-          %error_text = core.get %result["error"] default "tool call failed"
-          %error_preview = core.call intrinsic.string.slice(%error_text, 0, 120)
+          %error_raw = core.get %result["error"] default "tool call failed"
+          %error_text = core.call intrinsic.string.str(%error_raw)
+          %error_line = core.call @agent_truncate_inline(%error_text, 120)
           %qualified_name = core.get %call["qualified_name"] default "tool"
-          %signature_error = core.call intrinsic.string.slice(%error_text, 0, 60)
-          %signature = core.call intrinsic.string.format("{}:{}", %qualified_name, %signature_error)
-          %detail = core.call intrinsic.string.format("{} failed: {}", %qualified_name, %error_preview)
-          %signal = core.map
-          core.set %signal["kind"] = "tool_error"
-          core.set %signal["turn"] = 0
-          core.set %signal["signature"] = %signature
-          core.set %signal["detail"] = %detail
-          %arguments = core.get %call["arguments"] default null
-          %has_arguments = core.call intrinsic.is_not_none(%arguments)
-          core.if %has_arguments {
-            %arguments_text = core.call intrinsic.string.format("{}", %arguments)
-            %arguments_preview = core.call intrinsic.string.slice(%arguments_text, 0, 240)
-            core.set %signal["code"] = %arguments_preview
+          %signature_error = core.call intrinsic.string.slice(%error_line, 0, 60)
+          %signature = core.call intrinsic.string.format("{}: {}", %qualified_name, %signature_error)
+          %merged = core.let false
+          core.for %existing in %signals {
+            %existing_kind = core.get %existing["kind"] default ""
+            %existing_signature = core.get %existing["signature"] default ""
+            %same_kind = core.call intrinsic.eq(%existing_kind, "tool_error")
+            %same_signature = core.call intrinsic.eq(%existing_signature, %signature)
+            %same = core.call intrinsic.and(%same_kind, %same_signature)
+            %not_merged = core.call intrinsic.not(%merged)
+            %merge_here = core.call intrinsic.and(%same, %not_merged)
+            core.if %merge_here {
+              %existing_count = core.get %existing["occurrences"] default 1
+              %next_count = core.call intrinsic.add(%existing_count, 1)
+              core.set %existing["occurrences"] = %next_count
+              %merged = core.let true
+            }
           }
-          core.set %signal["occurrences"] = 1
-          core.append %signals, %signal
+          %add_signal = core.call intrinsic.not(%merged)
+          core.if %add_signal {
+            %detail = core.call intrinsic.string.format("{} failed: {}", %qualified_name, %error_line)
+            %signal = core.map
+            core.set %signal["kind"] = "tool_error"
+            %call_turn = core.get %call["turn"] default 0
+            core.set %signal["turn"] = %call_turn
+            core.set %signal["signature"] = %signature
+            core.set %signal["detail"] = %detail
+            %has_arguments = core.call intrinsic.map.contains(%call, "arguments")
+            core.if %has_arguments {
+              %arguments = core.get %call["arguments"]
+              %arguments_text = core.call intrinsic.json.stringify(%arguments)
+              %arguments_preview = core.call @agent_truncate_inline(%arguments_text, 240)
+              core.set %signal["code"] = %arguments_preview
+            }
+            core.set %signal["occurrences"] = 1
+            core.append %signals, %signal
+          }
         }
       }
       core.set %state["failure_signals"] = %signals
@@ -10091,6 +10129,10 @@ module @ax.agent version "0.1" {
       %no_run_fact = core.call intrinsic.none()
       core.set %state["executor_request"] = %no_run_fact
       core.set %state["executor_result"] = %no_run_fact
+      // A stage run's steps are numbered from here (a tool call's turn).
+      %distiller_log_start = core.get %state["action_log"] default %empty_list
+      %distiller_log_start_count = core.call intrinsic.len(%distiller_log_start)
+      core.set %state["stage_log_start"] = %distiller_log_start_count
       %transcribed_values = core.call @agent_transcribe_audio_inputs(%state, %client, %values, %options)
       %values = core.let %transcribed_values
       %runtime_input_names = core.list
@@ -10212,6 +10254,9 @@ module @ax.agent version "0.1" {
       core.set %state["loaded_skill_docs"] = %executor_skills_after
       core.set %state["active_stage"] = "executor"
       core.call @agent_mark_stage_action_log_start(%state)
+      %executor_log_start = core.get %state["action_log"] default %empty_list
+      %executor_log_start_count = core.call intrinsic.len(%executor_log_start)
+      core.set %state["stage_log_start"] = %executor_log_start_count
       %executor_payload = core.call intrinsic.none()
       %distiller_payload_type = core.get %distiller_payload["type"] default ""
       %distiller_is_respond = core.call intrinsic.eq(%distiller_payload_type, "respond")
@@ -13350,6 +13395,59 @@ module @ax.agent version "0.1" {
         core.set %out["choices"] = %normalized_choices
       }
       core.return %out
+    }
+  }
+  op ax.agent.semantic @agent_truncate_inline {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/failureReport.ts#truncateInline"
+    type signature = "(string, i64) -> string"
+    body @entry(%text: string, %max_chars: i64) {
+      // TS's truncateInline: runs of whitespace collapse to one space, the
+      // ends are trimmed, and a longer text keeps max - 1 characters and an
+      // ellipsis.
+      %spaced = core.call intrinsic.regex.replace("\\s+", " ", %text)
+      %collapsed = core.string_trim %spaced
+      %length = core.call intrinsic.len(%collapsed)
+      %too_long = core.call intrinsic.gt(%length, %max_chars)
+      core.if %too_long {
+        %keep = core.call intrinsic.add(%max_chars, -1)
+        %head = core.call intrinsic.string.slice(%collapsed, 0, %keep)
+        %cut = core.call intrinsic.string.format("{}…", %head)
+        core.return %cut
+      }
+      core.return %collapsed
+    }
+  }
+  op ax.agent.semantic @agent_stage_step_turn {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/agentInternal/actorLoopTurn.ts"
+    type signature = "(json) -> i64"
+    body @entry(%state: json) {
+      // The turn of the next step of the running stage, as TS's action log
+      // entry numbers it: the steps the stage run has logged, plus one.
+      %empty_list = core.list
+      %log = core.get %state["action_log"] default %empty_list
+      %log_start = core.get %state["stage_log_start"] default 0
+      %steps = core.let 0
+      %index = core.let 0
+      core.for %entry in %log {
+        %in_stage = core.call intrinsic.gte(%index, %log_start)
+        %entry_type = core.get %entry["type"] default ""
+        %is_step = core.call intrinsic.eq(%entry_type, "runtime_step")
+        %counts = core.call intrinsic.and(%in_stage, %is_step)
+        core.if %counts {
+          %next_steps = core.call intrinsic.add(%steps, 1)
+          %steps = core.let %next_steps
+        }
+        %next_index = core.call intrinsic.add(%index, 1)
+        %index = core.let %next_index
+      }
+      %turn = core.call intrinsic.add(%steps, 1)
+      core.return %turn
     }
   }
 }
