@@ -45,6 +45,7 @@ func main() {
 			"content", "",
 			"function_calls", ax.Array(ax.Object(
 				"id", "call_1",
+				"type", "function",
 				"function", ax.Object("name", "search", "params", ax.Object("query", "ax docs")),
 			)),
 		))),

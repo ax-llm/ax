@@ -6143,6 +6143,7 @@ final class Core {
   static Object _chat_result_to_completion(Object result, Object fallback_index) {
     axirCoverageMark("_chat_result_to_completion");
     Object content = Core.get(result, "content", "");
+    Object call_problems = Core._chat_result_function_call_problems(result, fallback_index);
     Object calls = new java.util.ArrayList<Object>();
     Object empty_calls = new java.util.ArrayList<Object>();
     Object function_calls = Core.get(result, "function_calls", empty_calls);
@@ -6198,6 +6199,10 @@ final class Core {
     Object has_finish = Core.isNotNone(finish);
     if (Core.truthy(has_finish)) {
       Core.set(completion, "finish_reason", finish);
+    }
+    Object has_call_problems = Core.isNotNone(call_problems);
+    if (Core.truthy(has_call_problems)) {
+      Core.set(completion, "function_call_problems", call_problems);
     }
     return completion;
   }
@@ -6424,18 +6429,6 @@ final class Core {
     return none;
   }
 
-  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
-    axirCoverageMark("ai_context_cache_expiry");
-    Object is_number = Core.typeIs(provider_expire_time, "number");
-    if (Core.truthy(is_number)) {
-      Object future = Core.gt(provider_expire_time, now);
-      if (Core.truthy(future)) {
-        return provider_expire_time;
-      }
-    }
-    return 0;
-  }
-
   static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("openai_normalize_embed_response");
     Object embeddings = new java.util.ArrayList<Object>();
@@ -6456,6 +6449,18 @@ final class Core {
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
     return out;
+  }
+
+  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
+    axirCoverageMark("ai_context_cache_expiry");
+    Object is_number = Core.typeIs(provider_expire_time, "number");
+    if (Core.truthy(is_number)) {
+      Object future = Core.gt(provider_expire_time, now);
+      if (Core.truthy(future)) {
+        return provider_expire_time;
+      }
+    }
+    return 0;
   }
 
   static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {
@@ -6825,6 +6830,14 @@ final class Core {
     return error;
   }
 
+  static Object provider_normalize_profile(Object profile) {
+    axirCoverageMark("provider_normalize_profile");
+    Object normalized = Core.stringLower(profile);
+    Object aliases = Core.jsonParse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n");
+    Object provider_id = Core.get(aliases, normalized, "");
+    return provider_id;
+  }
+
   static Object _fold_chat_stream_chunk_impl(Object target, Object chunk) {
     axirCoverageMark("_fold_chat_stream_chunk_impl");
     Object content = Core.get(chunk, "content", null);
@@ -6910,14 +6923,6 @@ final class Core {
       Core.set(target, "finish_reason", finish);
     }
     return null;
-  }
-
-  static Object provider_normalize_profile(Object profile) {
-    axirCoverageMark("provider_normalize_profile");
-    Object normalized = Core.stringLower(profile);
-    Object aliases = Core.jsonParse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n");
-    Object provider_id = Core.get(aliases, normalized, "");
-    return provider_id;
   }
 
   static Object provider_profile_registry() {
@@ -7012,6 +7017,187 @@ final class Core {
       selected = Core.get(registry, "all", null);
     }
     return selected;
+  }
+
+  static Object _chat_result_function_call_problems(Object result, Object result_index) {
+    axirCoverageMark("_chat_result_function_call_problems");
+    Object empty = new java.util.ArrayList<Object>();
+    Object calls = Core.get(result, "function_calls", empty);
+    Object calls_is_list = Core.typeIs(calls, "list");
+    if (Core.truthy(calls_is_list)) {
+      // empty
+    }
+    if (!Core.truthy(calls_is_list)) {
+      calls = empty;
+    }
+    Object first = Core.none();
+    Object unnamed = Core.none();
+    Object call_problem = Core.none();
+    Object call_index = 0;
+    for (Object call : Core.iter(calls)) {
+      Object problem = "";
+      Object kind = "";
+      Object is_map = Core.typeIs(call, "object");
+      if (Core.truthy(is_map)) {
+        Object has_function = Core.mapContains(call, "function");
+        Object has_type = Core.mapContains(call, "type");
+        Object nested = Core.or(has_function, has_type);
+        Object has_id = Core.mapContains(call, "id");
+        Object id = Core.get(call, "id", null);
+        Object id_ok = Boolean.FALSE;
+        Object id_is_text = Core.typeIs(id, "string");
+        if (Core.truthy(id_is_text)) {
+          Object id_trimmed = Core.stringTrim(id);
+          id_ok = Core.ne(id_trimmed, "");
+        }
+        Object id_bad = Core.not(id_ok);
+        if (Core.truthy(id_bad)) {
+          Object id_received = "undefined";
+          if (Core.truthy(has_id)) {
+            id_received = Core.jsonPretty(id);
+          }
+          problem = Core.stringFormat("Function call at index {} in result {} must have a non-empty string id, received: {}", call_index, result_index, id_received);
+          kind = "call";
+        }
+        Object fn = Core.get(call, "function", null);
+        Object fn_is_map = Core.typeIs(fn, "object");
+        Object check_nested = Core.eq(problem, "");
+        check_nested = Core.and(check_nested, nested);
+        if (Core.truthy(check_nested)) {
+          Object type = Core.get(call, "type", null);
+          Object type_ok = Core.eq(type, "function");
+          Object type_bad = Core.not(type_ok);
+          if (Core.truthy(type_bad)) {
+            Object type_received = "undefined";
+            if (Core.truthy(has_type)) {
+              type_received = Core.jsonPretty(type);
+            }
+            problem = Core.stringFormat("Function call at index {} in result {} must have type 'function', received: {}", call_index, result_index, type_received);
+            kind = "call";
+          }
+          if (!Core.truthy(type_bad)) {
+            Object fn_falsy = Core.isNone(fn);
+            Object fn_false = Core.eq(fn, Boolean.FALSE);
+            Object fn_zero = Core.eq(fn, 0);
+            Object fn_empty = Core.eq(fn, "");
+            fn_falsy = Core.or(fn_falsy, fn_false);
+            fn_falsy = Core.or(fn_falsy, fn_zero);
+            fn_falsy = Core.or(fn_falsy, fn_empty);
+            if (Core.truthy(fn_falsy)) {
+              Object fn_received = "undefined";
+              if (Core.truthy(has_function)) {
+                fn_received = Core.jsonPretty(fn);
+              }
+              problem = Core.stringFormat("Function call at index {} in result {} must have a function object, received: {}", call_index, result_index, fn_received);
+              kind = "unnamed";
+            }
+          }
+        }
+        Object check_name = Core.eq(problem, "");
+        if (Core.truthy(check_name)) {
+          Object has_name = Boolean.FALSE;
+          Object name = Core.none();
+          if (Core.truthy(nested)) {
+            if (Core.truthy(fn_is_map)) {
+              has_name = Core.mapContains(fn, "name");
+              name = Core.get(fn, "name", null);
+            }
+          }
+          if (!Core.truthy(nested)) {
+            has_name = Core.mapContains(call, "name");
+            name = Core.get(call, "name", null);
+          }
+          Object named = Boolean.FALSE;
+          Object name_is_text = Core.typeIs(name, "string");
+          if (Core.truthy(name_is_text)) {
+            Object name_trimmed = Core.stringTrim(name);
+            named = Core.ne(name_trimmed, "");
+          }
+          Object unnamed_call = Core.not(named);
+          if (Core.truthy(unnamed_call)) {
+            Object name_received = "undefined";
+            if (Core.truthy(has_name)) {
+              name_received = Core.jsonPretty(name);
+            }
+            problem = Core.stringFormat("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, name_received);
+            kind = "unnamed";
+          }
+        }
+        Object check_params = Core.eq(problem, "");
+        if (Core.truthy(check_params)) {
+          Object has_params = Boolean.FALSE;
+          Object params = Core.none();
+          if (Core.truthy(nested)) {
+            if (Core.truthy(fn_is_map)) {
+              has_params = Core.mapContains(fn, "params");
+              params = Core.get(fn, "params", null);
+            }
+          }
+          if (!Core.truthy(nested)) {
+            has_params = Core.mapContains(call, "params");
+            params = Core.get(call, "params", null);
+          }
+          Object params_number = Core.typeIs(params, "number");
+          Object params_bool = Core.typeIs(params, "boolean");
+          Object params_bad = Core.or(params_number, params_bool);
+          params_bad = Core.and(params_bad, has_params);
+          if (Core.truthy(params_bad)) {
+            Object params_received = Core.jsonPretty(params);
+            problem = Core.stringFormat("Function call params at index {} in result {} must be a string or object, received: {}", call_index, result_index, params_received);
+            kind = "call";
+          }
+        }
+      }
+      if (!Core.truthy(is_map)) {
+        Object call_null = Core.isNone(call);
+        Object call_false = Core.eq(call, Boolean.FALSE);
+        Object call_zero = Core.eq(call, 0);
+        Object call_empty = Core.eq(call, "");
+        Object call_falsy = Core.or(call_null, call_false);
+        call_falsy = Core.or(call_falsy, call_zero);
+        call_falsy = Core.or(call_falsy, call_empty);
+        if (Core.truthy(call_falsy)) {
+          Object call_received = Core.jsonPretty(call);
+          problem = Core.stringFormat("Function call at index {} in result {} cannot be null or undefined, received: {}", call_index, result_index, call_received);
+        }
+        if (!Core.truthy(call_falsy)) {
+          problem = Core.stringFormat("Function call at index {} in result {} must have a non-empty string id, received: undefined", call_index, result_index);
+        }
+        kind = "unnamed";
+      }
+      Object failed = Core.ne(problem, "");
+      if (Core.truthy(failed)) {
+        Object first_unset = Core.isNone(first);
+        if (Core.truthy(first_unset)) {
+          first = problem;
+        }
+        Object is_unnamed = Core.eq(kind, "unnamed");
+        if (Core.truthy(is_unnamed)) {
+          Object unnamed_unset = Core.isNone(unnamed);
+          if (Core.truthy(unnamed_unset)) {
+            unnamed = problem;
+          }
+        }
+        if (!Core.truthy(is_unnamed)) {
+          Object call_unset = Core.isNone(call_problem);
+          if (Core.truthy(call_unset)) {
+            call_problem = problem;
+          }
+        }
+      }
+      Object next_call_index = Core.add(call_index, 1);
+      call_index = next_call_index;
+    }
+    Object none_failed = Core.isNone(first);
+    if (Core.truthy(none_failed)) {
+      Object nothing = Core.none();
+      return nothing;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "first", first);
+    Core.set(out, "unnamed", unnamed);
+    Core.set(out, "call", call_problem);
+    return out;
   }
 
   static Object provider_estimate_cost(Object model_usage, Object model_info_overrides) {
@@ -19977,10 +20163,10 @@ final class Core {
         continue;
       }
       try {
-        Core._check_completion_function_call_names(response, runtime_options);
-      } catch (RuntimeException unnamed_call_error) {
-        Object unnamed_call_failure = Core._generate_failed_impl(unnamed_call_error);
-        throw Core.asRuntime(unnamed_call_failure);
+        Core._check_completion_function_calls(response, runtime_options);
+      } catch (RuntimeException call_check_error) {
+        Object call_check_failure = Core._generate_failed_impl(call_check_error);
+        throw Core.asRuntime(call_check_failure);
       }
       Object session_turns = Core.get(response, "session_turns", null);
       Object has_session_turns = Core.isNotNone(session_turns);
@@ -22680,6 +22866,13 @@ final class Core {
     return out;
   }
 
+  static Object _parse_output_impl(Object content) {
+    axirCoverageMark("_parse_output_impl");
+    Object text = Core.stringTrim(content);
+    Object output = Core.jsonParseStrict(text);
+    return output;
+  }
+
   static Object chat_session_boundary_action(Object state) {
     axirCoverageMark("chat_session_boundary_action");
     Object action = new java.util.LinkedHashMap<String, Object>();
@@ -22738,13 +22931,6 @@ final class Core {
       Core.set(action, "type", "validate");
     }
     return action;
-  }
-
-  static Object _parse_output_impl(Object content) {
-    axirCoverageMark("_parse_output_impl");
-    Object text = Core.stringTrim(content);
-    Object output = Core.jsonParseStrict(text);
-    return output;
   }
 
   static Object _date_string_mode_impl() {
@@ -26525,7 +26711,7 @@ final class Core {
             Object folded = Core.fold_chat_response_stream(events);
             response = Core.chat_response_to_completion(folded);
             stage = "fatal";
-            Core._check_completion_function_call_names(response, runtime_options);
+            Core._check_completion_function_calls(response, runtime_options);
             stage = "validation";
             Core.axgenMemoryAddResponse(gen, request, response);
             Core.axgenRecordChatLog(gen, request, response);
@@ -28870,54 +29056,66 @@ final class Core {
     return null;
   }
 
-  static Object _validate_completion_function_call_names(Object response) {
-    axirCoverageMark("_validate_completion_function_call_names");
-    Object empty = new java.util.ArrayList<Object>();
+  static Object _completion_function_call_problems(Object response) {
+    axirCoverageMark("_completion_function_call_problems");
     Object results = Core.get(response, "results", null);
     Object no_results = Core.isNone(results);
     if (Core.truthy(no_results)) {
       results = new java.util.ArrayList<Object>();
       Core.append(results, response);
     }
+    Object first = Core.none();
+    Object unnamed = Core.none();
+    Object call_problem = Core.none();
     Object result_index = 0;
     for (Object result : Core.iter(results)) {
-      Object calls = Core.get(result, "function_calls", empty);
-      Object call_index = 0;
-      for (Object call : Core.iter(calls)) {
-        Object has_name = Core.mapContains(call, "name");
-        Object name = Core.get(call, "name", null);
-        Object fn = Core.get(call, "function", null);
-        Object fn_is_map = Core.typeIs(fn, "object");
-        if (Core.truthy(fn_is_map)) {
-          Object fn_has_name = Core.mapContains(fn, "name");
-          if (Core.truthy(fn_has_name)) {
-            has_name = Boolean.TRUE;
-            name = Core.get(fn, "name", null);
+      Object result_is_map = Core.typeIs(result, "object");
+      if (Core.truthy(result_is_map)) {
+        Object recorded = Core.mapContains(result, "function_call_problems");
+        Object problems = Core.none();
+        if (Core.truthy(recorded)) {
+          problems = Core.get(result, "function_call_problems", null);
+          Core.mapDelete(result, "function_call_problems");
+        }
+        if (!Core.truthy(recorded)) {
+          problems = Core._chat_result_function_call_problems(result, result_index);
+        }
+        Object has_problems = Core.isNotNone(problems);
+        if (Core.truthy(has_problems)) {
+          Object result_first = Core.get(problems, "first", null);
+          Object result_unnamed = Core.get(problems, "unnamed", null);
+          Object result_call = Core.get(problems, "call", null);
+          Object first_unset = Core.isNone(first);
+          if (Core.truthy(first_unset)) {
+            first = result_first;
+          }
+          Object unnamed_unset = Core.isNone(unnamed);
+          if (Core.truthy(unnamed_unset)) {
+            unnamed = result_unnamed;
+          }
+          Object call_unset = Core.isNone(call_problem);
+          if (Core.truthy(call_unset)) {
+            call_problem = result_call;
           }
         }
-        Object name_is_text = Core.typeIs(name, "string");
-        Object named = Boolean.FALSE;
-        if (Core.truthy(name_is_text)) {
-          Object trimmed = Core.stringTrim(name);
-          named = Core.ne(trimmed, "");
-        }
-        Object unnamed = Core.not(named);
-        if (Core.truthy(unnamed)) {
-          Object received = "undefined";
-          if (Core.truthy(has_name)) {
-            received = Core.jsonPretty(name);
-          }
-          Object message = Core.stringFormat("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, received);
-          Object error = Core.runtimeError(message);
-          throw Core.asRuntime(error);
-        }
-        Object next_call_index = Core.add(call_index, 1);
-        call_index = next_call_index;
       }
       Object next_result_index = Core.add(result_index, 1);
       result_index = next_result_index;
     }
-    return null;
+    Object top_recorded = Core.mapContains(response, "function_call_problems");
+    if (Core.truthy(top_recorded)) {
+      Core.mapDelete(response, "function_call_problems");
+    }
+    Object none_failed = Core.isNone(first);
+    if (Core.truthy(none_failed)) {
+      Object nothing = Core.none();
+      return nothing;
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "first", first);
+    Core.set(out, "unnamed", unnamed);
+    Core.set(out, "call", call_problem);
+    return out;
   }
 
   static Object _stream_state_impl(Object index) {
@@ -28968,13 +29166,14 @@ final class Core {
     return delta;
   }
 
-  static Object _check_completion_function_call_names(Object response, Object options) {
-    axirCoverageMark("_check_completion_function_call_names");
+  static Object _check_completion_function_calls(Object response, Object options) {
+    axirCoverageMark("_check_completion_function_calls");
     Object mode_snake = Core.get(options, "function_call_validation", null);
     Object mode = Core.get(options, "functionCallValidation", mode_snake);
     Object mode_set = Core.isNotNone(mode);
+    Object is_fail = Boolean.TRUE;
     if (Core.truthy(mode_set)) {
-      Object is_fail = Core.eq(mode, "fail");
+      is_fail = Core.eq(mode, "fail");
       Object is_correct = Core.eq(mode, "correct");
       Object known = Core.or(is_fail, is_correct);
       Object unknown = Core.not(known);
@@ -28984,19 +29183,15 @@ final class Core {
         Object mode_error = Core.validationError(mode_message);
         throw Core.asRuntime(mode_error);
       }
+    }
+    Object problems = Core._completion_function_call_problems(response);
+    Object has_problems = Core.isNotNone(problems);
+    if (Core.truthy(has_problems)) {
       if (Core.truthy(is_fail)) {
-        Core._validate_completion_function_call_names(response);
+        Object message = Core.get(problems, "first", null);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
       }
-      return null;
-    }
-    Object unnamed = Boolean.FALSE;
-    try {
-      Core._validate_completion_function_call_names(response);
-    } catch (RuntimeException unnamed_error) {
-      unnamed = Boolean.TRUE;
-    }
-    if (Core.truthy(unnamed)) {
-      Core.axgenDeprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.");
     }
     return null;
   }

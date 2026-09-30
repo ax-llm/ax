@@ -41,6 +41,9 @@ from .prompt import AxPromptTemplate, _core_json_pretty, _core_string_split
 from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_internal, validate_fields, validate_output
 from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text, _js_format, _js_text
 from .mcp import resolve_execution_context
+from .ai import (
+    _chat_result_function_call_problems,
+)
 from .schema import (
     _schema_to_json_schema_impl,
 )
@@ -5175,10 +5178,10 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
                 thought_prefix = ""
             continue
         try:
-            _check_completion_function_call_names(response, runtime_options)
-        except Exception as unnamed_call_error:
-            unnamed_call_failure = _generate_failed_impl(unnamed_call_error)
-            raise unnamed_call_failure
+            _check_completion_function_calls(response, runtime_options)
+        except Exception as call_check_error:
+            call_check_failure = _generate_failed_impl(call_check_error)
+            raise call_check_failure
         session_turns = _core_get(response, "session_turns", None)
         has_session_turns = _core_is_not_none(session_turns)
         if has_session_turns:
@@ -8031,6 +8034,13 @@ def _stream_field_value_impl(field: Any, text: str) -> Any:
     return out
 
 
+def _parse_output_impl(content: str) -> Any:
+    _core_coverage_mark("_parse_output_impl")
+    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+    output = _core_json_parse_strict(text)
+    return output
+
+
 def chat_session_boundary_action(state: Any) -> Any:
     _core_coverage_mark("chat_session_boundary_action")
     action = {}
@@ -8093,13 +8103,6 @@ def chat_session_boundary_action(state: Any) -> Any:
     else:
         action["type"] = "validate"
     return action
-
-
-def _parse_output_impl(content: str) -> Any:
-    _core_coverage_mark("_parse_output_impl")
-    text = str(content).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    output = _core_json_parse_strict(text)
-    return output
 
 
 def _date_string_mode_impl() -> Any:
@@ -12136,7 +12139,7 @@ def _streaming_forward_impl(gen: AxGen, client: AIClient, values: Any, options: 
                     folded = fold_chat_response_stream(events)
                     response = chat_response_to_completion(folded)
                     stage = "fatal"
-                    _check_completion_function_call_names(response, runtime_options)
+                    _check_completion_function_calls(response, runtime_options)
                     stage = "validation"
                     _core_axgen_memory_add_response(gen, request, response)
                     _core_axgen_record_chat_log(gen, request, response)
@@ -14583,9 +14586,8 @@ def _stream_json_strings_impl(fields: list[Any], values: Any, partial: bool) -> 
     return None
 
 
-def _validate_completion_function_call_names(response: Any) -> None:
-    _core_coverage_mark("_validate_completion_function_call_names")
-    empty = []
+def _completion_function_call_problems(response: Any) -> Any:
+    _core_coverage_mark("_completion_function_call_problems")
     results = _core_get(response, "results", None)
     no_results = _core_is_none(results)
     if no_results:
@@ -14593,48 +14595,62 @@ def _validate_completion_function_call_names(response: Any) -> None:
         results.append(response)
     else:
         pass
+    first = _core_none()
+    unnamed = _core_none()
+    call_problem = _core_none()
     result_index = 0
     for result in results:
-        calls = _core_get(result, "function_calls", empty)
-        call_index = 0
-        for call in calls:
-            has_name = _core_map_contains(call, "name")
-            name = _core_get(call, "name", None)
-            fn = _core_get(call, "function", None)
-            fn_is_map = _core_type_is(fn, "object")
-            if fn_is_map:
-                fn_has_name = _core_map_contains(fn, "name")
-                if fn_has_name:
-                    has_name = True
-                    name = _core_get(fn, "name", None)
+        result_is_map = _core_type_is(result, "object")
+        if result_is_map:
+            recorded = _core_map_contains(result, "function_call_problems")
+            problems = _core_none()
+            if recorded:
+                problems = _core_get(result, "function_call_problems", None)
+                _core_map_delete(result, "function_call_problems")
+            else:
+                problems = _chat_result_function_call_problems(result, result_index)
+            has_problems = _core_is_not_none(problems)
+            if has_problems:
+                result_first = _core_get(problems, "first", None)
+                result_unnamed = _core_get(problems, "unnamed", None)
+                result_call = _core_get(problems, "call", None)
+                first_unset = _core_is_none(first)
+                if first_unset:
+                    first = result_first
+                else:
+                    pass
+                unnamed_unset = _core_is_none(unnamed)
+                if unnamed_unset:
+                    unnamed = result_unnamed
+                else:
+                    pass
+                call_unset = _core_is_none(call_problem)
+                if call_unset:
+                    call_problem = result_call
                 else:
                     pass
             else:
                 pass
-            name_is_text = _core_type_is(name, "string")
-            named = False
-            if name_is_text:
-                trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-                named = _core_ne(trimmed, "")
-            else:
-                pass
-            unnamed = _core_not(named)
-            if unnamed:
-                received = "undefined"
-                if has_name:
-                    received = _core_json_pretty(name)
-                else:
-                    pass
-                message = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, received)
-                error = _core_runtime_error(message)
-                raise error
-            else:
-                pass
-            next_call_index = _core_add(call_index, 1)
-            call_index = next_call_index
+        else:
+            pass
         next_result_index = _core_add(result_index, 1)
         result_index = next_result_index
-    return None
+    top_recorded = _core_map_contains(response, "function_call_problems")
+    if top_recorded:
+        _core_map_delete(response, "function_call_problems")
+    else:
+        pass
+    none_failed = _core_is_none(first)
+    if none_failed:
+        nothing = _core_none()
+        return nothing
+    else:
+        pass
+    out = {}
+    out["first"] = first
+    out["unnamed"] = unnamed
+    out["call"] = call_problem
+    return out
 
 
 def _stream_state_impl(index: int) -> Any:
@@ -14687,11 +14703,12 @@ def _stream_merge_value_impl(base: Any, has_base: bool, delta: Any) -> Any:
     return delta
 
 
-def _check_completion_function_call_names(response: Any, options: Any) -> None:
-    _core_coverage_mark("_check_completion_function_call_names")
+def _check_completion_function_calls(response: Any, options: Any) -> None:
+    _core_coverage_mark("_check_completion_function_calls")
     mode_snake = _core_get(options, "function_call_validation", None)
     mode = _core_get(options, "functionCallValidation", mode_snake)
     mode_set = _core_is_not_none(mode)
+    is_fail = True
     if mode_set:
         is_fail = _core_eq(mode, "fail")
         is_correct = _core_eq(mode, "correct")
@@ -14704,20 +14721,17 @@ def _check_completion_function_call_names(response: Any, options: Any) -> None:
             raise mode_error
         else:
             pass
-        if is_fail:
-            _validate_completion_function_call_names(response)
-        else:
-            pass
-        return None
     else:
         pass
-    unnamed = False
-    try:
-        _validate_completion_function_call_names(response)
-    except Exception as unnamed_error:
-        unnamed = True
-    if unnamed:
-        _core_axgen_deprecation("function-call-validation", "A model function call without a name gets a correction and another request; TypeScript Ax fails the forward at once. Pass functionCallValidation: 'fail' to fail it now, or functionCallValidation: 'correct' to keep the correction. Failing becomes the default in the next major version.")
+    problems = _completion_function_call_problems(response)
+    has_problems = _core_is_not_none(problems)
+    if has_problems:
+        if is_fail:
+            message = _core_get(problems, "first", None)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
     else:
         pass
     return None
