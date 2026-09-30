@@ -222,6 +222,10 @@ void set_usage_observer(AxUsageObserver observer);
 void set_rate_limiter(AxRateLimiter limiter);
 void set_tracer(std::shared_ptr<AxTracer> tracer);
 void set_meter(std::shared_ptr<AxMeter> meter);
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources. Empty
+// functions restore the defaults.
+void set_request_retry_hooks(std::function<void(double)> sleep, std::function<double()> random, std::function<double()> now_ms);
 // The process-wide caching function, which AxGen uses when neither the call
 // nor the AxGen sets one; an empty function clears it.
 void set_caching_function(AxCachingFunction fn);
@@ -883,6 +887,14 @@ struct Core {
   static Value _anthropic_deprecates_sampling_impl(Value model);
   static Value _gemini_apply_sampling_limits_impl(Value payload, Value model, Value model_config, Value server_managed_sampling, Value strict_flash_parameters, Value is_vertex, Value explicit_keys);
   static Value _ai_error_request(Value request, Value options);
+  static Value retry_status_listed(Value config, Value status);
+  static Value retry_backoff_ms(Value config, Value attempt, Value random);
+  static Value _retry_digits_value(Value text);
+  static Value _retry_after_seconds(Value text);
+  static Value _retry_days_from_civil(Value year, Value month, Value day);
+  static Value _retry_http_date_ms(Value text);
+  static Value retry_after_ms(Value header, Value now_ms);
+  static Value request_retry_delay(Value config, Value attempt, Value failure, Value now_ms, Value random);
   static Value chat_session_mode_enabled(Value options);
   static Value fold_stream(Value events);
   static Value _render_audio_outputs_impl(Value gen, Value client, Value values, Value options);
@@ -2012,6 +2024,9 @@ class OpenAICompatibleClient : public AxBaseAI {
   // error_options are the call's merged options; their includeRequestBodyInErrors
   // decides whether a provider error keeps the request body.
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options);
+  // TS apiCall's request-layer retry around request_json.
+  Value request_json_retried(const std::string& endpoint, Value payload, const std::string& method, Value error_options, bool stream = false);
+  Value request_json_attempt(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method, Value error_options, std::string* retry_after);
   Value build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
   void check_call_options(const Value& call_options) override;
   std::string operation_method(const std::string& operation) const;

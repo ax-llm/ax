@@ -21,8 +21,8 @@
 // Send requests through the REAL libcurl HttpTransport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Returns non-zero on any mismatch so
@@ -82,8 +82,8 @@ void drain_request(int fd) {
 }
 
 // Accept connections and count them: "close" closes each one without a
-// response, "drop" sends one stream event and drops it, "gateway" answers 504,
-// "hold" never answers.
+// response, "drop" sends one stream event and drops it, "headers" sends the
+// response headers and drops it, "gateway" answers 504, "hold" never answers.
 std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
   int listener = listen_loopback(port);
   auto connections = std::make_shared<std::atomic<int>>(0);
@@ -103,6 +103,10 @@ std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
         std::snprintf(size, sizeof(size), "%zx", kDropEvent.size());
         std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n") + size + "\r\n" + kDropEvent + "\r\n";
         (void)send(fd, response.data(), response.size(), 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } else if (mode == "headers") {
+        std::string head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n";
+        (void)send(fd, head.data(), head.size(), 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       } else if (mode == "gateway") {
         std::string response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: " +
@@ -155,7 +159,7 @@ int main() {
 
   // A refused connection.
   int refused = closed_port();
-  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}})); });
+  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}, {"retry", fast_retry}})); });
   expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
 
   // A server that closes each connection without a response. The stream's
@@ -163,10 +167,25 @@ int main() {
   // request and two retries.
   int closing = 0;
   auto closed = serve("close", &closing);
-  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}})); });
   int before = closed->load();
+  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}, {"retry", fast_retry}})); });
+  expect_count("closed chat", closed->load() - before, 3);
+  before = closed->load();
   expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
   expect_count("closed stream", closed->load() - before, 3);
+
+  // A stream whose response began and dropped before its first event is not
+  // retried: TS reads the first event after apiCall returns.
+  int started = 0;
+  auto began = serve("headers", &started);
+  bool started_failed = false;
+  try {
+    client(started)->stream_each(request, ignore, object({{"retry", fast_retry}}));
+  } catch (const AxError&) {
+    started_failed = true;
+  }
+  if (!started_failed) throw std::runtime_error("started stream: no error");
+  expect_count("started stream", began->load(), 1);
 
   // A 504 response is retried by its status, as TS apiCall retries it: it is
   // not a timeout the request ran out of.

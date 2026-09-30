@@ -33,7 +33,7 @@ def _fixture_function_result_formatter(spec):
 
     return formatter
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
-from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
+from .ai import _REQUEST_RETRY_HOOKS, _core_ai_capture_warnings, _core_axgen_capture_deprecations
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
@@ -424,7 +424,12 @@ class ScriptedTransport:
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
             raise RuntimeError("scripted transport exhausted")
-        return copy.deepcopy(self.responses.pop(0))
+        response = copy.deepcopy(self.responses.pop(0))
+        # {"network_error": message} stands for a request that failed to
+        # connect, send or read, as the HTTP client reports it.
+        if isinstance(response, dict) and "network_error" in response:
+            raise ConnectionError(str(response["network_error"]))
+        return response
 
     def call_with_cancellation(self, request, cancellation):
         self.cancellations.append(cancellation)
@@ -671,6 +676,26 @@ SUPPORTS_LONE_SURROGATES = True
 
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
     fixture = _expand_ordered_json_fields(fixture)
+    # The request-layer retry records its delays instead of waiting, and a
+    # fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    # pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    # checks that a cancellation ends the wait, so it waits for real.
+    delays: list[float] = []
+    _REQUEST_RETRY_HOOKS["sleep"] = None if fixture.get("kind") == "ai_cancellation" else delays.append
+    _REQUEST_RETRY_HOOKS["random"] = (lambda: float(fixture["retry_random"])) if "retry_random" in fixture else None
+    _REQUEST_RETRY_HOOKS["now_ms"] = (lambda: float(fixture["retry_now_ms"])) if "retry_now_ms" in fixture else None
+    try:
+        result = _run_fixture_with_deprecations(fixture, source=source)
+    finally:
+        _REQUEST_RETRY_HOOKS.update({"sleep": None, "random": None, "now_ms": None})
+    if "expected_retry_delays_ms" in fixture and (not isinstance(result, dict) or result.get("ok", True)):
+        expected = fixture["expected_retry_delays_ms"]
+        if len(delays) != len(expected) or any(abs(float(got) - float(want)) > 1e-6 for got, want in zip(delays, expected)):
+            raise FixtureError(f"retry delays: expected {expected!r}, got {delays!r}")
+    return result
+
+
+def _run_fixture_with_deprecations(fixture: dict[str, Any], *, source: str | None = None):
     # expected_deprecations pins the one-time deprecation warnings the run
     # gives (the ones already shown are forgotten first).
     if "expected_deprecations" in fixture:
