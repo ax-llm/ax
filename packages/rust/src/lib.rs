@@ -656,7 +656,8 @@ fn run_ai_runtime_operation(
     )
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AxError {
     pub category: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -669,6 +670,10 @@ pub struct AxError {
     pub retryable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_body: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<Value>,
+    #[serde(skip)]
+    pub cause: Option<Arc<dyn Error + Send + Sync>>,
 }
 
 impl AxError {
@@ -681,6 +686,8 @@ impl AxError {
             code: None,
             retryable: false,
             response_body: None,
+            request: None,
+            cause: None,
         }
     }
 
@@ -699,7 +706,43 @@ impl fmt::Display for AxError {
     }
 }
 
-impl Error for AxError {}
+impl Error for AxError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause
+            .as_ref()
+            .map(|cause| cause.as_ref() as &(dyn Error + 'static))
+    }
+}
+
+impl PartialEq for AxError {
+    fn eq(&self, other: &Self) -> bool {
+        fn chain(error: &AxError) -> Vec<String> {
+            let mut out = Vec::new();
+            let mut cause = error.source();
+            while let Some(value) = cause {
+                out.push(value.to_string());
+                cause = value.source();
+            }
+            out
+        }
+        self.category == other.category
+            && self.error_type == other.error_type
+            && self.message == other.message
+            && self.status == other.status
+            && self.code == other.code
+            && self.retryable == other.retryable
+            && self.response_body == other.response_body
+            && self.request == other.request
+            && chain(self) == chain(other)
+    }
+}
+
+impl AxError {
+    pub fn with_cause(mut self, cause: impl Error + Send + Sync + 'static) -> Self {
+        self.cause = Some(Arc::new(cause));
+        self
+    }
+}
 
 pub type AxAIServiceAbortedError = AxError;
 
@@ -865,13 +908,13 @@ fn current_cancellation_token() -> Option<AxCancellationToken> {
 
 impl From<serde_json::Error> for AxError {
     fn from(value: serde_json::Error) -> Self {
-        Self::runtime(value.to_string())
+        Self::runtime(value.to_string()).with_cause(value)
     }
 }
 
 impl From<std::io::Error> for AxError {
     fn from(value: std::io::Error) -> Self {
-        Self::runtime(value.to_string())
+        Self::runtime(value.to_string()).with_cause(value)
     }
 }
 
@@ -880,7 +923,7 @@ impl From<reqwest::Error> for AxError {
         let mut err = Self::new("ai_service", value.to_string());
         err.status = value.status().map(|status| status.as_u16());
         err.retryable = err.status.map(|status| status >= 500).unwrap_or(false);
-        err
+        err.with_cause(value)
     }
 }
 
@@ -2300,6 +2343,8 @@ impl Drop for AxChatStream {
                 code: None,
                 retryable: true,
                 response_body: None,
+                request: None,
+                cause: None,
             };
             self.complete(Some(&error), true);
         }
@@ -2548,6 +2593,8 @@ impl Iterator for SseJsonStream {
                         code: None,
                         retryable: true,
                         response_body: None,
+                        request: None,
+                        cause: None,
                     }));
                 }
                 Ok(_) => {}
@@ -3460,6 +3507,20 @@ impl OpenAICompatibleClient {
     // One request. raw keeps a status response as its {status, json, headers}
     // envelope (headers holding its Retry-After) instead of an error.
     fn dispatch_transport(&mut self, call: Value, raw: bool) -> AxResult<Value> {
+        let request = core_value_to_json(&_ai_error_request(&[
+            core_value_from_json(&call),
+            core_value_from_json(&self.options),
+        ])?);
+        self.dispatch_transport_inner(call, raw)
+            .map_err(|mut error| {
+                if error.request.is_none() {
+                    error.request = Some(request);
+                }
+                error
+            })
+    }
+
+    fn dispatch_transport_inner(&mut self, call: Value, raw: bool) -> AxResult<Value> {
         let cancellation = current_cancellation_token();
         if let Some(token) = &cancellation {
             token.throw_if_cancelled()?;
@@ -3556,11 +3617,21 @@ impl OpenAICompatibleClient {
     // One request: the provider's body, or the error and a status response's
     // Retry-After.
     fn transport_attempt(&mut self, call: Value) -> Result<Value, (AxError, Option<String>)> {
+        let request = core_value_to_json(
+            &_ai_error_request(&[
+                core_value_from_json(&call),
+                core_value_from_json(&self.options),
+            ])
+            .map_err(|error| (error, None))?,
+        );
         let raw = self
             .dispatch_transport(call, true)
             .map_err(|error| (error, None))?;
         let retry_after = retry_after_header(&raw);
-        normalize_passthrough_response(raw).map_err(|error| (error, retry_after))
+        normalize_passthrough_response(raw).map_err(|mut error| {
+            error.request = Some(request);
+            (error, retry_after)
+        })
     }
 
     // TS apiCall's request-layer retry around one request: a listed status or
@@ -3626,6 +3697,35 @@ impl OpenAICompatibleClient {
 
     // Opens the stream, and on a status response also returns its Retry-After.
     fn dispatch_transport_stream(
+        &mut self,
+        call: Value,
+    ) -> Result<Box<dyn Iterator<Item = AxResult<Value>>>, (AxError, Option<String>)> {
+        let request = core_value_to_json(
+            &_ai_error_request(&[
+                core_value_from_json(&call),
+                core_value_from_json(&self.options),
+            ])
+            .map_err(|error| (error, None))?,
+        );
+        let inner =
+            self.dispatch_transport_stream_inner(call)
+                .map_err(|(mut error, retry_after)| {
+                    if error.request.is_none() {
+                        error.request = Some(request.clone());
+                    }
+                    (error, retry_after)
+                })?;
+        Ok(Box::new(inner.map(move |result| {
+            result.map_err(|mut error| {
+                if error.request.is_none() {
+                    error.request = Some(request.clone());
+                }
+                error
+            })
+        })))
+    }
+
+    fn dispatch_transport_stream_inner(
         &mut self,
         call: Value,
     ) -> Result<Box<dyn Iterator<Item = AxResult<Value>>>, (AxError, Option<String>)> {
@@ -4285,6 +4385,8 @@ impl OpenAICompatibleClient {
                     code: None,
                     retryable: false,
                     response_body: None,
+                    request: None,
+                    cause: None,
                 });
             }
             let embed_model = string_at(&request, "embed_model")
@@ -4299,6 +4401,8 @@ impl OpenAICompatibleClient {
                     code: None,
                     retryable: false,
                     response_body: None,
+                    request: None,
+                    cause: None,
                 });
             }
             let mut req = if request.is_object() {
@@ -6346,15 +6450,6 @@ impl AxGen {
         self
     }
 
-    /// Rewrites an output field's final value, exactly as
-    /// [`with_field_transform`](Self::with_field_transform) does.
-    #[deprecated(
-        note = "with_field_processor rewrites the field value; use with_field_transform for that. In the next major version with_field_processor switches to TypeScript feedback semantics (see add_field_processor)."
-    )]
-    pub fn with_field_processor(self, field: &str, op: &str) -> Self {
-        self.with_field_transform(field, op)
-    }
-
     /// Adds a TypeScript field processor. `processor(value, context)` runs on
     /// the field's parsed final value, and a result other than `None`, null or
     /// empty text goes back to the model as a user message: the forward takes
@@ -6602,9 +6697,11 @@ impl AxGen {
         options: impl Into<AxForwardOptions>,
         caching_function: AxCachingFunction,
     ) -> AxResult<Value> {
-        with_caching_function_binding(Some(caching_function), || {
-            self.forward_with_options(client, input, options)
-        })
+        self.forward_with_options(
+            client,
+            input,
+            options.into().with_caching_function(caching_function),
+        )
     }
 
     /// Streams a forward as TypeScript's `streamingForward` does: `on_delta`
@@ -6731,7 +6828,11 @@ impl AxGen {
     ) -> AxResult<Value> {
         // The call's caching function and function result formatter, which
         // the forwards this run starts don't inherit.
-        let caching_function = bound_caching_function();
+        let mut options = options;
+        let caching_function = options
+            .caching_function
+            .take()
+            .or_else(bound_caching_function);
         let call_formatter = bound_function_result_formatter();
         with_function_result_formatter_binding(None, || {
             with_caching_function_binding(None, || {
@@ -9962,9 +10063,11 @@ impl AxFlow {
         options: impl Into<AxForwardOptions>,
         caching_function: AxCachingFunction,
     ) -> AxResult<Value> {
-        with_caching_function_binding(Some(caching_function), || {
-            self.forward_with_options(client, input, options)
-        })
+        self.forward_with_options(
+            client,
+            input,
+            options.into().with_caching_function(caching_function),
+        )
     }
 
     /// Streams the flow as TypeScript's `AxFlow.streamingForward` does: the
@@ -16945,10 +17048,39 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 }
 
 // An AI error's type, status, message, and the strings it must never carry.
-// Rust AI errors keep no request until the next major (AxError has no request
-// field), so expected_error_request has nothing to compare; the text check
-// still fails if anything the error carries holds a secret or an excluded body.
+fn expect_error_cause(error: &AxError, fixture: &Value) -> AxResult<()> {
+    if let Some(expected) = fixture
+        .get("expected_error_cause_contains")
+        .and_then(Value::as_str)
+    {
+        let actual = error.source().map(ToString::to_string).unwrap_or_default();
+        if !actual.contains(expected) {
+            return Err(AxError::new(
+                "fixture",
+                format!("expected cause containing {expected:?}, got {actual:?}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn expect_ai_error_attributes(err: &AxError, fixture: &Value) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_error_request") {
+        let actual = err.request.as_ref().unwrap_or(&Value::Null);
+        let actual_keys = actual
+            .as_object()
+            .map(|v| v.keys().cloned().collect::<Vec<_>>());
+        let expected_keys = expected
+            .as_object()
+            .map(|v| v.keys().cloned().collect::<Vec<_>>());
+        if actual_keys.is_none() || actual_keys != expected_keys {
+            return Err(AxError::new(
+                "fixture",
+                format!("error request keys expected {expected_keys:?}, got {actual_keys:?}"),
+            ));
+        }
+        expect_json_subset("error request", actual, expected)?;
+    }
     let text = format!(
         "{err}\n{err:?}\n{}",
         serde_json::to_string(&err).unwrap_or_default()
@@ -24759,9 +24891,7 @@ fn run_streaming_forward_fixture(fixture: &Value) -> AxResult<()> {
             if !expected.is_some_and(|expected| error.message.contains(expected)) {
                 return Err(error);
             }
-            // expected_error_cause_contains is not checked: AxError gains its
-            // cause (and source()) in the next major version, since a new
-            // public field would break struct literals now.
+            expect_error_cause(&error, fixture)?;
             expect_json_equal(
                 "streaming deltas before the error",
                 &actual_deltas,
@@ -25357,8 +25487,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         }
         None => program.forward_with_options(&mut client, input, options),
     };
-    // expected_error_cause_contains is not checked: AxError gains its cause
-    // (and source()) in the next major version.
+    if let Err(error) = &result {
+        expect_error_cause(error, fixture)?;
+    }
     if fixture.get("expected_error_contains").is_some() {
         expect_validation_result(result.map(|_| ()), fixture)?;
         if let Some(expected) = fixture
@@ -30866,6 +30997,11 @@ fn core_ai_error(
             CoreValue::Null => None,
             value => Some(core_value_to_json(&value)),
         },
+        request: match core_arg(args, 4) {
+            CoreValue::Null => None,
+            value => Some(core_value_to_json(&value)),
+        },
+        cause: None,
     })))
 }
 
@@ -30886,7 +31022,19 @@ fn core_ai_error_status(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 }
 
 fn core_ai_error_stream(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    core_ai_error("AxAIServiceStreamTerminatedError", args, true, Some(2))
+    core_ai_error(
+        "AxAIServiceStreamTerminatedError",
+        &[
+            core_arg(args, 0),
+            CoreValue::Null,
+            CoreValue::Null,
+            core_arg(args, 1),
+            CoreValue::Null,
+            core_arg(args, 2),
+        ],
+        true,
+        Some(5),
+    )
 }
 
 fn core_ai_error_timeout(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -31741,6 +31889,7 @@ fn core_exception_message(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 #[allow(dead_code)]
 fn core_exception_rewrap(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut wrapped = core_as_error(&core_arg(args, 0));
+    wrapped.cause = Some(Arc::new(wrapped.clone()));
     wrapped.message = core_arg(args, 1).text();
     Ok(CoreValue::Error(Rc::new(wrapped)))
 }
@@ -31796,6 +31945,23 @@ fn core_exception_is_refusal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 #[cfg(test)]
 mod exception_rewrap_tests {
     use super::*;
+    #[test]
+    fn native_cause_survives_conversion_and_cloning() {
+        let error = AxError::from(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "connection reset",
+        ));
+        let cloned = error.clone();
+        assert_eq!(
+            cloned
+                .source()
+                .unwrap()
+                .downcast_ref::<std::io::Error>()
+                .unwrap()
+                .kind(),
+            std::io::ErrorKind::ConnectionReset
+        );
+    }
 
     fn rewrap(error: &AxError, message: &str) -> AxError {
         let wrapped = core_exception_rewrap(&[
@@ -31840,7 +32006,11 @@ mod exception_rewrap_tests {
             failed.to_string(),
             "Generate failed: Unable to fix validation error: Model refused the request"
         );
-        assert!(failed.source().is_none());
+        assert_eq!(failed.source().unwrap().to_string(), unfixed.message);
+        assert_eq!(
+            failed.source().unwrap().source().unwrap().to_string(),
+            refusal.message
+        );
     }
 
     // A forward that exhausts its validation retries fails with "Generate
@@ -130836,7 +131006,7 @@ pub(crate) fn transport_failure(error: reqwest::Error, timeout_seconds: f64) -> 
         let mut timeout = AxError::new("ai", message);
         timeout.error_type = Some("AxAIServiceTimeoutError".to_string());
         timeout.retryable = true;
-        return timeout;
+        return timeout.with_cause(error);
     }
     if !(error.is_connect() || error.is_request() || error.is_body()) {
         return AxError::from(error);
@@ -130851,7 +131021,7 @@ pub(crate) fn transport_failure(error: reqwest::Error, timeout_seconds: f64) -> 
     let mut network = AxError::new("network", format!("Network Error: {message}"));
     network.error_type = Some("AxAIServiceNetworkError".to_string());
     network.retryable = true;
-    network
+    network.with_cause(error)
 }
 
 // A stream body read from an async response: each read waits at most `idle`,
@@ -131553,7 +131723,7 @@ mod axgen_streaming_surface_tests {
                 .with_field_transform_fn("answer", |value| {
                     json!(format!("{}x", value.as_str().unwrap_or_default()))
                 })
-                .with_field_processor("answer", "uppercase"))
+                .with_field_transform("answer", "uppercase"))
         };
         let mut client = ScriptedStream::new(vec![vec!["Answer: hello"]]);
         assert_eq!(
@@ -131811,11 +131981,10 @@ mod axgen_caching_function_tests {
         // stores the answer there.
         let call_function = caching_function(&call_cache, None);
         assert_eq!(
-            program.forward_with_caching_function(
+            program.forward_with_options(
                 &mut client,
                 question(),
-                json!({}),
-                call_function.clone()
+                AxForwardOptions::from(json!({})).with_caching_function(call_function.clone())
             )?,
             json!({"answer": "Paris again"})
         );

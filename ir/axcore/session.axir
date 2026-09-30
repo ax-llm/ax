@@ -141,9 +141,15 @@ module @ax.session version "0.1" {
         core.append %errors, %message
         core.return %errors
       }
-      %next_depth = core.call intrinsic.add(%depth, 1)
+      // Reference chains use a bounded loop, so cyclic refs cannot exhaust
+      // a host stack before the shared nesting limit rejects them.
+      %resolved_depth = core.let %depth
       %reference = core.get %schema["$ref"] default ""
-      core.if %reference {
+      core.loop {
+        %no_reference = core.call intrinsic.not(%reference)
+        core.if %no_reference {
+          core.break
+        }
         %local = core.call intrinsic.string.starts_with(%reference, "#/")
         core.if %local {
           %tail = core.call intrinsic.string.slice(%reference, 2)
@@ -190,14 +196,22 @@ module @ax.session version "0.1" {
             core.append %errors, %message
             core.return %errors
           }
-          %referenced_errors = core.call @chat_session_argument_errors(%root, %target, %arguments, %path, %next_depth)
-          core.return %referenced_errors
+          %resolved_depth = core.call intrinsic.add(%resolved_depth, 1)
+          %reference_limit = core.call intrinsic.gt(%resolved_depth, 64)
+          core.if %reference_limit {
+            %message = core.call intrinsic.string.format("{}: Arguments exceed schema nesting limit", %path)
+            core.append %errors, %message
+            core.return %errors
+          }
+          %schema = core.let %target
+          %reference = core.get %schema["$ref"] default ""
         } else {
           %message = core.call intrinsic.string.format("{}: External schema references are unsupported", %path)
           core.append %errors, %message
           core.return %errors
         }
       }
+      %next_depth = core.call intrinsic.add(%resolved_depth, 1)
       %all = core.get %schema["allOf"] default %empty_list
       core.for %branch in %all {
         %branch_errors = core.call @chat_session_argument_errors(%root, %branch, %arguments, %path, %next_depth)
