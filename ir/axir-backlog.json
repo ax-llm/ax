@@ -2410,7 +2410,7 @@
     },
     {
       "id": "axir-2026-09-27-give-a-native-chat-session-typescript-s-response-budget-in-the-p",
-      "status": "open",
+      "status": "done",
       "title": "Give a native chat session TypeScript's response budget in the ports: maxSteps (default 25) minus the step index, with TypeScript's error",
       "createdAt": "2026-09-27",
       "sourcePR": null,
@@ -2423,9 +2423,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-09-30",
+      "completedByCommit": "285e7b045",
+      "verification": "TypeScript conformance synchronization and generated-package freshness pass; axir verify --mode dev --jobs 2 passes Python, Java, C++, Go, and Rust, each with 1567 conformance fixtures. Main Python reproduced the eleven-response failure; all three new budget fixtures pass in every port."
     },
     {
       "id": "axir-2026-09-27-js-text-for-string-format-chat-message-and-nameless-call-checks",
