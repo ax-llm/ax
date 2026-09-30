@@ -1207,7 +1207,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       try {
         return requestJson(endpoint, payload, false, "json", false, method, operation, cancellation, errorOptions);
       } catch (Exception failure) {
-        if (cancellation != null && cancellation.cancelled()) throw failure;
+        if (cancellation != null) cancellation.throwIfCancelled();
         if (!requestRetryWait(config, attempt, failure, cancellation)) throw failure;
       }
     }
@@ -1218,7 +1218,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
       try {
         return requestSse(endpoint, payload, modelName, cancellation, errorOptions);
       } catch (Exception failure) {
-        if (cancellation != null && cancellation.cancelled()) throw failure;
+        if (cancellation != null) cancellation.throwIfCancelled();
         if (!requestRetryWait(config, attempt, failure, cancellation)) throw failure;
       }
     }

@@ -701,8 +701,8 @@ struct Core {
   static Value _openai_normalize_tool_calls_impl(Value calls);
   static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value _openai_finish_reason_impl(Value value);
-  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
   static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
@@ -711,8 +711,8 @@ struct Core {
   static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value fold_chat_response_stream(Value events);
   static Value openai_normalize_error(Value status, Value body, Value request, Value options);
-  static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
   static Value provider_normalize_profile(Value profile);
+  static Value _fold_chat_stream_chunk_impl(Value target, Value chunk);
   static Value provider_profile_registry();
   static Value provider_resolve_profile(Value profile);
   static Value provider_model_catalog_summary();
@@ -725,6 +725,7 @@ struct Core {
   static Value ai_verbose_request_log(Value url, Value method, Value headers, Value body);
   static Value ai_verbose_response_log(Value status, Value body);
   static Value ai_verbose_stream_log(Value status);
+  static Value _chat_result_function_call_problems(Value result, Value result_index);
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
   static Value provider_route_preprocess_request(Value features, Value request, Value processing);
@@ -1091,8 +1092,8 @@ struct Core {
   static Value _regex_capture_ids(Value n);
   static Value chat_session_transition(Value state, Value event);
   static Value _ace_is_noop_acknowledgment(Value content);
-  static Value _date_digits_impl(Value units, Value at, Value count, Value end);
   static Value _tool_spec_impl(Value fn);
+  static Value _date_digits_impl(Value units, Value at, Value count, Value end);
   static Value _function_call_mode_impl(Value mode);
   static Value _date_expect_unit_impl(Value units, Value at, Value end, Value expected);
   static Value _regex_push(Value stack, Value top, Value value);
@@ -1118,8 +1119,8 @@ struct Core {
   static Value _date_offset_minutes_impl(Value units, Value start, Value end);
   static Value _stream_text_final_impl(Value xstate, Value values, Value content, Value fields, Value options);
   static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
-  static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _parse_output_fields_impl(Value content, Value fields);
+  static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
   static Value _signature_has_complex_fields(Value signature, Value options);
   static Value _date_js_json_impl(Value value);
   static Value _stream_text_extract_values_impl(Value content, Value fields, Value strict_mode);
@@ -1186,9 +1187,9 @@ struct Core {
   static Value _structured_output_render_options_impl(Value selection);
   static Value _stream_state_impl(Value index);
   static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
-  static Value _validate_completion_function_call_names(Value response);
+  static Value _completion_function_call_problems(Value response);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
-  static Value _check_completion_function_call_names(Value response, Value options);
+  static Value _check_completion_function_calls(Value response, Value options);
   static Value _include_optional_render_option_impl(Value render_options, Value options);
   static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);
   static Value _memory_cleanup_option_impl(Value options);

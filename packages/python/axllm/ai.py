@@ -1967,8 +1967,8 @@ class ProviderOperationClient(AxBaseAI):
                 if binary_response:
                     return _binary_transport_result(result, error_request)
                 value = _transport_result(result, error_request)
-                if verbose and stream:
-                    _verbose_log(ai_verbose_stream_log(_transport_status(result)))
+                if verbose:
+                    _verbose_log(ai_verbose_stream_log(_transport_status(result)) if stream else ai_verbose_response_log(_transport_status(result), value))
                 return value
             except AxAIServiceAbortedError:
                 raise
@@ -5629,6 +5629,7 @@ def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, rea
 def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     _core_coverage_mark("_chat_result_to_completion")
     content = _core_get(result, "content", "")
+    call_problems = _chat_result_function_call_problems(result, fallback_index)
     calls = []
     empty_calls = []
     function_calls = _core_get(result, "function_calls", empty_calls)
@@ -5689,6 +5690,11 @@ def _chat_result_to_completion(result: Any, fallback_index: number) -> Any:
     has_finish = _core_is_not_none(finish)
     if has_finish:
         completion["finish_reason"] = finish
+    else:
+        pass
+    has_call_problems = _core_is_not_none(call_problems)
+    if has_call_problems:
+        completion["function_call_problems"] = call_problems
     else:
         pass
     return completion
@@ -5927,20 +5933,6 @@ def _openai_finish_reason_impl(value: Any) -> Any:
     return none
 
 
-def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
-    _core_coverage_mark("ai_context_cache_expiry")
-    is_number = _core_type_is(provider_expire_time, "number")
-    if is_number:
-        future = _core_gt(provider_expire_time, now)
-        if future:
-            return provider_expire_time
-        else:
-            pass
-    else:
-        pass
-    return 0
-
-
 def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
     _core_coverage_mark("openai_normalize_embed_response")
     embeddings = []
@@ -5960,6 +5952,20 @@ def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: st
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
     return out
+
+
+def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
+    _core_coverage_mark("ai_context_cache_expiry")
+    is_number = _core_type_is(provider_expire_time, "number")
+    if is_number:
+        future = _core_gt(provider_expire_time, now)
+        if future:
+            return provider_expire_time
+        else:
+            pass
+    else:
+        pass
+    return 0
 
 
 def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str, existing: Any, now: number, refresh_window_ms: number, create_eligible: bool) -> Any:
@@ -6347,6 +6353,14 @@ def openai_normalize_error(status: int, body: Any, request: Any = None, options:
     return error
 
 
+def provider_normalize_profile(profile: str) -> str:
+    _core_coverage_mark("provider_normalize_profile")
+    normalized = _core_string_lower(profile)
+    aliases = _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")
+    provider_id = _core_get(aliases, normalized, "")
+    return provider_id
+
+
 def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
     _core_coverage_mark("_fold_chat_stream_chunk_impl")
     content = _core_get(chunk, "content", None)
@@ -6435,14 +6449,6 @@ def _fold_chat_stream_chunk_impl(target: Any, chunk: Any) -> None:
     else:
         pass
     return None
-
-
-def provider_normalize_profile(profile: str) -> str:
-    _core_coverage_mark("provider_normalize_profile")
-    normalized = _core_string_lower(profile)
-    aliases = _core_json_parse("{\"openai\":\"openai\",\"openai-compatible\":\"openai-compatible\",\"openai_compatible\":\"openai-compatible\",\"compatible\":\"openai-compatible\",\"openai-responses\":\"openai-responses\",\"openai_responses\":\"openai-responses\",\"responses\":\"openai-responses\",\"anthropic\":\"anthropic\",\"claude\":\"anthropic\",\"google-gemini\":\"google-gemini\",\"google_gemini\":\"google-gemini\",\"gemini\":\"google-gemini\",\"webllm\":\"webllm\",\"azure-openai\":\"azure-openai\",\"azure_openai\":\"azure-openai\",\"azure\":\"azure-openai\",\"deepseek\":\"deepseek\",\"deepseek-responses\":\"deepseek-responses\",\"deepseek_responses\":\"deepseek-responses\",\"meta\":\"meta\",\"meta-responses\":\"meta\",\"meta_responses\":\"meta\",\"meta-chat\":\"meta-chat\",\"meta_chat\":\"meta-chat\",\"meta-messages\":\"meta-messages\",\"meta_messages\":\"meta-messages\",\"mistral\":\"mistral\",\"cohere\":\"cohere\",\"grok\":\"grok\",\"xai\":\"grok\",\"x-grok\":\"grok\",\"x_grok\":\"grok\",\"reka\":\"reka\",\"together\":\"together\",\"together-ai\":\"together\",\"together_ai\":\"together\",\"openrouter\":\"openrouter\",\"orcarouter\":\"orcarouter\",\"fireworks\":\"fireworks\",\"fireworks-ai\":\"fireworks\",\"huggingface-router\":\"huggingface-router\",\"huggingface\":\"huggingface-router\",\"hf-router\":\"huggingface-router\",\"amazon-bedrock\":\"amazon-bedrock\",\"bedrock\":\"amazon-bedrock\",\"azure-foundry\":\"azure-foundry\",\"azure-ai-foundry\":\"azure-foundry\",\"microsoft-foundry\":\"azure-foundry\",\"vertex-ai\":\"vertex-ai\",\"vertex-openai\":\"vertex-ai\",\"databricks\":\"databricks\",\"baseten\":\"baseten\",\"groq\":\"groq\",\"cerebras\":\"cerebras\",\"deepinfra\":\"deepinfra\",\"sambanova\":\"sambanova\",\"sambanova-cloud\":\"sambanova\",\"nebius\":\"nebius\",\"novita\":\"novita\",\"novita-ai\":\"novita\",\"hyperbolic\":\"hyperbolic\",\"siliconflow\":\"siliconflow\",\"friendli\":\"friendli\",\"friendli-ai\":\"friendli\",\"cloudflare-workers-ai\":\"cloudflare-workers-ai\",\"workers-ai\":\"cloudflare-workers-ai\",\"featherless\":\"featherless\",\"featherless-ai\":\"featherless\",\"nscale\":\"nscale\",\"ovhcloud\":\"ovhcloud\",\"ovh\":\"ovhcloud\",\"scaleway\":\"scaleway\",\"nvidia-nim\":\"nvidia-nim\",\"nim\":\"nvidia-nim\",\"runpod-vllm\":\"runpod-vllm\",\"runpod\":\"runpod-vllm\",\"sagemaker-vllm\":\"sagemaker-vllm\",\"sagemaker\":\"sagemaker-vllm\",\"vllm\":\"vllm\",\"ollama\":\"ollama\",\"lm-studio\":\"lm-studio\",\"lmstudio\":\"lm-studio\",\"llama-cpp\":\"llama-cpp\",\"llama.cpp\":\"llama-cpp\",\"localai\":\"localai\",\"local-ai\":\"localai\",\"baseten-engine\":\"baseten-engine\",\"truss\":\"baseten-engine\",\"typesafe\":\"typesafe\"}\n")
-    provider_id = _core_get(aliases, normalized, "")
-    return provider_id
 
 
 def provider_profile_registry() -> Any:
@@ -6810,6 +6816,192 @@ def ai_verbose_stream_log(status: int) -> str:
     status_text = ai_http_status_text(status)
     text = _core_string_format("\n--- [AxAI API Streaming Response Started] ---\n Status: {} {}\n \n-------------------------------------------\n", status, status_text)
     return text
+
+
+def _chat_result_function_call_problems(result: Any, result_index: number) -> Any:
+    _core_coverage_mark("_chat_result_function_call_problems")
+    empty = []
+    calls = _core_get(result, "function_calls", empty)
+    calls_is_list = _core_type_is(calls, "list")
+    if calls_is_list:
+        pass
+    else:
+        calls = empty
+    first = _core_none()
+    unnamed = _core_none()
+    call_problem = _core_none()
+    call_index = 0
+    for call in calls:
+        problem = ""
+        kind = ""
+        is_map = _core_type_is(call, "object")
+        if is_map:
+            has_function = _core_map_contains(call, "function")
+            has_type = _core_map_contains(call, "type")
+            nested = _core_or(has_function, has_type)
+            has_id = _core_map_contains(call, "id")
+            id = _core_get(call, "id", None)
+            id_ok = False
+            id_is_text = _core_type_is(id, "string")
+            if id_is_text:
+                id_trimmed = str(id).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                id_ok = _core_ne(id_trimmed, "")
+            else:
+                pass
+            id_bad = _core_not(id_ok)
+            if id_bad:
+                id_received = "undefined"
+                if has_id:
+                    id_received = _core_json_pretty(id)
+                else:
+                    pass
+                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: {}", call_index, result_index, id_received)
+                kind = "call"
+            else:
+                pass
+            fn = _core_get(call, "function", None)
+            fn_is_map = _core_type_is(fn, "object")
+            check_nested = _core_eq(problem, "")
+            check_nested = _core_and(check_nested, nested)
+            if check_nested:
+                type = _core_get(call, "type", None)
+                type_ok = _core_eq(type, "function")
+                type_bad = _core_not(type_ok)
+                if type_bad:
+                    type_received = "undefined"
+                    if has_type:
+                        type_received = _core_json_pretty(type)
+                    else:
+                        pass
+                    problem = _core_string_format("Function call at index {} in result {} must have type 'function', received: {}", call_index, result_index, type_received)
+                    kind = "call"
+                else:
+                    fn_falsy = _core_is_none(fn)
+                    fn_false = _core_eq(fn, False)
+                    fn_zero = _core_eq(fn, 0)
+                    fn_empty = _core_eq(fn, "")
+                    fn_falsy = _core_or(fn_falsy, fn_false)
+                    fn_falsy = _core_or(fn_falsy, fn_zero)
+                    fn_falsy = _core_or(fn_falsy, fn_empty)
+                    if fn_falsy:
+                        fn_received = "undefined"
+                        if has_function:
+                            fn_received = _core_json_pretty(fn)
+                        else:
+                            pass
+                        problem = _core_string_format("Function call at index {} in result {} must have a function object, received: {}", call_index, result_index, fn_received)
+                        kind = "unnamed"
+                    else:
+                        pass
+            else:
+                pass
+            check_name = _core_eq(problem, "")
+            if check_name:
+                has_name = False
+                name = _core_none()
+                if nested:
+                    if fn_is_map:
+                        has_name = _core_map_contains(fn, "name")
+                        name = _core_get(fn, "name", None)
+                    else:
+                        pass
+                else:
+                    has_name = _core_map_contains(call, "name")
+                    name = _core_get(call, "name", None)
+                named = False
+                name_is_text = _core_type_is(name, "string")
+                if name_is_text:
+                    name_trimmed = str(name).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    named = _core_ne(name_trimmed, "")
+                else:
+                    pass
+                unnamed_call = _core_not(named)
+                if unnamed_call:
+                    name_received = "undefined"
+                    if has_name:
+                        name_received = _core_json_pretty(name)
+                    else:
+                        pass
+                    problem = _core_string_format("Function call at index {} in result {} must have a non-empty function name, received: {}", call_index, result_index, name_received)
+                    kind = "unnamed"
+                else:
+                    pass
+            else:
+                pass
+            check_params = _core_eq(problem, "")
+            if check_params:
+                has_params = False
+                params = _core_none()
+                if nested:
+                    if fn_is_map:
+                        has_params = _core_map_contains(fn, "params")
+                        params = _core_get(fn, "params", None)
+                    else:
+                        pass
+                else:
+                    has_params = _core_map_contains(call, "params")
+                    params = _core_get(call, "params", None)
+                params_number = _core_type_is(params, "number")
+                params_bool = _core_type_is(params, "boolean")
+                params_bad = _core_or(params_number, params_bool)
+                params_bad = _core_and(params_bad, has_params)
+                if params_bad:
+                    params_received = _core_json_pretty(params)
+                    problem = _core_string_format("Function call params at index {} in result {} must be a string or object, received: {}", call_index, result_index, params_received)
+                    kind = "call"
+                else:
+                    pass
+            else:
+                pass
+        else:
+            call_null = _core_is_none(call)
+            call_false = _core_eq(call, False)
+            call_zero = _core_eq(call, 0)
+            call_empty = _core_eq(call, "")
+            call_falsy = _core_or(call_null, call_false)
+            call_falsy = _core_or(call_falsy, call_zero)
+            call_falsy = _core_or(call_falsy, call_empty)
+            if call_falsy:
+                call_received = _core_json_pretty(call)
+                problem = _core_string_format("Function call at index {} in result {} cannot be null or undefined, received: {}", call_index, result_index, call_received)
+            else:
+                problem = _core_string_format("Function call at index {} in result {} must have a non-empty string id, received: undefined", call_index, result_index)
+            kind = "unnamed"
+        failed = _core_ne(problem, "")
+        if failed:
+            first_unset = _core_is_none(first)
+            if first_unset:
+                first = problem
+            else:
+                pass
+            is_unnamed = _core_eq(kind, "unnamed")
+            if is_unnamed:
+                unnamed_unset = _core_is_none(unnamed)
+                if unnamed_unset:
+                    unnamed = problem
+                else:
+                    pass
+            else:
+                call_unset = _core_is_none(call_problem)
+                if call_unset:
+                    call_problem = problem
+                else:
+                    pass
+        else:
+            pass
+        next_call_index = _core_add(call_index, 1)
+        call_index = next_call_index
+    none_failed = _core_is_none(first)
+    if none_failed:
+        nothing = _core_none()
+        return nothing
+    else:
+        pass
+    out = {}
+    out["first"] = first
+    out["unnamed"] = unnamed
+    out["call"] = call_problem
+    return out
 
 
 def provider_route_request_requirements(request: Any) -> Any:

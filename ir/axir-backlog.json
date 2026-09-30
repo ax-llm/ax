@@ -3249,6 +3249,25 @@
       "completedAt": "2026-09-27",
       "completedByCommit": "15030d75894567084a2049e78f419860154398cf",
       "verification": "TS goldens from tools/axir/extractors/optimize-goldens.ts and agent-streaming-goldens.ts (two-run learning, evaluation without learning, the thrown-run miner, clarifications at evaluation, forward and streaming forward, the input checks) and port-only fixtures (raw clarifications, the context-field default and lenient runs, the call-level override, unknown option values), 30 in all, fail on main's packages as described and pass in python, go, java, cpp and rust (150 of 150); expected_deprecations pins the one-time warnings; 33 perturbed copies fail in all five (165 of 165); a Rust mutant whose evaluate_optimization lets a thrown task's Err through fails candidate-evaluation-runtime-error; merged with main at ccee3bda2, the full suites pass (1554 of 1554 in each of the five) and the perturbation gates pass in all five; the generated examples pass in all five."
+    },
+    {
+      "id": "axir-2026-09-27-check-a-model-response-s-function-calls-as-typescript-does-in-th",
+      "status": "done",
+      "title": "Check a model response's function calls as TypeScript does in the ports (id, type, function object, params, null calls)",
+      "createdAt": "2026-09-27",
+      "sourcePR": null,
+      "sourceCommit": "1c83032daba575846bae2d85eb88e74a4605b6ed",
+      "tsPaths": ["src/ax/ai/validate.ts", "src/ax/dsp/generate.ts"],
+      "portableSurface": "axgen",
+      "impact": "TypeScript checks every part of a response's function calls before any function runs (AxMemory.addResponse for a forward, the merged calls for a stream): a null call, a missing or non-string id, a type other than 'function', no function object, no name, or params that are not a string or an object fail the run at once with its message. The ports checked only the name (#754), under functionCallValidation: a call with a bad id, type or params ran as given, and a null call or one without a function object got the nameless correction. TypeScript's forward itself threw a TypeError ('Cannot read properties of null') for a null call or one without a function object, because the chat log read the call before the check; a stream failed with the check's message.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-09-27",
+      "completedByCommit": "1c83032daba575846bae2d85eb88e74a4605b6ed",
+      "verification": "20 TS goldens (tools/axir/extractors/axgen-streaming-goldens.ts: a missing, empty, blank or number id, a missing or wrong type, no function object, number params in the first or second call, and a null call, forward and streamed) fail on main's packages in python, go, java, cpp and rust and pass here with functionCallValidation: 'fail'; port-only fixtures pin the default (the call runs, or is corrected, with the exact one-time warning) and 'correct'; src/ax/dsp/generate.streamParity.test.ts fails on main (a TypeError) and passes here; 21 perturbed copies fail in all five; the full suites pass (1574 in each of the five); npm run test --workspace=@ax-llm/ax passes."
     }
   ],
   "nonPortableExemptions": [

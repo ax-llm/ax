@@ -564,7 +564,7 @@ public final class AstraSessionTest {
       public Map<String,Object> getFeatures(String model){var features=new LinkedHashMap<>(super.getFeatures(model));features.put("asyncTools",unused);return features;}
       public Map<String,Object> chat(Map<String,Object> request,Map<String,Object> options){
         if(unused)throw new AssertionError("Pinned run changed providers");calls++;
-        if(calls==1)return Map.of("results",List.of(Map.of("function_calls",List.of(Map.of("id","balanced-call","function",Map.of("name","lookup","params",Map.of()))))));
+        if(calls==1)return Map.of("results",List.of(Map.of("function_calls",List.of(Map.of("id","balanced-call","type","function","function",Map.of("name","lookup","params",Map.of()))))));
         if(calls!=2||tools.get()!=1||!request.toString().contains("FALLBACK")||!request.toString().contains("balanced-call"))throw new AssertionError("Lost tool continuation: "+request);
         return Map.of("results",List.of(Map.of("content","{\"answer\":\"FALLBACK\"}")));
       }
