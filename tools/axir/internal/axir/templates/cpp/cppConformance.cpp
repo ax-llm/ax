@@ -946,13 +946,13 @@ static ToolBuild build_tools(Value specs) {
 }
 
 // field_transforms use add_field_transform(); field_processors use the
-// deprecated add_field_processor(field, op), which still transforms.
+// legacy field_processors entries also describe local transforms.
 static void add_fixture_transforms(AxGen& gen, Value fixture) {
   for (const auto& spec : Core::iter(Core::get(fixture, "field_transforms", Value::array()))) {
     gen.add_field_transform(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
   }
   for (const auto& spec : Core::iter(Core::get(fixture, "field_processors", Core::get(fixture, "fieldProcessors", Value::array())))) {
-    gen.add_field_processor(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
+    gen.add_field_transform(display(Core::get(spec, "field")), display(Core::get(spec, "processor", Core::get(spec, "op"))));
   }
 }
 
@@ -1059,7 +1059,7 @@ static void run_forward(Value fixture) {
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
-    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls), AxFieldProcessorMode::Feedback);
+    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
   }
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
@@ -1238,7 +1238,7 @@ static void run_streaming_forward(Value fixture) {
   add_fixture_transforms(gen, fixture);
   Value processor_calls = Value::array();
   for (const auto& spec : Core::iter(Core::get(fixture, "feedback_processors", Value::array()))) {
-    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls), AxFieldProcessorMode::Feedback);
+    gen.add_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
   }
   for (const auto& spec : Core::iter(Core::get(fixture, "streaming_processors", Value::array()))) {
     gen.add_streaming_field_processor(display(Core::get(spec, "field")), fixture_processor(spec, processor_calls));
