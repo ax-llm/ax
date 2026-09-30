@@ -6,6 +6,8 @@ public class AxAIServiceError extends RuntimeException {
   public final Object responseBody;
   public final Object request;
   public final boolean retryable;
+  // A status response's Retry-After, which the request-layer retry reads.
+  String retryAfter;
 
   public AxAIServiceError(String message) { this(message, null, null, null, null, false); }
   public AxAIServiceError(String message, Integer status, String code, Object responseBody, Object request, boolean retryable) {

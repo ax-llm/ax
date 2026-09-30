@@ -189,9 +189,9 @@ def agent_transport(request):
         response=agent_response(stage+('-start' if number in (1,5) else '-final'),text)
         return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
     if number==3:
-        assert body['tools'][0]['name']=='tools_lookup' and body['tools'][0]['async'] is True,body['tools']
+        assert body['tools'][0]['name']=='utils_lookup' and body['tools'][0]['async'] is True,body['tools']
         def events():
-            yield 'data: '+json.dumps({'type':'response.output_item.done','item':{'type':'function_call','id':'item','call_id':'agent-call','name':'tools_lookup','arguments':'{"query":"REF-42"}'}})+'\n\n'
+            yield 'data: '+json.dumps({'type':'response.output_item.done','item':{'type':'function_call','id':'item','call_id':'agent-call','name':'utils_lookup','arguments':'{"query":"REF-42"}'}})+'\n\n'
             assert agent_started.wait(2);agent_release.set()
             yield 'data: '+json.dumps({'type':'response.completed','response':agent_response('executor1','{"completion":{"type":"final","args":["Report reference",{"answer":"provisional"}]}}')})+'\n\n'
         return {'status':200,'body':events()}
@@ -208,9 +208,9 @@ assert agent_calls==['REF-42'] and len(agent_requests)==6
 assert len([event for event in agent_control_events if event['type']=='applied'])==5
 assert [event['path'] for event in agent_control_events if event['type']=='started']==['root','root/distiller','root/executor','root/responder']
 activity=[entry for entry in agent_program.state['action_log'] if entry.get('type')=='function_call']
-assert len(activity)==1 and activity[0]['qualified_name']=='tools.lookup',activity
+assert len(activity)==1 and activity[0]['qualified_name']=='utils.lookup',activity
 assert agent_program.state['function_call_traces'][0]['call_id']=='agent-call'
-assert agent_program.invoke_callable('tools.lookup',{'query':'REF-42'})['status']=='error'
+assert agent_program.invoke_callable('utils.lookup',{'query':'REF-42'})['status']=='error'
 assert agent_calls==['REF-42'], 'native call executed again through actor machinery'
 print('python native agent tools, authority boundaries, action logs, and duplicate prevention passed')
 
@@ -299,7 +299,8 @@ def ordinary_transport(request):
         finish='tool_calls'
     else:
         assert len(balanced_requests)==2 and balanced_calls==['done']
-        assert any(message.get('tool_call_id')=='balanced-call' and json.loads(message.get('content','null'))=='FALLBACK' for message in body['messages']),body
+        # A string tool result goes as it is, as TS's functionResultFormatter writes it.
+        assert any(message.get('tool_call_id')=='balanced-call' and message.get('content')=='FALLBACK' for message in body['messages']),body
         message={'role':'assistant','content':json.dumps({'answer':'FALLBACK'})}
         finish='stop'
     return {'status':200,'json':{'id':'balanced-'+str(len(balanced_requests)),'model':'gpt-5.6','choices':[{'index':0,'message':message,'finish_reason':finish}]}}
@@ -676,7 +677,7 @@ def test_owned_child_controls():
             else:output={'javascriptCode':'delegate' if stage=='root/executor' and not runtime.delegated else 'parent-final'}
             response={'id':'child-r'+str(number+1),'model':'gpt-6-astra','usage':{'input_tokens':2,'output_tokens':1,'total_tokens':3},'output':[{'type':'message','id':'message','content':[{'type':'output_text','text':json.dumps(output)}]}]}
             if cancel and number==6:
-                response['output']=[{'type':'function_call','name':'tools_lookup','call_id':'child-mcp','arguments':'{}','status':'completed'}]
+                response['output']=[{'type':'function_call','name':'utils_lookup','call_id':'child-mcp','arguments':'{}','status':'completed'}]
             return {'status':200,'body':'data: '+json.dumps({'type':'response.completed','response':response})+'\n\n'}
         class MCP(AxMCPTransport):
             def send(self,message): raise AssertionError('Child dropped MCP cancellation context')
@@ -775,7 +776,7 @@ def test_actor_mcp_cancellation_context():
     client.tools = [{'name':'lookup','inputSchema':{'type':'object'}}]
     program = agent('question -> answer', {'functions':client.native_tools(),'functionDiscovery':False})
     try:
-        result = program.invoke_callable('tools.lookup', {'query':'probe'}, {'control':control})
+        result = program.invoke_callable('utils.lookup', {'query':'probe'}, {'control':control})
         assert result['status']=='error' and 'cancel' in str(result).lower(), result
     except AxAIServiceAbortedError:
         pass

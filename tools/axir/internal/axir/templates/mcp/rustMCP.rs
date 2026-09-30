@@ -1675,7 +1675,7 @@ mod configured_context_tests {
                 self.calls+=1;
                 if self.calls==1 {
                     assert!(request.to_string().contains("lookup"),"configured MCP tool disappeared");
-                    return Ok(json!({"results":[{"function_calls":[{"id":"own-call","function":{"name":"lookup","params":{}}}]}]}));
+                    return Ok(json!({"results":[{"function_calls":[{"id":"own-call","type":"function","function":{"name":"lookup","params":{}}}]}]}));
                 }
                 assert_eq!(self.calls,2);
                 assert!(request.to_string().contains("OWN-REFERENCE"),"MCP result absent from continuation");

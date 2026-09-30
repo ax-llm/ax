@@ -297,6 +297,10 @@ export function buildSplitPrograms(self: any): void {
       typeof s.onSkillsSearch === 'function' ||
       s.skillUsageTrackingEnabled === true ||
       (s.currentSkillsPromptState?.loaded?.size ?? 0) > 0,
+    // The runtime's discover takes skills only with a skills search (a
+    // callback or the catalog's built-in one); preset skills or usage
+    // tracking alone leave it out.
+    skillsDiscoveryMode: typeof s.onSkillsSearch === 'function',
     memoriesMode: typeof s.onMemoriesSearch === 'function',
     memoryUsageMode: s.memoryUsageTrackingEnabled === true,
     skillUsageMode: s.skillUsageTrackingEnabled === true,

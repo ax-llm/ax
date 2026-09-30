@@ -1,0 +1,102 @@
+{
+  "assertions": [
+    {
+      "equals": {
+        "name": "Ada"
+      },
+      "field": "user",
+      "message": "The user is Ada."
+    }
+  ],
+  "expected_output": {
+    "user": {
+      "name": "Ada"
+    }
+  },
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user", "assistant", "function", "user", "user"],
+    [
+      "system",
+      "user",
+      "assistant",
+      "function",
+      "user",
+      "user",
+      "assistant",
+      "function",
+      "user",
+      "user"
+    ]
+  ],
+  "features": {
+    "functions": true,
+    "structured_outputs": false
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-retry-memory-function-rung-assertion",
+  "options": {
+    "structured_output_mode": "function"
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "__axOutput",
+                "params": "{\"user\":{\"name\":\"Bob\"}}"
+              },
+              "id": "output_1",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "__axOutput",
+                "params": "{\"user\":{\"name\":\"Eve\"}}"
+              },
+              "id": "output_2",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "__axOutput",
+                "params": "{\"user\":{\"name\":\"Ada\"}}"
+              },
+              "id": "output_3",
+              "type": "function"
+            }
+          ],
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> user:object{name:string}"
+}

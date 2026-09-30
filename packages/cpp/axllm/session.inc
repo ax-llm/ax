@@ -196,15 +196,21 @@ class SessionRun final:public AIClient {
     Value tool,params=Core::get(Core::get(call,"function"),"params",Value::object());
     for(const auto& candidate:array_ref(Core::get(gen_,"functions",Value::array())))if(display(Core::get(candidate,"name"))==name){tool=candidate;break;}
     std::string execution=display(Core::get(tool,"execution","blocking"));
-    try{if(tool.is_null())throw AxError("validation","Function '"+name+"' not found");if(params.is_string())params=parse_json(display(params));Core::validate_fields(Core::get(tool,"args",Value::array()),params,"tool."+name+".args");Core::chat_session_validate_required_arguments(Core::get(tool,"parameters",Value::object()),params,"tool."+name+".args");}
-    catch(const std::exception& error){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,Core::get(Core::_tool_error_message_impl(call,object({{"message",error.what()}})),"result",error.what()),false);return;}
+    try{if(tool.is_null())throw AxError("validation","Function '"+name+"' not found");if(params.is_string())params=parse_json(display(params));}
+    catch(const std::exception& error){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,Core::get(Core::_tool_error_message_impl(call,object({{"message",error.what()}})),"result",error.what()),false,options_);return;}
+    // As TS's session does, a call whose arguments fail the tool's schema does
+    // not run: its result is TS's fixing instructions.
+    {Value fixing=Core::chat_session_tool_argument_error(name,Core::get(tool,"parameters",Value::object()),params);if(!fixing.is_null()){Core::chat_session_register_call(state_,call,"blocking");Core::chat_session_record_result(gen_,state_,call,fixing,false,options_);return;}}
     Core::chat_session_register_call(state_,call,execution);blocking_=execution!="background";emit("tool.started",object({{"call_id",id}}));
     auto callbacks=registered_tool(display(Core::get(tool,"__tool_id")));auto handler=callbacks.first;auto contextual=callbacks.second;
     auto inherited=runtime_hook_frames;auto results=results_;params=parse_json(stringify(params));call=parse_json(stringify(call));Value returns=parse_json(stringify(Core::get(tool,"returns",Value::array())));
-    std::thread([handler,contextual,inherited,results,params,call,returns,name,id]{
+    // As TS, the tool gets the run's extras (tool_call_extras).
+    Value extras=parse_json(stringify(Core::tool_call_extras(options_,Value(name))));
+    std::thread([handler,contextual,inherited,results,params,call,returns,name,id,extras]{
       runtime_hook_frames=inherited;
       try{
         AxToolContext context{std::shared_ptr<std::atomic<bool>>(results,&results->cancelled),id};
+        context.set_extras(extras);
         Value result=invoke_runtime_tool(name,[&]{return contextual?contextual(params,context):handler(params);});
         if(Core::truthy(returns)&&result.is_object())Core::validate_fields(returns,result,"tool."+name+".return");
         results->push(object({{"call",call},{"result",result},{"ok",true}}));
@@ -214,7 +220,7 @@ class SessionRun final:public AIClient {
     }).detach();
   }
   void submit(Value results){
-    if(num(Core::get(state_,"steps",0))>=num(Core::get(state_,"max_steps",10)))throw AxError("runtime","Maximum model steps exhausted before final completion");
+    if(num(Core::get(state_,"steps",0))>=num(Core::get(state_,"max_steps",25)))throw Core::as_error(Core::chat_session_step_limit_error(state_));
     session_->submit(results);Value ids=Value::array();for(const auto& result:array_ref(results))Core::append(ids,Core::get(result,"function_id"));Core::chat_session_mark_submitted(state_,ids);
     for(const auto& id:applied_){Core::chat_session_transition(state_,object({{"type","update.applied"},{"id",id}}));emit("applied",object({{"update_id",id},{"timing","next-response"}}));}applied_.clear();
   }
@@ -269,7 +275,8 @@ class SessionRun final:public AIClient {
     if(!session)return false;
     results_=std::make_shared<SessionQueue>();items_.clear();session_after_=0;applied_.clear();waiting_.clear();blocking_=false;last_=Value();
     session_=std::move(session);native_opened_=true;++session_number_;request_=request;
-    state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Core::get(options_,"maxSteps",Core::get(options_,"max_steps",10)));
+    // As TS's maxResponses: the run's maxSteps (25 by default) less the request's step.
+    state_=Core::chat_session_create_state(Core::get(request,"model",""),path_,Value(num(Core::get(options_,"maxSteps",Core::get(options_,"max_steps",25)))-num(Core::get(request,"_ax_step_index",0))));
     return true;
   }
   // Closes the open session. Its tool workers are cancelled, and what they
@@ -303,7 +310,7 @@ class SessionRun final:public AIClient {
       for(const auto& update:updates){Core::chat_session_queue_update(state_,update);if(session_->update(update)=="native")Core::chat_session_native_update(state_,Core::get(update,"id"));else applied_.push_back(display(Core::get(update,"id")));}}
     Value result=results_->pop(std::chrono::milliseconds(0));
     if(!result.is_null()){Value call=Core::get(result,"call"),output=Core::get(result,"result");std::string id=display(Core::get(call,"id"));bool ok=Core::truthy(Core::get(result,"ok"));if(!ok)output=Core::get(Core::_tool_error_message_impl(call,object({{"message",Core::get(result,"error")}})),"result");
-      if(!Core::truthy(Core::chat_session_record_result(gen_,state_,call,output,ok)))return;emit("tool.completed",object({{"call_id",id}}));
+      if(!Core::truthy(Core::chat_session_record_result(gen_,state_,call,output,ok,options_)))return;emit("tool.completed",object({{"call_id",id}}));
       if(display(Core::get(Core::get(Core::get(state_,"pending"),id),"execution"))!="background"){blocking_=false;auto waiting=std::move(waiting_);waiting_.clear();for(const auto& call:waiting)start(call);}}
     Value event=session_->next(std::chrono::milliseconds(10));
     if(!event.is_null()){std::string type=display(Core::get(event,"type"));

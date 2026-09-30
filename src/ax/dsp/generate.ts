@@ -1126,9 +1126,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     }
     if (result.functionCalls?.length) {
       for (const fc of result.functionCalls) {
+        // The response's calls are checked after this log entry is built
+        // (AxMemory.addResponse), so a malformed call must not throw here: a
+        // null call or one without a function object fails there with the
+        // check's message, as a streamed one does.
         const callObj = {
-          name: fc.function.name,
-          arguments: fc.function.params ?? {},
+          name: fc?.function?.name,
+          arguments: fc?.function?.params ?? {},
         };
         content += `\n<tool_call>\n${JSON.stringify(callObj)}\n</tool_call>`;
       }

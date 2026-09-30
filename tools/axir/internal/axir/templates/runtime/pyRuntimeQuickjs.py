@@ -53,6 +53,21 @@ _PRELUDE = (
 
 _HOST_NAMESPACES = {{AX_HOST_NAMESPACES_QUOTED}}
 
+# TypeScript's action-log code analysis and AxJSRuntime snapshot entries,
+# shared by the ports' JavaScript runtimes (scripts/axir-runtime-support.mjs).
+_RUNTIME_SUPPORT = {{AX_RUNTIME_SUPPORT_QUOTED}}
+
+# TypeScript's AxJSRuntime.getUsageInstructions() in its default stdout mode.
+_USAGE_INSTRUCTIONS = "\n".join(
+    "- " + line
+    for line in (
+        "Don't wrap async code in (async()=>{ ... })() \u2014 the runtime automatically handles async execution.",
+        "State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.",
+        "Bare assignment (e.g. `x = 1`) also persists via `globalThis`.",
+        "Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.",
+    )
+)
+
 
 class AxQuickJsCodeSession(AxCodeSession):
     def __init__(self, runtime, globals_, options=None):
@@ -68,6 +83,7 @@ class AxQuickJsCodeSession(AxCodeSession):
             self.ctx.eval("globalThis[%s]=JSON.parse(%s);" % (json.dumps(key), json.dumps(json.dumps(value))))
         self.ctx.eval(_HOST_NAMESPACES)
         self.ctx.eval("__ax_bind_host_namespaces()")
+        self.ctx.eval(_RUNTIME_SUPPORT)
         # Baseline of reserved globals: every name present before the agent runs any
         # code (JS built-ins like Math/JSON/Reflect, the prelude helpers, host callables,
         # and injected inputs). axSnap excludes these so the runtime-state summary shows
@@ -100,6 +116,14 @@ class AxQuickJsCodeSession(AxCodeSession):
             persist_suffix = self.ctx.eval("axPersistSuffix(" + json.dumps(code) + ")") or ""
         except Exception:
             persist_suffix = ""
+        # TS's analysis of the turn's code, for the variables' provenance.
+        try:
+            analysis = json.loads(self.ctx.eval("__ax_analyze_code(" + json.dumps(code) + ")"))
+        except Exception:
+            analysis = None
+        # TS's distiller final: final(task, evidence) keeps the evidence as the
+        # distilledContext global the executor inherits.
+        self.ctx.eval("__ax_install_final_evidence()")
         wrapper = (
             "(async()=>{\n" + code + "\n" + persist_suffix + "\n})().then("
             "function(r){globalThis.__ax_result=r;},"
@@ -111,11 +135,11 @@ class AxQuickJsCodeSession(AxCodeSession):
                 if not self.ctx.execute_pending_job():
                     break
         except Exception as exc:
-            return {"kind": "error", "is_error": True, "error_category": "runtime", "error": str(exc)}
+            return {"kind": "error", "is_error": True, "error_category": "runtime", "error": str(exc), "analysis": analysis}
         err = self.ctx.eval("globalThis.__ax_error===undefined?null:globalThis.__ax_error")
         if err is not None:
             category = self.ctx.eval("globalThis.__ax_error_category===undefined?'runtime':globalThis.__ax_error_category")
-            return {"kind": "error", "is_error": True, "error_category": str(category or "runtime"), "error": str(err)}
+            return {"kind": "error", "is_error": True, "error_category": str(category or "runtime"), "error": str(err), "analysis": analysis}
         try:
             logs = json.loads(self.ctx.eval("JSON.stringify(globalThis.__ax_logs||[])"))
         except Exception:
@@ -126,6 +150,8 @@ class AxQuickJsCodeSession(AxCodeSession):
         ))
         if logs and isinstance(payload, dict):
             payload["logs"] = logs
+        if analysis is not None and isinstance(payload, dict):
+            payload["analysis"] = analysis
         return payload
 
     def _snap(self):
@@ -137,12 +163,23 @@ class AxQuickJsCodeSession(AxCodeSession):
     def inspect_globals(self, options=None):
         return self._snap()
 
+    def _entries(self):
+        # TS's AxJSRuntime snapshot entries of the user globals (the names
+        # present before the agent's code ran are skipped).
+        try:
+            return json.loads(self.ctx.eval("__ax_inspect_entries(Object.keys(globalThis.__ax_reserved||{}))"))
+        except Exception:
+            return []
+
     def snapshot_globals(self, options=None):
         g = self._snap()
-        return {"version": 1, "entries": [{"name": k, "type": type(v).__name__, "preview": repr(v)} for k, v in g.items()], "bindings": g, "globals": g, "closed": self.closed}
+        return {"version": 1, "entries": self._entries(), "bindings": g, "globals": g, "closed": self.closed}
 
     def patch_globals(self, snapshot, options=None):
         snap = snapshot or {}
+        if snap.get("merge"):
+            # The executor phase: the distiller's final no longer keeps evidence.
+            self.ctx.eval("globalThis.__ax_phase='executor'")
         for key, value in (snap.get("bindings") or snap.get("globals") or {}).items():
             self.ctx.eval("globalThis[%s]=JSON.parse(%s);" % (json.dumps(key), json.dumps(json.dumps(value))))
         self.closed = bool(snap.get("closed", False))
@@ -174,7 +211,7 @@ class AxQuickJsCodeRuntime(AxCodeRuntime):
         return self
 
     def get_usage_instructions(self) -> str:
-        return "In-process QuickJS runtime. Use final(...), respond(...), askClarification(...), and namespaced tools."
+        return _USAGE_INSTRUCTIONS
 
     def create_session(self, globals: dict[str, Any], options: dict[str, Any] | None = None):
         return AxQuickJsCodeSession(self, globals, options)

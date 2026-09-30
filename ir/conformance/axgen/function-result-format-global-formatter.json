@@ -1,0 +1,83 @@
+{
+  "expected_memory_function_results": [
+    "from the globals",
+    "from the globals",
+    "from the globals",
+    "from the globals"
+  ],
+  "expected_output": {
+    "answer": "done"
+  },
+  "expected_request_contains": [
+    "\"from the globals\"",
+    "\"from the globals\"",
+    "\"from the globals\"",
+    "\"from the globals\""
+  ],
+  "expected_request_count": 2,
+  "global_function_result_formatter": {
+    "text": "from the globals"
+  },
+  "input": {
+    "query": "q"
+  },
+  "kind": "forward",
+  "name": "function-result-format-global-formatter",
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "call_1",
+          "name": "lookupObject",
+          "params": {}
+        },
+        {
+          "id": "call_2",
+          "name": "lookupText",
+          "params": {}
+        },
+        {
+          "id": "call_3",
+          "name": "lookupNone",
+          "params": {}
+        },
+        {
+          "id": "call_4",
+          "name": "lookupNumber",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "content": "Answer: done"
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "description": "Look up lookupObject",
+      "name": "lookupObject",
+      "result": {
+        "a": [2],
+        "b": 1,
+        "c": null
+      }
+    },
+    {
+      "description": "Look up lookupText",
+      "name": "lookupText",
+      "result": "plain text"
+    },
+    {
+      "description": "Look up lookupNone",
+      "name": "lookupNone",
+      "result": null
+    },
+    {
+      "description": "Look up lookupNumber",
+      "name": "lookupNumber",
+      "result": 42
+    }
+  ]
+}

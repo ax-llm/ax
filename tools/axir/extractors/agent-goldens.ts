@@ -2228,8 +2228,7 @@ writeFixture('context-runtime-state-summary', {
   },
   expected_context_result_subset: {
     prepared: {
-      liveRuntimeState:
-        'Current runtime state:\n- alpha: 1\n- beta: {"ok":true}',
+      liveRuntimeState: '- alpha: 1\n- beta: {"ok":true}',
     },
   },
 });
@@ -2482,11 +2481,11 @@ const runtimeEntries = [
 const provenance = Object.fromEntries(
   buildRuntimeStateProvenance(provenanceActionLog).entries()
 ) as Json;
-const provenanceRuntimeState = `Current runtime state:\n${formatStructuredRuntimeState(
+const provenanceRuntimeState = formatStructuredRuntimeState(
   runtimeEntries,
   buildRuntimeStateProvenance(provenanceActionLog),
   { maxEntries: 8, maxChars: 1200 }
-)}`;
+);
 writeFixture('context-runtime-state-provenance-summary', {
   kind: 'agent_runtime_policy',
   signature: 'question:string -> answer:string',
@@ -3009,13 +3008,13 @@ writeFixture('flat-functions-always-inline', {
   },
   expected_callable_inventory_subset: [
     {
-      namespace: 'tools',
+      namespace: 'utils',
       always_include: true,
       callables: [
         {
           name: 'search',
-          namespace: 'tools',
-          qualified_name: 'tools.search',
+          namespace: 'utils',
+          qualified_name: 'utils.search',
           kind: 'tool',
           description: 'Search docs',
           parameters: null,
@@ -3023,8 +3022,8 @@ writeFixture('flat-functions-always-inline', {
         },
         {
           name: 'lookup',
-          namespace: 'tools',
-          qualified_name: 'tools.lookup',
+          namespace: 'utils',
+          qualified_name: 'utils.lookup',
           kind: 'tool',
           description: 'Look up an id',
           parameters: null,
@@ -3035,9 +3034,9 @@ writeFixture('flat-functions-always-inline', {
   ],
   expected_discovery_catalog_subset: [
     {
-      namespace: 'tools',
+      namespace: 'utils',
       placement: 'actor_prompt',
-      callables: ['tools.search', 'tools.lookup'],
+      callables: ['utils.search', 'utils.lookup'],
     },
   ],
 });

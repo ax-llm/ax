@@ -162,6 +162,8 @@ public final class Conformance {
     // What the run did to its sessions: open, steer, continue (with the IDs
     // of the tool results it submitted) and close.
     final List<Object> sessionLog = Collections.synchronizedList(new ArrayList<>());
+    // The tool results the run submitted to its sessions, in order.
+    final List<Object> sessionToolResults = Collections.synchronizedList(new ArrayList<>());
 
     ConformanceSessionAI(List<Object> responses, List<Object> streamEvents, Map<String, Object> features, Map<String, Object> client, List<Object> sessions) {
       super(responses, streamEvents, withAsyncTools(features), client);
@@ -183,7 +185,7 @@ public final class Conformance {
       sessionLog.add(logEntry("open"));
       noteRequest();
       if (sessions.isEmpty()) throw new RuntimeException("scripted sessions exhausted");
-      return new ScriptedChatSession(sessionLog, Core.asList(sessions.remove(0)));
+      return new ScriptedChatSession(sessionLog, Core.asList(sessions.remove(0)), sessionToolResults);
     }
   }
 
@@ -199,12 +201,14 @@ public final class Conformance {
   static final class ScriptedChatSession implements AxChatSession {
     private static final Map<String, Object> END = new LinkedHashMap<>();
     private final List<Object> log;
+    private final List<Object> toolResults;
     private final List<Object> script;
     private final java.util.concurrent.BlockingQueue<Map<String, Object>> events = new java.util.concurrent.LinkedBlockingQueue<>();
     private boolean closed;
 
-    ScriptedChatSession(List<Object> log, List<Object> script) {
+    ScriptedChatSession(List<Object> log, List<Object> script, List<Object> toolResults) {
       this.log = log;
+      this.toolResults = toolResults;
       this.script = new ArrayList<>(script);
       play();
     }
@@ -242,6 +246,13 @@ public final class Conformance {
       Map<String, Object> entry = logEntry("continue");
       entry.put("call_ids", ids);
       log.add(entry);
+      for (Object result : results) {
+        Map<String, Object> submitted = new LinkedHashMap<>();
+        submitted.put("call_id", Core.get(result, "function_id", null));
+        submitted.put("result", Core.get(result, "result", null));
+        submitted.put("is_error", Core.truthy(Core.get(result, "is_error", false)));
+        toolResults.add(submitted);
+      }
       play();
     }
 
@@ -284,6 +295,10 @@ public final class Conformance {
 
   // expected_session_log: what the run did to its native sessions, in order.
   static void assertSessionLog(Map<String, Object> fixture, ConformanceScriptedAI client) {
+    if (fixture.containsKey("expected_session_tool_results")) {
+      List<Object> results = client instanceof ConformanceSessionAI session ? new ArrayList<>(session.sessionToolResults) : List.of();
+      assertEqual(results, fixture.get("expected_session_tool_results"), "native session tool results");
+    }
     if (!fixture.containsKey("expected_session_log")) return;
     List<Object> log = client instanceof ConformanceSessionAI session ? new ArrayList<>(session.sessionLog) : List.of();
     assertEqual(log, fixture.get("expected_session_log"), "native session log");
@@ -301,7 +316,13 @@ public final class Conformance {
     public Object call(Map<String, Object> request) {
       requests.add(new LinkedHashMap<>(request));
       if (responses.isEmpty()) throw new RuntimeException("scripted transport exhausted");
-      return responses.remove(0);
+      Object response = responses.remove(0);
+      // {"network_error": message} stands for a request that failed to
+      // connect, send or read, which the transport reports as TS does.
+      if (response instanceof Map<?, ?> map && map.containsKey("network_error")) {
+        throw new AxAIServiceNetworkError("Network Error: " + map.get("network_error"));
+      }
+      return response;
     }
     public Object call(Map<String,Object> request,AxCancellationToken cancellation){cancellations.add(cancellation);return call(request);}
     public Object stream(Map<String,Object> request,AxCancellationToken cancellation){cancellations.add(cancellation);return call(request);}
@@ -783,6 +804,33 @@ public final class Conformance {
   // expected_deprecations pins the one-time deprecation warnings the run
   // gives (the ones already shown are forgotten first).
   static void run(Map<String, Object> fixture) {
+    // The request-layer retry records its delays instead of waiting, and a
+    // fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    // pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    // checks that a cancellation ends the wait, so it waits for real.
+    List<Double> delays = java.util.Collections.synchronizedList(new ArrayList<>());
+    OpenAICompatibleClient.requestRetrySleepHook =
+        "ai_cancellation".equals(fixture.get("kind")) ? null : delays::add;
+    Object random = fixture.get("retry_random");
+    Object now = fixture.get("retry_now_ms");
+    OpenAICompatibleClient.requestRetryRandomHook = random == null ? null : () -> Core.asDouble(random);
+    OpenAICompatibleClient.requestRetryNowHook = now == null ? null : () -> Core.asDouble(now);
+    try {
+      runWithDeprecations(fixture);
+    } finally {
+      OpenAICompatibleClient.requestRetrySleepHook = null;
+      OpenAICompatibleClient.requestRetryRandomHook = null;
+      OpenAICompatibleClient.requestRetryNowHook = null;
+    }
+    if (fixture.containsKey("expected_retry_delays_ms")) {
+      List<Object> expected = Core.asList(fixture.get("expected_retry_delays_ms"));
+      boolean matches = expected.size() == delays.size();
+      for (int index = 0; matches && index < expected.size(); index++) matches = Math.abs(Core.asDouble(expected.get(index)) - delays.get(index)) <= 1e-6;
+      if (!matches) throw new FixtureError("retry delays: expected " + Json.stringify(expected) + ", got " + delays);
+    }
+  }
+
+  static void runWithDeprecations(Map<String, Object> fixture) {
     if (!fixture.containsKey("expected_deprecations")) {
       runKind(fixture);
       return;
@@ -838,6 +886,8 @@ public final class Conformance {
       case "ai_cancellation" -> runAICancellation(fixture);
       case "ai_usage_observer" -> runAIUsageObserver(fixture);
       case "ai_runtime_hooks" -> runAIRuntimeHooks(fixture);
+      case "ai_verbose" -> runAIVerbose(fixture);
+      case "ai_custom_labels" -> runAICustomLabels(fixture);
       case "ai_credential_wrapper" -> runAICredentialWrapper(fixture);
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
@@ -973,6 +1023,18 @@ public final class Conformance {
     if (expected == null || expected.isEmpty()) return;
     String category = errorCategory(e);
     if (!category.equals(expected)) throw new FixtureError("expected error category " + expected + ", got " + category);
+  }
+
+  // A fixture's tool result formatter: {text} writes that text for every tool
+  // result, and {throws} fails with that message.
+  static AxGen.FunctionResultFormatter fixtureFunctionResultFormatter(Object spec) {
+    Map<String, Object> map = Core.asMap(spec);
+    String text = String.valueOf(map.getOrDefault("text", ""));
+    Object failure = map.get("throws");
+    return result -> {
+      if (failure != null) throw new RuntimeException(String.valueOf(failure));
+      return text;
+    };
   }
 
   // "Generate failed: ..." keeps the failure it wraps as its direct cause. In
@@ -1187,7 +1249,8 @@ public final class Conformance {
       sig,
       tools.tools,
       (String) fixture.getOrDefault("structured_output_function_name", options.getOrDefault("structured_output_function_name", options.get("structuredOutputFunctionName"))),
-      (String) fixture.getOrDefault("custom_template", options.getOrDefault("custom_template", options.get("customTemplate")))
+      (String) fixture.getOrDefault("custom_template", options.getOrDefault("custom_template", options.get("customTemplate"))),
+      Core.truthy(options.getOrDefault("includeOptionalInputFieldsInSystemPrompt", options.getOrDefault("include_optional_input_fields_in_system_prompt", false)))
     );
     if (fixture.get("instruction") != null) prompt.setInstruction(String.valueOf(fixture.get("instruction")));
     Object messages = prompt.render(Core.asMap(fixture.getOrDefault("input", fixture.getOrDefault("values", Map.of()))));
@@ -1242,10 +1305,29 @@ public final class Conformance {
         return Core.asInt(fixture.get("result_picker_index"));
       });
     }
+    if (fixture.containsKey("function_result_formatter")) {
+      // The program's formatter.
+      gen.setFunctionResultFormatter(fixtureFunctionResultFormatter(fixture.get("function_result_formatter")));
+    }
     Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+    if (fixture.containsKey("call_function_result_formatter")) {
+      // The forward call's formatter.
+      forwardOptions.put("functionResultFormatter", fixtureFunctionResultFormatter(fixture.get("call_function_result_formatter")));
+    }
     List<Object> callEvents = attachFixtureControl(fixture, client, forwardOptions);
+    addCallCancellation(fixture, forwardOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
-    Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
+    // The process-wide formatter, restored after the forward.
+    AxGen.FunctionResultFormatter previousGlobalFormatter = AxGlobals.functionResultFormatter();
+    if (fixture.containsKey("global_function_result_formatter")) {
+      AxGlobals.setFunctionResultFormatter(fixtureFunctionResultFormatter(fixture.get("global_function_result_formatter")));
+    }
+    Object output;
+    try {
+      output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions), fixture, error -> assertErrorCause(error, fixture));
+    } finally {
+      AxGlobals.setFunctionResultFormatter(previousGlobalFormatter);
+    }
     assertSpeakRequests(fixture, client);
     assertSessionLog(fixture, client);
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
@@ -1279,12 +1361,24 @@ public final class Conformance {
       }
     }
     if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
+    if (fixture.containsKey("expected_tool_extras")) assertEqual(new ArrayList<>(toolBuild.extras), fixture.get("expected_tool_extras"), "tool extras");
 	    if (fixture.containsKey("expected_trace")) {
 	      if (gen.getTraces().isEmpty()) throw new FixtureError("expected trace but none was recorded");
 	      assertSubset(gen.getTraces().get(gen.getTraces().size() - 1), fixture.get("expected_trace"), "trace");
 	    }
 	    if (fixture.containsKey("expected_memory_history_count") && gen.getMemory().history().size() != Core.asInt(fixture.get("expected_memory_history_count"))) throw new FixtureError("expected memory history count mismatch");
 	    if (fixture.containsKey("expected_memory_history_subset")) assertListSubset(gen.getMemory().history(), fixture.get("expected_memory_history_subset"), "memory history");
+	    // The memory's tool results, in order: result_text is the text the
+	    // model got, and result holds the same text.
+	    for (String[] check : new String[][] {{"expected_memory_function_results", "result_text"}, {"expected_memory_function_stored_results", "result"}}) {
+	      if (!fixture.containsKey(check[0])) continue;
+	      List<Object> memoryValues = new ArrayList<>();
+	      for (Map<String, Object> item : gen.getMemory().history()) {
+	        if (!"function".equals(item.get("role"))) continue;
+	        for (Object entry : Core.asList(item.get("results"))) memoryValues.add(Core.asMap(entry).get(check[1]));
+	      }
+	      assertEqual(memoryValues, fixture.get(check[0]), check[0]);
+	    }
 	    if (fixture.containsKey("expected_chat_log_subset")) assertListSubset(gen.getChatLog(), fixture.get("expected_chat_log_subset"), "chat log");
 	    if (fixture.containsKey("expected_function_traces_subset")) assertListSubset(gen.getFunctionCallTraces(), fixture.get("expected_function_traces_subset"), "function call traces");
 	    if (fixture.containsKey("expected_chat_prompt")) assertEqual(client.requests.get(0).get("chat_prompt"), fixture.get("expected_chat_prompt"), "chat prompt");
@@ -1373,8 +1467,27 @@ public final class Conformance {
   // constructor_control: true puts the fixture's run control, recorded and
   // steered as for control, in the AxGen constructor's options instead.
   static List<Object> attachConstructorControl(Map<String, Object> fixture, ConformanceScriptedAI client, Map<String, Object> constructorOptions) {
+    // constructor_cancellation: the program's cancellation token, the default
+    // for every forward.
+    AxCancellationToken constructorToken = fixtureCancellation(fixture.get("constructor_cancellation"));
+    if (constructorToken != null) constructorOptions.put("cancellation", constructorToken);
     if (!Core.truthy(fixture.get("constructor_control"))) return java.util.Collections.synchronizedList(new ArrayList<>());
     return attachRunControl(fixture, client, constructorOptions);
+  }
+
+  // A fixture's constructor_cancellation or call_cancellation: a token,
+  // cancelled with the reason when the spec says so.
+  static AxCancellationToken fixtureCancellation(Object raw) {
+    if (!(raw instanceof Map<?, ?> spec)) return null;
+    AxCancellationToken token = new AxCancellationToken();
+    if (Core.truthy(spec.get("cancelled"))) token.cancel(String.valueOf(spec.get("reason") == null ? "fixture-stop" : spec.get("reason")));
+    return token;
+  }
+
+  // call_cancellation: the forward call's own cancellation token.
+  static void addCallCancellation(Map<String, Object> fixture, Map<String, Object> callOptions) {
+    AxCancellationToken callToken = fixtureCancellation(fixture.get("call_cancellation"));
+    if (callToken != null) callOptions.put("cancellation", callToken);
   }
 
   static List<Object> attachRunControl(Map<String, Object> fixture, ConformanceScriptedAI client, Map<String, Object> runOptions) {
@@ -1444,6 +1557,7 @@ public final class Conformance {
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls, constructorOptions);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
     List<Object> callEvents = attachFixtureControl(fixture, client, runOptions);
+    addCallCancellation(fixture, runOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     Map<String, Object> input = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("input", Map.of())));
     Object stopAfter = fixture.get("stop_after_deltas");
@@ -1482,6 +1596,7 @@ public final class Conformance {
     }
     assertSpeakRequests(fixture, client);
     if (fixture.containsKey("expected_tool_calls")) assertEqual(toolBuild.calls, fixture.get("expected_tool_calls"), "tool calls");
+    if (fixture.containsKey("expected_tool_extras")) assertEqual(new ArrayList<>(toolBuild.extras), fixture.get("expected_tool_extras"), "tool extras");
     if (fixture.containsKey("expected_processor_calls")) assertEqual(processorCalls, fixture.get("expected_processor_calls"), "field processor calls");
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);
@@ -1508,6 +1623,7 @@ public final class Conformance {
     AxGen gen = streamingFixtureGen(fixture, toolBuild, processorCalls, constructorOptions);
     Map<String, Object> runOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
     List<Object> callEvents = attachFixtureControl(fixture, client, runOptions);
+    addCallCancellation(fixture, runOptions);
     List<Object> controlEvents = Core.truthy(fixture.get("control")) ? callEvents : constructorEvents;
     List<Object> deltas = new ArrayList<>();
     RuntimeException failure = null;
@@ -1828,12 +1944,16 @@ public final class Conformance {
       nestedFixture.put("steps", step.getOrDefault("steps", List.of()));
       nestedFixture.put("returns", step.getOrDefault("returns", Map.of()));
       nestedFixture.put("signature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")));
+      if (fixture.containsKey("_node_control")) nestedFixture.put("_node_control", fixture.get("_node_control"));
       program = buildFlow(nestedFixture);
     } else if ("agent".equals(step.get("program"))) {
       program = Ax.agent(String.valueOf(step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string"))), Core.asMap(step.getOrDefault("options", Map.of())));
     } else {
       String signature = String.valueOf(step.getOrDefault("extended_signature", step.getOrDefault("extendedSignature", step.getOrDefault("signature", fixture.getOrDefault("signature", "question:string -> answer:string")))));
-      program = new AxGen(AxSignature.create(signature), Core.asMap(step.getOrDefault("options", Map.of())));
+      Map<String, Object> programOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("options", Map.of())));
+      // The node's own run control, a constructor default.
+      if (Core.truthy(step.get("constructor_control")) && fixture.get("_node_control") != null) programOptions.put("control", fixture.get("_node_control"));
+      program = new AxGen(AxSignature.create(signature), programOptions);
     }
     Map<String, Object> stepOptions = new LinkedHashMap<>(Core.asMap(step.getOrDefault("forward_options", Map.of())));
     stepOptions.putAll(options);
@@ -1862,6 +1982,13 @@ public final class Conformance {
   }
 
   static void runFlow(Map<String, Object> fixture) {
+    // A step with constructor_control gets a node run control of its own;
+    // expected_node_control_events pins its lifecycle events.
+    Map<String, Object> nodeOptions = new LinkedHashMap<>();
+    List<Object> nodeEvents = attachRunControl(Map.of(), null, nodeOptions);
+    fixture = new LinkedHashMap<>(fixture);
+    fixture.put("_node_control", nodeOptions.get("control"));
+    List<Object> flowEvents = new ArrayList<>();
     try {
       AxFlow fl = buildFlow(fixture);
       if (fixture.containsKey("expected_plan")) assertEqual(fl.getPlan(), fixture.get("expected_plan"), "flow plan");
@@ -1869,10 +1996,13 @@ public final class Conformance {
       if ("plan".equals(fixture.get("operation"))) return;
       ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of()))).scriptSpeak(fixture);
       Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+      flowEvents = attachFixtureControl(fixture, client, forwardOptions);
       Object output = "streaming".equals(fixture.get("operation"))
         ? fl.streamingForward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions)
         : fl.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "flow output");
+      if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(flowEvents), fixture.get("expected_control_events"), "flow run control events");
+      if (fixture.containsKey("expected_node_control_events")) assertEqual(new ArrayList<>(nodeEvents), fixture.get("expected_node_control_events"), "node run control events");
       if (fixture.containsKey("expected_streaming_output")) assertEqual(output, fixture.get("expected_streaming_output"), "flow streaming output");
       if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
       assertSpeakRequests(fixture, client);
@@ -1892,7 +2022,12 @@ public final class Conformance {
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected flow fixture to fail");
     } catch (RuntimeException e) {
       String expected = (String) fixture.get("expected_error_contains");
-      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
+      if (expected != null && String.valueOf(e.getMessage()).contains(expected)) {
+        // A failed flow's lifecycle events are pinned too.
+        if (fixture.containsKey("expected_control_events")) assertEqual(new ArrayList<>(flowEvents), fixture.get("expected_control_events"), "flow run control events");
+        if (fixture.containsKey("expected_node_control_events")) assertEqual(new ArrayList<>(nodeEvents), fixture.get("expected_node_control_events"), "node run control events");
+        return;
+      }
       throw e;
     }
   }
@@ -1948,12 +2083,22 @@ public final class Conformance {
           String.valueOf(fixture.getOrDefault("runtime_language", "JavaScript")),
           ""));
     }
+    String operation = String.valueOf(fixture.getOrDefault("operation", "components"));
+    // The eval operation's scripted client; as the agent fixtures do, a
+    // playbook without studentAI learns through it.
+    ConformanceScriptedAI evalClient = "eval".equals(operation)
+      ? new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())))
+      : null;
+    if (evalClient != null && options.get("playbook") instanceof Map<?, ?> rawPlaybook) {
+      Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(rawPlaybook));
+      playbook.putIfAbsent("studentAI", evalClient);
+      options.put("playbook", playbook);
+    }
     Object program = "axgen".equals(programKind)
       ? new AxGen(AxSignature.create(signature), options)
       : "flow".equals(programKind)
         ? buildFlow(fixture)
         : Ax.agent(signature, options);
-    String operation = String.valueOf(fixture.getOrDefault("operation", "components"));
     try {
       if ("verification".equals(operation)) {
         assertEqual(verificationInstrumentsSummary(), fixture.get("expected_output"), "verification instruments");
@@ -2172,12 +2317,14 @@ public final class Conformance {
         return;
       }
       if ("eval".equals(operation)) {
-        ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+        ConformanceScriptedAI client = evalClient;
         Map<String, Object> prediction = ((AxAgent) program).evaluateOptimizationTask(client, Core.asMap(fixture.getOrDefault("task", Map.of("input", fixture.getOrDefault("input", Map.of())))), Core.asMap(fixture.getOrDefault("eval_options", Map.of())));
         if (fixture.containsKey("expected_prediction_subset")) assertSubset(prediction, fixture.get("expected_prediction_subset"), "eval prediction");
         // Fields that must match exactly: a list compares in full.
         for (Map.Entry<String, Object> field : Core.asMap(fixture.getOrDefault("expected_prediction_fields", Map.of())).entrySet())
           assertEqual(prediction.get(field.getKey()), field.getValue(), "eval prediction " + field.getKey());
+        if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count")))
+          throw new FixtureError("expected " + fixture.get("expected_request_count") + " eval requests, got " + client.requests.size());
         return;
       }
     } catch (RuntimeException e) {
@@ -2887,6 +3034,21 @@ public final class Conformance {
       assertEqual(actualStageRequests, exactProjection.get("stageRequests"), "exact agent stage request projection");
     }
     for(var entry:Core.asMap(fixture.get("expected_mcp_calls")).entrySet()){var actual=new ArrayList<Object>();for(Object raw:mcpTransports.get(entry.getKey()).requests){var request=Core.asMap(raw);if("tools/call".equals(request.get("method"))){var params=Core.asMap(request.get("params"));actual.add(Map.of("name",params.get("name"),"arguments",params.get("arguments")));}}assertEqual(actual,entry.getValue(),"delegated MCP calls "+entry.getKey());}
+    // Each stage's first request in full: every message's role and content.
+    for (Object raw : Core.asList(fixture.get("expected_stage_first_requests"))) {
+      Map<String, Object> spec = Core.asMap(raw);
+      int index = Core.asInt(spec.get("index"));
+      String stage = String.valueOf(spec.get("stage"));
+      if (index >= client.requests.size()) throw new FixtureError("no request " + index + " for the " + stage + " stage");
+      List<Object> actual = new ArrayList<>();
+      for (Object message : Core.asList(Core.asMap(client.requests.get(index)).get("chat_prompt"))) {
+        Map<String, Object> projected = new LinkedHashMap<>();
+        projected.put("role", Core.asMap(message).get("role"));
+        projected.put("content", Core.asMap(message).get("content"));
+        actual.add(projected);
+      }
+      assertEqual(actual, spec.get("messages"), stage + " first request");
+    }
     for(Object raw:Core.asList(fixture.get("expected_request_checks"))){var check=Core.asMap(raw);var request=Core.asMap(client.requests.get(Core.asInt(check.get("index"))));String text=Json.stringify(request);for(Object value:Core.asList(check.get("contains")))if(!text.contains(String.valueOf(value)))throw new FixtureError("Child request missing "+value);for(Object value:Core.asList(check.get("not_contains")))if(text.contains(String.valueOf(value)))throw new FixtureError("Child request exposed "+value);if(Core.truthy(check.get("functions_absent"))&&Core.truthy(request.get("functions")))throw new FixtureError("Agent runtime tools leaked into native functions");}
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);
@@ -3385,6 +3547,101 @@ public final class Conformance {
     } finally {
       AxGlobals.setUsageObserver(null);
     }
+  }
+
+  // A recording meter sees a chat (the service's and the call's custom
+  // labels) and an AxGen forward on the same client (its constructor's labels
+  // with the call's over them). Each expected metric's first record must
+  // carry the expected labels besides the runtime's own "ax.*" attributes.
+  static void runAICustomLabels(Map<String, Object> fixture) {
+    try {
+      runAICustomLabelsChecked(fixture);
+    } catch (RuntimeException error) {
+      throw error;
+    } catch (Exception error) {
+      throw Core.asRuntime(error);
+    }
+  }
+
+  static void runAICustomLabelsChecked(Map<String, Object> fixture) throws Exception {
+    ClientFixture cf = openaiClient(fixture);
+    List<Map.Entry<String, Map<String, Object>>> records = java.util.Collections.synchronizedList(new ArrayList<>());
+    AxMeter meter = new AxMeter() {
+      public AxCounter createCounter(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> records.add(Map.entry(name, new LinkedHashMap<>(attributes))); }
+      public AxHistogram createHistogram(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> records.add(Map.entry(name, new LinkedHashMap<>(attributes))); }
+      public AxGauge createGauge(String name, AxMetricInstrumentOptions options) { return (value, attributes) -> records.add(Map.entry(name, new LinkedHashMap<>(attributes))); }
+    };
+    java.util.function.Function<String, Object> customPart = metric -> {
+      synchronized (records) {
+        for (Map.Entry<String, Map<String, Object>> record : records) {
+          if (!record.getKey().equals(metric)) continue;
+          Map<String, Object> out = new LinkedHashMap<>();
+          for (Map.Entry<String, Object> entry : record.getValue().entrySet()) if (!entry.getKey().startsWith("ax.")) out.put(entry.getKey(), entry.getValue());
+          return out;
+        }
+      }
+      throw new FixtureError("no " + metric + " metric was recorded");
+    };
+    AxGlobals.setMeter(meter);
+    try {
+      Map<String, Object> chat = Core.asMap(fixture.getOrDefault("chat", Map.of()));
+      cf.client.chat(Core.asMap(chat.getOrDefault("request", Map.of())), Map.of("customLabels", chat.getOrDefault("custom_labels", Map.of())));
+      for (Map.Entry<String, Object> expected : Core.asMap(fixture.getOrDefault("expected_chat_custom_labels", Map.of())).entrySet()) {
+        assertEqual(customPart.apply(expected.getKey()), expected.getValue(), "chat " + expected.getKey() + " custom labels");
+      }
+      records.clear();
+      Map<String, Object> spec = Core.asMap(fixture.getOrDefault("forward", Map.of()));
+      Map<String, Object> constructorOptions = new LinkedHashMap<>();
+      constructorOptions.put("customLabels", spec.getOrDefault("constructor_custom_labels", Map.of()));
+      AxGen gen = new AxGen(Ax.s(String.valueOf(spec.getOrDefault("signature", "question:string -> answer:string"))), constructorOptions);
+      Map<String, Object> callOptions = new LinkedHashMap<>();
+      callOptions.put("stream", false);
+      callOptions.put("customLabels", spec.getOrDefault("call_custom_labels", Map.of()));
+      gen.forward(cf.client, Core.asMap(spec.getOrDefault("input", Map.of())), callOptions);
+      for (Map.Entry<String, Object> expected : Core.asMap(fixture.getOrDefault("expected_forward_custom_labels", Map.of())).entrySet()) {
+        assertEqual(customPart.apply(expected.getKey()), expected.getValue(), "forward " + expected.getKey() + " custom labels");
+      }
+    } finally {
+      AxGlobals.setMeter(null);
+    }
+  }
+
+  // Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+  // headers must mask the API key.
+  static void runAIVerbose(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    String apiKey = String.valueOf(fixture.getOrDefault("api_key", "test-key"));
+    java.util.regex.Pattern headersJson = java.util.regex.Pattern.compile(" Headers: \\{[\\s\\S]*?\\n\\} \\nBody:");
+    List<Object> logs = new ArrayList<>();
+    try {
+      for (Object raw : Core.asList(fixture.getOrDefault("calls", List.of()))) {
+        Map<String, Object> call = Core.asMap(raw);
+        List<String> entries = java.util.Collections.synchronizedList(new ArrayList<>());
+        AxGlobals.verboseSink = entries::add;
+        Map<String, Object> request = Core.asMap(Json.parse(Json.stringify(call.getOrDefault("request", Map.of()))));
+        Map<String, Object> options = new LinkedHashMap<>(Core.asMap(call.getOrDefault("options", Map.of())));
+        try {
+          if (Core.truthy(Core.asMap(request.getOrDefault("model_config", Map.of())).get("stream"))) {
+            try (AxChatStream stream = cf.client.openStream(request, options, null)) { for (Object ignored : stream) { } }
+          } else {
+            cf.client.chat(request, options);
+          }
+        } catch (RuntimeException error) {
+          throw error;
+        } catch (Exception error) {
+          throw Core.asRuntime(error);
+        }
+        List<Object> out = new ArrayList<>();
+        for (String entry : entries) {
+          if (!apiKey.isEmpty() && entry.contains(apiKey)) throw new FixtureError("a verbose block shows the API key: " + entry);
+          out.add(headersJson.matcher(entry).replaceAll(java.util.regex.Matcher.quoteReplacement(" Headers: {{HEADERS}} \nBody:")));
+        }
+        logs.add(out);
+      }
+    } finally {
+      AxGlobals.verboseSink = null;
+    }
+    assertEqual(logs, fixture.get("expected_verbose_logs"), "verbose logs");
   }
 
   static void runAIRuntimeHooks(Map<String, Object> fixture) {
@@ -3935,6 +4192,8 @@ public final class Conformance {
   static final class ToolBuild {
     final List<Tool> tools = new ArrayList<>();
     final List<Object> calls = new ArrayList<>();
+    // The extras each record_extras tool saw.
+    final List<Object> extras = java.util.Collections.synchronizedList(new ArrayList<>());
   }
   static ToolBuild buildTools(List<Object> specs) {
     ToolBuild out = new ToolBuild();
@@ -3945,11 +4204,24 @@ public final class Conformance {
       for (Map.Entry<String, Object> e : Core.asMap(spec.get("returns")).entrySet()) builder.returnsField(e.getKey(), fieldFromSpec(Core.asMap(e.getValue())));
       Object result = spec.get("result");
       Object error = spec.get("error");
-      builder.handler(args -> {
+      Tool.Handler handler = args -> {
         out.calls.add(new LinkedHashMap<>(Map.of("name", spec.get("name"), "args", new LinkedHashMap<>(args))));
         if (error != null) throw new RuntimeException(String.valueOf(error));
         return result;
-      });
+      };
+      if (Core.truthy(spec.get("record_extras"))) {
+        // An extras handler, recording the extras it gets.
+        builder.extrasHandler((args, extras) -> {
+          Map<String, Object> seen = new LinkedHashMap<>();
+          if (extras.sessionId != null) seen.put("sessionId", extras.sessionId);
+          if (extras.executionPath != null) seen.put("executionPath", extras.executionPath);
+          if (extras.eventContext != null) seen.put("eventContext", Core.ownedCopy(extras.eventContext));
+          out.extras.add(new LinkedHashMap<>(Map.of("name", spec.get("name"), "extras", seen)));
+          return handler.call(args);
+        });
+      } else {
+        builder.handler(handler);
+      }
       out.tools.add(builder.build());
     }
     return out;
@@ -4165,6 +4437,7 @@ public final class Conformance {
       try { Core.chat_session_validate_required_arguments(item.get("schema"), item.get("arguments"), "arguments"); }
       catch (RuntimeException error) { valid = false; }
       assertEqual(valid, item.get("valid"), "raw argument validation: " + item);
+      if (item.containsKey("errors")) assertEqual(Core.chat_session_tool_argument_errors(item.get("schema"), item.get("arguments")), item.get("errors"), "raw argument errors: " + item);
     }
     Object state = Core.chat_session_create_state(fixture.get("model"), fixture.get("path"), fixture.get("max_steps"));
     for (Object rawCase : Core.iter(fixture.get("cases"))) {

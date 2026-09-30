@@ -20,7 +20,7 @@ class ScriptedTransport:
 
 
 def client(transport):
-    return GoogleGeminiClient(model="gemini-3.5-flash", api_key="gemini-key", transport=transport, contextCache={"minTokens": 0, "ttlSeconds": 3600, "refreshWindowSeconds": 300})
+    return GoogleGeminiClient(model="gemini-3.8-flash", api_key="gemini-key", transport=transport, retry={"maxRetries": 1, "initialDelayMs": 1, "maxDelayMs": 1}, contextCache={"minTokens": 0, "ttlSeconds": 3600, "refreshWindowSeconds": 300})
 
 
 request = {"chat_prompt": [{"role": "system", "content": "stable context"}, {"role": "user", "content": "answer briefly"}]}
@@ -41,22 +41,25 @@ assert "cachedContent" in recovery.requests[1]["json"] and "cachedContent" not i
 refresh = ScriptedTransport([
     {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "refresh failed"}}},
     {"status": 200, "json": {"name": "cachedContents/new", "expireTime": future(3600)}}, chat_response("recreated"),
 ])
 refresh_client = client(refresh)
 refresh_client.chat(request)
 assert refresh_client.chat(request)["results"][0]["content"] == "recreated"
-assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
+assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "PATCH", "POST", "POST"]
 
 fallback = ScriptedTransport([
     {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "recreate failed"}}},
     {"status": 500, "json": {"error": {"message": "recreate failed"}}}, chat_response("uncached fallback"),
 ])
 fallback_client = client(fallback)
 fallback_client.chat(request)
 assert fallback_client.chat(request)["results"][0]["content"] == "uncached fallback"
-assert [item["method"] for item in fallback.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
+assert [item["method"] for item in fallback.requests] == ["POST", "POST", "PATCH", "PATCH", "POST", "POST", "POST"]
 
 if os.getenv("AX_CONTEXT_CACHE_LIVE") == "1":
     key = os.getenv("GOOGLE_APIKEY") or os.getenv("GOOGLE_API_KEY")
@@ -64,7 +67,7 @@ if os.getenv("AX_CONTEXT_CACHE_LIVE") == "1":
         raise SystemExit("Set GOOGLE_APIKEY to run the live Gemini cache exercise")
     entries = {}
     registry = {"get": lambda namespace, cache_key: entries.get((namespace, cache_key)), "set": lambda namespace, cache_key, entry: entries.__setitem__((namespace, cache_key), entry)}
-    live = GoogleGeminiClient(model=os.getenv("AX_GEMINI_MODEL", "gemini-3.5-flash"), api_key=key, contextCache={"minTokens": 0, "ttlSeconds": 60, "refreshWindowSeconds": 120, "namespace": "live-example", "registry": registry})
+    live = GoogleGeminiClient(model=os.getenv("AX_GEMINI_MODEL", "gemini-3.8-flash"), api_key=key, contextCache={"minTokens": 0, "ttlSeconds": 60, "refreshWindowSeconds": 120, "namespace": "live-example", "registry": registry})
     live_request = {"chat_prompt": [{"role": "system", "content": "This is stable reference context. " * 4000}, {"role": "user", "content": "Reply with the word ready."}]}
     live.chat(live_request)
     first_expiry = next(iter(entries.values()))["expiresAt"]

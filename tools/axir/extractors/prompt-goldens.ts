@@ -368,6 +368,22 @@ const customTemplate = `<task_definition>
 Return \`field name: value\` pairs.
 </formatting_rules>`;
 
+// includeOptionalInputFieldsInSystemPrompt lists every input field in the
+// system prompt, provided or not; the user message still leaves out an unset
+// optional field. Off (the default), the unset field is left out of both.
+stringPrompt(
+  'optional-input-listed-when-option-on',
+  'question:string, context?:string "Background notes" -> answer:string',
+  { question: 'How long do refunds take?' },
+  { includeOptionalInputFieldsInSystemPrompt: true }
+);
+
+stringPrompt(
+  'optional-input-omitted-by-default',
+  'question:string, context?:string "Background notes" -> answer:string',
+  { question: 'How long do refunds take?' }
+);
+
 stringPrompt(
   'custom-template-reordered',
   '"Analyze the user query carefully" userQuery:string -> aiResponse:string "the result"',

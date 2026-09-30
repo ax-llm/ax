@@ -89,13 +89,21 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 
 ## Request Timeouts
 
+- With contextCache enabled, cached signature inputs form a stable user-message prefix; dynamic inputs follow separately. Agent stages mark stable inputs cached and keep runtime guidance and action history dynamic.
 - `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.
 - A per-call `timeout` is ignored until the next major version, which reads it in milliseconds as TypeScript does. A call that gives it without `timeoutMs` warns once, naming `timeoutMs`. The client's `timeout` option stays in seconds.
 
 ## Transport Errors
 
-- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). As in TypeScript's apiCall, a stream's request layer retries a network error under the call's `retry` options (else the client's) and never retries a timeout, and AxGen retries both as infrastructure errors.
+- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). AxGen retries both as infrastructure errors.
 - Until the next major version, chat and embed throw the JDK's own exception for these failures (`ConnectException`, `IOException`, `HttpTimeoutException`), as they did, and warn once; set `typedTransportErrors: true` in the client's or the call's options for the typed errors, with the JDK exception as `getCause()`. Streams always throw the typed errors, and AxGen retries either kind as an infrastructure error. The JDK's `HttpClient` itself retries an idempotent GET whose connection closes before a response.
+
+## Request Retries
+
+- As TypeScript's apiCall does, chat, embed, context-cache and Typesafe requests, and a stream's request, go out again after a network failure or a status the retry config lists (`retryableStatusCodes`, by default 500, 408, 429, 502, 503, 504 and 529), up to `maxRetries` times (default 3).
+- The wait is `initialDelayMs * backoffFactor ** attempt` (1 s doubling by default), at most `maxDelayMs` (60 s), times a jitter of 0.75 to 1.25. A status response's `Retry-After`, in seconds or as an HTTP date, replaces it when it is no longer than `maxDelayMs`.
+- The call's `retry` options replace the client's. `retry: { maxRetries: 0 }` sends each request once.
+- A 401 or 403, a timeout the request ran out of, and an aborted request are never retried here. A stream whose response began is not retried either: a failure to read its first event surfaces. A first event that carries a listed status (Anthropic's `overloaded_error`) goes out again, with its own budget and without jitter.
 
 ## Routing And Balancing
 

@@ -378,6 +378,7 @@ final class Core {
     if (target instanceof Tool t) {
       return switch (k) {
         case "name" -> t.name;
+        case "namespace" -> t.namespace() == null ? defaultValue : t.namespace();
         case "execution" -> t.execution;
         case "description" -> t.description;
         case "parameters" -> t.schema();
@@ -899,6 +900,9 @@ final class Core {
     // AxGen renders with the selected structured-output rung's options.
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null), args.length > 1 ? asMap(args[1]) : null);
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxGen.FunctionResultFormatter formatter && "format_result".equals(String.valueOf(methodName))) {
+      return formatter.format(args.length > 0 ? args[0] : null);
+    }
     if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
       Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
       return picker.pick(asMapList(payload.get("results")));
@@ -1114,6 +1118,10 @@ final class Core {
   }
   // The forward call's cachingFunction, else the AxGen constructor's, else the
   // process-wide one (AxGlobals.setCachingFunction); null when none is set.
+  // The process-wide tool result formatter, or null.
+  static Object axgenFunctionResultFormatter() {
+    return AxGlobals.functionResultFormatter();
+  }
   static Object axgenCachingFunction(Object gen, Object options) {
     Object fromCall = cachingFunctionOption(options);
     if (fromCall != null) return fromCall;
@@ -1186,7 +1194,10 @@ final class Core {
     catch(InterruptedException error){Thread.currentThread().interrupt();cancellation.throwIfCancelled();throw new RuntimeException(error);}
   }
   static Object toolInvoke(Object fn,Object params){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted());}
-  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {
+  // extras: the run's tool_call_extras map, for an extrasHandler.
+  static Object toolInvoke(Object fn,Object params,Object extras){return toolInvoke(fn,params,()->Thread.currentThread().isInterrupted(),extras);}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled) {return toolInvoke(fn,params,cancelled,null);}
+  static Object toolInvoke(Object fn, Object params,java.util.function.BooleanSupplier cancelled,Object extras) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");
     AxGlobals.Scope scope = AxGlobals.openScope(
         AxRuntimeHooks.empty(),
@@ -1195,7 +1206,7 @@ final class Core {
         "ax_gen_tool",
         Map.of("ax.tool.name", tool.name));
     try {
-      return tool.call(asMap(params),cancelled);
+      return tool.call(asMap(params),cancelled,extras);
     } catch (RuntimeException | Error error) {
       scope.fail(error);
       throw error;
@@ -1477,12 +1488,14 @@ final class Core {
     if (get(gen, "memory", null) instanceof AxMemory mem) mem.addResponse(response);
     return null;
   }
-  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok) {
+  // `result` and `result_text` both keep the text the model got.
+  static Object axgenMemoryAddFunctionResult(Object gen, Object call, Object result, Object ok, Object resultText) {
     if (get(gen, "memory", null) instanceof AxMemory mem) {
       Map<String, Object> item = new LinkedHashMap<>();
       item.put("call", call);
       item.put("result", result);
       item.put("ok", truthy(ok));
+      if (resultText != null) item.put("result_text", resultText);
       mem.addFunctionResults(item);
     }
     return null;
@@ -1565,6 +1578,12 @@ final class Core {
     }
     return program.forward(ai, asMap(values), forwarded);
   }
+  /** A one-off AxGen (the context map's distiller and cartographer), forwarded like an agent stage. */
+  static Object agentProgramForward(Object signature, Object programOptions, Object client, Object values, Object options) {
+    if (!(client instanceof AiClient ai)) throw new RuntimeException("client does not implement AiClient");
+    AxGen program = new AxGen(AxSignature.create(String.valueOf(signature)), new LinkedHashMap<>(asMap(programOptions)));
+    return program.forward(ai, asMap(values), new LinkedHashMap<>(asMap(options)));
+  }
   static Object agentStageChatLog(Object stage) {
     if (stage instanceof AxProgram program) return program.getChatLog();
     return List.of();
@@ -1626,6 +1645,20 @@ final class Core {
       language = raw == null ? "" : raw.trim();
     }
     return language.isEmpty() ? "JavaScript" : language;
+  }
+  // A runtime's own usage instructions, as TS's getUsageInstructions(): a
+  // runtime config's "usageInstructions", else the code runtime's own, else none.
+  static Object agentRuntimeUsageInstructions(Object runtime) {
+    if (runtime instanceof Map<?, ?> config) {
+      Object raw = config.get("usageInstructions");
+      if (raw == null) raw = config.get("usage_instructions");
+      return raw == null ? "" : String.valueOf(raw);
+    }
+    if (runtime instanceof AxCodeRuntime code) {
+      String raw = code.getUsageInstructions();
+      return raw == null ? "" : raw;
+    }
+    return "";
   }
   static Object agentRuntimeClose(Object session) {
     if (!(session instanceof AxCodeSession active)) return Map.of("closed", true);
@@ -1968,10 +2001,13 @@ class PromptRuntime {
     vars.put("hasOutputFields", !outputFields.isEmpty());
     vars.put("hasComplexFields", complex);
     vars.put("hasStructuredOutputFunction", complex && options.get("structured_output_function_name") != null);
-    vars.put("identityText", identity(sig, values));
+    // TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+    // every input field, provided or not. Off by default.
+    boolean includeOptional = Core.truthy(options.getOrDefault("include_optional_input_fields_in_system_prompt", options.getOrDefault("includeOptionalInputFieldsInSystemPrompt", false)));
+    vars.put("identityText", identity(sig, values, includeOptional));
     vars.put("taskDefinitionText", task);
     vars.put("functionsList", funcs.isEmpty() ? "" : renderFunctions(funcs));
-    vars.put("inputFieldsSection", inputSection(sig, values));
+    vars.put("inputFieldsSection", inputSection(sig, values, includeOptional));
     vars.put("outputFieldsSection", outputSection(sig, complex));
     vars.put("structuredOutputFunctionName", options.getOrDefault("structured_output_function_name", ""));
     String source = options.get("custom_template") == null ? DEFAULT_DSPY_TEMPLATE : String.valueOf(options.get("custom_template"));
@@ -2011,7 +2047,7 @@ class PromptRuntime {
       }
     }
     boolean allText = true;
-    for (Map<String, Object> part : parts) if (!"text".equals(part.get("type")) || Boolean.TRUE.equals(part.get("cache"))) allText = false;
+    for (Map<String, Object> part : parts) if (!"text".equals(part.get("type"))) allText = false;
     if (allText) {
       List<String> text = new ArrayList<>();
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));
@@ -2158,11 +2194,20 @@ class PromptRuntime {
     for (Field field : fields) if (!field.optional || provided(values.get(field.name))) out.add(field);
     return out;
   }
+  // The input fields the system prompt shows: every one, cached first, with
+  // includeOptionalInputFieldsInSystemPrompt; otherwise the ones the user
+  // message renders.
+  static List<Field> systemInputFields(AxSignature sig, Map<String, Object> values, boolean includeOptional) {
+    if (!includeOptional) return inputFieldsForValues(sig, values);
+    List<Field> fields = new ArrayList<>(sig.inputs);
+    fields.sort(Comparator.comparing(f -> f.cached ? 0 : 1));
+    return fields;
+  }
   static boolean provided(Object value) { return value != null && (!(value instanceof String s) || !s.isEmpty()) && (!(value instanceof List<?> l) || !l.isEmpty()); }
-  static String identity(AxSignature sig, Map<String, Object> values) { return "You will be provided with the following fields: " + descFields(inputFieldsForValues(sig, values)) + ". Your task is to generate new fields: " + descFields(outputFields(sig)) + "."; }
+  static String identity(AxSignature sig, Map<String, Object> values, boolean includeOptional) { return "You will be provided with the following fields: " + descFields(systemInputFields(sig, values, includeOptional)) + ". Your task is to generate new fields: " + descFields(outputFields(sig)) + "."; }
   static String descFields(List<Field> fields) { List<String> out = new ArrayList<>(); for (Field f : fields) out.add(BT + f.title + BT); return String.join(", ", out); }
   static String taskDefinition(AxSignature sig, Map<String, Object> options) { String instruction = String.valueOf(options.getOrDefault("instruction", "")).trim(); String description = sig.description == null ? "" : sig.description.trim(); List<String> parts = new ArrayList<>(); if (!instruction.isEmpty()) parts.add(formatFieldRefs(formatDescription(instruction), fieldMap(sig))); if (!description.isEmpty() && !description.equals(instruction)) parts.add(formatFieldRefs(formatDescription(description), fieldMap(sig))); return String.join("\n\n", parts); }
-  static String inputSection(AxSignature sig, Map<String, Object> values) { return "**Input Fields**: The following fields will be provided to you:\n\n" + renderInputFields(inputFieldsForValues(sig, values), fieldMap(sig)); }
+  static String inputSection(AxSignature sig, Map<String, Object> values, boolean includeOptional) { return "**Input Fields**: The following fields will be provided to you:\n\n" + renderInputFields(systemInputFields(sig, values, includeOptional), fieldMap(sig)); }
   // structured: whether the prompt asks for structured output, which ends the
   // section with the exact JSON shape.
   static String outputSection(AxSignature sig, boolean structured) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (structured) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }

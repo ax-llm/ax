@@ -337,7 +337,7 @@ await releaseAgent.forward(
 );
 ```
 
-You can use `skills` without setting `onSkillsSearch` at all. That is useful for static guides where the actor never needs to fetch more.
+You can use `skills` without setting `onSkillsSearch` at all. That is useful for static guides where the actor never needs to fetch more. Without `onSkillsSearch` or a `skillsCatalog` the executor prompt shows the loaded guides but doesn't advertise `discover({ skills })`, because the runtime has no skills search to back it.
 
 ## Advisory Relevance Hints (`relevanceRanking`)
 

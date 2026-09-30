@@ -19,8 +19,7 @@ import (
 // HTTPTransport to in-process loopback servers that fail the way networks do,
 // and checks that the failures surface as TypeScript's apiCall reports fetch's:
 // a refused or dropped connection is AxAIServiceNetworkError ("Network Error:
-// ..."), which a stream's request layer retries under the call's retry
-// options; a timeout is AxAIServiceTimeoutError, which the request layer never
+// ..."), which the request layer retries under the call's retry options; a timeout is AxAIServiceTimeoutError, which the request layer never
 // retries; and AxGen retries both as infrastructure errors. It panics on any
 // mismatch so `axir verify` fails if it regresses.
 func main() {
@@ -30,21 +29,31 @@ func main() {
 	// A refused connection.
 	refused := closedAddress()
 	client := newClient(refused, nil)
-	_, err := client.Chat(context.Background(), request, map[string]ax.Value{"stream": false})
+	_, err := client.Chat(context.Background(), request, map[string]ax.Value{"stream": false, "retry": fastRetry})
 	expectType("refused chat", err, "AxAIServiceNetworkError", "Network Error: ")
 	_, err = client.Stream(context.Background(), request, map[string]ax.Value{"retry": fastRetry})
 	expectType("refused stream", err, "AxAIServiceNetworkError", "Network Error: ")
 
-	// A server that closes each connection without a response. The stream's
-	// request layer retries it: the first request and two retries.
+	// A server that closes each connection without a response. The request
+	// layer retries it: the first request and two retries.
 	closing, closed := serve("close")
 	client = newClient(closing, nil)
-	_, err = client.Chat(context.Background(), request, map[string]ax.Value{"stream": false})
-	expectType("closed chat", err, "AxAIServiceNetworkError", "Network Error: ")
 	before := closed.Load()
+	_, err = client.Chat(context.Background(), request, map[string]ax.Value{"stream": false, "retry": fastRetry})
+	expectType("closed chat", err, "AxAIServiceNetworkError", "Network Error: ")
+	expectCount("closed chat", closed.Load()-before, 3)
+	before = closed.Load()
 	_, err = client.Stream(context.Background(), request, map[string]ax.Value{"retry": fastRetry})
 	expectType("closed stream", err, "AxAIServiceNetworkError", "Network Error: ")
 	expectCount("closed stream", closed.Load()-before, 3)
+
+	// A stream whose response began and dropped before its first event is not
+	// retried: TS reads the first event after apiCall returns.
+	started, began := serve("headers")
+	if _, err = newClient(started, nil).Stream(context.Background(), request, map[string]ax.Value{"retry": fastRetry}); err == nil {
+		panic("started stream: no error")
+	}
+	expectCount("started stream", began.Load(), 1)
 
 	// A 504 response is retried by its status, as TS apiCall retries it: it is
 	// not a timeout the request ran out of.
@@ -142,8 +151,9 @@ const gatewayBody = `{"error":{"message":"upstream timed out","type":"server_err
 const dropEvent = `data: {"id":"chatcmpl_drop","object":"chat.completion.chunk","created":0,"model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}` + "\n\n"
 
 // serve accepts connections and counts them. "close" closes each one without
-// a response, "drop" sends one stream event and drops it, "gateway" answers
-// 504, and "hold" never answers.
+// a response, "drop" sends one stream event and drops it, "headers" sends the
+// response headers and drops it, "gateway" answers 504, and "hold" never
+// answers.
 func serve(mode string) (string, *atomic.Int32) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -168,6 +178,10 @@ func serve(mode string) (string, *atomic.Int32) {
 			}
 			if mode == "drop" {
 				fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n", len(dropEvent), dropEvent)
+				time.Sleep(50 * time.Millisecond)
+			}
+			if mode == "headers" {
+				io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
 				time.Sleep(50 * time.Millisecond)
 			}
 			if mode == "gateway" {

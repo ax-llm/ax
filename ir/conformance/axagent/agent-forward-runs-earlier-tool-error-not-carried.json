@@ -1,0 +1,188 @@
+{
+  "description": "Run 1's executor catches a failing tool call (a tool_error signal and no error turn) and learns; run 2 is clean. An earlier run's tool calls do not carry into a later run's failure report in TS, so run 2 has no failure signals and sends no playbook request.",
+  "expected_observer_calls": [
+    {
+      "callback": "playbook_update",
+      "payload": {
+        "status": "updated"
+      }
+    }
+  ],
+  "expected_output": [
+    {
+      "answer": "Docs"
+    },
+    {
+      "answer": "Docs"
+    }
+  ],
+  "expected_request_count": 9,
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:executor",
+    "request:responder",
+    "request:playbook",
+    "request:playbook",
+    "playbook_update",
+    "request:distiller",
+    "request:executor",
+    "request:responder"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "forward_runs": [
+    {
+      "input": {
+        "question": "Find the docs."
+      }
+    },
+    {
+      "input": {
+        "question": "Find the docs."
+      }
+    }
+  ],
+  "kind": "agent_forward",
+  "name": "agent-forward-runs-earlier-tool-error-not-carried",
+  "observers": ["playbook_update"],
+  "options": {
+    "callable_results": {
+      "tools.fetch": {
+        "error": "fetch failed"
+      }
+    },
+    "contextFields": [],
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Fetch a page",
+            "name": "fetch",
+            "parameters": {
+              "properties": {
+                "url": {
+                  "description": "Page URL",
+                  "type": "string"
+                }
+              },
+              "required": ["url"],
+              "type": "object"
+            }
+          }
+        ],
+        "namespace": "tools",
+        "title": "Tools"
+      }
+    ],
+    "playbook": {
+      "learn": {
+        "dedupe": false
+      }
+    },
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"fetchCaught\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "Answer: Docs"
+    },
+    {
+      "content": "Reasoning: The executor step failed.\nError Identification: The step raised an error.\nRoot Cause Analysis: The executor did not check its step.\nCorrect Approach: Check each step before relying on it.\nKey Insight: Check tool results before using them.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: One avoidance rule covers the failure.\nOperations: [{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"Check tool results before using them.\"}]"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "Answer: Docs"
+    },
+    {
+      "content": "Reasoning: The executor step failed.\nError Identification: The step raised an error.\nRoot Cause Analysis: The executor did not check its step.\nCorrect Approach: Check each step before relying on it.\nKey Insight: Check tool results before using them.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: One avoidance rule covers the failure.\nOperations: [{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"Check tool results before using them.\"}]"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "fetchCaught",
+      "result": {
+        "callable": {
+          "args": {
+            "url": "https://example.com"
+          },
+          "qualified_name": "tools.fetch"
+        },
+        "output": "fetch failed; using the cached page"
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

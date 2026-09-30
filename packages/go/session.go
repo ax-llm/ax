@@ -474,11 +474,13 @@ func (p *genSessionClient) start(call Value) {
 	if text, ok := args.(string); ok {
 		args, validationErr = parseJSONErr(text)
 	}
+	// As TS's session does, a call whose arguments fail the tool's schema
+	// does not run: its result is TS's fixing instructions.
+	var fixing Value
 	if selected == nil {
 		validationErr = fmt.Errorf("function %q not found", name)
 	} else if validationErr == nil {
-		_, validationErr = validate_fields(toolFields(selected.Args), args, "tool."+name+".args")
-        if validationErr == nil { _, validationErr = chat_session_validate_required_arguments(selected.Schema(), args, "tool."+name+".args") }
+		fixing, validationErr = chat_session_tool_argument_error(name, selected.Schema(), args)
 	}
 	execution := "blocking"
 	if selected != nil && selected.ExecutionMode == "background" {
@@ -487,7 +489,11 @@ func (p *genSessionClient) start(call Value) {
 	mustCore(chat_session_register_call(p.state, call, execution))
 	if validationErr != nil {
 		message := mustCore(_tool_error_message_impl(call, validationErr))
-		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false))
+		mustCore(chat_session_record_result(p.gen, p.state, call, coreGet(message, "result", validationErr.Error()), false, p.options))
+		return
+	}
+	if fixing != nil {
+		mustCore(chat_session_record_result(p.gen, p.state, call, fixing, false, p.options))
 		return
 	}
 	p.blocking = execution == "blocking"
@@ -498,9 +504,11 @@ func (p *genSessionClient) start(call Value) {
 	// The worker's result goes to the session that started it, never to a
 	// later request's session, and closing that session cancels it.
 	ctx, results := p.ctx, p.results
+	// As TS, the tool gets the run's extras (tool_call_extras).
+	toolCtx := withToolExtras(ctx, mustCore(tool_call_extras(p.options, name)))
 	go func() {
 		result, err := safeValue(func() Value {
-			return mustCore(tool.invokeContext(ctx, ownedArgs))
+			return mustCore(tool.invokeContext(toolCtx, ownedArgs))
 		})
 		select {
 		case results <- sessionToolResult{ownedCall, result, err}:
@@ -727,7 +735,10 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 		panic(err)
 	}
 	p.session = session
-	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 10))))
+	// As TS's maxResponses: the run's maxSteps (25 by default) less the
+	// request's step.
+	limit := int(num(coreGet(p.options, "maxSteps", coreGet(p.options, "max_steps", 25))) - num(coreGet(request, "_ax_step_index", 0)))
+	p.state = mustCore(chat_session_create_state(coreGet(request, "model", ""), p.path, limit))
 	sessionCtx, deliveries, results := p.ctx, p.deliveries, p.results
 	go func() {
 		for {
@@ -777,7 +788,7 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 			if result.err != nil {
 				value = coreGet(mustCore(_tool_error_message_impl(result.call, result.err)), "result", result.err.Error())
 			}
-			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil))) {
+			if !coreTruthy(mustCore(chat_session_record_result(p.gen, p.state, result.call, value, result.err == nil, p.options))) {
 				continue
 			}
 			p.emit("tool.completed", "call_id", id)
@@ -843,8 +854,8 @@ func (p *genSessionClient) runSession(ctx context.Context, request, options map[
 	}
 }
 func (p *genSessionClient) submit(results []Value) {
-	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 10)) {
-		panic(fmt.Errorf("maximum model steps exhausted before final completion"))
+	if num(coreGet(p.state, "steps", 0)) >= num(coreGet(p.state, "max_steps", 25)) {
+		panic(asError(mustCore(chat_session_step_limit_error(p.state))))
 	}
 	if err := p.session.Submit(results); err != nil {
 		panic(err)

@@ -36,6 +36,8 @@ import {
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
 } from '../../../src/ax/ai/x-grok/api.js';
+import { AxFunctionError } from '../../../src/ax/dsp/functions.js';
+import { AxGen } from '../../../src/ax/dsp/generate.js';
 import { axValidateToolArguments } from '../../../src/ax/dsp/toolArguments.js';
 import {
   AxAIServiceAuthenticationError,
@@ -8880,6 +8882,8 @@ writeFixture('gemini-embed-rate-limit-surfaces-error', {
   method: 'embed',
   provider: 'google-gemini',
   embed_model: geminiDefaultEmbedModel,
+  // One request: apiCall would otherwise send a 429 again (maxRetries 3).
+  service_options: { retry: { maxRetries: 0 } },
   request: { texts: ['one'] },
   transport_responses: [
     {
@@ -10273,6 +10277,428 @@ writeFixture('call-timeout-with-timeout-ms-does-not-warn', {
   expected_warnings: [],
 });
 
+// TS apiCall's request-layer retry (src/ax/util/apicall.ts), run against the
+// fixture's scripted responses with a fixed Math.random (retry_random) and
+// Date.now (retry_now_ms), and setTimeout recording each retry delay instead
+// of waiting. The ports' runners record their retry delays the same way.
+type RetryReply =
+  | {
+      status: number;
+      json?: Json;
+      body?: string;
+      headers?: Record<string, string>;
+    }
+  | { network_error: string };
+const retryNow = 1_800_000_000_000;
+const runRequestRetry = async (
+  replies: RetryReply[],
+  random: number,
+  run: (fetch: typeof globalThis.fetch) => Promise<unknown>
+) => {
+  const delays: number[] = [];
+  let requests = 0;
+  const fetch = (async () => {
+    const reply = replies[requests];
+    requests++;
+    if (!reply) throw new Error('scripted fetch exhausted');
+    if ('network_error' in reply) throw new TypeError(reply.network_error);
+    return new Response(reply.body ?? JSON.stringify(reply.json ?? {}), {
+      status: reply.status,
+      headers: {
+        'content-type':
+          reply.body === undefined ? 'application/json' : 'text/event-stream',
+        ...reply.headers,
+      },
+    });
+  }) as typeof globalThis.fetch;
+  const saved = {
+    random: Math.random,
+    now: Date.now,
+    setTimeout: globalThis.setTimeout,
+  };
+  Math.random = () => random;
+  Date.now = () => retryNow;
+  globalThis.setTimeout = ((handler: () => void, ms?: number) => {
+    delays.push(ms ?? 0);
+    return saved.setTimeout(handler, 0);
+  }) as typeof globalThis.setTimeout;
+  let error: unknown;
+  try {
+    await run(fetch);
+  } catch (caught) {
+    error = caught;
+  } finally {
+    Math.random = saved.random;
+    Date.now = saved.now;
+    globalThis.setTimeout = saved.setTimeout;
+  }
+  return { requests, delays, error };
+};
+const retryChatRequest = {
+  chat_prompt: [{ role: 'user', content: 'hi' }],
+  model_config: { stream: false },
+};
+const retryStreamRequest = {
+  chat_prompt: [{ role: 'user', content: 'hi' }],
+  model_config: { stream: true },
+};
+const retryOk = compatibleResponse('chatcmpl_retry', 'gpt-5.4-mini');
+const retryStreamOk = {
+  status: 200,
+  body: 'data: {"id":"chatcmpl_retry","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+};
+const retryEmbedOk = {
+  status: 200,
+  json: {
+    data: [{ embedding: [0.1, 0.2], index: 0 }],
+    model: 'text-embedding-3-small',
+    usage: { prompt_tokens: 1, total_tokens: 1 },
+  },
+};
+const retryStatus = (status: number, headers?: Record<string, string>) => ({
+  status,
+  json: { error: { message: `upstream ${status}`, type: 'server_error' } },
+  ...(headers ? { headers } : {}),
+});
+const retryNetwork = { network_error: 'fetch failed' };
+const retryHttpDate = new Date(retryNow + 3000).toUTCString();
+type RetryCase = {
+  name: string;
+  description: string;
+  method?: 'chat' | 'stream' | 'embed';
+  replies: RetryReply[];
+  random?: number;
+  serviceOptions?: Record<string, Json>;
+  options?: Record<string, Json>;
+  error?: { type: string; status?: number; contains?: string };
+};
+const retryCases: RetryCase[] = [
+  {
+    name: 'request-retry-statuses-then-success',
+    description:
+      'apiCall sends a non-streaming chat again for each listed status, after its jittered backoff.',
+    replies: [retryStatus(503), retryStatus(429), retryOk],
+  },
+  {
+    name: 'request-retry-status-exhausted',
+    description:
+      'apiCall surfaces the status error once maxRetries (default 3) retries are spent.',
+    replies: [
+      retryStatus(503),
+      retryStatus(503),
+      retryStatus(503),
+      retryStatus(503),
+    ],
+    error: { type: 'AxAIServiceStatusError', status: 503 },
+  },
+  {
+    name: 'request-retry-network-then-success',
+    description: 'apiCall sends a request again after a network failure.',
+    replies: [retryNetwork, retryOk],
+  },
+  {
+    name: 'request-retry-network-exhausted',
+    description:
+      'apiCall surfaces the network error once maxRetries retries are spent.',
+    replies: [retryNetwork, retryNetwork, retryNetwork, retryNetwork],
+    error: {
+      type: 'AxAIServiceNetworkError',
+      contains: 'Network Error: fetch failed',
+    },
+  },
+  {
+    name: 'request-retry-unlisted-status-not-retried',
+    description: 'A status the retry config does not list surfaces at once.',
+    replies: [retryStatus(501), retryOk],
+    error: { type: 'AxAIServiceStatusError', status: 501 },
+  },
+  {
+    name: 'request-retry-auth-not-retried',
+    description: 'A 401 surfaces at once, even when the retry config lists it.',
+    replies: [retryStatus(401), retryOk],
+    options: { retry: { retryableStatusCodes: [401, 503] } },
+    error: { type: 'AxAIServiceAuthenticationError' },
+  },
+  {
+    name: 'request-retry-after-seconds',
+    description:
+      'A Retry-After in seconds replaces the backoff when it is no longer than maxDelayMs.',
+    replies: [retryStatus(429, { 'Retry-After': '2' }), retryOk],
+  },
+  {
+    name: 'request-retry-after-http-date',
+    description:
+      'A Retry-After HTTP date waits until that time, from the clock (retry_now_ms).',
+    replies: [retryStatus(503, { 'Retry-After': retryHttpDate }), retryOk],
+  },
+  {
+    name: 'request-retry-after-past-http-date',
+    description:
+      'A Retry-After HTTP date already past sends the request again at once.',
+    replies: [
+      retryStatus(503, { 'Retry-After': 'Wed, 21 Oct 2015 07:28:00 GMT' }),
+      retryOk,
+    ],
+  },
+  {
+    name: 'request-retry-after-above-max-delay',
+    description: 'A Retry-After longer than maxDelayMs keeps the backoff.',
+    replies: [retryStatus(503, { 'Retry-After': '120' }), retryOk],
+  },
+  {
+    name: 'request-retry-after-unparsed',
+    description:
+      'A Retry-After that is neither seconds nor an HTTP date keeps the backoff.',
+    replies: [retryStatus(503, { 'Retry-After': 'soon' }), retryOk],
+  },
+  {
+    name: 'request-retry-jitter-low',
+    description: 'The backoff is multiplied by 0.75 + 0.5 * Math.random().',
+    replies: [retryStatus(503), retryStatus(503), retryOk],
+    random: 0,
+  },
+  {
+    name: 'request-retry-jitter-high',
+    description: 'The backoff is multiplied by 0.75 + 0.5 * Math.random().',
+    replies: [retryStatus(503), retryStatus(503), retryOk],
+    random: 0.9,
+  },
+  {
+    name: 'request-retry-max-delay-caps-backoff',
+    description: 'maxDelayMs caps the backoff before the jitter.',
+    replies: [retryStatus(503), retryStatus(503), retryStatus(503), retryOk],
+    options: {
+      retry: { initialDelayMs: 100, backoffFactor: 10, maxDelayMs: 500 },
+    },
+  },
+  {
+    name: 'request-retry-call-options-over-client',
+    description:
+      "The call's retry options replace the client's (options.retry ?? this.retry).",
+    replies: [retryStatus(503), retryOk],
+    serviceOptions: { retry: { maxRetries: 0 } },
+    options: { retry: { maxRetries: 1, initialDelayMs: 10 } },
+  },
+  {
+    name: 'request-retry-client-max-retries-zero',
+    description:
+      "The client's retry: { maxRetries: 0 } sends each request once.",
+    replies: [retryStatus(503), retryOk],
+    serviceOptions: { retry: { maxRetries: 0 } },
+    error: { type: 'AxAIServiceStatusError', status: 503 },
+  },
+  {
+    name: 'request-retry-custom-status-codes',
+    description: 'retryableStatusCodes replaces the list of statuses to retry.',
+    replies: [retryStatus(418), retryOk],
+    options: { retry: { retryableStatusCodes: [418] } },
+  },
+  {
+    name: 'request-retry-custom-status-codes-drop-default',
+    description: 'A status left out of retryableStatusCodes is not retried.',
+    replies: [retryStatus(503), retryOk],
+    options: { retry: { retryableStatusCodes: [418] } },
+    error: { type: 'AxAIServiceStatusError', status: 503 },
+  },
+  {
+    name: 'request-retry-embed',
+    description: 'An embed request goes through the same retry.',
+    method: 'embed',
+    replies: [retryStatus(503), retryEmbedOk],
+  },
+  {
+    name: 'request-retry-stream-open-status',
+    description:
+      "A stream's request goes through the same retry, jitter included.",
+    method: 'stream',
+    replies: [retryStatus(503), retryStreamOk],
+  },
+  {
+    name: 'request-retry-stream-open-retry-after',
+    description: "A stream's request honors Retry-After.",
+    method: 'stream',
+    replies: [retryStatus(429, { 'Retry-After': '3' }), retryStreamOk],
+  },
+  {
+    name: 'request-retry-stream-open-network',
+    description: "A stream's request goes out again after a network failure.",
+    method: 'stream',
+    replies: [retryNetwork, retryStreamOk],
+  },
+];
+for (const {
+  name,
+  description,
+  method = 'chat',
+  replies,
+  random = 0.5,
+  serviceOptions = {},
+  options,
+  error,
+} of retryCases) {
+  const {
+    requests,
+    delays,
+    error: raised,
+  } = await runRequestRetry(replies, random, async (fetch) => {
+    const client = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: AxAIOpenAIModel.GPT54Mini },
+      embedModel: 'text-embedding-3-small',
+      options: { ...(serviceOptions as object), fetch },
+    } as never);
+    if (method === 'embed') {
+      await client.embed({ texts: ['hi'] }, options as never);
+      return;
+    }
+    const response = await client.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { stream: method === 'stream' },
+      } as never,
+      { ...(options as object), stream: method === 'stream' } as never
+    );
+    if (method === 'stream') {
+      const reader = (response as ReadableStream<unknown>).getReader();
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    }
+  });
+  if (error === undefined && raised !== undefined) {
+    throw new Error(`${name}: TypeScript failed: ${String(raised)}`);
+  }
+  if (error !== undefined) {
+    const typed = raised as
+      | { name?: string; status?: number; message?: string }
+      | undefined;
+    if (
+      typed?.name !== error.type ||
+      (error.status !== undefined && typed.status !== error.status)
+    ) {
+      throw new Error(
+        `${name}: TypeScript raised ${typed?.name} ${typed?.status}`
+      );
+    }
+    if (error.contains && !typed.message?.includes(error.contains)) {
+      throw new Error(`${name}: TypeScript message ${typed.message}`);
+    }
+  }
+  writeFixture(name, {
+    description: `${description} TS request count and delays from src/ax/util/apicall.ts.`,
+    kind:
+      error === undefined
+        ? method === 'chat'
+          ? 'ai_chat'
+          : method === 'stream'
+            ? 'ai_stream'
+            : 'ai_embed'
+        : 'ai_error',
+    ...(error === undefined ? {} : { method }),
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    ...(method === 'embed' ? { embed_model: 'text-embedding-3-small' } : {}),
+    service_options: serviceOptions,
+    ...(options === undefined ? {} : { options }),
+    request:
+      method === 'embed'
+        ? { texts: ['hi'] }
+        : method === 'stream'
+          ? retryStreamRequest
+          : retryChatRequest,
+    transport_responses: replies as Json,
+    retry_random: random,
+    retry_now_ms: retryNow,
+    expected_transport_request_count: requests,
+    expected_retry_delays_ms: delays,
+    ...(error === undefined
+      ? {}
+      : {
+          expected_error_type: error.type,
+          ...(error.status === undefined
+            ? {}
+            : { expected_status: error.status }),
+          ...(error.contains === undefined
+            ? {}
+            : { expected_error_contains: error.contains }),
+        }),
+  });
+}
+
+// A Gemini context-cache create goes through the same retry: TS sends the
+// cachedContents request through apiCall.
+{
+  const replies: RetryReply[] = [
+    { status: 503, json: { error: { message: 'upstream 503', code: 503 } } },
+    {
+      status: 200,
+      json: {
+        name: 'cachedContents/retry-cache',
+        expireTime: '2099-01-01T00:00:00Z',
+      },
+    },
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+        usageMetadata: {
+          promptTokenCount: 1,
+          candidatesTokenCount: 1,
+          totalTokenCount: 2,
+        },
+      },
+    },
+  ];
+  const chatPrompt: Json[] = [
+    { role: 'system', content: 'Cache this', cache: true },
+    { role: 'user', content: 'hi' },
+  ];
+  const options = { contextCache: { minTokens: 0 } };
+  const { requests, delays, error } = await runRequestRetry(
+    replies,
+    0.5,
+    async (fetch) => {
+      const client = ai({
+        name: 'google-gemini',
+        apiKey: 'test-key',
+        config: { model: AxAIGoogleGeminiModel.Gemini38Flash },
+        options: { fetch },
+      } as never);
+      await client.chat(
+        { chatPrompt } as never,
+        {
+          ...options,
+          stream: false,
+        } as never
+      );
+    }
+  );
+  if (error !== undefined || requests !== 3) {
+    throw new Error(
+      `request-retry-context-cache-create: TypeScript sent ${requests} requests: ${String(error)}`
+    );
+  }
+  writeFixture('request-retry-context-cache-create', {
+    description:
+      'A Gemini context-cache create goes through the same retry. TS request count and delays from src/ax/util/apicall.ts.',
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    model: AxAIGoogleGeminiModel.Gemini38Flash,
+    service_options: {},
+    options,
+    request: { chat_prompt: chatPrompt, model_config: { stream: false } },
+    transport_responses: replies as Json,
+    retry_random: 0.5,
+    retry_now_ms: retryNow,
+    expected_transport_request_count: requests,
+    expected_retry_delays_ms: delays,
+  });
+}
+
 writeFixture('openai-cache-write-usage-and-long-context-cost', {
   kind: 'ai_chat',
   provider: 'openai',
@@ -11380,6 +11806,44 @@ const argumentValidationCases: { schema: any; arguments: Json }[] = [
     },
     arguments: 3,
   },
+  // Field paths and type names in the errors.
+  {
+    schema: {
+      type: 'object',
+      properties: {
+        a: {
+          type: 'object',
+          required: ['b'],
+          properties: { b: { type: 'string' } },
+        },
+      },
+    },
+    arguments: { a: {} },
+  },
+  {
+    schema: {
+      type: 'object',
+      properties: {
+        a: { type: 'object', properties: { b: { type: 'string' } } },
+      },
+    },
+    arguments: { a: { b: 1 } },
+  },
+  { schema: { type: 'string' }, arguments: [1] },
+  { schema: { type: 'boolean' }, arguments: null },
+  { schema: { type: ['integer', 'string'] }, arguments: {} },
+  {
+    schema: { type: 'object', properties: { a: { enum: ['x'] } } },
+    arguments: { a: 'y' },
+  },
+  {
+    schema: {
+      type: 'object',
+      required: ['a', 'b'],
+      properties: { a: { type: 'string' }, b: { type: 'number' } },
+    },
+    arguments: { b: 'two' },
+  },
 ];
 writeFixture('session-raw-argument-validation', {
   kind: 'ai_session_state',
@@ -11391,12 +11855,14 @@ writeFixture('session-raw-argument-validation', {
   expected_steps: 0,
   validation_cases: argumentValidationCases.map((item) => {
     let valid = true;
+    let errors: { field: string; message: string }[] = [];
     try {
       axValidateToolArguments(item.schema, item.arguments);
-    } catch {
+    } catch (error) {
       valid = false;
+      if (error instanceof AxFunctionError) errors = error.getFields();
     }
-    return { ...item, valid };
+    return { ...item, valid, errors };
   }),
 });
 const ecmaSchemaPatterns: readonly string[] = [
@@ -14569,3 +15035,346 @@ writeFixture('gemini-live-ws-url-encodes-key', {
   api_key: liveKey,
   expected_ws_url: `${liveDescriptor.url}?key=${encodeURIComponent(liveKey)}`,
 });
+
+// customLabels: TS puts one set of custom labels on every AI and AxGen
+// metric, merged key by key from the service's options, then the call's; an
+// AxGen passes its constructor's labels with the call's over them. Some
+// metrics cut each value to 100 characters (sanitizeLabels: the request
+// duration and errors, and the AxGen metrics), the AI request counter keeps
+// it whole. The fixture pins the custom part (the labels a run without
+// custom labels doesn't have) of the request counters and durations.
+{
+  type LabelRecord = { name: string; labels: Record<string, string> };
+  const runLabels = async (withLabels: boolean) => {
+    const records: LabelRecord[] = [];
+    const instrument = (name: string) => ({
+      add: (_value: number, labels: Record<string, string>) =>
+        records.push({ name, labels: { ...labels } }),
+      record: (_value: number, labels: Record<string, string>) =>
+        records.push({ name, labels: { ...labels } }),
+    });
+    const meter = {
+      createCounter: instrument,
+      createHistogram: instrument,
+      createGauge: instrument,
+      createUpDownCounter: instrument,
+      createObservableGauge: instrument,
+    } as never;
+    const replies = [...labelReplies];
+    const service = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: 'gpt-5.4-mini' as never },
+      options: {
+        meter,
+        ...(withLabels ? { customLabels: labelService } : {}),
+        fetch: (async () =>
+          Response.json(replies.shift() ?? {}, { status: 200 })) as never,
+      },
+    });
+    await service.chat(labelChatRequest as never, {
+      ...(withLabels ? { customLabels: labelChatCall } : {}),
+    });
+    const chat = [...records];
+    records.length = 0;
+    const gen = new AxGen(labelSignature, {
+      ...(withLabels ? { customLabels: labelConstructor } : {}),
+    });
+    await gen.forward(service, labelInput, {
+      stream: false,
+      ...(withLabels ? { customLabels: labelForwardCall } : {}),
+    });
+    return { chat, forward: [...records] };
+  };
+  const labelService = { team: 'service', region: 'eu', note: 'n'.repeat(120) };
+  const labelChatCall = { tier: 'call', team: 'call-team' };
+  const labelConstructor = { team: 'constructor', tier: 'constructor' };
+  const labelForwardCall = { tier: 'call' };
+  const labelSignature = 'question:string -> answer:string';
+  const labelInput = { question: 'Status?' };
+  const labelChatRequest = {
+    chatPrompt: [{ role: 'user', content: 'hi' }],
+    modelConfig: { stream: false },
+  };
+  const completion = (content: string) => ({
+    id: 'chatcmpl-labels',
+    object: 'chat.completion',
+    model: 'gpt-5.4-mini',
+    choices: [
+      {
+        index: 0,
+        finish_reason: 'stop',
+        message: { role: 'assistant', content },
+      },
+    ],
+    usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+  });
+  const labelReplies = [completion('Hello'), completion('Answer: ok')];
+  const labeled = await runLabels(true);
+  const plain = await runLabels(false);
+  const customPart = (
+    records: LabelRecord[],
+    baseline: LabelRecord[],
+    name: string
+  ) => {
+    const record = records.find((item) => item.name === name);
+    const base = baseline.find((item) => item.name === name);
+    if (!record || !base) throw new Error(`customLabels: no ${name} record`);
+    return Object.fromEntries(
+      Object.entries(record.labels).filter(([key]) => !(key in base.labels))
+    );
+  };
+  writeFixture('ai-custom-labels-merge', {
+    kind: 'ai_custom_labels',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    service_options: { customLabels: labelService },
+    transport_responses: labelReplies.map((json) => ({ status: 200, json })),
+    chat: {
+      request: {
+        chat_prompt: labelChatRequest.chatPrompt,
+        model_config: { stream: false },
+      },
+      custom_labels: labelChatCall,
+    },
+    forward: {
+      signature: labelSignature,
+      input: labelInput,
+      constructor_custom_labels: labelConstructor,
+      call_custom_labels: labelForwardCall,
+    },
+    expected_chat_custom_labels: {
+      ax_llm_requests_total: customPart(
+        labeled.chat,
+        plain.chat,
+        'ax_llm_requests_total'
+      ),
+      ax_llm_request_duration_ms: customPart(
+        labeled.chat,
+        plain.chat,
+        'ax_llm_request_duration_ms'
+      ),
+    },
+    expected_forward_custom_labels: {
+      ax_llm_requests_total: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_llm_requests_total'
+      ),
+      ax_llm_request_duration_ms: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_llm_request_duration_ms'
+      ),
+      ax_gen_generation_requests_total: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_gen_generation_requests_total'
+      ),
+      ax_gen_generation_duration_ms: customPart(
+        labeled.forward,
+        plain.forward,
+        'ax_gen_generation_duration_ms'
+      ),
+    },
+  });
+}
+
+// verbose: TS's apiCall logs each request (URL, method, headers with secrets
+// masked, the JSON body) and each response (status and JSON body, or that a
+// stream started) with console.log when the call's verbose, else the
+// service's, is set. The ports send their own headers, so the fixture keeps
+// TS's text with the headers' JSON as {{HEADERS}}; the runners check theirs
+// mask the key.
+{
+  // Keys in sorted order, as the fixture stores the response the ports'
+  // scripted transports answer with (TS logs the order it received).
+  const verboseCompletion = {
+    choices: [
+      {
+        finish_reason: 'stop',
+        index: 0,
+        message: { content: 'Hello', role: 'assistant' },
+      },
+    ],
+    id: 'chatcmpl-verbose',
+    model: 'gpt-5.4-mini',
+    object: 'chat.completion',
+    usage: { completion_tokens: 1, prompt_tokens: 3, total_tokens: 4 },
+  };
+  const verboseStream =
+    'data: {"id":"chatcmpl-verbose","object":"chat.completion.chunk","model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+  type VerboseCall = {
+    request: Record<string, unknown>;
+    options?: Record<string, unknown>;
+  };
+  const runVerbose = async (
+    serviceVerbose: boolean | undefined,
+    calls: VerboseCall[],
+    replies: (() => Response)[]
+  ) => {
+    const logs: string[][] = [];
+    const original = console.log;
+    const service = ai({
+      name: 'openai',
+      apiKey: 'test-key',
+      config: { model: 'gpt-5.4-mini' as never },
+      options: {
+        ...(serviceVerbose === undefined ? {} : { verbose: serviceVerbose }),
+        fetch: (async () => replies.shift()!()) as never,
+      },
+    });
+    try {
+      for (const call of calls) {
+        const entries: string[] = [];
+        console.log = (...args: unknown[]) => {
+          entries.push(args.map((arg) => String(arg)).join(' '));
+        };
+        const result = await service.chat(
+          call.request as never,
+          call.options as never
+        );
+        if (result instanceof ReadableStream) {
+          const reader = result.getReader();
+          while (!(await reader.read()).done) {}
+        }
+        logs.push(entries);
+      }
+    } finally {
+      console.log = original;
+    }
+    // The headers' JSON, which the ports write their own way.
+    return logs.map((entries) =>
+      entries.map((entry) =>
+        entry.replace(
+          / Headers: \{[\s\S]*?\n\} \nBody:/,
+          ' Headers: {{HEADERS}} \nBody:'
+        )
+      )
+    );
+  };
+  const jsonReply = () =>
+    new Response(JSON.stringify(verboseCompletion), {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+    });
+  const streamReply = () =>
+    new Response(verboseStream, {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  const prompt = [{ role: 'user', content: 'hi' }];
+  const verboseTransport = (kinds: ('json' | 'stream')[]) =>
+    kinds.map((kind) =>
+      kind === 'json'
+        ? { status: 200, json: verboseCompletion }
+        : { status: 200, body: verboseStream }
+    );
+  const serviceCalls: VerboseCall[] = [
+    { request: { chatPrompt: prompt, modelConfig: { stream: false } } },
+    { request: { chatPrompt: prompt, modelConfig: { stream: true } } },
+  ];
+  writeFixture('ai-verbose-request-logging', {
+    kind: 'ai_verbose',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    api_key: 'test-key',
+    service_options: { verbose: true },
+    transport_responses: verboseTransport(['json', 'stream']),
+    calls: [
+      { request: { chat_prompt: prompt, model_config: { stream: false } } },
+      { request: { chat_prompt: prompt, model_config: { stream: true } } },
+    ],
+    expected_verbose_logs: await runVerbose(true, serviceCalls, [
+      jsonReply,
+      streamReply,
+    ]),
+  });
+  const callOptionCalls: VerboseCall[] = [
+    {
+      request: { chatPrompt: prompt, modelConfig: { stream: false } },
+      options: { verbose: true },
+    },
+    {
+      request: { chatPrompt: prompt, modelConfig: { stream: false } },
+      options: {},
+    },
+  ];
+  writeFixture('ai-verbose-call-option', {
+    kind: 'ai_verbose',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+    api_key: 'test-key',
+    transport_responses: verboseTransport(['json', 'json']),
+    calls: [
+      {
+        request: { chat_prompt: prompt, model_config: { stream: false } },
+        options: { verbose: true },
+      },
+      {
+        request: { chat_prompt: prompt, model_config: { stream: false } },
+        options: {},
+      },
+    ],
+    expected_verbose_logs: await runVerbose(undefined, callOptionCalls, [
+      jsonReply,
+      jsonReply,
+    ]),
+  });
+}
+// AxGen's portable message uses function_id. Normalize that host spelling to
+// the same Responses call_id TypeScript sends for functionId.
+{
+  let body: Record<string, Json> = {};
+  const response = {
+    id: 'resp_tool_output',
+    output: [
+      {
+        id: 'msg_tool_output',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '12 units' }],
+      },
+    ],
+  };
+  await new AxAIOpenAIResponses({
+    apiKey: 'test-key',
+    config: { model: AxAIOpenAIModel.GPT6Luna },
+    options: {
+      fetch: async (_url: unknown, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body)) as Record<string, Json>;
+        return Response.json(response);
+      },
+    },
+  }).chat(
+    {
+      chatPrompt: [
+        {
+          role: 'function',
+          functionId: 'call_inventory',
+          result: '12 units available',
+        },
+      ],
+    } as never,
+    { stream: false }
+  );
+  writeFixture('openai-responses-generated-tool-result-id', {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model: AxAIOpenAIModel.GPT6Luna,
+    request: {
+      chat_prompt: [
+        {
+          role: 'function',
+          function_id: 'call_inventory',
+          result: '12 units available',
+        },
+      ],
+      model_config: { stream: false },
+    },
+    transport_responses: [{ status: 200, json: response }],
+    expected_transport_request: { json: { input: body.input } },
+  });
+}

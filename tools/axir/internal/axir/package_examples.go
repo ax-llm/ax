@@ -188,7 +188,7 @@ class ScriptedTransport:
 
 
 def client(transport):
-    return GoogleGeminiClient(model="gemini-3.5-flash", api_key="gemini-key", transport=transport, contextCache={"minTokens": 0, "ttlSeconds": 3600, "refreshWindowSeconds": 300})
+    return GoogleGeminiClient(model="gemini-3.8-flash", api_key="gemini-key", transport=transport, retry={"maxRetries": 1, "initialDelayMs": 1, "maxDelayMs": 1}, contextCache={"minTokens": 0, "ttlSeconds": 3600, "refreshWindowSeconds": 300})
 
 
 request = {"chat_prompt": [{"role": "system", "content": "stable context"}, {"role": "user", "content": "answer briefly"}]}
@@ -209,22 +209,25 @@ assert "cachedContent" in recovery.requests[1]["json"] and "cachedContent" not i
 refresh = ScriptedTransport([
     {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "refresh failed"}}},
     {"status": 200, "json": {"name": "cachedContents/new", "expireTime": future(3600)}}, chat_response("recreated"),
 ])
 refresh_client = client(refresh)
 refresh_client.chat(request)
 assert refresh_client.chat(request)["results"][0]["content"] == "recreated"
-assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
+assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "PATCH", "POST", "POST"]
 
 fallback = ScriptedTransport([
     {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(120)}}, chat_response("old"),
     {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "recreate failed"}}},
     {"status": 500, "json": {"error": {"message": "recreate failed"}}}, chat_response("uncached fallback"),
 ])
 fallback_client = client(fallback)
 fallback_client.chat(request)
 assert fallback_client.chat(request)["results"][0]["content"] == "uncached fallback"
-assert [item["method"] for item in fallback.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
+assert [item["method"] for item in fallback.requests] == ["POST", "POST", "PATCH", "PATCH", "POST", "POST", "POST"]
 
 if os.getenv("AX_CONTEXT_CACHE_LIVE") == "1":
     key = os.getenv("GOOGLE_APIKEY") or os.getenv("GOOGLE_API_KEY")
@@ -232,7 +235,7 @@ if os.getenv("AX_CONTEXT_CACHE_LIVE") == "1":
         raise SystemExit("Set GOOGLE_APIKEY to run the live Gemini cache exercise")
     entries = {}
     registry = {"get": lambda namespace, cache_key: entries.get((namespace, cache_key)), "set": lambda namespace, cache_key, entry: entries.__setitem__((namespace, cache_key), entry)}
-    live = GoogleGeminiClient(model=os.getenv("AX_GEMINI_MODEL", "gemini-3.5-flash"), api_key=key, contextCache={"minTokens": 0, "ttlSeconds": 60, "refreshWindowSeconds": 120, "namespace": "live-example", "registry": registry})
+    live = GoogleGeminiClient(model=os.getenv("AX_GEMINI_MODEL", "gemini-3.8-flash"), api_key=key, contextCache={"minTokens": 0, "ttlSeconds": 60, "refreshWindowSeconds": 120, "namespace": "live-example", "registry": registry})
     live_request = {"chat_prompt": [{"role": "system", "content": "This is stable reference context. " * 4000}, {"role": "user", "content": "Reply with the word ready."}]}
     live.chat(live_request)
     first_expiry = next(iter(entries.values()))["expiresAt"]
@@ -256,7 +259,7 @@ import (
 func success(text string) ax.Value { return ax.Object("status", 200.0, "json", ax.Object("candidates", ax.Array(ax.Object("content", ax.Object("parts", ax.Array(ax.Object("text", text)))), "finishReason", "STOP"))) }
 func cache(name string, seconds int64) ax.Value { return ax.Object("status", 200.0, "json", ax.Object("name", name, "expireTime", float64(time.Now().Add(time.Duration(seconds)*time.Second).UnixMilli()))) }
 func failure(status float64, message string) ax.Value { return ax.Object("status", status, "json", ax.Object("error", ax.Object("message", message))) }
-func service(transport *ax.ScriptedTransport) *ax.GoogleGeminiClient { return ax.NewGoogleGeminiClient(map[string]ax.Value{"model":"gemini-3.5-flash", "api_key":"gemini-key", "transport":transport, "contextCache":ax.Object("minTokens",0.0,"ttlSeconds",3600.0,"refreshWindowSeconds",300.0)}) }
+func service(transport *ax.ScriptedTransport) *ax.GoogleGeminiClient { return ax.NewGoogleGeminiClient(map[string]ax.Value{"model":"gemini-3.8-flash", "api_key":"gemini-key", "transport":transport, "retry":ax.Object("maxRetries",1,"initialDelayMs",1,"maxDelayMs",1), "contextCache":ax.Object("minTokens",0.0,"ttlSeconds",3600.0,"refreshWindowSeconds",300.0)}) }
 func methods(requests []ax.Value) []string { out:=[]string{}; for _,request:=range requests { out=append(out, request.(map[string]ax.Value)["method"].(string)) }; return out }
 func same(actual []string, expected ...string) bool { if len(actual)!=len(expected){return false}; for i:=range actual{if actual[i]!=expected[i]{return false}}; return true }
 
@@ -267,10 +270,10 @@ func main() {
   // The old caches expire in two minutes: inside the 300-second refresh window,
   // so the second chat refreshes them, and far enough out that a slow first
   // chat cannot let them expire first.
-  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
-  refreshClient:=service(refresh); if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(refresh.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,refresh.Requests))}
-  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")})
-  fallbackClient:=service(fallback); if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(fallback.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,fallback.Requests))}
+  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
+  refreshClient:=service(refresh); if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(refresh.Requests),"POST","POST","PATCH","PATCH","POST","POST"){panic(fmt.Sprint(err,refresh.Requests))}
+  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),failure(500,"recreate failed"),failure(500,"recreate failed"),success("uncached fallback")})
+  fallbackClient:=service(fallback); if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(fallback.Requests),"POST","POST","PATCH","PATCH","POST","POST","POST"){panic(fmt.Sprint(err,fallback.Requests))}
   fmt.Println("go-context-cache-recovery-ok")
 }
 `
@@ -417,15 +420,15 @@ public class ContextCacheRecoveryExample {
     public Object call(Map<String,Object> request){requests.add(new LinkedHashMap<>(request));return responses.removeFirst();}
     List<String> methods(){return requests.stream().map(value->String.valueOf(value.get("method"))).toList();}
   }
-  static GoogleGeminiClient service(Script script){return new GoogleGeminiClient(Map.of("model","gemini-3.5-flash","api_key","gemini-key","transport",script,"contextCache",Map.of("minTokens",0,"ttlSeconds",3600,"refreshWindowSeconds",300)));}
+  static GoogleGeminiClient service(Script script){return new GoogleGeminiClient(Map.of("model","gemini-3.8-flash","api_key","gemini-key","transport",script,"retry",Map.of("maxRetries",1,"initialDelayMs",1,"maxDelayMs",1),"contextCache",Map.of("minTokens",0,"ttlSeconds",3600,"refreshWindowSeconds",300)));}
   public static void main(String[] args) throws Exception {
     Map<String,Object> request=Map.of("chat_prompt",List.of(Map.of("role","system","content","stable context"),Map.of("role","user","content","answer briefly")));
     Script recovery=new Script(cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")); service(recovery).chat(request); if(!recovery.methods().equals(List.of("POST","POST","POST")))throw new AssertionError(recovery.methods());
     // The old caches expire in two minutes: inside the 300-second refresh window,
     // so the second chat refreshes them, and far enough out that a slow first
     // chat cannot let them expire first.
-    Script refresh=new Script(cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")); GoogleGeminiClient refreshClient=service(refresh);refreshClient.chat(request);refreshClient.chat(request);if(!refresh.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(refresh.methods());
-    Script fallback=new Script(cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback"));GoogleGeminiClient fallbackClient=service(fallback);fallbackClient.chat(request);fallbackClient.chat(request);if(!fallback.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(fallback.methods());
+    Script refresh=new Script(cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")); GoogleGeminiClient refreshClient=service(refresh);refreshClient.chat(request);refreshClient.chat(request);if(!refresh.methods().equals(List.of("POST","POST","PATCH","PATCH","POST","POST")))throw new AssertionError(refresh.methods());
+    Script fallback=new Script(cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),failure(500,"recreate failed"),failure(500,"recreate failed"),success("uncached fallback"));GoogleGeminiClient fallbackClient=service(fallback);fallbackClient.chat(request);fallbackClient.chat(request);if(!fallback.methods().equals(List.of("POST","POST","PATCH","PATCH","POST","POST","POST")))throw new AssertionError(fallback.methods());
     System.out.println("java-context-cache-recovery-ok");
   }
 }
@@ -444,15 +447,15 @@ fn now()->u64{SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()a
 fn success(text:&str)->Value{json!({"status":200,"json":{"candidates":[{"content":{"parts":[{"text":text}]},"finishReason":"STOP"}]}})}
 fn cache(name:&str,seconds:u64)->Value{json!({"status":200,"json":{"name":name,"expireTime":now()+seconds*1000}})}
 fn failure(status:u16,message:&str)->Value{json!({"status":status,"json":{"error":{"message":message}}})}
-fn service(script:Script)->OpenAICompatibleClient{OpenAICompatibleClient::new("gemini-key","gemini-3.5-flash").with_profile("google-gemini").with_options(json!({"contextCache":{"minTokens":0,"ttlSeconds":3600,"refreshWindowSeconds":300}})).with_transport(script)}
+fn service(script:Script)->OpenAICompatibleClient{OpenAICompatibleClient::new("gemini-key","gemini-3.8-flash").with_profile("google-gemini").with_options(json!({"retry":{"maxRetries":1,"initialDelayMs":1,"maxDelayMs":1},"contextCache":{"minTokens":0,"ttlSeconds":3600,"refreshWindowSeconds":300}})).with_transport(script)}
 fn main()->AxResult<()>{
  let request=json!({"chat_prompt":[{"role":"system","content":"stable context"},{"role":"user","content":"answer briefly"}]});
  let recovery=Script::new(vec![cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")]);service(recovery.clone()).chat(request.clone())?;assert_eq!(recovery.methods(),vec!["POST","POST","POST"]);
  // The old caches expire in two minutes: inside the 300-second refresh window,
  // so the second chat refreshes them, and far enough out that a slow first
  // chat cannot let them expire first.
- let refresh=Script::new(vec![cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")]);let mut refresh_client=service(refresh.clone());refresh_client.chat(request.clone())?;refresh_client.chat(request.clone())?;assert_eq!(refresh.methods(),vec!["POST","POST","PATCH","POST","POST"]);
- let fallback=Script::new(vec![cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")]);let mut fallback_client=service(fallback.clone());fallback_client.chat(request.clone())?;fallback_client.chat(request)?;assert_eq!(fallback.methods(),vec!["POST","POST","PATCH","POST","POST"]);
+ let refresh=Script::new(vec![cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")]);let mut refresh_client=service(refresh.clone());refresh_client.chat(request.clone())?;refresh_client.chat(request.clone())?;assert_eq!(refresh.methods(),vec!["POST","POST","PATCH","PATCH","POST","POST"]);
+ let fallback=Script::new(vec![cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),failure(500,"recreate failed"),failure(500,"recreate failed"),success("uncached fallback")]);let mut fallback_client=service(fallback.clone());fallback_client.chat(request.clone())?;fallback_client.chat(request)?;assert_eq!(fallback.methods(),vec!["POST","POST","PATCH","PATCH","POST","POST","POST"]);
  println!("rust-context-cache-recovery-ok");Ok(())
 }
 `
@@ -496,12 +499,12 @@ double now_ms(){return std::chrono::duration_cast<std::chrono::milliseconds>(std
 axllm::Value success(std::string text){return axllm::object({{"status",200},{"json",axllm::object({{"candidates",axllm::array({axllm::object({{"content",axllm::object({{"parts",axllm::array({axllm::object({{"text",text}})})}})},{"finishReason","STOP"}})})}})}});}
 axllm::Value cache(std::string name,int seconds){return axllm::object({{"status",200},{"json",axllm::object({{"name",name},{"expireTime",now_ms()+seconds*1000}})}});}
 axllm::Value failure(int status,std::string message){return axllm::object({{"status",status},{"json",axllm::object({{"error",axllm::object({{"message",message}})}})}});}
-axllm::GoogleGeminiClient service(Script* script){return axllm::GoogleGeminiClient(axllm::object({{"model","gemini-3.5-flash"},{"api_key","gemini-key"},{"contextCache",axllm::object({{"minTokens",0},{"ttlSeconds",3600},{"refreshWindowSeconds",300}})}}),script);}
+axllm::GoogleGeminiClient service(Script* script){return axllm::GoogleGeminiClient(axllm::object({{"model","gemini-3.8-flash"},{"api_key","gemini-key"},{"retry",axllm::object({{"maxRetries",1},{"initialDelayMs",1},{"maxDelayMs",1}})},{"contextCache",axllm::object({{"minTokens",0},{"ttlSeconds",3600},{"refreshWindowSeconds",300}})}}),script);}
 int main(){
  auto request=axllm::object({{"chat_prompt",axllm::array({axllm::object({{"role","system"},{"content","stable context"}}),axllm::object({{"role","user"},{"content","answer briefly"}})})}});
  Script recovery({cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")});auto recovery_client=service(&recovery);recovery_client.chat(request);if(recovery.methods()!=std::vector<std::string>({"POST","POST","POST"}))return 1;
- Script refresh({cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")});auto refresh_client=service(&refresh);refresh_client.chat(request);refresh_client.chat(request);if(refresh.methods()!=std::vector<std::string>({"POST","POST","PATCH","POST","POST"}))return 2;
- Script fallback({cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")});auto fallback_client=service(&fallback);fallback_client.chat(request);fallback_client.chat(request);if(fallback.methods()!=std::vector<std::string>({"POST","POST","PATCH","POST","POST"}))return 3;
+ Script refresh({cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")});auto refresh_client=service(&refresh);refresh_client.chat(request);refresh_client.chat(request);if(refresh.methods()!=std::vector<std::string>({"POST","POST","PATCH","PATCH","POST","POST"}))return 2;
+ Script fallback({cache("cachedContents/old",120),success("old"),failure(500,"refresh failed"),failure(500,"refresh failed"),failure(500,"recreate failed"),failure(500,"recreate failed"),success("uncached fallback")});auto fallback_client=service(&fallback);fallback_client.chat(request);fallback_client.chat(request);if(fallback.methods()!=std::vector<std::string>({"POST","POST","PATCH","PATCH","POST","POST","POST"}))return 3;
  std::cout<<"cpp-context-cache-recovery-ok\n";
 }
 `
@@ -5857,11 +5860,13 @@ int main() {
 const pyTransportErrorsHTTPRoundtripExample = `"""Send requests through the REAL urllib transport to in-process loopback
 servers that fail the way networks do, and check that the failures surface as
 TypeScript's apiCall reports fetch's: a refused or dropped connection is
-AxAIServiceNetworkError ("Network Error: ..."), which a stream's request layer
+AxAIServiceNetworkError ("Network Error: ..."), which the request layer
 retries under the call's retry options; a timeout is AxAIServiceTimeoutError
 ("Request timed out after <ms>ms", the client's timeout in milliseconds), which
 the request layer never retries; and AxGen retries both as infrastructure
-errors. Exits non-zero on any mismatch so ` + "`" + `axir verify` + "`" + ` fails if it regresses."""
+errors. A stream whose response began is not retried: TS reads its first event
+after apiCall returns. Exits non-zero on any mismatch so ` + "`" + `axir verify` + "`" + ` fails if
+it regresses."""
 
 import http.client
 import socket
@@ -5912,8 +5917,9 @@ def read_request(connection):
 
 def serve(mode):
     """Accept connections and count them: "close" closes each one without a
-    response, "drop" sends one stream event and drops it, "gateway" answers 504,
-    "hold" never answers."""
+    response, "drop" sends one stream event and drops it, "headers" sends the
+    response headers and drops it, "gateway" answers 504, "hold" never
+    answers."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(16)
@@ -5937,6 +5943,9 @@ def serve(mode):
                     time.sleep(0.05)
                 elif mode == "gateway":
                     connection.sendall(GATEWAY_RESPONSE)
+                elif mode == "headers":
+                    connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
+                    time.sleep(0.05)
             except OSError:
                 pass
             connection.close()
@@ -5975,16 +5984,29 @@ fast_retry = {"maxRetries": 2, "initialDelayMs": 10, "maxDelayMs": 20}
 
 # A refused connection.
 refused = client(closed_port())
-expect("refused chat", AxAIServiceNetworkError, "Network Error: ", lambda: refused.chat(request, {"stream": False}))
+expect("refused chat", AxAIServiceNetworkError, "Network Error: ", lambda: refused.chat(request, {"stream": False, "retry": fast_retry}))
 expect("refused stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(refused.stream(request, {"retry": fast_retry})))
 
-# A server that closes each connection without a response. The stream's
-# request layer retries it: the first request and two retries.
+# A server that closes each connection without a response. The request layer
+# retries it: the first request and two retries.
 closing, closed = serve("close")
-expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client(closing).chat(request, {"stream": False}))
+before = closed["connections"]
+expect("closed chat", AxAIServiceNetworkError, "Network Error: ", lambda: client(closing).chat(request, {"stream": False, "retry": fast_retry}))
+assert closed["connections"] - before == 3, f"closed chat: {closed['connections'] - before} requests"
 before = closed["connections"]
 expect("closed stream", AxAIServiceNetworkError, "Network Error: ", lambda: list(client(closing).stream(request, {"retry": fast_retry})))
 assert closed["connections"] - before == 3, f"closed stream: {closed['connections'] - before} requests"
+
+# A stream whose response began and dropped before its first event is not
+# retried: TS reads the first event after apiCall returns.
+started, began = serve("headers")
+try:
+    list(client(started).stream(request, {"retry": fast_retry}))
+except AxAIServiceError:
+    pass
+else:
+    raise AssertionError("started stream: no error")
+assert began["connections"] == 1, f"started stream: {began['connections']} requests"
 
 # A 504 response is retried by its status, as TS apiCall retries it: it is not a
 # timeout the request ran out of.
@@ -6063,8 +6085,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 // Send requests through the REAL HttpClient transport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Until the next major version, chat
@@ -6082,20 +6104,33 @@ public final class TransportErrorsHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // A refused connection.
     int refused = closedPort();
-    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
     expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(refused, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     // Without typedTransportErrors, a chat throws the JDK's exception, as before.
-    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
 
     // A server that closes each connection without a response. The stream's
     // request layer retries it under the call's retry options: the first
     // request and two retries.
     AtomicInteger closed = new AtomicInteger();
     int closing = serve("close", closed);
-    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
     int before = closed.get();
+    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
+    expectCount("closed chat", closed.get() - before, 3);
+    before = closed.get();
     expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(closing, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     expectCount("closed stream", closed.get() - before, 3);
+
+    // A stream whose response began and dropped before its first event is not
+    // retried: TS reads the first event after apiCall returns.
+    AtomicInteger began = new AtomicInteger();
+    int started = serve("headers", began);
+    try {
+      drain(client(started, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null);
+      throw new RuntimeException("started stream: no error");
+    } catch (AxAIServiceError error) {
+      expectCount("started stream", began.get(), 1);
+    }
 
     // A 504 response is retried by its status, as TS apiCall retries it: it is
     // not a timeout the request ran out of.
@@ -6222,8 +6257,9 @@ public final class TransportErrorsHTTPRoundtripExample {
   }
 
   // Accept connections and count them: "close" closes each one without a
-  // response, "drop" sends one stream event and drops it, "gateway" answers
-  // 504, "hold" never answers.
+  // response, "drop" sends one stream event and drops it, "headers" sends the
+  // response headers and drops it, "gateway" answers 504, "hold" never
+  // answers.
   static int serve(String mode, AtomicInteger connections) throws Exception {
     ServerSocket listener = new ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"));
     List<Socket> held = Collections.synchronizedList(new ArrayList<>());
@@ -6241,6 +6277,10 @@ public final class TransportErrorsHTTPRoundtripExample {
             String response = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
                 + Integer.toHexString(DROP_EVENT.length()) + "\r\n" + DROP_EVENT + "\r\n";
             socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
+            Thread.sleep(50);
+          } else if ("headers".equals(mode)) {
+            socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.UTF_8));
             socket.getOutputStream().flush();
             Thread.sleep(50);
           } else if ("gateway".equals(mode)) {
@@ -6285,8 +6325,8 @@ const cppTransportErrorsHTTPRoundtripExample = `#include "axllm/axllm.hpp"
 // Send requests through the REAL libcurl HttpTransport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Returns non-zero on any mismatch so
@@ -6346,8 +6386,8 @@ void drain_request(int fd) {
 }
 
 // Accept connections and count them: "close" closes each one without a
-// response, "drop" sends one stream event and drops it, "gateway" answers 504,
-// "hold" never answers.
+// response, "drop" sends one stream event and drops it, "headers" sends the
+// response headers and drops it, "gateway" answers 504, "hold" never answers.
 std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
   int listener = listen_loopback(port);
   auto connections = std::make_shared<std::atomic<int>>(0);
@@ -6367,6 +6407,10 @@ std::shared_ptr<std::atomic<int>> serve(const std::string& mode, int* port) {
         std::snprintf(size, sizeof(size), "%zx", kDropEvent.size());
         std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n") + size + "\r\n" + kDropEvent + "\r\n";
         (void)send(fd, response.data(), response.size(), 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } else if (mode == "headers") {
+        std::string head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n";
+        (void)send(fd, head.data(), head.size(), 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       } else if (mode == "gateway") {
         std::string response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: application/json\r\nContent-Length: " +
@@ -6419,7 +6463,7 @@ int main() {
 
   // A refused connection.
   int refused = closed_port();
-  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}})); });
+  expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->chat(request, object({{"stream", false}, {"retry", fast_retry}})); });
   expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(refused)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
 
   // A server that closes each connection without a response. The stream's
@@ -6427,10 +6471,25 @@ int main() {
   // request and two retries.
   int closing = 0;
   auto closed = serve("close", &closing);
-  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}})); });
   int before = closed->load();
+  expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->chat(request, object({{"stream", false}, {"retry", fast_retry}})); });
+  expect_count("closed chat", closed->load() - before, 3);
+  before = closed->load();
   expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", [&] { client(closing)->stream_each(request, ignore, object({{"retry", fast_retry}})); });
   expect_count("closed stream", closed->load() - before, 3);
+
+  // A stream whose response began and dropped before its first event is not
+  // retried: TS reads the first event after apiCall returns.
+  int started = 0;
+  auto began = serve("headers", &started);
+  bool started_failed = false;
+  try {
+    client(started)->stream_each(request, ignore, object({{"retry", fast_retry}}));
+  } catch (const AxError&) {
+    started_failed = true;
+  }
+  if (!started_failed) throw std::runtime_error("started stream: no error");
+  expect_count("started stream", began->load(), 1);
 
   // A 504 response is retried by its status, as TS apiCall retries it: it is
   // not a timeout the request ran out of.

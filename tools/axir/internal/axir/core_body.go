@@ -166,6 +166,8 @@ const (
 	IntrinsicAgentRuntimeRestore       CoreIntrinsic = "intrinsic.agent.runtime.restore_state"
 	IntrinsicAgentRuntimeClose         CoreIntrinsic = "intrinsic.agent.runtime.close"
 	IntrinsicAgentRuntimeLanguage      CoreIntrinsic = "intrinsic.agent.runtime.language"
+	IntrinsicAgentRuntimeUsage         CoreIntrinsic = "intrinsic.agent.runtime.usage_instructions"
+	IntrinsicAgentProgramForward       CoreIntrinsic = "intrinsic.agent.program_forward"
 	IntrinsicAgentMemorySearch         CoreIntrinsic = "intrinsic.agent.memory_search"
 	IntrinsicAgentSkillSearch          CoreIntrinsic = "intrinsic.agent.skill_search"
 	IntrinsicAgentObserverNotify       CoreIntrinsic = "intrinsic.agent.observer.notify"
@@ -201,6 +203,7 @@ const (
 	IntrinsicAxGenCachingFunction      CoreIntrinsic = "intrinsic.axgen.caching_function"
 	IntrinsicAxGenCacheRead            CoreIntrinsic = "intrinsic.axgen.cache_read"
 	IntrinsicAxGenCacheWrite           CoreIntrinsic = "intrinsic.axgen.cache_write"
+	IntrinsicAxGenResultFormatter      CoreIntrinsic = "intrinsic.axgen.function_result_formatter"
 )
 
 var coreIntrinsicPython = map[CoreIntrinsic]string{
@@ -332,6 +335,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeRestore:       "_core_agent_runtime_restore_state",
 	IntrinsicAgentRuntimeClose:         "_core_agent_runtime_close",
 	IntrinsicAgentRuntimeLanguage:      "_core_agent_runtime_language",
+	IntrinsicAgentRuntimeUsage:         "_core_agent_runtime_usage_instructions",
+	IntrinsicAgentProgramForward:       "_core_agent_program_forward",
 	IntrinsicAgentMemorySearch:         "_core_agent_memory_search",
 	IntrinsicAgentSkillSearch:          "_core_agent_skill_search",
 	IntrinsicAgentObserverNotify:       "_core_agent_observer_notify",
@@ -367,6 +372,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAxGenCachingFunction:      "_core_axgen_caching_function",
 	IntrinsicAxGenCacheRead:            "_core_axgen_cache_read",
 	IntrinsicAxGenCacheWrite:           "_core_axgen_cache_write",
+	IntrinsicAxGenResultFormatter:      "_core_axgen_function_result_formatter",
 }
 
 var knownCoreIntrinsics = map[string]bool{
@@ -436,6 +442,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.axgen.caching_function":                true,
 	"intrinsic.axgen.cache_read":                      true,
 	"intrinsic.axgen.cache_write":                     true,
+	"intrinsic.axgen.function_result_formatter":       true,
 	"intrinsic.error.runtime":                         true,
 	"intrinsic.json.parse":                            true,
 	"intrinsic.json.parse_strict":                     true,
@@ -524,6 +531,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.restore_state":           true,
 	"intrinsic.agent.runtime.close":                   true,
 	"intrinsic.agent.runtime.language":                true,
+	"intrinsic.agent.runtime.usage_instructions":      true,
+	"intrinsic.agent.program_forward":                 true,
 	"intrinsic.agent.memory_search":                   true,
 	"intrinsic.agent.skill_search":                    true,
 	"intrinsic.agent.observer.notify":                 true,
@@ -771,6 +780,7 @@ type CoreIntrinsicInfo struct {
 }
 
 var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
+	"intrinsic.agent.runtime.usage_instructions": intrinsicInfo("intrinsic.agent.runtime.usage_instructions", 1, 1, true, "string"),
 	"intrinsic.not":                                 intrinsicInfo("intrinsic.not", 1, 1, false, "bool"),
 	"intrinsic.and":                                 intrinsicInfo("intrinsic.and", 2, 2, false, "bool"),
 	"intrinsic.or":                                  intrinsicInfo("intrinsic.or", 2, 2, false, "bool"),
@@ -806,7 +816,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.json.parse":                          intrinsicInfo("intrinsic.json.parse", 1, 1, false, "json"),
 	"intrinsic.json.stringify":                      intrinsicInfo("intrinsic.json.stringify", 1, 1, false, "string"),
 	"intrinsic.json.stable_stringify":               intrinsicInfo("intrinsic.json.stable_stringify", 1, 1, false, "string"),
-	"intrinsic.tool.invoke":                         intrinsicInfo("intrinsic.tool.invoke", 2, 2, true, "json"),
+	"intrinsic.tool.invoke":                         intrinsicInfo("intrinsic.tool.invoke", 2, 3, true, "json"),
 	"intrinsic.run_control.aborted":                 intrinsicInfo("intrinsic.run_control.aborted", 1, 1, false, "bool"),
 	"intrinsic.flow.dispatch_group":                 intrinsicInfo("intrinsic.flow.dispatch_group", 5, 5, true, "json"),
 	"intrinsic.flow.caching_function":               intrinsicInfo("intrinsic.flow.caching_function", 1, 1, true, "json"),
@@ -860,6 +870,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.axgen.caching_function":              intrinsicInfo("intrinsic.axgen.caching_function", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_read":                    intrinsicInfo("intrinsic.axgen.cache_read", 2, 2, true, "json"),
 	"intrinsic.axgen.cache_write":                   intrinsicInfo("intrinsic.axgen.cache_write", 3, 3, true, "void"),
+	"intrinsic.axgen.function_result_formatter":     intrinsicInfo("intrinsic.axgen.function_result_formatter", 0, 0, true, "json"),
 	"intrinsic.string.format":                       intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),
 	"intrinsic.string.join":                         intrinsicInfo("intrinsic.string.join", 2, 2, false, "string"),
 	"intrinsic.string.slice":                        intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),

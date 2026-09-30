@@ -10,8 +10,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 // Send requests through the REAL HttpClient transport to in-process loopback
 // servers that fail the way networks do, and check that the failures surface
 // as TypeScript's apiCall reports fetch's: a refused or dropped connection is
-// AxAIServiceNetworkError ("Network Error: ..."), which a stream's request
-// layer retries under the call's retry options; a timeout is
+// AxAIServiceNetworkError ("Network Error: ..."), which the request layer
+// retries under the call's retry options; a timeout is
 // AxAIServiceTimeoutError ("Request timed out after <ms>ms", the client's
 // timeout in milliseconds), which the request layer never retries; and AxGen
 // retries both as infrastructure errors. Until the next major version, chat
@@ -29,20 +29,33 @@ public final class TransportErrorsHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // A refused connection.
     int refused = closedPort();
-    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(refused, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
     expect("refused stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(refused, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     // Without typedTransportErrors, a chat throws the JDK's exception, as before.
-    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
+    expect("refused chat, default", "ConnectException", "", () -> client(refused, Map.of()).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
 
     // A server that closes each connection without a response. The stream's
     // request layer retries it under the call's retry options: the first
     // request and two retries.
     AtomicInteger closed = new AtomicInteger();
     int closing = serve("close", closed);
-    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false))));
     int before = closed.get();
+    expect("closed chat", "AxAIServiceNetworkError", "Network Error: ", () -> client(closing, TYPED).chat(REQUEST, new LinkedHashMap<>(Map.of("stream", false, "retry", FAST_RETRY))));
+    expectCount("closed chat", closed.get() - before, 3);
+    before = closed.get();
     expect("closed stream", "AxAIServiceNetworkError", "Network Error: ", () -> drain(client(closing, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null));
     expectCount("closed stream", closed.get() - before, 3);
+
+    // A stream whose response began and dropped before its first event is not
+    // retried: TS reads the first event after apiCall returns.
+    AtomicInteger began = new AtomicInteger();
+    int started = serve("headers", began);
+    try {
+      drain(client(started, Map.of()), new LinkedHashMap<>(Map.of("retry", FAST_RETRY)), null);
+      throw new RuntimeException("started stream: no error");
+    } catch (AxAIServiceError error) {
+      expectCount("started stream", began.get(), 1);
+    }
 
     // A 504 response is retried by its status, as TS apiCall retries it: it is
     // not a timeout the request ran out of.
@@ -169,8 +182,9 @@ public final class TransportErrorsHTTPRoundtripExample {
   }
 
   // Accept connections and count them: "close" closes each one without a
-  // response, "drop" sends one stream event and drops it, "gateway" answers
-  // 504, "hold" never answers.
+  // response, "drop" sends one stream event and drops it, "headers" sends the
+  // response headers and drops it, "gateway" answers 504, "hold" never
+  // answers.
   static int serve(String mode, AtomicInteger connections) throws Exception {
     ServerSocket listener = new ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"));
     List<Socket> held = Collections.synchronizedList(new ArrayList<>());
@@ -188,6 +202,10 @@ public final class TransportErrorsHTTPRoundtripExample {
             String response = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n"
                 + Integer.toHexString(DROP_EVENT.length()) + "\r\n" + DROP_EVENT + "\r\n";
             socket.getOutputStream().write(response.getBytes(StandardCharsets.UTF_8));
+            socket.getOutputStream().flush();
+            Thread.sleep(50);
+          } else if ("headers".equals(mode)) {
+            socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.UTF_8));
             socket.getOutputStream().flush();
             Thread.sleep(50);
           } else if ("gateway".equals(mode)) {

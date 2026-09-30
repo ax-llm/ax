@@ -1,35 +1,82 @@
 {
-  "expected_output": {
-    "answer": "Paris"
+  "expected_exported_state_subset": {
+    "context_map": {
+      "scores": {},
+      "steps": 5,
+      "text": "## REUSABLE RESULTS\n[rr-1] France capital is Paris\n"
+    }
   },
-  "expected_request_contains": ["France capital is Paris"],
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_contains": ["[rr-1] France capital is Paris"],
+  "expected_request_count": 3,
+  "expected_request_roles": [
+    ["system", "user"],
+    ["system", "user"],
+    ["system", "user"]
+  ],
+  "expected_transcript": [
+    "request:distiller",
+    "request:executor",
+    "request:responder"
+  ],
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
   "input": {
-    "question": "Capital of France?"
+    "question": "How long do refunds take?"
   },
   "kind": "agent_forward",
   "name": "agent-context-map-read",
   "options": {
-    "contextFields": []
-  },
-  "restore_runtime_state": {
-    "context_map": {
-      "evolveSteps": 0,
-      "infiniteEvolve": false,
-      "next_id": 2,
-      "scores": {},
-      "steps": 5,
-      "text": "## REUSABLE RESULTS\n[rr-1] France capital is Paris"
+    "contextMap": {
+      "map": {
+        "evolveSteps": 0,
+        "infiniteEvolve": false,
+        "scores": {},
+        "steps": 5,
+        "text": "## REUSABLE RESULTS\n[rr-1] France capital is Paris",
+        "version": 1
+      }
+    },
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
     }
   },
   "responses": [
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
     },
     {
-      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"answer\":\"Paris\"}]}}"
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
     },
     {
-      "content": "{\"answer\":\"Paris\"}"
+      "content": "Answer: Refunds take 30 days."
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
     }
   ],
   "signature": "question:string -> answer:string"

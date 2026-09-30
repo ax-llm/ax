@@ -4,9 +4,6 @@
   "expected_error_contains": "Generate failed: Function call at index 0 in result 0 must have a non-empty function name, received: \"  \"",
   "expected_request_count": 1,
   "expected_tool_calls": [],
-  "forward_options": {
-    "function_call_validation": "fail"
-  },
   "input": {
     "question": "Status?"
   },

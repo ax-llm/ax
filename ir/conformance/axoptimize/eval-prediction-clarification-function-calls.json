@@ -1,5 +1,8 @@
 {
   "expected_prediction_fields": {
+    "clarification": {
+      "question": "Which docs do you mean?"
+    },
     "functionCalls": [
       {
         "arguments": {
@@ -18,6 +21,7 @@
   "expected_prediction_subset": {
     "completionType": "askClarification"
   },
+  "expected_request_count": 3,
   "kind": "optimize",
   "name": "eval-prediction-clarification-function-calls",
   "operation": "eval",

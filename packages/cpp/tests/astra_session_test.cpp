@@ -301,7 +301,7 @@ void mixed_balancer(){
     Value get_features(Value model=Value())override{Value features=OpenAICompatibleClient::get_features(model);Core::set(features,"asyncTools",unused);return features;}
     Value chat(Value request,Value options)override{
       if(unused)throw std::runtime_error("Pinned run changed providers");++calls;
-      if(calls==1)return parse_json(R"({"results":[{"function_calls":[{"id":"balanced-call","function":{"name":"lookup","params":{}}}]}]})");
+      if(calls==1)return parse_json(R"({"results":[{"function_calls":[{"id":"balanced-call","type":"function","function":{"name":"lookup","params":{}}}]}]})");
       if(calls!=2||tools->load()!=1||stringify(request).find("FALLBACK")==std::string::npos||stringify(request).find("balanced-call")==std::string::npos)throw std::runtime_error("Lost tool continuation");
       return object({{"results",array({object({{"content","{\"answer\":\"FALLBACK\"}"}})})}});
     }

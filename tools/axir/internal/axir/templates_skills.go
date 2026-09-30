@@ -293,13 +293,21 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"## Request Timeouts",
 			"",
+			"- With contextCache enabled, cached signature inputs form a stable user-message prefix; dynamic inputs follow separately. Agent stages mark stable inputs cached and keep runtime guidance and action history dynamic.",
 			"- `timeoutMs` on a chat, stream or embed call bounds the wait for the response headers in milliseconds, as TypeScript's per-call `timeout` does. In the client's options it applies to every call. A request whose response has not started in time fails with `AxAIServiceTimeoutError` (`Request timed out after <N>ms`). The request layer does not retry it, and AxGen retries it as an infrastructure error. Once the response starts, the body reads as it did before. AxGen and agent forwards pass `timeoutMs` to every model call.",
 			"- "+skillCallTimeoutText(target),
 			"",
 			"## Transport Errors",
 			"",
-			"- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). As in TypeScript's apiCall, a stream's request layer retries a network error under the call's `retry` options (else the client's) and never retries a timeout, and AxGen retries both as infrastructure errors.",
+			"- A connection that is refused, reset, or closed before a response raises `AxAIServiceNetworkError` with TypeScript's message, `Network Error: <cause>`. The client's own timeout raises `AxAIServiceTimeoutError` (`Request timed out after <N>ms`, the timeout in milliseconds). AxGen retries both as infrastructure errors.",
 			"- "+skillTransportErrorsText(target),
+			"",
+			"## Request Retries",
+			"",
+			"- As TypeScript's apiCall does, chat, embed, context-cache and Typesafe requests, and a stream's request, go out again after a network failure or a status the retry config lists (`retryableStatusCodes`, by default 500, 408, 429, 502, 503, 504 and 529), up to `maxRetries` times (default 3).",
+			"- The wait is `initialDelayMs * backoffFactor ** attempt` (1 s doubling by default), at most `maxDelayMs` (60 s), times a jitter of 0.75 to 1.25. A status response's `Retry-After`, in seconds or as an HTTP date, replaces it when it is no longer than `maxDelayMs`.",
+			"- The call's `retry` options replace the client's. `retry: { maxRetries: 0 }` sends each request once.",
+			"- A 401 or 403, a timeout the request ran out of, and an aborted request are never retried here. A stream whose response began is not retried either: a failure to read its first event surfaces. A first event that carries a listed status (Anthropic's `overloaded_error`) goes out again, with its own budget and without jitter.",
 			"",
 			"## Routing And Balancing",
 			"",
@@ -383,13 +391,20 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 			"`maxRetries` / `max_retries` (default 3) caps both retry loops, as in TypeScript. A failed provider request is retried only for infrastructure errors: a 5xx status, a network error, a timeout, or a terminated stream. As in TypeScript, these retries wrap the validation loop: a step's infrastructure retries share one budget, and each one restarts validation with a fresh budget. Any other error, such as a 400 or 429 status, a response error, or a rejection before the request is sent, surfaces after one request. Validation failures, and assertion failures that carry a message, are retried inside the current step with a correction message, and each tool step starts with fresh budgets. As in TypeScript, an assertion that fails without a message, or that raises an error, surfaces at once without a retry; give it a message (the `message` key of a declarative assertion, or the message argument of a callable assertion where the target has one) to make its failure retryable. On the `function` rung a retry keeps the failed `__axOutput` call on the assistant turn with a `done` result and asks the model to fix its arguments, as TypeScript does. A model refusal spends the same budget: the same prompt goes out again at once, with no backoff and no correction message. `validationRetries` / `validation_retries` and `infraRetries` / `infra_retries` override the two budgets separately.",
 			"",
+			"On a non-streaming retry the request carries the earlier failed answers and their corrections only until an answer's values parse or the model calls tools; then they are dropped, as TypeScript drops them. A retry after a failed assertion therefore sends only the latest failed answer and its correction, while parse and validation failures accumulate. After a failed `__axOutput` call, the call and its `done` result stay when the rest is dropped. `stream: true` keeps every attempt, as in TypeScript, and so does `disableMemoryCleanup` / `disable_memory_cleanup`.",
+			"`functionCallValidation` / `function_call_validation` defaults to `fail`: malformed model calls fail before any tool runs, including calls merged from a stream. A call needs a nonempty string id, type `function`, a function object with a nonempty name, and optional string or object parameters. Explicit `correct` keeps the pre-25 correction and permissive execution behavior. Unknown modes fail validation.",
+			"",
 			skillErrorsText(target),
+			"",
+			"`includeOptionalInputFieldsInSystemPrompt` / `include_optional_input_fields_in_system_prompt` (off by default), set on the constructor or the forward (the forward's wins), lists every input field in the system prompt, provided or not, as in TypeScript; the user message still leaves out an unset optional field. The agent's actor stages turn it on, as TypeScript's do.",
 			"",
 			"`strictMode` / `strict_mode`, set on the constructor or the forward (the forward's wins), requires the answer to open with its first required field's label, as in TypeScript: an unlabeled answer, or one JSON object, is retried with a correction instead of being read as a single-field answer.",
 			"",
 			skillDateFieldsText(target),
 			"",
 			"`functionCall` / `function_call` sets the tool choice: `auto`, `none`, `required`, or `{ type: 'function', function: { name } }` to force one function. A forced call (`required` or named) applies to the first step only, as in TypeScript: later steps drop it together with the tools so the model can answer. Under the `function` structured-output rung the forced step withholds `__axOutput`, so the forcing reaches a user tool, and the next step forces `__axOutput`. A tool choice passed as `functionCallMode` is routed the same way.",
+			"",
+			skillFunctionResultFormatterText(target),
 			"",
 			"## Multi-Sampling",
 			"",
@@ -410,6 +425,15 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- A run with a runtime runs the RLM stages, as TypeScript's agent always does with its default JavaScript runtime: the distiller and the executor write code in the runtime's language and run it in the runtime.",
 			"- A run without one runs the ports' runtime-less stages, which answer with a completion payload instead of code; TypeScript has no such mode.",
 			"- Each run picks its stages from its own runtime, so one agent can alternate. Both stage sets are kept, and each keeps the standing instruction, actor addenda and optimized components; `set_signature` rebuilds them.",
+			"",
+			"## Flat Function Namespaces",
+			"",
+			"- A flat function (one in the agent's `functions` outside a module) that names its own namespace is called `<namespace>.<name>`, as in TypeScript; one without a namespace is `tools.<name>` (TypeScript's is `utils.<name>`). A namespace that shadows a runtime global such as `inputs` or `final` raises TypeScript's error.",
+			"- `flatFunctionNamespace` / `flat_function_namespace` on the agent: `'own'`, the default since 25.0.0, is the above; `'tools'` calls every flat function `tools.<name>`, as the ports did before 25.0.0.",
+			"- A flat function without its own namespace uses `utils`, matching TypeScript. Explicit `'tools'` mode retains the legacy namespace.",
+			"- `clarificationShape` / `clarification_shape` defaults to `'structured'`: clarifications carry `{question, ...}`. Explicit `'raw'` retains the original payload. `inputValidation` / `input_validation` defaults to `'fail'`: missing required context fails before any request; explicit `'lenient'` retains the old behavior.",
+			"- Task evaluation returns an error prediction for a thrown run in every language. Playbook evolve records keep the error without an extra error prediction, and evaluation does not trigger run-end learning.",
+			"- "+skillAgentFlatNamespaceText(target),
 			"",
 			"## Streaming An Agent Run",
 			"",
@@ -437,6 +461,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- `onSkillsSearch` / `onMemoriesSearch` take precedence over static catalogs. Without a host callback, `skillsCatalog` / `memoriesCatalog` use the built-in deterministic lexical ranker.",
 			"- `onLoadedMemories` / `onLoadedSkills` observe runtime recall and discovery, not constructor presets. `onUsedMemories` / `onUsedSkills` emit one consolidated notification per forward. Forward observers override constructor observers, and observer errors are ignored.",
 			"- `relevanceRanking` produces advisory skill and memory hints using the same tokenization, weighting, tie suppression, limits, snippets, and already-loaded exclusion as TypeScript.",
+			"- `contextMap` is TypeScript's context map: the distiller reads its text (TypeScript's section template when it has none), and after each completed run the context-map Distiller and Cartographer programs update it in place. Since 25.0.0 the text and item ids follow TypeScript's format (`[rr-00002]`, a blank line before each section, a trailing newline); a map saved by a 24.x port loads with its items and is normalized by its next update.",
 			"- `"+legacyGet+"` and `"+legacySet+"` preserve the legacy bare-runtime snapshot shape. Use `"+exportState+"` and `"+restoreState+"` for the complete portable agent snapshot, including loaded skills and constructor-preset reapplication. Do not interchange the two shapes.",
 			"",
 			"## Runnable Examples",
@@ -553,6 +578,23 @@ func skillAgentRuntimeText(target string) string {
 		return "Attach the code runtime to the agent with `with_runtime(Box::new(runtime))`; Rust takes no runtime on the forward call."
 	default:
 		return "Give the agent a code runtime on the constructor or on a forward call."
+	}
+}
+
+func skillAgentFlatNamespaceText(target string) string {
+	switch target {
+	case "python":
+		return "A function names its namespace with `fn(name).namespace(\"crm\")`, or a function spec with a `\"namespace\"` key."
+	case "go":
+		return "A function names its namespace with `ax.Fn(name).WithNamespace(\"crm\")`, or a function spec with a `\"namespace\"` key."
+	case "java":
+		return "A function names its namespace with `Ax.fn(name).namespace(\"crm\")` (or `tool.namespace(\"crm\")` on a built `Tool`), or a function spec with a `\"namespace\"` key."
+	case "rust":
+		return "Host `Tool`s go under a namespace with `with_tool_module(\"crm\", tools)`, which needs no option; `'own'` reads a function spec's `\"namespace\"` key."
+	case "cpp":
+		return "Host `Tool`s go under a namespace with `add_tool_module(\"crm\", tools)`, which needs no option; `'own'` reads a function spec's `\"namespace\"` key."
+	default:
+		return "A function spec names its namespace with a `\"namespace\"` key."
 	}
 }
 
@@ -731,6 +773,34 @@ func skillAudioOutputText(target string) string {
 		option = "`render_audio` (or `renderAudio`)"
 	}
 	return option + ", a constructor or forward option (the forward's wins), renders `audio` output fields as TypeScript does: each audio output that holds text goes through the client's speak(), and the field becomes the speak() result, with the text as its `transcript` unless speak() gave one. The speak request is the forward options' `speech.speak` defaults, then `speech.fields.<field>`, then the text. It renders where TypeScript does: a forward's answer (streamed or not; with a result picker, only the picked sample), a cache hit, and a streaming forward's result when a result picker picks it, which then goes out as its one delta. Deltas that stream without a result picker stay text. The trace and the cache hold the rendered output, a rendered artifact passes through a cache hit untouched, and an error from speak() surfaces as it is, without a retry. Without the option an audio output keeps the model's text, as before, and the first such output logs a deprecation warning once per process; `false` keeps the text without the warning. Rendering becomes the default in the next major version."
+}
+
+func skillFunctionResultFormatterText(target string) string {
+	shared := "Each tool result goes back to the model as TypeScript's default `functionResultFormatter` writes it: a string as it is, a missing result as `done`, and any other value as `JSON.stringify(result, null, 2)`, pretty JSON in the value's own key order. "
+	var surface string
+	switch target {
+	case "python":
+		surface = "Your own formatter, a callable from the result to its text, goes in `ax(..., function_result_formatter=fn)`, `gen.set_function_result_formatter(fn)`, or the constructor or forward option `function_result_formatter` (or `functionResultFormatter`); the process-wide one, TypeScript's `axGlobals.functionResultFormatter`, is set with `axllm.set_function_result_formatter(fn)`, and `None` restores the default. A formatter that raises fails the forward"
+	case "go":
+		surface = "Your own formatter, an `AxFunctionResultFormatter` (`func(result Value) (string, error)`), goes in `gen.SetFunctionResultFormatter(fn)` or the `NewAx` or forward option `functionResultFormatter` (or `function_result_formatter`; a `func(Value) string` works there too); the process-wide one, TypeScript's `axGlobals.functionResultFormatter`, is set with `SetGlobalFunctionResultFormatter(fn)`, and `nil` restores the default. A formatter that returns an error fails the forward"
+	case "java":
+		surface = "Your own formatter, an `AxGen.FunctionResultFormatter` (`String format(Object result)`), goes in `gen.setFunctionResultFormatter(fn)` or the constructor or forward option `functionResultFormatter` (or `function_result_formatter`); the process-wide one, TypeScript's `axGlobals.functionResultFormatter`, is set with `AxGlobals.setFunctionResultFormatter(fn)`, and `null` restores the default. A formatter that throws fails the forward"
+	case "cpp":
+		surface = "Your own formatter, an `AxFunctionResultFormatter` (`std::function<std::string(const Value& result)>`), goes in `gen.set_function_result_formatter(fn)`; for one call, make a handle with `auto formatter = axllm::function_result_formatter(fn);` and pass `{\"functionResultFormatter\", formatter.value()}` in the `forward` or `streaming_forward` options, keeping the handle alive for the call; the process-wide one, TypeScript's `axGlobals.functionResultFormatter`, is set with `axllm::set_function_result_formatter(fn)`, and an empty function restores the default. A formatter that throws fails the forward"
+	case "rust":
+		surface = "Your own formatter, a closure from `&Value` to `AxResult<String>` (`AxFunctionResultFormatter`), goes in `with_function_result_formatter(f)`; for one call, use `forward_with_function_result_formatter(client, input, options, f)` or `streaming_forward_with_function_result_formatter(client, input, options, f, on_delta)`, which the forwards that call starts don't inherit; the process-wide one, TypeScript's `axGlobals.functionResultFormatter`, is set with `set_function_result_formatter(Some(f))`, and `None` restores the default. A formatter that returns an error fails the forward"
+	default:
+		return shared + "A custom formatter is not available in this language yet."
+	}
+	return shared + surface + " (`Generate failed: ...`) without a retry, as a TypeScript formatter that throws does: the call is traced as an error, and nothing reaches the model or the memory. A formatter writes every tool result instead of the default, as TypeScript's `functionResultFormatter` option does: the call's formatter comes first, then the program's, then the process-wide one, and an empty text goes as `done`. " + skillFunctionResultMemoryText(target)
+}
+
+func skillFunctionResultMemoryText(target string) string {
+	entry := "`result` and its `result_text` alias both hold the text the model got, including an error result for a failed tool"
+	if target == "go" {
+		entry = "results are `[call, result, ok, result_text]`: `result` and `result_text` both hold the text the model got"
+	}
+	return "In a memory item for a tool result, " + entry + ". This matches TypeScript's `result`. The function-call traces keep the raw result, as in TypeScript."
 }
 
 func skillResultPickerSurface(target string) string {

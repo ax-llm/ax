@@ -183,6 +183,32 @@ func snapshotGlobalCachingFunction() AxCachingFunction {
 	return fn
 }
 
+var functionResultFormatterState struct {
+	sync.RWMutex
+	fn AxFunctionResultFormatter
+}
+
+// SetGlobalFunctionResultFormatter sets the process-wide tool result
+// formatter, as TypeScript's axGlobals.functionResultFormatter: AxGen uses it
+// when neither the forward call nor the program sets
+// "functionResultFormatter". nil restores the default.
+func SetGlobalFunctionResultFormatter(fn AxFunctionResultFormatter) {
+	functionResultFormatterState.Lock()
+	functionResultFormatterState.fn = fn
+	functionResultFormatterState.Unlock()
+}
+
+// _core_axgen_function_result_formatter is the process-wide formatter, or nil.
+func _core_axgen_function_result_formatter() Value {
+	functionResultFormatterState.RLock()
+	fn := functionResultFormatterState.fn
+	functionResultFormatterState.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn
+}
+
 type runtimeHookFrame struct {
 	hooks   AxRuntimeHooks
 	globals AxRuntimeHooks
@@ -371,6 +397,12 @@ func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attrib
 }
 
 func beginRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHooks, spanName, metricPrefix string, attributes map[string]Value) (context.Context, AxRuntimeHooks, func(error)) {
+	return beginLabeledRuntimeScope(ctx, callHooks, programHooks, spanName, metricPrefix, attributes, nil)
+}
+
+// beginLabeledRuntimeScope is beginRuntimeScope whose metrics also carry
+// metricLabels (TS's custom labels), which the span does not.
+func beginLabeledRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHooks, spanName, metricPrefix string, attributes, metricLabels map[string]Value) (context.Context, AxRuntimeHooks, func(error)) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -391,12 +423,19 @@ func beginRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHoo
 	}
 	ctx = context.WithValue(ctx, runtimeHookContextKey{}, &runtimeHookFrame{hooks: hooks, globals: globals, span: span})
 	started := time.Now()
-	recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_requests_total", 1, attributes)
+	metricAttributes := attributes
+	if len(metricLabels) > 0 {
+		metricAttributes = cloneMap(attributes)
+		for _, key := range orderedKeys(metricLabels) {
+			metricAttributes[key] = metricLabels[key]
+		}
+	}
+	recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_requests_total", 1, metricAttributes)
 	return ctx, effective, func(err error) {
 		if err != nil {
-			recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, attributes)
+			recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, metricAttributes)
 		}
-		recordRuntimeMetric(effective.Meter, "histogram", metricPrefix+"_duration_ms", float64(time.Since(started).Microseconds())/1000, attributes)
+		recordRuntimeMetric(effective.Meter, "histogram", metricPrefix+"_duration_ms", float64(time.Since(started).Microseconds())/1000, metricAttributes)
 		if span != parentSpan {
 			finishRuntimeSpan(span, err)
 		}
@@ -2260,14 +2299,54 @@ func _core_json_parse_strict(value Value) (Value, error) {
 // TS JSON.stringify(value): keys in insertion order, null as null.
 func _core_json_stringify(value Value) Value        { return orderedStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
-func _core_tool_invoke(fn Value, params Value) (Value, error) {
+// _core_tool_invoke runs a tool; extras (TS's sessionId, executionPath and
+// eventContext, see tool_call_extras) reach a ContextHandler through its ctx.
+func _core_tool_invoke(fn Value, params Value, extras ...Value) (Value, error) {
+	ctx := context.Background()
+	if len(extras) > 0 {
+		ctx = withToolExtras(ctx, extras[0])
+	}
 	if t, ok := fn.(Tool); ok {
-		return t.invoke(asMap(params))
+		return t.invokeContext(ctx, asMap(params))
 	}
 	if t, ok := fn.(*Tool); ok {
-		return t.invoke(asMap(params))
+		return t.invokeContext(ctx, asMap(params))
 	}
 	return nil, AxError{Category: "runtime", Message: "unknown tool"}
+}
+
+// AxToolExtras are what TypeScript gives a tool besides its arguments: the
+// run's sessionId and eventContext when set, and under a run control its
+// executionPath (<the run's path>/<the tool's name>).
+type AxToolExtras struct {
+	SessionID     string
+	ExecutionPath string
+	EventContext  Value
+}
+
+type toolExtrasContextKey struct{}
+
+// AxToolExtrasFromContext returns the extras of the tool call that a
+// ContextHandler's ctx belongs to; outside one, the zero value.
+func AxToolExtrasFromContext(ctx context.Context) AxToolExtras {
+	if ctx == nil {
+		return AxToolExtras{}
+	}
+	extras, _ := ctx.Value(toolExtrasContextKey{}).(AxToolExtras)
+	return extras
+}
+
+// withToolExtras puts a tool call's extras, a tool_call_extras map, on ctx.
+func withToolExtras(ctx context.Context, raw Value) context.Context {
+	values := asMap(raw)
+	extras := AxToolExtras{EventContext: coreGet(values, "eventContext", nil)}
+	if session := coreGet(values, "sessionId", nil); session != nil {
+		extras.SessionID = display(session)
+	}
+	if path := coreGet(values, "executionPath", nil); path != nil {
+		extras.ExecutionPath = display(path)
+	}
+	return context.WithValue(ctx, toolExtrasContextKey{}, extras)
 }
 func _core_ai_error_response(message Value, rest ...Value) Value {
 	return aiError("AxAIServiceResponseError", message, rest...)
@@ -3261,6 +3340,9 @@ type Tool struct {
     Parameters Value
     ExecutionMode string
 	Name        string
+	// Namespace files a flat agent function under it (TS fn().namespace());
+	// empty means the agent's default "tools".
+	Namespace   string
 	Description string
 	Args        map[string]Field
 	Returns     map[string]Field
@@ -3275,6 +3357,12 @@ func (t Tool) Execution(mode string) Tool {
     if mode != "blocking" && mode != "background" { panic("Tool execution must be blocking or background") }
     t.ExecutionMode = mode
     return t
+}
+// WithNamespace sets the namespace an agent lists and calls a flat function
+// under, as TS fn().namespace() does.
+func (t Tool) WithNamespace(namespace string) Tool {
+	t.Namespace = namespace
+	return t
 }
 func (t Tool) WithHandler(handler func(map[string]Value) (Value, error)) Tool {
 	t.Handler = handler
@@ -3356,6 +3444,11 @@ func (t Tool) get(key string, fallback Value) Value {
         if t.ExecutionMode == "" { return "blocking" }; return t.ExecutionMode
 	case "name":
 		return t.Name
+	case "namespace":
+		if t.Namespace == "" {
+			return fallback
+		}
+		return t.Namespace
 	case "description":
 		return t.Description
 	case "args":
@@ -3561,6 +3654,9 @@ type Transport interface {
 type AxHTTPStreamResponse struct {
 	Status int
 	Body   io.ReadCloser
+	// Headers holds response headers the client reads, such as Retry-After on
+	// a status response. It may be nil.
+	Headers map[string]string
 }
 
 type StreamingTransport interface {
@@ -3585,6 +3681,11 @@ func (t *ScriptedTransport) Call(ctx context.Context, request Value) (Value, err
 	}
 	out := t.Responses[0]
 	t.Responses = t.Responses[1:]
+	// {"network_error": message} stands for a request that failed to connect,
+	// send or read, as the HTTP client reports it.
+	if message := coreGet(out, "network_error", nil); message != nil {
+		return nil, errors.New(display(message))
+	}
 	return out, nil
 }
 
@@ -3779,6 +3880,130 @@ func chatTransportError(ctx context.Context, err error, call Value, options map[
 	return ended
 }
 
+// Conformance hooks for the request-layer retry: a sleep that records the
+// delay instead of waiting, and fixed random and clock sources.
+var (
+	requestRetrySleepHook  func(ms float64)
+	requestRetryRandomHook func() float64
+	requestRetryNowHook    func() float64
+)
+
+// requestRetryFailure is TS apiCall's view of a failed request: its HTTP
+// status (with its Retry-After) or a network failure. Anything else is nil and
+// is not retried.
+func requestRetryFailure(err error, retryAfter string) Value {
+	typed, ok := AsAxError(err)
+	if !ok || typed.Type == "AxAIServiceAuthenticationError" || typed.Type == "AxAIServiceAbortedError" {
+		return nil
+	}
+	if typed.Status > 0 {
+		failure := Object("status", float64(typed.Status))
+		if retryAfter != "" {
+			coreSet(failure, "retry_after", retryAfter)
+		}
+		return failure
+	}
+	if typed.Type == "AxAIServiceNetworkError" {
+		return Object("network", true)
+	}
+	return nil
+}
+
+// retryWait is requestRetryWait for the Typesafe client.
+func (c *OpenAICompatibleClient) retryWait(ctx context.Context, config Value, attempt int, err error, retryAfter string) (bool, error) {
+	return requestRetryWait(ctx, config, attempt, err, retryAfter)
+}
+
+// requestRetryWait waits before the failed request goes out again, as TS
+// apiCall does, and reports whether it does.
+func requestRetryWait(ctx context.Context, config Value, attempt int, err error, retryAfter string) (bool, error) {
+	failure := requestRetryFailure(err, retryAfter)
+	if failure == nil {
+		return false, nil
+	}
+	now := float64(time.Now().UnixMilli())
+	if requestRetryNowHook != nil {
+		now = requestRetryNowHook()
+	}
+	random := rand.Float64()
+	if requestRetryRandomHook != nil {
+		random = requestRetryRandomHook()
+	}
+	delay := mustCore(request_retry_delay(config, float64(attempt), failure, now, random))
+	if delay == nil {
+		return false, nil
+	}
+	return true, requestRetrySleep(ctx, num(delay))
+}
+
+func requestRetrySleep(ctx context.Context, ms float64) error {
+	if requestRetrySleepHook != nil {
+		if err := contextCancellationError(ctx); err != nil {
+			return err
+		}
+		requestRetrySleepHook(ms)
+		return nil
+	}
+	return waitStreamRetry(ctx, ms)
+}
+
+// transportRetryAfter is a transport result's Retry-After header.
+func transportRetryAfter(raw Value) string {
+	headers := asMap(coreGet(raw, "headers", Object()))
+	for _, key := range orderedKeys(headers) {
+		if strings.EqualFold(key, "Retry-After") {
+			return display(headers[key])
+		}
+	}
+	return ""
+}
+
+// transportCallOnce sends one request and returns the provider's body, or the
+// error and the status response's Retry-After.
+func (c *OpenAICompatibleClient) transportCallOnce(ctx context.Context, call Value, options map[string]Value) (Value, string, error) {
+	verbose := verboseEnabled(options)
+	if verbose { logVerboseRequest(call) }
+	raw, err := c.Transport.Call(ctx, call)
+	if err != nil {
+		return nil, "", chatTransportError(ctx, err, call, options)
+	}
+	body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
+	if statusErr != nil {
+		return nil, transportRetryAfter(raw), statusErr
+	}
+	if verbose { verboseLog(display(mustCore(ai_verbose_response_log(transportStatus(raw), body)))) }
+	return body, "", nil
+}
+
+// retriedTransportCall is TS apiCall's request-layer retry around one
+// request: a listed status or a network failure goes out again after its
+// jittered backoff (or its Retry-After), under the call's retry options, else
+// the client's. Each retry rebuilds the request, as apiCall resolves its
+// headers again; a nil rebuild sends the same request.
+func (c *OpenAICompatibleClient) retriedTransportCall(ctx context.Context, first Value, rebuild func() Value, options map[string]Value) (Value, error) {
+	config := mustCore(resolve_stream_retry(Value(options)))
+	call := first
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 && rebuild != nil {
+			call = rebuild()
+		}
+		body, retryAfter, err := c.transportCallOnce(ctx, call, options)
+		if err == nil {
+			return body, nil
+		}
+		if ctx.Err() != nil {
+			return nil, normalizeContextError(ctx, err)
+		}
+		retry, waitErr := requestRetryWait(ctx, config, attempt, err, retryAfter)
+		if waitErr != nil {
+			return nil, waitErr
+		}
+		if !retry {
+			return nil, err
+		}
+	}
+}
+
 // warnCallTimeout: TS reads a per-call timeout in milliseconds; this port
 // ignores it until the next major version and warns once, naming timeoutMs.
 func warnCallTimeout(options map[string]Value) {
@@ -3827,6 +4052,9 @@ func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 		return nil, normalizeContextError(ctx, err)
 	}
 	out := Object("status", float64(resp.StatusCode))
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" && resp.StatusCode >= 400 {
+		coreSet(out, "headers", Object("Retry-After", retryAfter))
+	}
 	if coreTruthy(coreGet(req, "binaryResponse", false)) {
 		// Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not
 		// be UTF-8 decoded: the bytes go on as base64 with their Content-Type,
@@ -3880,10 +4108,14 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 		}
 		return AxHTTPStreamResponse{}, normalizeContextError(ctx, err)
 	}
-	if timer == nil {
-		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body}, nil
+	var headers map[string]string
+	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+		headers = map[string]string{"Retry-After": retryAfter}
 	}
-	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}}, nil
+	if timer == nil {
+		return AxHTTPStreamResponse{Status: resp.StatusCode, Body: resp.Body, Headers: headers}, nil
+	}
+	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}, Headers: headers}, nil
 }
 
 // TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
@@ -3948,29 +4180,46 @@ func (c *AxAITypesafeClient) ListModels(ctx context.Context, options map[string]
 }
 func (c *AxAITypesafeClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
     opts := mergeAIOptions(c.client.optionsSnapshot(), options)
-    parent := ctx
     timeout := num(coreGet(opts, "timeout", 0))
-    if timeout > 0 { var cancel context.CancelFunc; ctx,cancel=context.WithTimeout(ctx,time.Duration(timeout*float64(time.Second)));defer cancel() }
-    retries,initial,maxDelay,factor := streamRetryParams(opts)
-    for attempt:=0;;attempt++ {
-        if err:=ctx.Err();err!=nil{return nil,normalizeContextError(ctx,err)}
-        result,err:=safeValue(func() Value {
-            call:=c.client.requestJSON(ctx,operation,Object(),false,opts,payload)
-            raw,err:=c.client.Transport.Call(ctx,call)
-            if err!=nil {
-                // The client's own timeout, not the caller's deadline, ended it.
-                if timeout > 0 && parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-                    panic(clientTimeoutError(timeout, err, call, opts))
-                }
-                panic(chatTransportError(ctx, err, call, opts))
-            }
-            return normalizeTransportPayload(raw, call, opts)
-        })
-        if err==nil{return result,nil}
-        // As in TS apiCall, a timeout is not retried here.
-        if !IsRetryable(err)||isTransportTimeout(err)||attempt>=retries{return nil,normalizeContextError(ctx,err)}
-        if err=waitStreamRetry(ctx,math.Min(initial*math.Pow(factor,float64(attempt)),maxDelay));err!=nil{return nil,err}
+    config := mustCore(resolve_stream_retry(Value(opts)))
+    for attempt := 0; ; attempt++ {
+        if err := ctx.Err(); err != nil { return nil, normalizeContextError(ctx, err) }
+        result, retryAfter, err := c.requestOnce(ctx, operation, payload, opts, timeout)
+        if err == nil { return result, nil }
+        if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+        // TS apiCall's request-layer retry: a listed status or a network
+        // failure, never a timeout the request ran out of.
+        retry, waitErr := c.client.retryWait(ctx, config, attempt, err, retryAfter)
+        if waitErr != nil { return nil, waitErr }
+        if !retry { return nil, err }
     }
+}
+
+// requestOnce sends one request under the client's timeout (seconds), which
+// TS arms for each attempt, and returns the body, or the error and the status
+// response's Retry-After.
+func (c *AxAITypesafeClient) requestOnce(ctx context.Context, operation string, payload map[string]Value, opts map[string]Value, timeout float64) (Value, string, error) {
+    attemptCtx := ctx
+    if timeout > 0 {
+        var cancel context.CancelFunc
+        attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeout*float64(time.Second)))
+        defer cancel()
+    }
+    var call Value
+    if _, buildErr := safeValue(func() Value { call = c.client.requestJSON(attemptCtx, operation, Object(), false, opts, payload); return nil }); buildErr != nil {
+        return nil, "", buildErr
+    }
+    raw, err := c.client.Transport.Call(attemptCtx, call)
+    if err != nil {
+        // The client's own timeout, not the caller's deadline, ended it.
+        if timeout > 0 && ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+            return nil, "", clientTimeoutError(timeout, err, call, opts)
+        }
+        return nil, "", chatTransportError(ctx, err, call, opts)
+    }
+    body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, opts) })
+    if statusErr != nil { return nil, transportRetryAfter(raw), statusErr }
+    return body, "", nil
 }
 
 type OpenAICompatibleClient struct {
@@ -4200,15 +4449,53 @@ func invokeRuntimeLimiter(limiter AxRateLimiter, next AxRequestExecutor, info Ax
 	return limiter.Run(next, info)
 }
 
-func beginAIOperation(ctx context.Context, hooks AxRuntimeHooks, operation, ai, model string, streaming bool) (map[string]Value, AxSpan, time.Time) {
+// beginAIOperation starts an AI operation's span and counts the request.
+// The metrics carry TS's custom labels, the service's then the call's
+// (ai_custom_labels): whole on the request counter, cut to 100 characters on
+// the duration and errors, which use the attributes it returns.
+func beginAIOperation(ctx context.Context, hooks AxRuntimeHooks, operation, ai, model string, streaming bool, serviceOptions, callOptions map[string]Value) (map[string]Value, AxSpan, time.Time) {
 	attributes := Object("ax.operation", operation, "ax.ai", ai, "ax.model", model, "ax.streaming", streaming)
 	var parent AxSpan
 	if frame := runtimeFrameFromContext(ctx); frame != nil {
 		parent = frame.span
 	}
 	span := startRuntimeSpan(hooks, parent, "ax_llm_"+operation, "client", attributes)
-	recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_requests_total", 1, attributes)
-	return attributes, span, time.Now()
+	recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_requests_total", 1, withCustomLabels(attributes, serviceOptions, callOptions, false))
+	return withCustomLabels(attributes, serviceOptions, callOptions, true), span, time.Now()
+}
+
+// withCustomLabels returns a copy of attributes with TS's custom labels for
+// a metric: the service's customLabels, then the call's, cut to 100
+// characters when sanitize is set.
+func withCustomLabels(attributes, serviceOptions, callOptions map[string]Value, sanitize bool) map[string]Value {
+	labels, err := ai_custom_labels(Value(serviceOptions), Value(callOptions), sanitize)
+	out := cloneMap(attributes)
+	if err != nil {
+		return out
+	}
+	for _, key := range orderedKeys(asMap(labels)) {
+		out[key] = asMap(labels)[key]
+	}
+	return out
+}
+
+// genMetricLabels are an AxGen run's custom labels, as TS's
+// getMergedCustomLabels: the AI service's, then the AxGen constructor's with
+// the call's over them, each value cut to 100 characters.
+func genMetricLabels(client AIClient, genOptions, callOptions map[string]Value) map[string]Value {
+	runLabels, err := ai_custom_labels(Value(genOptions), Value(callOptions), false)
+	if err != nil {
+		return Object()
+	}
+	var serviceOptions map[string]Value
+	if service, ok := client.(interface{ optionsSnapshot() map[string]Value }); ok {
+		serviceOptions = service.optionsSnapshot()
+	}
+	labels, err := ai_custom_labels(Value(serviceOptions), Value(Object("customLabels", runLabels)), true)
+	if err != nil {
+		return Object()
+	}
+	return asMap(labels)
 }
 
 func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span AxSpan, started time.Time, err error) {
@@ -4246,7 +4533,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		return nil, err
 	}
 	streaming := coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", coreGet(mergedOptions, "stream", false)))
-	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming)
+	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming, clientOptions, options)
 	next := func() (Value, error) {
 		return safeValue(func() Value {
 			req := c.prepareChatRequest(request, mergedOptions)
@@ -4266,11 +4553,10 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
                 return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 			}
-			raw, err := c.Transport.Call(ctx, transportReq)
+			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "chat", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
-				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
+				panic(err)
 			}
-			body := normalizeTransportPayload(raw, transportReq, mergedOptions)
             return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
 		})
 	}
@@ -4317,12 +4603,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	payload := cloneMap(asMap(coreGet(fullCall, "json", Object())))
 	explicit := display(coreGet(cfg, "name", coreGet(cfg, "cacheName", coreGet(cfg, "cache_name", ""))))
 	tryCall := func(call Value) (Value, error) {
-		raw, err := c.Transport.Call(ctx, call)
-		if err != nil {
-			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, transportCallError(err, call, options)
-		}
-		return safeValue(func() Value { return normalizeTransportPayload(raw, call, options) })
+		return c.retriedTransportCall(ctx, call, nil, options)
 	}
 	if explicit != "" {
 		coreSet(payload, "cachedContent", explicit)
@@ -4511,7 +4792,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
 	modelName := display(coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(c.optionsSnapshot(), "embed_model", ""))))
-	attributes, span, started := beginAIOperation(ctx, hooks, "embed", c.Name, modelName, false)
+	attributes, span, started := beginAIOperation(ctx, hooks, "embed", c.Name, modelName, false, c.optionsSnapshot(), options)
 	next := func() (Value, error) {
 		return safeValue(func() Value {
 			req := cloneMap(request)
@@ -4522,11 +4803,11 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
 			c.setLastEmbed(model)
 			transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
-			raw, err := c.Transport.Call(ctx, transportReq)
+			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "embed", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
-				panic(chatTransportError(ctx, err, transportReq, mergedOptions))
+				panic(err)
 			}
-			return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw, transportReq, mergedOptions), c.Name, model))
+			return mustCore(provider_normalize_embed_response(c.Profile, body, c.Name, model))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
@@ -4570,20 +4851,39 @@ func waitStreamRetry(ctx context.Context, delay float64) error {
 }
 
 func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, error) {
+	stream, _, err := c.openProviderStreamOnce(ctx, request, errorOptions)
+	return stream, err
+}
+
+// openProviderStreamOnce opens the stream once, and on a status response also
+// returns its Retry-After.
+func (c *OpenAICompatibleClient) openProviderStreamOnce(ctx context.Context, request Value, errorOptions map[string]Value) (rawProviderStream, string, error) {
+	// As TS's apiCall, a verbose call logs the request and that its stream
+	// started.
+	verbose := verboseEnabled(errorOptions)
+	if verbose {
+		logVerboseRequest(request)
+	}
 	if transport, ok := c.Transport.(StreamingTransport); ok {
 		response, err := transport.Stream(ctx, request)
 		if err != nil {
-			if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-			return nil, transportCallError(err, request, errorOptions)
+			if ctx.Err() != nil { return nil, "", normalizeContextError(ctx, err) }
+			return nil, "", transportCallError(err, request, errorOptions)
 		}
 		if response.Body == nil {
-			return nil, AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
+			return nil, "", AxError{Category: "network", Type: "AxAIServiceNetworkError", Message: "streaming transport returned no response body", Retryable: true}
 		}
 		if response.Status >= 400 {
+			retryAfter := ""
+			for key, value := range response.Headers {
+				if strings.EqualFold(key, "Retry-After") {
+					retryAfter = value
+				}
+			}
 			data, readErr := io.ReadAll(response.Body)
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, providerNetworkError(readErr, request, errorOptions)
+				return nil, "", providerNetworkError(readErr, request, errorOptions)
 			}
 			// A JSON error body is parsed so the error carries the provider's
 			// message, as the chat path's does; anything else stays text.
@@ -4595,27 +4895,31 @@ func (c *OpenAICompatibleClient) openProviderStream(ctx context.Context, request
 				return normalizeTransportPayload(Object("status", float64(response.Status), "json", body), request, errorOptions)
 			})
 			if normalizedErr != nil {
-				return nil, normalizedErr
+				return nil, retryAfter, normalizedErr
 			}
-			return nil, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
+			return nil, retryAfter, AxError{Category: "response", Type: "AxAIServiceStatusError", Message: fmt.Sprintf("stream request failed with status %d", response.Status), Status: response.Status}
 		}
-		return newSSEJSONStream(response.Body, response.Body), nil
+		if verbose {
+			verboseLog(display(mustCore(ai_verbose_stream_log(float64(response.Status)))))
+		}
+		return newSSEJSONStream(response.Body, response.Body), "", nil
 	}
 
 	raw, err := c.Transport.Call(ctx, request)
 	if err != nil {
-		if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
-		return nil, transportCallError(err, request, errorOptions)
+		if ctx.Err() != nil { return nil, "", normalizeContextError(ctx, err) }
+		return nil, "", transportCallError(err, request, errorOptions)
 	}
 	body, normalizedErr := safeValue(func() Value { return normalizeTransportPayload(raw, request, errorOptions) })
 	if normalizedErr != nil {
-		return nil, normalizedErr
+		return nil, transportRetryAfter(raw), normalizedErr
 	}
+	if verbose { verboseLog(display(mustCore(ai_verbose_stream_log(transportStatus(raw))))) }
 	switch body.(type) {
 	case []any, *AxArray:
-		return &sliceProviderStream{values: asSlice(body)}, nil
+		return &sliceProviderStream{values: asSlice(body)}, "", nil
 	default:
-		return newSSEJSONStream(strings.NewReader(display(body)), nil), nil
+		return newSSEJSONStream(strings.NewReader(display(body)), nil), "", nil
 	}
 }
 
@@ -4664,7 +4968,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 	hooks = effectiveRuntimeHooks(ctx, options, hooks)
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
 	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
-	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true)
+	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true, c.optionsSnapshot(), options)
 	open := func() (Value, error) {
 		return safeValue(func() Value {
 			req := c.prepareChatRequest(request, Object("stream", true))
@@ -4673,35 +4977,38 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 			model := coreGet(req, "model", coreGet(opts, "model", nil))
 			config := coreGet(req, "model_config", Object())
 			c.setLastChat(model, config)
+			retryConfig := mustCore(resolve_stream_retry(Value(mergedOptions)))
 			maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
-			attempt := 0
+			startAttempt := 0
 			for {
-				transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
-				raw, err := c.openProviderStream(ctx, transportReq, mergedOptions)
-				if err != nil {
-					// As in TS apiCall, a timeout is not retried here.
-					if IsRetryable(err) && !isTransportTimeout(err) && attempt < maxRetries {
-						attempt++
-						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
-							panic(waitErr)
-						}
-						continue
+				// The stream's request goes through apiCall's request-layer
+				// retry; its first event is read once, as TS reads it after
+				// apiCall returns, and a failure to read it surfaces.
+				var raw rawProviderStream
+				var transportReq Value
+				for openAttempt := 0; ; openAttempt++ {
+					transportReq = c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
+					opened, retryAfter, err := c.openProviderStreamOnce(ctx, transportReq, mergedOptions)
+					if err == nil {
+						raw = opened
+						break
 					}
-					panic(err)
+					if ctx.Err() != nil {
+						panic(normalizeContextError(ctx, err))
+					}
+					retry, waitErr := requestRetryWait(ctx, retryConfig, openAttempt, err, retryAfter)
+					if waitErr != nil {
+						panic(waitErr)
+					}
+					if !retry {
+						panic(err)
+					}
 				}
 				firstRaw, firstErr := raw.Next()
 				if firstErr != nil && !errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
 					if ctx.Err() != nil { panic(normalizeContextError(ctx, firstErr)) }
-					wrapped := providerNetworkError(firstErr, transportReq, mergedOptions)
-					if attempt < maxRetries {
-						attempt++
-						if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
-							panic(waitErr)
-						}
-						continue
-					}
-					panic(wrapped)
+					panic(transportCallError(firstErr, transportReq, mergedOptions))
 				}
 				if errors.Is(firstErr, io.EOF) {
 					_ = raw.Close()
@@ -4714,19 +5021,22 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 					_ = raw.Close()
 					panic(classifyErr)
 				}
+				// TS retryTransientStreamStart: a first event that carries a
+				// listed status (Anthropic's overloaded_error) goes out again,
+				// with its own budget and without jitter.
 				retryableStatus := false
 				if status != nil {
-					value, statusErr := safeValue(func() Value { return mustCore(is_retryable_status(status)) })
+					value, statusErr := safeValue(func() Value { return mustCore(retry_status_listed(retryConfig, status)) })
 					if statusErr != nil {
 						_ = raw.Close()
 						panic(statusErr)
 					}
 					retryableStatus = coreTruthy(value)
 				}
-				if retryableStatus && attempt < maxRetries {
+				if retryableStatus && startAttempt < maxRetries {
 					_ = raw.Close()
-					attempt++
-					if waitErr := waitStreamRetry(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, attempt)); waitErr != nil {
+					startAttempt++
+					if waitErr := requestRetrySleep(ctx, streamBackoffDelay(initialDelay, maxDelay, backoff, startAttempt)); waitErr != nil {
 						panic(waitErr)
 					}
 					continue
@@ -4959,6 +5269,35 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 		}
 	}
 	return out
+}
+
+// verboseLogSink, when set, takes the verbose blocks that verboseLog would
+// print (the conformance runner collects them).
+var verboseLogSink func(string)
+
+// verboseLog prints a verbose block, as TS's apiCall uses console.log.
+func verboseLog(text string) {
+	if verboseLogSink != nil {
+		verboseLogSink(text)
+		return
+	}
+	fmt.Println(text)
+}
+
+// verboseEnabled reports whether a call logs its requests: the call's
+// verbose, else the client's (options are the two merged).
+func verboseEnabled(options map[string]Value) bool {
+	return coreTruthy(coreGet(options, "verbose", false))
+}
+
+// logVerboseRequest logs a transport request as TS's apiCall does.
+func logVerboseRequest(request Value) {
+	verboseLog(display(mustCore(ai_verbose_request_log(coreGet(request, "url", ""), coreGet(request, "method", "POST"), coreGet(request, "headers", Object()), coreGet(request, "json", nil)))))
+}
+
+// transportStatus is a transport response's HTTP status.
+func transportStatus(raw Value) float64 {
+	return num(coreGet(raw, "status", 200))
 }
 
 // transportContentType is the Content-Type header of a transport response, if
@@ -7128,6 +7467,26 @@ type AxResultPickerSample struct {
 
 type AxResultPicker func([]AxResultPickerSample) (int, error)
 
+// AxFunctionResultFormatter writes a tool result for the model, as TS's
+// functionResultFormatter option does. Without one, a string goes as it is,
+// nil as "done", and any other value as pretty JSON. An error fails the
+// forward ("Generate failed: ..."), as a TS formatter that throws does.
+type AxFunctionResultFormatter func(result Value) (string, error)
+
+// conformanceFunctionResultFormatter builds a fixture's formatter: {text}
+// writes that text for every tool result, and {throws} fails with that
+// message.
+func conformanceFunctionResultFormatter(spec Value) AxFunctionResultFormatter {
+	text := display(coreGet(spec, "text", ""))
+	failure := coreGet(spec, "throws", nil)
+	return func(Value) (string, error) {
+		if failure != nil {
+			return "", errors.New(display(failure))
+		}
+		return text, nil
+	}
+}
+
 func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
@@ -7169,6 +7528,13 @@ func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
 	g.Options["resultPicker"] = resultPicker
 	return g
 }
+
+// SetFunctionResultFormatter sets the program's tool result formatter; a
+// forward call's "functionResultFormatter" option wins over it.
+func (g *AxGen) SetFunctionResultFormatter(formatter AxFunctionResultFormatter) *AxGen {
+	g.Options["functionResultFormatter"] = formatter
+	return g
+}
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return g.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
 }
@@ -7184,6 +7550,27 @@ func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values ma
 // stages, optimizers) and keeps the "__order" lists that Forward removes.
 func (g *AxGen) forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	return g.forwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+
+// runCancellation returns ctx, cancelled too (with its cause) once the run's
+// "cancellation" option is done: a context.Context in the AxGen's
+// constructor options or in the call's, where the call's wins, as
+// TypeScript's abortSignal. The forward's ctx still stops the run as well.
+// stop releases the watch when the run ends.
+func (g *AxGen) runCancellation(ctx context.Context, options map[string]Value) (context.Context, func()) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, _ := coreGet(g.runOptions(options), "cancellation", nil).(context.Context)
+	if token == nil {
+		return ctx, func() {}
+	}
+	run, cancel := context.WithCancelCause(ctx)
+	release := context.AfterFunc(token, func() { cancel(context.Cause(token)) })
+	return run, func() {
+		release()
+		cancel(nil)
+	}
 }
 
 // runOptions are the constructor's options with the call's over them, as
@@ -7233,6 +7620,8 @@ func (g *AxGen) renderCachedAudio(ctx context.Context, client AIClient, cached V
 
 func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
 	options = stripRuntimeHooks(options)
+	ctx, stopCancellation := g.runCancellation(ctx, options)
+	defer stopCancellation()
 	// As in TypeScript, the cache is read before the run's span and metrics:
 	// a hit, or a read error, records neither.
 	options, cached, hit, err := g.cacheLookupFirst(values, options, false)
@@ -7243,7 +7632,7 @@ func (g *AxGen) forwardWithHooks(ctx context.Context, client AIClient, values ma
 		return g.renderCachedAudio(ctx, client, cached, options)
 	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
-	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
+	ctx, _, finish := beginLabeledRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes, genMetricLabels(client, g.Options, options))
 	defer func() { finish(err) }()
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
@@ -7550,6 +7939,8 @@ func (g *AxGen) StreamingForward(ctx context.Context, client AIClient, values ma
 // sample with its "__order" lists (for callers inside the runtime).
 func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, sink axGenDeltaSink, hooks AxRuntimeHooks) (out Value, err error) {
 	options = stripRuntimeHooks(options)
+	ctx, stopCancellation := g.runCancellation(ctx, options)
+	defer stopCancellation()
 	if sink != nil {
 		// As in TypeScript, the cache is read before the run's span and
 		// metrics and a read error is ignored: a hit is one delta and records
@@ -7570,7 +7961,7 @@ func (g *AxGen) streamingForwardWith(ctx context.Context, client AIClient, value
 		}
 	}
 	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen", "ax.streaming", true)
-	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
+	ctx, _, finish := beginLabeledRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes, genMetricLabels(client, g.Options, options))
 	defer func() { finish(err) }()
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
@@ -7773,8 +8164,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
 	actorValidationRetries := coreGet(options, "validation_retries", coreGet(options, "validationRetries", 1))
-	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
-	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "executor_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
@@ -7815,8 +8206,8 @@ func (a *AxAgent) useStageMode(options map[string]Value) error {
 	if !ok {
 		actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
 		set = agentStageSet{
-			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(record, "distiller_description", ""))),
-			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(record, "executor_description", ""))),
+			distiller: NewAx(display(coreGet(record, "distiller_signature", "")), Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(record, "distiller_description", ""))),
+			executor:  NewAx(display(coreGet(record, "executor_signature", "")), Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(record, "executor_description", ""))),
 			responder: newAgentResponder(a.State, display(coreGet(a.State, "responder_signature", a.Signature.String())), a.Options),
 		}
 		a.stageSets[mode] = set
@@ -7873,8 +8264,8 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.Signature = NewSignature(signature)
 	a.State = state
 	actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
-	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
-	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "includeOptionalInputFieldsInSystemPrompt", true, "instruction", coreGet(state, "executor_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
@@ -8276,7 +8667,10 @@ func (a *AxAgent) EvaluateOptimizationTask(client AIClient, task map[string]Valu
 	// As TS evaluates each task from a fresh state, the prediction carries
 	// only this run's share of the agent's logs.
 	marks := mustCore(_agent_eval_marks(a.State))
+	// TS's evaluation path runs no playbook run-end learning.
+	coreSet(a.State, "playbook_learning_paused", true)
 	output, err := a.forward(context.Background(), client, asMap(input), forwardOptions)
+	delete(a.State, "playbook_learning_paused")
 	completion := Object("type", "final", "output", output)
 	if err != nil {
 		if clarification, ok := agentClarificationFromError(err); ok {
@@ -8431,6 +8825,10 @@ func (a *AxAgent) attachConfiguredPlaybook() {
 
 func (a *AxAgent) learnPlaybookFailures(ctx context.Context, output Value) {
 	if a.PlaybookHandle == nil || a.PlaybookConfig == nil {
+		return
+	}
+	// An evaluated run learns nothing, as TS's evaluation path.
+	if coreTruthy(coreGet(a.State, "playbook_learning_paused", false)) {
 		return
 	}
 	config := asMap(a.PlaybookConfig)
@@ -8761,6 +9159,19 @@ func (f *AxFlow) forwardWithHooks(ctx context.Context, client AIClient, values m
 			return coreGet(lookup, "value", nil), nil
 		}
 		options["_ax_flow_cache_lookup"] = lookup
+	}
+	// As TypeScript's AxFlow.forward does, a run control hears the flow's own
+	// lifecycle at its path; each node reports at <path>/<node>.
+	if control, _ := coreGet(options, "control", nil).(*AxRunControl); control != nil {
+		runPath := display(coreGet(options, "execution_path", coreGet(options, "executionPath", "root")))
+		control.emit(Object("type", "started", "path", runPath))
+		defer func() {
+			if err != nil {
+				control.emit(Object("type", "failed", "path", runPath, "error", err.Error()))
+			} else {
+				control.emit(Object("type", "completed", "path", runPath))
+			}
+		}()
 	}
 	attributes := Object("ax.program.id", display(coreGet(f.State, "program_id", "root.flow")), "ax.program.type", "AxFlow")
 	ctx, _, finish := beginRuntimeScope(ctx, hooks, f.RuntimeHooks, "ax_gen_flow_forward", "ax_gen_flow", attributes)
@@ -9915,7 +10326,24 @@ func playbookErrorSignature(value string) string {
 	return value
 }
 
+// agentEvolvePredictionError is the message of the ports' error prediction
+// (TS's thrown run).
+func agentEvolvePredictionError(prediction Value) string {
+	errorValue := coreGet(prediction, "error", nil)
+	if errorMap, ok := errorValue.(map[string]Value); ok {
+		return display(coreGet(errorMap, "message", ""))
+	}
+	if errorValue == nil {
+		return ""
+	}
+	return display(errorValue)
+}
+
 func playbookRecordSignature(record Value) string {
+	// TS's record of a thrown run has only its error.
+	if value := coreGet(record, "error", nil); coreTruthy(value) {
+		return playbookErrorSignature(display(value))
+	}
 	prediction := coreGet(record, "prediction", Object())
 	counts := map[string]int{}
 	order := []string{}
@@ -10347,6 +10775,11 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				if evalErr != nil {
 					score = 0
 					lastError = evalErr.Error()
+				} else if display(coreGet(candidate, "completionType", "")) == "error" {
+					// TS's harness sees a thrown run: a zero score with no
+					// metric call, and its message as the error.
+					score = 0
+					lastError = agentEvolvePredictionError(candidate)
 				} else {
 					prediction = candidate
 					switch metric := coreGet(options, "metric", nil).(type) {
@@ -10382,6 +10815,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				coreSet(record, "prediction", prediction)
 			} else if lastError != "" {
 				coreSet(record, "error", lastError)
+
 			}
 			records = append(records, record)
 			if completedRuns < runsPerTask {
@@ -11001,6 +11435,17 @@ func objectCallMethod(target Value, method string, arg Value, rest ...Value) (Va
 			functions, options = promptRenderOptions(functions, options, rest[0])
 		}
 		return render_prompt(coreGet(target, "signature", nil), arg, functions, options)
+	}
+	if method == "format_result" {
+		if formatter, ok := target.(AxFunctionResultFormatter); ok {
+			return formatter(arg)
+		}
+		if formatter, ok := target.(func(Value) (string, error)); ok {
+			return formatter(arg)
+		}
+		if formatter, ok := target.(func(Value) string); ok {
+			return formatter(arg), nil
+		}
 	}
 	if method == "call" {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
@@ -11779,6 +12224,17 @@ func _core_agent_stage_forward(stage Value, client Value, values Value, options 
     if program,ok := stage.(AxExecutableProgram);ok {return program.Forward(ctx,ai,asMap(values),asMap(options))}
     return nil,fmt.Errorf("Flow program has no executable forward method")
 }
+// A one-off AxGen (the context map's distiller and cartographer), forwarded
+// like an agent stage.
+func _core_agent_program_forward(signature Value, programOptions Value, client Value, values Value, options Value) (Value, error) {
+	ai, ok := client.(AIClient)
+	if !ok {
+		return nil, fmt.Errorf("client does not implement AIClient")
+	}
+	ctx := contextForAIClient(ai, context.Background())
+	program := NewAx(fmt.Sprint(signature), asMap(programOptions))
+	return program.forward(ctx, ai, asMap(values), asMap(options))
+}
 func _core_agent_stage_chat_log(stage Value) Value { return coreGet(stage, "chat_log", Array()) }
 func _core_agent_stage_usage(stage Value) Value {
 	switch s := stage.(type) {
@@ -11962,6 +12418,25 @@ func _core_agent_runtime_language(values ...Value) Value {
 		return "JavaScript"
 	}
 	return language
+}
+
+// _core_agent_runtime_usage_instructions is a runtime's own usage
+// instructions, as TS's getUsageInstructions(): a runtime config's
+// "usageInstructions", else the code runtime's own, else none.
+func _core_agent_runtime_usage_instructions(values ...Value) Value {
+	var runtime Value
+	if len(values) > 0 {
+		runtime = values[0]
+	}
+	switch v := runtime.(type) {
+	case map[string]Value:
+		if raw := coreGet(v, "usageInstructions", coreGet(v, "usage_instructions", nil)); raw != nil {
+			return display(raw)
+		}
+	case CodeRuntime:
+		return v.UsageInstructions()
+	}
+	return ""
 }
 
 func _core_agent_runtime_close(values ...Value) Value {
@@ -12231,6 +12706,8 @@ type conformanceScriptedAI struct {
 	SessionScripted bool
 	sessionMu       sync.Mutex
 	SessionLog      []Value
+	// SessionToolResults: the tool results the run submitted to its sessions.
+	SessionToolResults []Value
 }
 
 func (f *conformanceScriptedAI) noteRequest() {
@@ -12349,6 +12826,15 @@ func (s *conformanceScriptedSession) Submit(results []Value) error {
 		ids = append(ids, coreGet(result, "function_id", nil))
 	}
 	s.client.logSession(Object("op", "continue", "call_ids", ids))
+	s.client.sessionMu.Lock()
+	for _, result := range results {
+		s.client.SessionToolResults = append(s.client.SessionToolResults, Object(
+			"call_id", coreGet(result, "function_id", nil),
+			"result", coreGet(result, "result", nil),
+			"is_error", coreTruthy(coreGet(result, "is_error", false)),
+		))
+	}
+	s.client.sessionMu.Unlock()
 	return s.play()
 }
 
@@ -12380,6 +12866,12 @@ func (s *conformanceScriptedSession) Close() error {
 // conformanceAssertSessionLog compares expected_session_log with what the
 // run did to its native sessions, in order.
 func conformanceAssertSessionLog(fixture map[string]Value, client *conformanceScriptedAI) {
+	if expected, ok := fixture["expected_session_tool_results"]; ok {
+		client.sessionMu.Lock()
+		results := Array(client.SessionToolResults...)
+		client.sessionMu.Unlock()
+		assertEqual(results, expected, "native session tool results")
+	}
 	expected, ok := fixture["expected_session_log"]
 	if !ok {
 		return
@@ -12467,8 +12959,12 @@ func conformanceAssertSpeakRequests(fixture map[string]Value, client *conformanc
 }
 
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	// The scripted client stands in for a provider client, so it runs the same
-	// expensive-model gate first; a rejected call records nothing.
+	// The scripted client stands in for a provider client: a cancelled call
+	// stops before its request, and it runs the same expensive-model gate
+	// first; a rejected call records nothing.
+	if err := contextCancellationError(ctx); err != nil {
+		return nil, err
+	}
 	name, model := f.Name, f.Model
 	if name == "" {
 		name = "scripted"
@@ -12544,6 +13040,9 @@ func conformanceStreamChunk(raw Value) (Value, error) {
 // time, so a streaming forward sees the chunks before an error entry; other
 // responses stream as Stream returns them.
 func (f *conformanceScriptedAI) StreamEvents(ctx context.Context, request map[string]Value, options map[string]Value) (AxChatStream, error) {
+	if err := contextCancellationError(ctx); err != nil {
+		return nil, err
+	}
 	if chunks, ok := f.scriptedStreamChunks(request, options); ok {
 		index := 0
 		return newAxChatStream(func() (Value, error) {
@@ -12609,12 +13108,39 @@ func RunConformanceFixture(fixture Value) error {
 	if ConformanceSkipReason(fixture) != "" {
 		return nil
 	}
+	// The request-layer retry records its delays instead of waiting, and a
+	// fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+	// pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+	// checks that a cancellation ends the wait, so it waits for real.
+	delays := []float64{}
+	if display(coreGet(fixture, "kind", "")) != "ai_cancellation" {
+		requestRetrySleepHook = func(ms float64) { delays = append(delays, ms) }
+	}
+	if random := coreGet(fixture, "retry_random", nil); random != nil {
+		requestRetryRandomHook = func() float64 { return num(random) }
+	}
+	if now := coreGet(fixture, "retry_now_ms", nil); now != nil {
+		requestRetryNowHook = func() float64 { return num(now) }
+	}
+	defer func() {
+		requestRetrySleepHook, requestRetryRandomHook, requestRetryNowHook = nil, nil, nil
+	}()
 	_, err := safeValue(func() Value {
 		runConformanceFixture(asMap(fixture))
 		return nil
 	})
 	if err != nil {
 		return FixtureError{Message: display(coreGet(fixture, "name", "fixture")) + ": " + err.Error()}
+	}
+	if expected := coreGet(fixture, "expected_retry_delays_ms", nil); expected != nil {
+		want := asSlice(expected)
+		matches := len(want) == len(delays)
+		for index := 0; matches && index < len(want); index++ {
+			matches = math.Abs(num(want[index])-delays[index]) <= 1e-6
+		}
+		if !matches {
+			return FixtureError{Message: fmt.Sprintf("%s: retry delays: expected %v, got %v", display(coreGet(fixture, "name", "fixture")), stableStringify(expected), delays)}
+		}
 	}
 	return nil
 }
@@ -12725,6 +13251,9 @@ func runConformanceFixtureKind(fixture map[string]Value) {
         for _, item := range coreIter(coreGet(fixture,"validation_cases",Array())) {
             _, err := chat_session_validate_required_arguments(coreGet(item,"schema",nil),coreGet(item,"arguments",nil),"arguments")
             assertEqual(err == nil, coreGet(item,"valid",nil),"raw argument validation: " + display(item))
+            if expectedErrors := coreGet(item, "errors", nil); expectedErrors != nil {
+                assertEqual(mustCore(chat_session_tool_argument_errors(coreGet(item,"schema",nil),coreGet(item,"arguments",nil))), expectedErrors, "raw argument errors: " + display(item))
+            }
         }
         state := mustCore(chat_session_create_state(coreGet(fixture,"model",nil),coreGet(fixture,"path",nil),coreGet(fixture,"max_steps",nil)))
         for _, item := range coreIter(coreGet(fixture,"cases",nil)) {
@@ -12779,6 +13308,10 @@ func runConformanceFixtureKind(fixture map[string]Value) {
 		runConformanceAIUsageObserver(fixture)
 	case "ai_runtime_hooks":
 		runConformanceAIRuntimeHooks(fixture)
+	case "ai_verbose":
+		runConformanceAIVerbose(fixture)
+	case "ai_custom_labels":
+		runConformanceAICustomLabels(fixture)
 	case "ai_credential_wrapper":
 		runConformanceAICredentialWrapper(fixture)
 	case "ai_provider_descriptor":
@@ -13818,9 +14351,15 @@ func runConformancePrompt(fixture map[string]Value) {
 	}
 }
 
+// conformanceToolExtras holds the extras each record_extras tool of the
+// running fixture saw (conformanceBuildTools resets it).
+var conformanceToolExtras = MutableArray()
+
 func conformanceBuildTools(specs Value) ([]Tool, Value) {
 	tools := []Tool{}
 	calls := MutableArray()
+	conformanceToolExtras = MutableArray()
+	extrasLog := conformanceToolExtras
 	for _, raw := range asSlice(specs) {
 		spec := asMap(raw)
 		name := display(coreGet(spec, "name", "tool"))
@@ -13843,9 +14382,45 @@ func conformanceBuildTools(specs Value) ([]Tool, Value) {
 			}
 			return result, nil
 		}
+		if coreTruthy(coreGet(spec, "record_extras", false)) {
+			// A context handler, recording the extras it gets.
+			handler := tool.Handler
+			tool = tool.WithContextHandler(func(ctx context.Context, args map[string]Value) (Value, error) {
+				extras := AxToolExtrasFromContext(ctx)
+				seen := Object()
+				if extras.SessionID != "" {
+					seen["sessionId"] = extras.SessionID
+				}
+				if extras.ExecutionPath != "" {
+					seen["executionPath"] = extras.ExecutionPath
+				}
+				if extras.EventContext != nil {
+					seen["eventContext"] = cloneValue(extras.EventContext)
+				}
+				coreAppend(extrasLog, Object("name", name, "extras", seen))
+				return handler(args)
+			})
+		}
 		tools = append(tools, tool)
 	}
 	return tools, calls
+}
+
+// conformanceCancellation is a fixture's constructor_cancellation or
+// call_cancellation: a context, cancelled with the reason as its cause when
+// the spec says so.
+func conformanceCancellation(raw Value) context.Context {
+	spec, ok := raw.(map[string]Value)
+	if !ok {
+		return nil
+	}
+	if !coreTruthy(coreGet(spec, "cancelled", false)) {
+		// A live token that the run never sees cancelled.
+		return context.Background()
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(errors.New(display(coreGet(spec, "reason", "fixture-stop"))))
+	return ctx
 }
 
 func runConformanceForward(fixture map[string]Value) {
@@ -13856,6 +14431,10 @@ func runConformanceForward(fixture map[string]Value) {
 	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
 		// The run control is a constructor default, not a call option.
 		controlEvents = conformanceAttachControl(fixture, client, options)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "constructor_cancellation", nil)); token != nil {
+		// The program's cancellation, the default for every forward.
+		options["cancellation"] = token
 	}
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
@@ -13898,10 +14477,31 @@ func runConformanceForward(fixture map[string]Value) {
 			return int(num(pickerIndex)), nil
 		})
 	}
+	if spec := coreGet(fixture, "function_result_formatter", nil); spec != nil {
+		// The program's formatter.
+		gen.SetFunctionResultFormatter(conformanceFunctionResultFormatter(spec))
+	}
 	forwardOptions := asMap(coreGet(fixture, "forward_options", Object()))
+	if spec := coreGet(fixture, "call_function_result_formatter", nil); spec != nil {
+		// The forward call's formatter.
+		forwardOptions = cloneMap(forwardOptions)
+		forwardOptions["functionResultFormatter"] = conformanceFunctionResultFormatter(spec)
+	}
+	if spec := coreGet(fixture, "global_function_result_formatter", nil); spec != nil {
+		// The process-wide formatter, restored after the forward.
+		functionResultFormatterState.RLock()
+		previous := functionResultFormatterState.fn
+		functionResultFormatterState.RUnlock()
+		SetGlobalFunctionResultFormatter(conformanceFunctionResultFormatter(spec))
+		defer SetGlobalFunctionResultFormatter(previous)
+	}
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		forwardOptions = cloneMap(forwardOptions)
 		controlEvents = conformanceAttachControl(fixture, client, forwardOptions)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "call_cancellation", nil)); token != nil {
+		forwardOptions = cloneMap(forwardOptions)
+		forwardOptions["cancellation"] = token
 	}
 	var forwardErr error
 	output := expectMaybeFixtureError(func() Value {
@@ -13915,6 +14515,7 @@ func runConformanceForward(fixture map[string]Value) {
 	if coreGet(fixture, "expected_error_contains", nil) != nil {
 		// expectMaybeFixtureError returned, so the forward failed as expected.
 		assertExpectedErrorCause(forwardErr, fixture)
+		conformanceAssertRequestRoles(fixture, client)
 	}
 	conformanceAssertSessionLog(fixture, client)
 	conformanceAssertSpeakRequests(fixture, client)
@@ -13978,11 +14579,36 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
 		}
+		if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+			assertEqual(conformanceToolExtras, expected, "tool extras")
+		}
 		if expected := coreGet(fixture, "expected_memory_history_count", nil); expected != nil && len(asSlice(gen.Memory)) != int(num(expected)) {
 			panic(AxError{Category: "fixture", Message: "expected memory history count mismatch"})
 		}
 		if expected := coreGet(fixture, "expected_memory_history_subset", nil); expected != nil {
 			assertListSubset(gen.Memory, expected, "memory history")
+		}
+		// The memory's tool results, in order; a Go memory item's results are
+		// [call, result, ok, result_text]: result_text is the text the model
+		// got, and result holds the same text.
+		for _, check := range []struct {
+			key   string
+			index int
+		}{{"expected_memory_function_results", 3}, {"expected_memory_function_stored_results", 1}} {
+			expected := coreGet(fixture, check.key, nil)
+			if expected == nil {
+				continue
+			}
+			values := []Value{}
+			for _, item := range asSlice(gen.Memory) {
+				if coreGet(item, "role", nil) != "function" {
+					continue
+				}
+				if results := asSlice(coreGet(item, "results", nil)); len(results) > check.index {
+					values = append(values, results[check.index])
+				}
+			}
+			assertEqual(values, expected, check.key)
 		}
 		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
 			assertListSubset(gen.ChatLog, expected, "chat log")
@@ -14015,6 +14641,9 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
+		}
+		if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+			assertEqual(conformanceToolExtras, expected, "tool extras")
 		}
 	}
 }
@@ -14130,6 +14759,24 @@ func conformanceAssertLastRequestTail(fixture map[string]Value, client *conforma
 	assertEqual(tail, expected, "last request tail")
 }
 
+// conformanceAssertStageFirstRequests compares expected_stage_first_requests
+// with the pinned requests in full: every message's role and content.
+func conformanceAssertStageFirstRequests(fixture map[string]Value, client *conformanceScriptedAI) {
+	for _, raw := range asSlice(coreGet(fixture, "expected_stage_first_requests", Array())) {
+		spec := asMap(raw)
+		index := int(num(coreGet(spec, "index", 0)))
+		stage := display(coreGet(spec, "stage", ""))
+		if index >= len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("no request %d for the %s stage", index, stage)})
+		}
+		actual := Array()
+		for _, message := range asSlice(coreGet(client.Requests[index], "chat_prompt", Array())) {
+			actual = append(actual, Object("role", coreGet(message, "role", nil), "content", coreGet(message, "content", nil)))
+		}
+		assertEqual(actual, coreGet(spec, "messages", Array()), stage+" first request")
+	}
+}
+
 // conformanceAssertRequestRoles compares expected_request_roles with the
 // chat_prompt message roles of every request, in order.
 func conformanceAssertRequestRoles(fixture map[string]Value, client *conformanceScriptedAI) {
@@ -14156,6 +14803,10 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	if coreTruthy(coreGet(fixture, "constructor_control", false)) {
 		// The run control is a constructor default, not a call option.
 		controlEvents = conformanceAttachControl(fixture, client, options)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "constructor_cancellation", nil)); token != nil {
+		// The program's cancellation, the default for every forward.
+		options["cancellation"] = token
 	}
 	gen := NewAx(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 	if spec := coreGet(fixture, "signature_spec", nil); spec != nil {
@@ -14196,6 +14847,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	runOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if coreTruthy(coreGet(fixture, "control", false)) {
 		controlEvents = conformanceAttachControl(fixture, client, runOptions)
+	}
+	if token := conformanceCancellation(coreGet(fixture, "call_cancellation", nil)); token != nil {
+		runOptions["cancellation"] = token
 	}
 	deltas := Array()
 	var output Value
@@ -14248,6 +14902,9 @@ func runConformanceStreamingForward(fixture map[string]Value) {
 	conformanceAssertSpeakRequests(fixture, client)
 	if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 		assertEqual(calls, expected, "tool calls")
+	}
+	if expected := coreGet(fixture, "expected_tool_extras", nil); expected != nil {
+		assertEqual(conformanceToolExtras, expected, "tool extras")
 	}
 	if expected := coreGet(fixture, "expected_processor_calls", nil); expected != nil {
 		assertEqual(processorCalls, expected, "field processor calls")
@@ -14764,6 +15421,135 @@ func (conformanceFailingMeter) CreateGauge(string, AxMetricInstrumentOptions) Ax
 	panic("meter failure")
 }
 
+// labelRecordingMeter records each metric's name and attributes.
+type labelRecordingMeter struct {
+	mu      sync.Mutex
+	records []struct {
+		name       string
+		attributes map[string]Value
+	}
+}
+
+type labelRecordingInstrument struct {
+	meter *labelRecordingMeter
+	name  string
+}
+
+func (i labelRecordingInstrument) Add(_ float64, attributes map[string]Value) {
+	i.meter.mu.Lock()
+	defer i.meter.mu.Unlock()
+	i.meter.records = append(i.meter.records, struct {
+		name       string
+		attributes map[string]Value
+	}{i.name, cloneMap(attributes)})
+}
+func (i labelRecordingInstrument) Record(value float64, attributes map[string]Value) { i.Add(value, attributes) }
+
+func (m *labelRecordingMeter) CreateCounter(name string, _ AxMetricInstrumentOptions) AxCounter {
+	return labelRecordingInstrument{m, name}
+}
+func (m *labelRecordingMeter) CreateHistogram(name string, _ AxMetricInstrumentOptions) AxHistogram {
+	return labelRecordingInstrument{m, name}
+}
+func (m *labelRecordingMeter) CreateGauge(name string, _ AxMetricInstrumentOptions) AxGauge {
+	return labelRecordingInstrument{m, name}
+}
+
+// customPart is the first record of name without the runtime's own "ax.*"
+// attributes: the custom labels.
+func (m *labelRecordingMeter) customPart(name string) Value {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, record := range m.records {
+		if record.name != name {
+			continue
+		}
+		out := Object()
+		for _, key := range orderedKeys(record.attributes) {
+			if !strings.HasPrefix(key, "ax.") {
+				out[key] = record.attributes[key]
+			}
+		}
+		return out
+	}
+	names := []string{}
+	for _, record := range m.records {
+		names = append(names, record.name)
+	}
+	panic(AxError{Category: "fixture", Message: "no " + name + " metric was recorded: " + strings.Join(names, ", ")})
+}
+
+// runConformanceAICustomLabels: a recording meter sees a chat (the service's
+// and the call's custom labels) and an AxGen forward on the same client (its
+// constructor's labels with the call's over them).
+func runConformanceAICustomLabels(fixture map[string]Value) {
+	client, _ := conformanceAIClient(fixture)
+	meter := &labelRecordingMeter{}
+	SetMeter(meter)
+	defer SetMeter(nil)
+	chat := asMap(coreGet(fixture, "chat", Object()))
+	if _, err := client.Chat(context.Background(), asMap(coreGet(chat, "request", Object())), Object("customLabels", coreGet(chat, "custom_labels", Object()))); err != nil {
+		panic(err)
+	}
+	expectedChat := asMap(coreGet(fixture, "expected_chat_custom_labels", Object()))
+	for _, name := range orderedKeys(expectedChat) {
+		assertEqual(meter.customPart(name), expectedChat[name], "chat "+name+" custom labels")
+	}
+	meter.mu.Lock()
+	meter.records = nil
+	meter.mu.Unlock()
+	spec := asMap(coreGet(fixture, "forward", Object()))
+	gen := NewAx(display(coreGet(spec, "signature", "question:string -> answer:string")), Object("customLabels", coreGet(spec, "constructor_custom_labels", Object())))
+	if _, err := gen.Forward(context.Background(), client, asMap(coreGet(spec, "input", Object())), Object("stream", false, "customLabels", coreGet(spec, "call_custom_labels", Object()))); err != nil {
+		panic(err)
+	}
+	expectedForward := asMap(coreGet(fixture, "expected_forward_custom_labels", Object()))
+	for _, name := range orderedKeys(expectedForward) {
+		assertEqual(meter.customPart(name), expectedForward[name], "forward "+name+" custom labels")
+	}
+}
+
+var conformanceVerboseHeaders = regexp.MustCompile(` Headers: \{[\s\S]*?\n\} \nBody:`)
+
+// runConformanceAIVerbose: each call's verbose blocks, with the headers'
+// JSON as {{HEADERS}}; the headers must mask the API key.
+func runConformanceAIVerbose(fixture map[string]Value) {
+	client, _ := conformanceAIClient(fixture)
+	apiKey := display(coreGet(fixture, "api_key", "test-key"))
+	logs := Array()
+	defer func() { verboseLogSink = nil }()
+	for _, raw := range asSlice(coreGet(fixture, "calls", Array())) {
+		call := asMap(raw)
+		entries := []string{}
+		verboseLogSink = func(text string) { entries = append(entries, text) }
+		request := cloneMap(asMap(coreGet(call, "request", Object())))
+		options := cloneMap(asMap(coreGet(call, "options", Object())))
+		if coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", false)) {
+			stream, err := client.StreamEvents(context.Background(), request, options)
+			if err != nil {
+				panic(err)
+			}
+			for stream.Next() {
+			}
+			if err := stream.Err(); err != nil {
+				panic(err)
+			}
+			_ = stream.Close()
+		} else if _, err := client.Chat(context.Background(), request, options); err != nil {
+			panic(err)
+		}
+		out := Array()
+		for _, entry := range entries {
+			if apiKey != "" && strings.Contains(entry, apiKey) {
+				panic(AxError{Category: "fixture", Message: "a verbose block shows the API key: " + entry})
+			}
+			out = append(out, conformanceVerboseHeaders.ReplaceAllString(entry, " Headers: {{HEADERS}} \nBody:"))
+		}
+		logs = append(logs, out)
+	}
+	assertEqual(logs, coreGet(fixture, "expected_verbose_logs", nil), "verbose logs")
+}
+
 func runConformanceAIRuntimeHooks(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	request := asMap(coreGet(fixture, "request", Object()))
@@ -15225,11 +16011,20 @@ func runConformanceProgramContract(fixture map[string]Value) {
 	}
 }
 
+// conformanceNodeControl is the run control a flow fixture's execute step
+// with constructor_control gets on its AxGen's constructor.
+var conformanceNodeControl Value
+
 func runConformanceFlow(fixture map[string]Value) {
 	if expected := display(coreGet(fixture, "expected_error_contains", "")); strings.Contains(expected, "Unknown program ID") {
 		expectFixtureError(func() { conformanceValidateFlowDemos(fixture) }, fixture)
 		return
 	}
+	// expected_node_control_events pins that node control's lifecycle events.
+	nodeOptions := Object()
+	nodeEvents := conformanceAttachControl(Object(), nil, nodeOptions)
+	conformanceNodeControl = nodeOptions["control"]
+	defer func() { conformanceNodeControl = nil }()
 	flow := conformanceBuildFlow(fixture)
 	if expected := coreGet(fixture, "expected_plan", nil); expected != nil {
 		assertEqual(mustCore(_flow_plan(flow.State)), expected, "flow plan")
@@ -15242,6 +16037,10 @@ func runConformanceFlow(fixture map[string]Value) {
 	}
 	client := conformanceScriptSpeak(&conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}, fixture)
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
+	flowEvents := func() Value { return Array() }
+	if coreTruthy(coreGet(fixture, "control", false)) {
+		flowEvents = conformanceAttachControl(fixture, client, forwardOptions)
+	}
 	var output Value
 	if display(coreGet(fixture, "operation", "")) == "streaming" {
 		streamed := expectMaybeFixtureError(func() Value {
@@ -15265,6 +16064,13 @@ func runConformanceFlow(fixture map[string]Value) {
 			}
 			return out
 		}, fixture, nil)
+	}
+	// The run's lifecycle events, a failed flow's too.
+	if expected := coreGet(fixture, "expected_control_events", nil); expected != nil {
+		assertEqual(flowEvents(), expected, "flow run control events")
+	}
+	if expected := coreGet(fixture, "expected_node_control_events", nil); expected != nil {
+		assertEqual(nodeEvents(), expected, "node run control events")
 	}
 	if coreGet(fixture, "expected_error_contains", nil) != nil {
 		return
@@ -15701,6 +16507,20 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 			panic(AxError{Category: "fixture", Message: "eval operation requires agent program"})
 		}
 		client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEventValues: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+		// As the agent fixtures do, a playbook without studentAI learns
+		// through the fixture's scripted client.
+		options := asMap(coreGet(fixture, "options", Object()))
+		if rawPlaybook := coreGet(options, "playbook", nil); rawPlaybook != nil {
+			playbook := cloneMap(asMap(rawPlaybook))
+			if coreGet(playbook, "studentAI", nil) == nil {
+				coreSet(playbook, "studentAI", client)
+			}
+			options = cloneMap(options)
+			coreSet(options, "playbook", playbook)
+			withStudent := cloneMap(fixture)
+			coreSet(withStudent, "options", options)
+			ag = conformanceBuildProgram(withStudent).(*AxAgent)
+		}
 		task := asMap(coreGet(fixture, "task", Object("input", coreGet(fixture, "input", Object()))))
 		prediction := ag.EvaluateOptimizationTask(client, task, asMap(coreGet(fixture, "eval_options", Object())))
 		if expected := coreGet(fixture, "expected_prediction_subset", nil); expected != nil {
@@ -15710,6 +16530,9 @@ func runConformanceOptimizeInner(fixture map[string]Value) {
 		fields := asMap(coreGet(fixture, "expected_prediction_fields", Object()))
 		for _, key := range orderedKeys(fields) {
 			assertEqual(coreGet(prediction, key, nil), fields[key], "eval prediction "+key)
+		}
+		if expectedCount := coreGet(fixture, "expected_request_count", nil); expectedCount != nil && int(num(expectedCount)) != len(client.Requests) {
+			panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d eval requests, got %d", int(num(expectedCount)), len(client.Requests))})
 		}
 	case "gepa":
 		components := coreGet(fixture, "components", program.GetOptimizableComponents())
@@ -16303,6 +17126,10 @@ func conformanceBuildFlowStep(spec map[string]Value, fixture map[string]Value) V
 		if coreGet(options, "id", nil) == nil {
 			coreSet(options, "id", name)
 		}
+		if coreTruthy(coreGet(spec, "constructor_control", false)) && conformanceNodeControl != nil {
+			// The node's own run control, a constructor default.
+			coreSet(options, "control", conformanceNodeControl)
+		}
 		child = NewAx(signature, options)
 	}
 	return mustCore(_flow_step(kind, name, child, stepOptions))
@@ -16594,6 +17421,17 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	// Without these the real-engine gate passes vacuously on expected_request_contains
 	// -- which is how an executor->responder evidence drop could ride along on a real
 	// engine while the strict engines enforced it.
+	conformanceAssertStageFirstRequests(fixture, client)
+	conformanceAssertRequestRoles(fixture, client)
+	if expected := coreGet(fixture, "expected_transcript", nil); expected != nil {
+		// The real-engine fixtures register no observers: the transcript is
+		// each request's stage.
+		transcript := Array()
+		for _, request := range client.Requests {
+			transcript = append(transcript, "request:"+conformanceAgentRequestStage(request))
+		}
+		assertEqual(transcript, expected, "agent run transcript")
+	}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
 		for _, item := range asSlice(expected) {
@@ -17028,6 +17866,13 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if !strings.Contains(err.Error(), expectedErr) {
 			panic(AxError{Category: "fixture", Message: "expected error containing " + expectedErr + ", got " + err.Error()})
 		}
+		if expected := coreGet(fixture, "expected_clarification", nil); expected != nil {
+			clarification, ok := agentClarificationFromError(err)
+			if !ok {
+				panic(AxError{Category: "fixture", Message: "expected a clarification error, got " + err.Error()})
+			}
+			assertSubset(clarification, expected, "clarification")
+		}
 		if ag != nil {
 			assertAgentTrace(ag, fixture)
 		}
@@ -17145,6 +17990,7 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
     expectedMCPCalls:=asMap(coreGet(fixture,"expected_mcp_calls",Object()));for _,key:=range orderedKeys(expectedMCPCalls){expected:=expectedMCPCalls[key];actual:=Array();for _,request:=range mcpTransports[key].Requests{if request["method"]=="tools/call"{params:=coreGet(request,"params",Object());actual=append(actual,Object("name",coreGet(params,"name",nil),"arguments",coreGet(params,"arguments",nil)))}};assertEqual(actual,expected,"delegated MCP calls "+key)}
+	conformanceAssertStageFirstRequests(fixture, client)
     for _,raw:=range asSlice(coreGet(fixture,"expected_request_checks",Array())){check:=asMap(raw);request:=client.Requests[int(num(check["index"]))];text:=stableStringify(request);for _,value:=range asSlice(coreGet(check,"contains",Array())){if !strings.Contains(text,display(value)){panic("Child request missing "+display(value))}};for _,value:=range asSlice(coreGet(check,"not_contains",Array())){if strings.Contains(text,display(value)){panic("Child request exposed "+display(value))}};if coreTruthy(check["functions_absent"])&&coreTruthy(coreGet(request,"functions",nil)){panic("Agent runtime tools leaked into native functions")}}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
@@ -18265,7 +19111,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		part := Object("type", "text", "text", text)
 		if field.IsCached {
 			coreSet(part, "cache", true)
-			allText = false
 		}
 		parts = append(parts, part)
 	}
@@ -18495,6 +19340,9 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 	outputFields := goPromptOutputFields(sig)
 	task := goPromptTaskDefinition(sig, options)
 	funcs := goPromptFunctionDescriptors(functions)
+	// TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists
+	// every input field, provided or not. Off by default.
+	includeOptional := coreTruthy(coreGet(options, "include_optional_input_fields_in_system_prompt", coreGet(options, "includeOptionalInputFieldsInSystemPrompt", false)))
 	vars := map[string]Value{
 		"hasFunctions":                 len(funcs) > 0,
 		"hasTaskDefinition":            task != "",
@@ -18502,10 +19350,10 @@ func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value,
 		"hasOutputFields":              len(outputFields) > 0,
 		"hasComplexFields":             complex,
 		"hasStructuredOutputFunction":  complex && coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", nil)) != nil,
-		"identityText":                 goPromptIdentity(sig, values),
+		"identityText":                 goPromptIdentity(sig, values, includeOptional),
 		"taskDefinitionText":           task,
 		"functionsList":                goPromptRenderFunctions(funcs),
-		"inputFieldsSection":           goPromptInputSection(sig, values),
+		"inputFieldsSection":           goPromptInputSection(sig, values, includeOptional),
 		"outputFieldsSection":          goPromptOutputSection(sig, complex),
 		"structuredOutputFunctionName": coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", "")),
 	}
@@ -18576,6 +19424,22 @@ func goPromptInputFields(sig AxSignature, values map[string]Value) []Field {
 	}
 	return out
 }
+// goPromptSystemInputFields lists the input fields the system prompt shows:
+// every one, cached first, with includeOptionalInputFieldsInSystemPrompt;
+// otherwise the ones the user message renders.
+func goPromptSystemInputFields(sig AxSignature, values map[string]Value, includeOptional bool) []Field {
+	if !includeOptional {
+		return goPromptInputFields(sig, values)
+	}
+	fields := append([]Field(nil), sig.Inputs...)
+	sort.SliceStable(fields, func(i, j int) bool {
+		if fields[i].IsCached == fields[j].IsCached {
+			return false
+		}
+		return fields[i].IsCached
+	})
+	return fields
+}
 func goPromptProvided(value Value) bool {
 	if value == nil {
 		return false
@@ -18594,8 +19458,8 @@ func goPromptValueText(value Value) string {
 	}
 	return prettyJSONText(value)
 }
-func goPromptIdentity(sig AxSignature, values map[string]Value) string {
-	return "You will be provided with the following fields: " + goPromptDescFields(goPromptInputFields(sig, values)) + ". Your task is to generate new fields: " + goPromptDescFields(goPromptOutputFields(sig)) + "."
+func goPromptIdentity(sig AxSignature, values map[string]Value, includeOptional bool) string {
+	return "You will be provided with the following fields: " + goPromptDescFields(goPromptSystemInputFields(sig, values, includeOptional)) + ". Your task is to generate new fields: " + goPromptDescFields(goPromptOutputFields(sig)) + "."
 }
 func goPromptDescFields(fields []Field) string {
 	bt := string(rune(96))
@@ -18617,8 +19481,8 @@ func goPromptTaskDefinition(sig AxSignature, options map[string]Value) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
-func goPromptInputSection(sig AxSignature, values map[string]Value) string {
-	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptInputFields(sig, values), goPromptFieldMap(sig))
+func goPromptInputSection(sig AxSignature, values map[string]Value, includeOptional bool) string {
+	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptSystemInputFields(sig, values, includeOptional), goPromptFieldMap(sig))
 }
 // goPromptOutputSection ends with the exact JSON shape when the output is
 // structured (the signature's complex fields, or the render's

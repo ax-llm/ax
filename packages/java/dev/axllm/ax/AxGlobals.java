@@ -13,6 +13,8 @@ public final class AxGlobals {
   private static final AtomicReference<AxTracer> TRACER = new AtomicReference<>();
   private static final AtomicReference<AxMeter> METER = new AtomicReference<>();
   private static final AtomicReference<AxCachingFunction> CACHING_FUNCTION = new AtomicReference<>();
+  private static final AtomicReference<AxGen.FunctionResultFormatter> FUNCTION_RESULT_FORMATTER =
+      new AtomicReference<>();
   private static final ThreadLocal<Frame> FRAME = new ThreadLocal<>();
   private static final Map<AxMeter, Instruments> INSTRUMENTS = new IdentityHashMap<>();
 
@@ -44,6 +46,19 @@ public final class AxGlobals {
     return CACHING_FUNCTION.get();
   }
 
+  /**
+   * Sets the process-wide tool result formatter, as TypeScript's {@code
+   * axGlobals.functionResultFormatter}; {@code null} restores the default. AxGen uses it when
+   * neither the forward call nor the program sets {@code functionResultFormatter}.
+   */
+  public static void setFunctionResultFormatter(AxGen.FunctionResultFormatter formatter) {
+    FUNCTION_RESULT_FORMATTER.set(formatter);
+  }
+
+  static AxGen.FunctionResultFormatter functionResultFormatter() {
+    return FUNCTION_RESULT_FORMATTER.get();
+  }
+
   public static void setTracer(AxTracer tracer) {
     TRACER.set(tracer);
   }
@@ -65,12 +80,66 @@ public final class AxGlobals {
         frame == null ? snapshot() : frame.globals);
   }
 
+  // Where verbose blocks go: System.out, as TS's apiCall uses console.log
+  // (the conformance runner collects them instead).
+  static volatile java.util.function.Consumer<String> verboseSink;
+
+  static void verboseLog(String text) {
+    java.util.function.Consumer<String> sink = verboseSink;
+    if (sink != null) sink.accept(text); else System.out.println(text);
+  }
+
+  // A transport result's HTTP status.
+  static int transportStatus(Object result) {
+    if (result instanceof Map<?, ?> map && map.get("status") != null) return Core.asInt(map.get("status"));
+    return 200;
+  }
+
+  // A metric's attributes with TypeScript's custom labels: the service's
+  // customLabels, then the call's (ai_custom_labels), cut to 100 characters
+  // when sanitize is set (TS cuts them for the request duration and errors,
+  // not for the request counter).
+  static Map<String, Object> labeled(Map<String, Object> attributes, Object serviceOptions, Object callOptions, boolean sanitize) {
+    Map<String, Object> out = new LinkedHashMap<>(attributes);
+    try {
+      out.putAll(Core.asMap(Core.ai_custom_labels(serviceOptions == null ? Map.of() : serviceOptions, callOptions == null ? Map.of() : callOptions, sanitize)));
+    } catch (RuntimeException ignored) {
+      // Labels never fail a request.
+    }
+    return out;
+  }
+
+  // An AxGen run's custom labels, as TypeScript's getMergedCustomLabels: the
+  // AI service's, then the AxGen constructor's with the call's over them,
+  // each value cut to 100 characters.
+  static Map<String, Object> genMetricLabels(Object client, Map<String, Object> genOptions, Map<String, Object> callOptions) {
+    try {
+      Object runLabels = Core.ai_custom_labels(genOptions == null ? Map.of() : genOptions, callOptions == null ? Map.of() : callOptions, false);
+      Object serviceOptions = client instanceof AxBaseAI base ? base.getOptions() : Map.of();
+      return Core.asMap(Core.ai_custom_labels(serviceOptions, Map.of("customLabels", runLabels), true));
+    } catch (RuntimeException ignored) {
+      return Map.of();
+    }
+  }
+
   static Scope openScope(
       AxRuntimeHooks callHooks,
       AxRuntimeHooks programHooks,
       String spanName,
       String metricPrefix,
       Map<String, Object> attributes) {
+    return openScope(callHooks, programHooks, spanName, metricPrefix, attributes, Map.of());
+  }
+
+  // openScope whose metrics also carry metricLabels (TS's custom labels),
+  // which the span does not.
+  static Scope openScope(
+      AxRuntimeHooks callHooks,
+      AxRuntimeHooks programHooks,
+      String spanName,
+      String metricPrefix,
+      Map<String, Object> attributes,
+      Map<String, Object> metricLabels) {
     Frame parent = FRAME.get();
     AxRuntimeHooks hooks = AxRuntimeHooks.merge(
         callHooks,
@@ -82,8 +151,10 @@ public final class AxGlobals {
     AxSpan span = ownSpan == null && parent != null ? parent.span : ownSpan;
     Frame frame = new Frame(hooks, globals, span, parent);
     FRAME.set(frame);
-    recordMetric(effective.meter(), "counter", metricPrefix + "_requests_total", 1, attributes);
-    return new Scope(frame, effective, ownSpan, metricPrefix, attributes);
+    Map<String, Object> metricAttributes = new LinkedHashMap<>(attributes);
+    if (metricLabels != null) metricAttributes.putAll(metricLabels);
+    recordMetric(effective.meter(), "counter", metricPrefix + "_requests_total", 1, metricAttributes);
+    return new Scope(frame, effective, ownSpan, metricPrefix, metricAttributes);
   }
 
   static AxSpan currentSpan() {

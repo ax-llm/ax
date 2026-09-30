@@ -130,7 +130,9 @@ final class SessionRun implements AiClient,AutoCloseable {
     Map<String,Object> last;
     Live(Map<String,Object> request,AxChatSession session) {
       this.request=request;this.session=session;
-      state=Core.asMap(Core.chat_session_create_state(String.valueOf(request.get("model")),path,options.getOrDefault("maxSteps",options.getOrDefault("max_steps",10))));
+      // As TS's maxResponses: the run's maxSteps (25 by default) less the request's step.
+      int limit=Core.asInt(options.getOrDefault("maxSteps",options.getOrDefault("max_steps",25)))-Core.asInt(request.getOrDefault("_ax_step_index",0));
+      state=Core.asMap(Core.chat_session_create_state(String.valueOf(request.get("model")),path,limit));
       workers.execute(()->{try{while(!cancelled){Map<String,Object> event=session.next();if(cancelled)return;if(event==null){queue.offer(new Delivery("failure",null,null,new IllegalStateException("Session disconnected; work was not replayed")));return;}queue.put(new Delivery("provider",event,null,null));}}catch(Throwable error){if(!cancelled)queue.offer(new Delivery("failure",null,null,error));}});
     }
     private void start(Map<String,Object> originalCall) {
@@ -145,12 +147,14 @@ final class SessionRun implements AiClient,AutoCloseable {
       try {
         if(args instanceof String text) args=Json.parse(text);
         if(tool==null) throw new IllegalArgumentException("Function '"+name+"' not found");
-        Core.validate_fields(tool.args,args,"tool."+name+".args");
-        Core.chat_session_validate_required_arguments(tool.schema(),args,"tool."+name+".args");
       } catch(RuntimeException error) {
         Core.chat_session_register_call(state,call,"blocking");
-        Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false);return;
+        Core.chat_session_record_result(gen,state,call,Core.get(Core._tool_error_message_impl(call,error),"result",error.getMessage()),false,options);return;
       }
+      // As TS's session does, a call whose arguments fail the tool's schema
+      // does not run: its result is TS's fixing instructions.
+      Object fixing=Core.chat_session_tool_argument_error(name,tool.schema(),args);
+      if(fixing!=null){Core.chat_session_register_call(state,call,"blocking");Core.chat_session_record_result(gen,state,call,fixing,false,options);return;}
       Core.chat_session_register_call(state,call,execution);blocking=!"background".equals(execution);
       emit("tool.started",Map.of("call_id",id));
       final Map<String,Object> values=new LinkedHashMap<>(Core.asMap(args));
@@ -158,7 +162,8 @@ final class SessionRun implements AiClient,AutoCloseable {
       // A worker owns only the invocation and its result, which goes to the
       // session that started it, never to a later one.
       workers.execute(AxGlobals.inherit(()->{Object result=null;Throwable failure=null;
-        try {result=Core.toolInvoke(selected,values,()->cancelled || Thread.currentThread().isInterrupted());}catch(Throwable error){failure=error;}
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        try {result=Core.toolInvoke(selected,values,()->cancelled || Thread.currentThread().isInterrupted(),Core.tool_call_extras(options,name));}catch(Throwable error){failure=error;}
         if(!cancelled) queue.offer(new Delivery("tool",call,result,failure));
       }));
     }
@@ -192,7 +197,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       if("tool".equals(delivery.type())) {
         var call=Core.asMap(delivery.value());String id=String.valueOf(call.get("id"));Object result=delivery.result();
         if(delivery.error()!=null) result=Core.get(Core._tool_error_message_impl(call,delivery.error()),"result",delivery.error().toString());
-        if(!Core.truthy(Core.chat_session_record_result(gen,state,call,result,delivery.error()==null)))return null;emit("tool.completed",Map.of("call_id",id));
+        if(!Core.truthy(Core.chat_session_record_result(gen,state,call,result,delivery.error()==null,options)))return null;emit("tool.completed",Map.of("call_id",id));
         if(!"background".equals(Core.get(Core.asMap(state.get("pending")).get(id),"execution","blocking"))) {blocking=false;var queued=new ArrayList<>(waiting);waiting.clear();for(var item:queued)start(item);}
         return null;
       }
@@ -221,7 +226,7 @@ final class SessionRun implements AiClient,AutoCloseable {
       return null;
     }
     private void submit(List<Object> results) throws Exception {
-      if(Core.asInt(state.get("steps"))>=Core.asInt(state.get("max_steps"))) throw new IllegalStateException("Maximum model steps exhausted before final completion");
+      if(Core.asInt(state.get("steps"))>=Core.asInt(state.get("max_steps"))) throw (RuntimeException)Core.chat_session_step_limit_error(state);
       session.submit(results);List<Object> ids=new ArrayList<>();for(Object result:results)ids.add(Core.get(result,"function_id",""));Core.chat_session_mark_submitted(state,ids);
       for(String id:applied){Core.chat_session_transition(state,Map.of("type","update.applied","id",id));emit("applied",Map.of("update_id",id,"timing","next-response"));}applied.clear();
     }

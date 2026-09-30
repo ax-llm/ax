@@ -25,7 +25,16 @@ pub struct QuickJsCodeSession {
     reserved: BTreeSet<String>,
     host_callables: BTreeMap<String, HostCallable>,
     closed: bool,
+    // The globals present before the agent's code ran; the snapshot entries
+    // leave them out, as TS's AxJSRuntime does.
+    baseline: Vec<String>,
+    // The engine's own globals, before any session global: never user
+    // bindings.
+    engine_globals: BTreeSet<String>,
 }
+
+// TypeScript's AxJSRuntime.getUsageInstructions() in its default stdout mode.
+const USAGE_INSTRUCTIONS: &str = "- Don't wrap async code in (async()=>{ ... })() \u{2014} the runtime automatically handles async execution.\n- State is session-scoped: all top-level declarations (`var`, `let`, `const`) persist across calls.\n- Bare assignment (e.g. `x = 1`) also persists via `globalThis`.\n- Use `console.log(...)` output is captured as the execution result so use it to inspect intermediate values between steps instead of `return`.";
 
 impl Default for QuickJsCodeRuntime {
     fn default() -> Self {
@@ -79,7 +88,7 @@ impl AxCodeRuntime for QuickJsCodeRuntime {
     }
 
     fn usage_instructions(&self) -> &str {
-        "JavaScript QuickJS runtime profile. Use final(...), respond(...), askClarification(...), discover(...), recall(...), used(...), reportSuccess(...), reportFailure(...), and guideAgent(...). Filesystem, network, process, module loading, and native host objects are not exposed by default."
+        USAGE_INSTRUCTIONS
     }
 
     fn create_session(&mut self, globals: Value, options: Value) -> AxResult<Box<dyn AxCodeSession>> {
@@ -139,10 +148,126 @@ impl QuickJsCodeSession {
             reserved,
             host_callables,
             closed: false,
+            baseline: Vec::new(),
+            engine_globals: BTreeSet::new(),
         };
         session.bootstrap()?;
+        let engine_names = session.eval_json_string("JSON.stringify(globalThis.__ax_engine_globals || [])".to_string())?;
+        session.engine_globals = serde_json::from_str::<Vec<String>>(&engine_names)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         session.install_initial_globals(globals)?;
+        let names = session.eval_json_string("JSON.stringify(Object.getOwnPropertyNames(globalThis))".to_string())?;
+        session.baseline = serde_json::from_str(&names).unwrap_or_default();
         Ok(session)
+    }
+
+    // TS's analysis of a turn's code: the top-level variables it writes and
+    // reads, and its qualified calls.
+    fn code_analysis(&mut self, code: &str) -> Option<Value> {
+        let code_literal = serde_json::to_string(code).ok()?;
+        let text = self.eval_json_string(format!("__ax_analyze_code({code_literal})")).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    fn execute_turn(&mut self, code: &str, options: Value) -> AxResult<RuntimeEnvelope> {
+        let timeout_ms = int_option(
+            &options,
+            "timeoutMs",
+            int_option(&self.runtime_policy, "timeoutMs", 5_000),
+        );
+        let timed_out = Arc::new(AtomicBool::new(false));
+        if timeout_ms > 0 {
+            let flag = timed_out.clone();
+            let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
+            self.runtime.set_interrupt_handler(Some(Box::new(move || {
+                if Instant::now() >= deadline {
+                    flag.store(true, Ordering::SeqCst);
+                    return true;
+                }
+                false
+            })));
+        }
+        // The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
+        // code uses top-level await — illegal in a plain script eval. Compile it as an async
+        // function (AsyncFunction constructor) so await is legal. A synchronous `throw` inside an
+        // async function becomes a *rejected promise*, so attach a rejection handler that records
+        // __ax_error and drain the job queue before reading the completion; otherwise the throw's
+        // error_category would be silently swallowed. The synchronous host primitives that set the
+        // completion run before the first await suspends, so the completion is captured too.
+        // Persistence: top-level const/let/var declared this turn are block-scoped to the
+        // async wrapper and would vanish next turn, but the RLM prompt promises a long-running
+        // REPL. Hoist the declared names onto globalThis (which persists), mirroring TS. Fail-open.
+        let code_literal = serde_json::to_string(code)?;
+        let persist_suffix = self
+            .eval_json_string(format!("axPersistSuffix({code_literal})"))
+            .unwrap_or_default();
+        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n{persist_suffix}\n}}"))?;
+        let run_source = format!(
+            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); __ax_install_final_evidence(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
+        );
+        let run_result = self
+            .context
+            .with(|ctx| ctx.eval::<(), _>(run_source).map_err(qjs_error));
+        // A timeout fires the interrupt handler during the synchronous run-eval and surfaces as an
+        // Err here (the `while (true) {}` path); report it before draining so it is categorized as
+        // a timeout rather than a generic runtime error.
+        if let Err(error) = run_result {
+            self.runtime.set_interrupt_handler(None);
+            if timed_out.load(Ordering::SeqCst) {
+                return Ok(RuntimeEnvelope::timeout("QuickJS execution timed out"));
+            }
+            return Ok(RuntimeEnvelope::error(error.message, "runtime"));
+        }
+        // Drain awaited continuations and the rejection handler so __ax_error / __ax_completion
+        // reflect the final actor state (rquickjs does not run pending jobs automatically).
+        while self.runtime.is_job_pending() {
+            if self.runtime.execute_pending_job().is_err() {
+                break;
+            }
+        }
+        self.runtime.set_interrupt_handler(None);
+        let actor_error: Value = serde_json::from_str(&self.eval_json_string(
+            "JSON.stringify(globalThis.__ax_error === undefined ? null : globalThis.__ax_error)"
+                .to_string(),
+        )?)?;
+        if let Some(message) = actor_error.as_str() {
+            let actor_category: Value = serde_json::from_str(&self.eval_json_string(
+                "JSON.stringify(globalThis.__ax_error_category === undefined ? 'runtime' : globalThis.__ax_error_category)"
+                    .to_string(),
+            )?)?;
+            return Ok(RuntimeEnvelope::error(
+                message,
+                actor_category.as_str().unwrap_or("runtime"),
+            ));
+        }
+        let completion = self.eval_json_string(
+            "JSON.stringify(globalThis.__ax_completion === undefined ? {kind: 'result', result: null} : globalThis.__ax_completion)"
+                .to_string(),
+        )?;
+        let mut payload: Value = serde_json::from_str(&completion).map_err(|error| {
+            AxError::runtime(format!("malformed QuickJS actor output: {error}"))
+        })?;
+        let logs: Value = serde_json::from_str(&self.eval_json_string("JSON.stringify(globalThis.__ax_logs || [])".to_string())?)?;
+        if logs.as_array().is_some_and(|items| !items.is_empty()) {
+            if let Some(fields) = payload.as_object_mut() { fields.insert("logs".to_string(), logs); }
+        }
+        Ok(RuntimeEnvelope { payload })
+    }
+
+    // TS's AxJSRuntime snapshot entries of the user globals.
+    fn inspect_entries(&mut self) -> Value {
+        let mut skip: Vec<String> = self.baseline.clone();
+        skip.extend(self.reserved.iter().cloned());
+        let skip_literal = match serde_json::to_string(&skip) {
+            Ok(text) => text,
+            Err(_) => return json!([]),
+        };
+        match self.eval_json_string(format!("__ax_inspect_entries({skip_literal})")) {
+            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| json!([])),
+            Err(_) => json!([]),
+        }
     }
 
     fn bootstrap(&mut self) -> AxResult<()> {
@@ -227,88 +352,12 @@ impl AxCodeSession for QuickJsCodeSession {
         if self.closed {
             return Ok(RuntimeEnvelope::session_closed("session closed"));
         }
-        let timeout_ms = int_option(
-            &options,
-            "timeoutMs",
-            int_option(&self.runtime_policy, "timeoutMs", 5_000),
-        );
-        let timed_out = Arc::new(AtomicBool::new(false));
-        if timeout_ms > 0 {
-            let flag = timed_out.clone();
-            let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
-            self.runtime.set_interrupt_handler(Some(Box::new(move || {
-                if Instant::now() >= deadline {
-                    flag.store(true, Ordering::SeqCst);
-                    return true;
-                }
-                false
-            })));
+        let analysis = self.code_analysis(code);
+        let mut envelope = self.execute_turn(code, options)?;
+        if let (Some(analysis), Some(fields)) = (analysis, envelope.payload.as_object_mut()) {
+            fields.insert("analysis".to_string(), analysis);
         }
-        // The RLM prompt has the model write `await final(...)` / `await llmQuery(...)`, so actor
-        // code uses top-level await — illegal in a plain script eval. Compile it as an async
-        // function (AsyncFunction constructor) so await is legal. A synchronous `throw` inside an
-        // async function becomes a *rejected promise*, so attach a rejection handler that records
-        // __ax_error and drain the job queue before reading the completion; otherwise the throw's
-        // error_category would be silently swallowed. The synchronous host primitives that set the
-        // completion run before the first await suspends, so the completion is captured too.
-        // Persistence: top-level const/let/var declared this turn are block-scoped to the
-        // async wrapper and would vanish next turn, but the RLM prompt promises a long-running
-        // REPL. Hoist the declared names onto globalThis (which persists), mirroring TS. Fail-open.
-        let code_literal = serde_json::to_string(code)?;
-        let persist_suffix = self
-            .eval_json_string(format!("axPersistSuffix({code_literal})"))
-            .unwrap_or_default();
-        let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n{persist_suffix}\n}}"))?;
-        let run_source = format!(
-            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
-        );
-        let run_result = self
-            .context
-            .with(|ctx| ctx.eval::<(), _>(run_source).map_err(qjs_error));
-        // A timeout fires the interrupt handler during the synchronous run-eval and surfaces as an
-        // Err here (the `while (true) {}` path); report it before draining so it is categorized as
-        // a timeout rather than a generic runtime error.
-        if let Err(error) = run_result {
-            self.runtime.set_interrupt_handler(None);
-            if timed_out.load(Ordering::SeqCst) {
-                return Ok(RuntimeEnvelope::timeout("QuickJS execution timed out"));
-            }
-            return Ok(RuntimeEnvelope::error(error.message, "runtime"));
-        }
-        // Drain awaited continuations and the rejection handler so __ax_error / __ax_completion
-        // reflect the final actor state (rquickjs does not run pending jobs automatically).
-        while self.runtime.is_job_pending() {
-            if self.runtime.execute_pending_job().is_err() {
-                break;
-            }
-        }
-        self.runtime.set_interrupt_handler(None);
-        let actor_error: Value = serde_json::from_str(&self.eval_json_string(
-            "JSON.stringify(globalThis.__ax_error === undefined ? null : globalThis.__ax_error)"
-                .to_string(),
-        )?)?;
-        if let Some(message) = actor_error.as_str() {
-            let actor_category: Value = serde_json::from_str(&self.eval_json_string(
-                "JSON.stringify(globalThis.__ax_error_category === undefined ? 'runtime' : globalThis.__ax_error_category)"
-                    .to_string(),
-            )?)?;
-            return Ok(RuntimeEnvelope::error(
-                message,
-                actor_category.as_str().unwrap_or("runtime"),
-            ));
-        }
-        let completion = self.eval_json_string(
-            "JSON.stringify(globalThis.__ax_completion === undefined ? {kind: 'result', result: null} : globalThis.__ax_completion)"
-                .to_string(),
-        )?;
-        let mut payload: Value = serde_json::from_str(&completion).map_err(|error| {
-            AxError::runtime(format!("malformed QuickJS actor output: {error}"))
-        })?;
-        let logs: Value = serde_json::from_str(&self.eval_json_string("JSON.stringify(globalThis.__ax_logs || [])".to_string())?)?;
-        if logs.as_array().is_some_and(|items| !items.is_empty()) {
-            if let Some(fields) = payload.as_object_mut() { fields.insert("logs".to_string(), logs); }
-        }
-        Ok(RuntimeEnvelope { payload })
+        Ok(envelope)
     }
 
     fn inspect_globals(&mut self, _options: Value) -> AxResult<Value> {
@@ -323,8 +372,10 @@ impl AxCodeSession for QuickJsCodeSession {
             return Ok(RuntimeEnvelope::session_closed("session closed").payload);
         }
         let bindings = self.snapshot_bindings(true)?;
+        let entries = self.inspect_entries();
         Ok(json!({
             "version": 1,
+            "entries": entries,
             "bindings": bindings,
             "globals": bindings,
             "closed": false
@@ -335,20 +386,36 @@ impl AxCodeSession for QuickJsCodeSession {
         if self.closed {
             return Ok(RuntimeEnvelope::session_closed("session closed").payload);
         }
+        // A merge patch (the agent's own globals for the executor, as TS's
+        // patchGlobals) keeps the session's variables and updates its reserved
+        // values; any other patch replaces the user globals.
+        let merge = snapshot.get("merge").and_then(Value::as_bool).unwrap_or(false);
         let bindings = snapshot
             .get("bindings")
             .or_else(|| snapshot.get("globals"))
             .cloned()
             .unwrap_or(snapshot);
-        self.context.with(|ctx| {
-            ctx.eval::<(), _>("__ax_clear_user_globals()")
-                .map_err(qjs_error)
-        })?;
+        if merge {
+            // The executor phase: the distiller's final no longer keeps evidence.
+            self.context.with(|ctx| {
+                ctx.eval::<(), _>("globalThis.__ax_phase = 'executor';")
+                    .map_err(qjs_error)
+            })?;
+        } else {
+            self.context.with(|ctx| {
+                ctx.eval::<(), _>("__ax_clear_user_globals()")
+                    .map_err(qjs_error)
+            })?;
+        }
         if let Some(obj) = bindings.as_object() {
             for (name, value) in obj {
+                // A snapshot saved before the engine's globals were left out
+                // (24.x listed Atomics and performance as bindings) must not
+                // overwrite them.
                 if name.starts_with("__ax_")
-                    || self.reserved.contains(name)
-                    || is_builtin_reserved_name(name)
+                    || (self.reserved.contains(name) && !merge)
+                    || (is_builtin_reserved_name(name) && !(merge && name == "inputs"))
+                    || self.engine_globals.contains(name)
                     || is_host_callable_marker(value)
                 {
                     continue;
@@ -528,6 +595,7 @@ fn is_builtin_reserved_name(name: &str) -> bool {
 
 const QUICKJS_BOOTSTRAP: &str = r#"
 {{AX_HOST_NAMESPACES_RAW}}
+{{AX_RUNTIME_SUPPORT_RAW}}
 function axPersistSuffix(src){try{var n=[],s={},re=/(?:^|[\n;{}])\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,m;while((m=re.exec(src))){if(!s[m[1]]){s[m[1]]=1;n.push(m[1]);}}return n.map(function(x){return 'try{globalThis['+JSON.stringify(x)+']='+x+';}catch(__e){}';}).join('');}catch(__e){return '';}}
 const __ax_builtin_reserved = [
   "Object", "Function", "Array", "Number", "parseFloat", "parseInt", "Infinity", "NaN",
@@ -608,6 +676,7 @@ function __ax_snapshot_json() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     const value = globalThis[key];
     if (typeof value === "function" || typeof value === "undefined") continue;
     try { JSON.stringify(value); out[key] = value; } catch (_) {}
@@ -619,7 +688,12 @@ function __ax_clear_user_globals() {
   for (const key of Object.getOwnPropertyNames(globalThis)) {
     if (key.startsWith("__ax_")) continue;
     if (__ax_has_name(__ax_builtin_reserved, key) || __ax_has_name(sessionReserved, key)) continue;
+    if (__ax_has_name(globalThis.__ax_engine_globals, key)) continue;
     try { delete globalThis[key]; } catch (_) {}
   }
 }
+// The engine's own globals (Atomics, performance, the bootstrap functions,
+// ...) are not user bindings: the snapshot leaves them out, a replacing patch
+// keeps them, and a restored snapshot cannot overwrite them.
+globalThis.__ax_engine_globals = Object.getOwnPropertyNames(globalThis);
 "#;

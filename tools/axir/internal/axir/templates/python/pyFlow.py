@@ -408,14 +408,28 @@ class AxFlow(AxProgram):
         if lookup.get("hit"):
             return lookup.get("value")
         call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
-        with _runtime_hook_scope(
-            call_hooks,
-            self.runtime_hooks,
-            span_name="ax_gen_flow_forward",
-            attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
-            metric_prefix="ax_gen_flow",
-        ):
-            return self._forward_unscoped(client, values, {**run_options, "_ax_flow_cache_lookup": lookup})
+        # As TypeScript's AxFlow.forward does, a run control hears the flow's
+        # own lifecycle at its path; each node reports at <path>/<node>.
+        control = run_options.get("control")
+        run_path = run_options.get("execution_path", run_options.get("executionPath", "root"))
+        if control is not None:
+            control._emit({"type": "started", "path": run_path})
+        try:
+            with _runtime_hook_scope(
+                call_hooks,
+                self.runtime_hooks,
+                span_name="ax_gen_flow_forward",
+                attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
+                metric_prefix="ax_gen_flow",
+            ):
+                output = self._forward_unscoped(client, values, {**run_options, "_ax_flow_cache_lookup": lookup})
+        except Exception as error:
+            if control is not None:
+                control._emit({"type": "failed", "path": run_path, "error": str(error)})
+            raise
+        if control is not None:
+            control._emit({"type": "completed", "path": run_path})
+        return output
 
     def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_options = dict(options or {})

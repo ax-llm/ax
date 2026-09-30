@@ -17,14 +17,30 @@ from .ai import AnthropicClient, AxAIRefusalError, AxAIServiceAbortedError, AxAI
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import openai_responses_transport_cursor, openai_responses_session_event, _wire_json_body
 from .ai import _snapshot_global_caching_function, set_caching_function
+from .ai import _snapshot_global_function_result_formatter, set_function_result_formatter
+
+
+def _fixture_function_result_formatter(spec):
+    # {text} writes that text for every tool result; {throws} fails with that message.
+    spec = spec or {}
+    text = str(spec.get("text", ""))
+    failure = spec.get("throws")
+
+    def formatter(result):
+        if failure is not None:
+            raise RuntimeError(str(failure))
+        return text
+
+    return formatter
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
-from .ai import _core_ai_capture_warnings, _core_axgen_capture_deprecations
+from .ai import _REQUEST_RETRY_HOOKS, _core_ai_capture_warnings, _core_axgen_capture_deprecations, _check_cancelled
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     _parse_text_output_fields_impl,
     _stream_field_value_impl,
     ax,
     chat_session_create_state, chat_session_transition, chat_session_unresolved, chat_session_validate_required_arguments,
+    chat_session_tool_argument_errors,
     fold_stream,
     stream_extraction_route,
     stream_structured_delta,
@@ -113,6 +129,8 @@ class ConformanceScriptedAI(AxBaseAI):
         # What the run did to its sessions: open, steer, continue (with the
         # IDs of the tool results it submitted) and close.
         self.session_log = []
+        # The tool results the run submitted to its sessions, in order.
+        self.session_tool_results = []
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
@@ -134,7 +152,7 @@ class ConformanceScriptedAI(AxBaseAI):
     def _chat(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
-        self.chat_options.append(copy.deepcopy(options or {}))
+        self.chat_options.append(_copy_chat_options(options))
         self._note_request()
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
@@ -149,12 +167,12 @@ class ConformanceScriptedAI(AxBaseAI):
             raise RuntimeError("scripted client has no native sessions")
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
-        self.chat_options.append(copy.deepcopy(options or {}))
+        self.chat_options.append(_copy_chat_options(options))
         self.session_log.append({"op": "open"})
         self._note_request()
         if not self.native_sessions:
             raise RuntimeError("scripted sessions exhausted")
-        return _ScriptedChatSession(self.session_log, self.native_sessions.pop(0))
+        return _ScriptedChatSession(self.session_log, self.native_sessions.pop(0), self.session_tool_results)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(copy.deepcopy(request))
@@ -163,12 +181,15 @@ class ConformanceScriptedAI(AxBaseAI):
         return copy.deepcopy(self.responses.pop(0))
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        # A scripted {"stream": [...]} response streams its chunks; fixture
-        # stream_events stream as before; any other response streams as one.
+        # A cancelled call stops before its request, as the base client's
+        # chat() does. A scripted {"stream": [...]} response streams its
+        # chunks; fixture stream_events stream as before; any other response
+        # streams as one.
+        _check_cancelled(options)
         if self.responses and isinstance(self.responses[0], dict) and "stream" in self.responses[0]:
             self.chat_calls += 1
             self.requests.append(copy.deepcopy(request))
-            self.chat_options.append(copy.deepcopy(options or {}))
+            self.chat_options.append(_copy_chat_options(options))
             self._note_request()
             raw = self.responses.pop(0)
             for event in raw["stream"]:
@@ -208,9 +229,10 @@ class _ScriptedChatSession:
 
     model = "scripted-session"
 
-    def __init__(self, log, script):
+    def __init__(self, log, script, results=None):
         import queue
         self._log = log
+        self._results = results if results is not None else []
         self._script = list(script)
         self._events = queue.Queue()
         self._closed = False
@@ -235,6 +257,12 @@ class _ScriptedChatSession:
 
     def submit_tool_results(self, results):
         self._log.append({"op": "continue", "call_ids": [result.get("function_id") for result in results]})
+        for result in results:
+            self._results.append({
+                "call_id": result.get("function_id"),
+                "result": result.get("result"),
+                "is_error": bool(result.get("is_error")),
+            })
         self._play()
 
     def continue_response(self):
@@ -260,6 +288,8 @@ class _ScriptedChatSession:
 def _assert_session_log(fixture, client):
     if "expected_session_log" in fixture:
         _assert_equal(client.session_log, fixture["expected_session_log"], "native session log")
+    if "expected_session_tool_results" in fixture:
+        _assert_equal(client.session_tool_results, fixture["expected_session_tool_results"], "native session tool results")
 
 
 def _assert_speak_requests(fixture, client):
@@ -291,6 +321,25 @@ def _assert_notifications(actual, expected):
         for needle in spec.get("value_contains") or []:
             if str(needle) not in value:
                 raise FixtureError(f"notification {index} value missing {needle!r}: {value}")
+
+
+def _copy_chat_options(options):
+    # A deep copy of the options, with a cancellation token kept as is.
+    tokens = {key: value for key, value in (options or {}).items() if isinstance(value, AxCancellationToken)}
+    copied = copy.deepcopy({key: value for key, value in (options or {}).items() if key not in tokens})
+    copied.update(tokens)
+    return copied
+
+
+def _fixture_cancellation(spec):
+    # A fixture's constructor_cancellation or call_cancellation: a token,
+    # cancelled with the reason when the spec says so.
+    if not spec:
+        return None
+    token = AxCancellationToken()
+    if spec.get("cancelled"):
+        token.cancel(spec.get("reason") or "fixture-stop")
+    return token
 
 
 def _fixture_ai_service_error(spec):
@@ -409,7 +458,12 @@ class ScriptedTransport:
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
             raise RuntimeError("scripted transport exhausted")
-        return copy.deepcopy(self.responses.pop(0))
+        response = copy.deepcopy(self.responses.pop(0))
+        # {"network_error": message} stands for a request that failed to
+        # connect, send or read, as the HTTP client reports it.
+        if isinstance(response, dict) and "network_error" in response:
+            raise ConnectionError(str(response["network_error"]))
+        return response
 
     def call_with_cancellation(self, request, cancellation):
         self.cancellations.append(cancellation)
@@ -656,6 +710,26 @@ SUPPORTS_LONE_SURROGATES = True
 
 def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
     fixture = _expand_ordered_json_fields(fixture)
+    # The request-layer retry records its delays instead of waiting, and a
+    # fixture can fix its jitter (retry_random) and clock (retry_now_ms) and
+    # pin the delays (expected_retry_delays_ms). An ai_cancellation fixture
+    # checks that a cancellation ends the wait, so it waits for real.
+    delays: list[float] = []
+    _REQUEST_RETRY_HOOKS["sleep"] = None if fixture.get("kind") == "ai_cancellation" else delays.append
+    _REQUEST_RETRY_HOOKS["random"] = (lambda: float(fixture["retry_random"])) if "retry_random" in fixture else None
+    _REQUEST_RETRY_HOOKS["now_ms"] = (lambda: float(fixture["retry_now_ms"])) if "retry_now_ms" in fixture else None
+    try:
+        result = _run_fixture_with_deprecations(fixture, source=source)
+    finally:
+        _REQUEST_RETRY_HOOKS.update({"sleep": None, "random": None, "now_ms": None})
+    if "expected_retry_delays_ms" in fixture and (not isinstance(result, dict) or result.get("ok", True)):
+        expected = fixture["expected_retry_delays_ms"]
+        if len(delays) != len(expected) or any(abs(float(got) - float(want)) > 1e-6 for got, want in zip(delays, expected)):
+            raise FixtureError(f"retry delays: expected {expected!r}, got {delays!r}")
+    return result
+
+
+def _run_fixture_with_deprecations(fixture: dict[str, Any], *, source: str | None = None):
     # expected_deprecations pins the one-time deprecation warnings the run
     # gives (the ones already shown are forgotten first).
     if "expected_deprecations" in fixture:
@@ -744,6 +818,10 @@ def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_usage_observer(fixture)
         elif kind == "ai_runtime_hooks":
             _run_ai_runtime_hooks(fixture)
+        elif kind == "ai_verbose":
+            _run_ai_verbose(fixture)
+        elif kind == "ai_custom_labels":
+            _run_ai_custom_labels(fixture)
         elif kind == "ai_credential_wrapper":
             _run_ai_credential_wrapper(fixture)
         elif kind == "ai_error":
@@ -1092,6 +1170,7 @@ def _run_prompt(fixture):
         functions=tools,
         custom_template=fixture.get("custom_template") or options.get("custom_template") or options.get("customTemplate"),
         structured_output_function_name=fixture.get("structured_output_function_name") or options.get("structured_output_function_name") or options.get("structuredOutputFunctionName"),
+        include_optional_input_fields_in_system_prompt=bool(options.get("includeOptionalInputFieldsInSystemPrompt", options.get("include_optional_input_fields_in_system_prompt", False))),
     )
     if fixture.get("instruction"):
         prompt.set_instruction(fixture["instruction"])
@@ -1357,6 +1436,10 @@ def _run_forward(fixture):
     if fixture.get("constructor_control"):
         # The run control is a constructor default, not a call option.
         control_events = _attach_fixture_control(fixture, client, options)
+    constructor_token = _fixture_cancellation(fixture.get("constructor_cancellation"))
+    if constructor_token is not None:
+        # The program's cancellation, the default for every forward.
+        options["cancellation"] = constructor_token
     gen = ax(sig, options)
     if "examples" in fixture:
         gen.set_examples(fixture.get("examples") or [])
@@ -1378,16 +1461,31 @@ def _run_forward(fixture):
                 _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
             return fixture["result_picker_index"]
         gen.set_result_picker(pick_result)
+    if "function_result_formatter" in fixture:
+        # The program's formatter.
+        gen.set_function_result_formatter(_fixture_function_result_formatter(fixture["function_result_formatter"]))
     forward_options = fixture.get("forward_options")
+    if "call_function_result_formatter" in fixture:
+        # The forward call's formatter.
+        forward_options = dict(forward_options or {})
+        forward_options["function_result_formatter"] = _fixture_function_result_formatter(fixture["call_function_result_formatter"])
     if fixture.get("control"):
         forward_options = dict(forward_options or {})
         control_events = _attach_fixture_control(fixture, client, forward_options)
+    call_token = _fixture_cancellation(fixture.get("call_cancellation"))
+    if call_token is not None:
+        forward_options = {**(forward_options or {}), "cancellation": call_token}
+    # The process-wide formatter, restored after the forward.
+    previous_global_formatter = _snapshot_global_function_result_formatter()
+    if "global_function_result_formatter" in fixture:
+        set_function_result_formatter(_fixture_function_result_formatter(fixture["global_function_result_formatter"]))
     try:
         output = gen.forward(client, fixture.get("input") or {}, forward_options)
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
             _assert_error_cause(fixture, exc)
+            _assert_request_roles(fixture, client)
             if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
                 raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
             if "expected_tool_calls" in fixture:
@@ -1396,6 +1494,8 @@ def _run_forward(fixture):
             _assert_session_log(fixture, client)
             return
         raise
+    finally:
+        set_function_result_formatter(previous_global_formatter)
     if "expected_error_contains" in fixture:
         raise FixtureError("expected forward to fail")
     _assert_session_log(fixture, client)
@@ -1442,6 +1542,8 @@ def _run_forward(fixture):
             _assert_equal(names, check["function_names"], f"request {index} function names")
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+    if "expected_tool_extras" in fixture:
+        _assert_equal(tool_calls.extras, fixture["expected_tool_extras"], "tool extras")
     if "expected_trace" in fixture:
         traces = gen.get_traces()
         if not traces:
@@ -1453,6 +1555,18 @@ def _run_forward(fixture):
         raise FixtureError(f"expected memory history count {fixture['expected_memory_history_count']}, got {len(gen.get_memory().history())}")
     if "expected_memory_history_subset" in fixture:
         _assert_list_subset(gen.get_memory().history(), fixture["expected_memory_history_subset"], "memory history")
+    # The memory's tool results, in order: result_text is the text the model
+    # got, and result holds the same text.
+    for memory_key, entry_key in (("expected_memory_function_results", "result_text"), ("expected_memory_function_stored_results", "result")):
+        if memory_key in fixture:
+            memory_values = [
+                entry.get(entry_key)
+                for item in gen.get_memory().history()
+                if isinstance(item, dict) and item.get("role") == "function"
+                for entry in (item.get("results") or [])
+                if isinstance(entry, dict)
+            ]
+            _assert_equal(memory_values, fixture[memory_key], memory_key)
     if "expected_chat_log" in fixture:
         _assert_subset(gen.get_chat_log(), fixture["expected_chat_log"], "chat log")
     if "expected_chat_log_subset" in fixture:
@@ -1710,6 +1824,9 @@ def _run_streaming_forward(fixture):
     if fixture.get("constructor_control"):
         # The run control is a constructor default, not a call option.
         control_events = _attach_fixture_control(fixture, client, options)
+    constructor_token = _fixture_cancellation(fixture.get("constructor_cancellation"))
+    if constructor_token is not None:
+        options["cancellation"] = constructor_token
     gen = ax(sig, options)
     for assertion in fixture.get("assertions") or []:
         gen.add_assert(assertion)
@@ -1728,6 +1845,9 @@ def _run_streaming_forward(fixture):
     run_options = dict(fixture.get("forward_options") or {})
     if fixture.get("control"):
         control_events = _attach_fixture_control(fixture, client, run_options)
+    call_token = _fixture_cancellation(fixture.get("call_cancellation"))
+    if call_token is not None:
+        run_options["cancellation"] = call_token
     deltas = []
     stop_after = fixture.get("stop_after_deltas")
     try:
@@ -1766,6 +1886,8 @@ def _run_streaming_forward(fixture):
     _assert_speak_requests(fixture, client)
     if "expected_tool_calls" in fixture:
         _assert_equal(tool_calls, fixture["expected_tool_calls"], "tool calls")
+    if "expected_tool_extras" in fixture:
+        _assert_equal(tool_calls.extras, fixture["expected_tool_extras"], "tool extras")
     if "expected_processor_calls" in fixture:
         _assert_equal(processor_calls, fixture["expected_processor_calls"], "field processor calls")
     _assert_last_request_tail(fixture, client)
@@ -1812,12 +1934,17 @@ def _flow_build_step_from_fixture(step, fixture):
             "steps": step.get("steps") or [],
             "returns": step.get("returns") or {},
             "signature": step.get("signature", fixture.get("signature", "question:string -> answer:string")),
+            "_node_control": fixture.get("_node_control"),
         })
     elif step.get("program") == "agent":
         program = agent(step.get("signature", fixture.get("signature", "question:string -> answer:string")), step.get("options") or {})
     else:
         signature = step.get("extended_signature") or step.get("extendedSignature") or step.get("signature", fixture.get("signature", "question:string -> answer:string"))
-        program = ax(signature, step.get("options") or {})
+        program_options = dict(step.get("options") or {})
+        if step.get("constructor_control"):
+            # The node's own run control, a constructor default.
+            program_options["control"] = fixture.get("_node_control")
+        program = ax(signature, program_options)
     return _flow_step(kind, name, program, step_options)
 
 
@@ -1843,7 +1970,20 @@ def _run_program_contract(fixture):
         _assert_list_subset(components, fixture["expected_components_subset"], "program components")
 
 
+def _assert_flow_control_events(fixture, control_events, node_events):
+    if "expected_control_events" in fixture:
+        _assert_equal(control_events, fixture["expected_control_events"], "flow run control events")
+    if "expected_node_control_events" in fixture:
+        _assert_equal(node_events, fixture["expected_node_control_events"], "node run control events")
+
+
 def _run_flow(fixture):
+    # A step with constructor_control gets a node run control of its own;
+    # expected_node_control_events pins its lifecycle events.
+    node_options = {}
+    node_events = _attach_fixture_control({}, None, node_options)
+    fixture = {**fixture, "_node_control": node_options["control"]}
+    control_events = []
     try:
         fl = _build_flow(fixture)
         if "expected_plan" in fixture:
@@ -1854,6 +1994,8 @@ def _run_flow(fixture):
             return
         client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], speak_responses=fixture.get("speak_responses"))
         forward_options = copy.deepcopy(fixture.get("forward_options") or {})
+        if fixture.get("control"):
+            control_events = _attach_fixture_control(fixture, client, forward_options)
         if fixture.get("operation") == "streaming":
             output = list(fl.streaming_forward(client, fixture.get("input") or {}, forward_options))
         else:
@@ -1861,12 +2003,15 @@ def _run_flow(fixture):
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
+            # A failed flow's lifecycle events are pinned too.
+            _assert_flow_control_events(fixture, control_events, node_events)
             return
         raise
     if "expected_error_contains" in fixture:
         raise FixtureError("expected flow to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "flow output")
+    _assert_flow_control_events(fixture, control_events, node_events)
     if "expected_streaming_output" in fixture:
         _assert_equal(output, fixture["expected_streaming_output"], "flow streaming output")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
@@ -2029,9 +2174,14 @@ def _run_optimize(fixture):
             "evaluator": {"available": True, "contractVersion": "axir-optimizer-evaluator-v1"},
         }
 
-    def build_program():
+    def build_program(playbook_student=None):
         sig = fixture.get("signature", "question:string -> answer:string")
         options = copy.deepcopy(fixture.get("options") or {})
+        # As the agent fixtures do, a playbook without studentAI learns
+        # through the fixture's scripted client.
+        if playbook_student is not None and isinstance(options.get("playbook"), dict):
+            options["playbook"] = {**options["playbook"]}
+            options["playbook"].setdefault("studentAI", playbook_student)
         tools, _ = _build_tools(fixture.get("tools") or [])
         if tools:
             options["functions"] = tools
@@ -2047,8 +2197,13 @@ def _run_optimize(fixture):
             )
         return agent(sig, options)
 
-    program = build_program()
     operation = fixture.get("operation", "components")
+    # The eval operation's scripted client; as the agent fixtures do, a
+    # playbook without studentAI learns through it.
+    eval_client = None
+    if operation == "eval":
+        eval_client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+    program = build_program(playbook_student=eval_client)
     try:
         if operation == "verification":
             actual = _verification_instruments_summary()
@@ -2223,13 +2378,15 @@ def _run_optimize(fixture):
         if operation == "eval":
             if not isinstance(program, AxAgent):
                 raise FixtureError("eval operation requires agent program")
-            client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+            client = eval_client
             prediction = program.evaluate_optimization_task(client, fixture.get("task") or {"input": fixture.get("input") or {}}, fixture.get("eval_options") or {})
             if "expected_prediction_subset" in fixture:
                 _assert_subset(prediction, fixture["expected_prediction_subset"], "eval prediction")
             # Fields that must match exactly: a list compares in full.
             for key, value in (fixture.get("expected_prediction_fields") or {}).items():
                 _assert_equal(prediction.get(key), value, f"eval prediction {key}")
+            if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
+                raise FixtureError(f"expected {fixture['expected_request_count']} eval requests, got {len(client.requests)}")
             return
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
@@ -2741,6 +2898,14 @@ def _run_agent_forward(fixture):
         for value in check.get("not_contains",[]):
             if value in text: raise FixtureError("Child request exposed "+value)
         if check.get("functions_absent") and request.get("functions"): raise FixtureError("Agent runtime tools leaked into model-native functions")
+    # Each stage's first request in full: every message's role and content.
+    for expected_first in fixture.get("expected_stage_first_requests") or []:
+        position = expected_first["index"]
+        if position >= len(client.requests):
+            raise FixtureError(f"no request {position} for the {expected_first['stage']} stage")
+        prompt = client.requests[position].get("chat_prompt") or []
+        actual_messages = [{"role": message.get("role"), "content": message.get("content")} for message in prompt]
+        _assert_equal(actual_messages, expected_first["messages"], f"{expected_first['stage']} first request")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     # Every chat call's options carry these (a forward option each stage gets).
@@ -3551,6 +3716,83 @@ def _run_ai_usage_observer(fixture):
         raise FixtureError("cleared usage observer received an event")
 
 
+def _run_ai_custom_labels(fixture):
+    # A recording meter sees a chat (the service's and the call's custom
+    # labels) and an AxGen forward on the same client (its constructor's
+    # labels with the call's over them). Each expected metric's first record
+    # must carry the expected labels besides the runtime's own "ax.*"
+    # attributes.
+    records = []
+
+    class Instrument:
+        def __init__(self, name):
+            self.name = name
+
+        def add(self, _value, attributes=None):
+            records.append((self.name, dict(attributes or {})))
+
+        record = add
+
+    class RecordingMeter:
+        def create_counter(self, name, _options=None):
+            return Instrument(name)
+
+        create_histogram = create_counter
+        create_gauge = create_counter
+
+    def custom_part(name):
+        for recorded_name, attributes in records:
+            if recorded_name == name:
+                return {key: value for key, value in attributes.items() if not str(key).startswith("ax.")}
+        raise FixtureError(f"no {name} metric was recorded: {[recorded for recorded, _ in records]}")
+
+    client, _transport = _openai_fixture_client(fixture)
+    set_meter(RecordingMeter())
+    try:
+        chat = fixture.get("chat") or {}
+        client.chat(chat.get("request") or {}, {"customLabels": chat.get("custom_labels") or {}})
+        for name, expected in (fixture.get("expected_chat_custom_labels") or {}).items():
+            _assert_equal(custom_part(name), expected, f"chat {name} custom labels")
+        records.clear()
+        spec = fixture.get("forward") or {}
+        gen = ax(spec.get("signature") or "question:string -> answer:string", {"customLabels": spec.get("constructor_custom_labels") or {}})
+        gen.forward(client, spec.get("input") or {}, {"stream": False, "customLabels": spec.get("call_custom_labels") or {}})
+        for name, expected in (fixture.get("expected_forward_custom_labels") or {}).items():
+            _assert_equal(custom_part(name), expected, f"forward {name} custom labels")
+    finally:
+        set_meter(None)
+
+
+_VERBOSE_HEADERS = re.compile(r" Headers: \{[\s\S]*?\n\} \nBody:")
+
+
+def _run_ai_verbose(fixture):
+    # Each call's verbose blocks, with the headers' JSON as {{HEADERS}}; the
+    # headers must mask the API key.
+    import importlib
+    ai_module = importlib.import_module(__package__ + ".ai")
+    client, _transport = _openai_fixture_client(fixture)
+    api_key = fixture.get("api_key", "test-key")
+    logs = []
+    previous = ai_module._verbose_sink
+    try:
+        for call in fixture.get("calls") or []:
+            entries = []
+            ai_module._verbose_sink = entries.append
+            request = copy.deepcopy(call.get("request") or {})
+            if (request.get("model_config") or {}).get("stream"):
+                list(client.stream(request, call.get("options") or {}))
+            else:
+                client.chat(request, call.get("options") or {})
+            for entry in entries:
+                if api_key and api_key in entry:
+                    raise FixtureError(f"a verbose block shows the API key: {entry}")
+            logs.append([_VERBOSE_HEADERS.sub(" Headers: {{HEADERS}} \nBody:", entry) for entry in entries])
+    finally:
+        ai_module._verbose_sink = previous
+    _assert_equal(logs, fixture["expected_verbose_logs"], "verbose logs")
+
+
 def _run_ai_runtime_hooks(fixture):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -4259,8 +4501,24 @@ def _field_from_spec(spec):
     return field
 
 
+class _ToolCalls(list):
+    # The tool calls, and in .extras the extras each record_extras tool saw.
+    def __init__(self):
+        super().__init__()
+        self.extras = []
+
+
+def _tool_extras_seen(context):
+    # A tool context's extras, under TS's names.
+    seen = {}
+    for key, name in (("session_id", "sessionId"), ("execution_path", "executionPath"), ("event_context", "eventContext")):
+        if (context or {}).get(key) is not None:
+            seen[name] = copy.deepcopy(context[key])
+    return seen
+
+
 def _build_tools(specs):
-    calls = []
+    calls = _ToolCalls()
     tools = []
     for spec in specs:
         builder = fn(spec["name"]).description(spec.get("description") or spec["name"])
@@ -4277,6 +4535,14 @@ def _build_tools(specs):
                 raise RuntimeError(_error)
             return copy.deepcopy(_result)
 
+        if spec.get("record_extras"):
+            # A context handler, recording the extras it gets.
+            def context_handler(args, context, *, _name=spec["name"], handler_fn=handler):
+                calls.extras.append({"name": _name, "extras": _tool_extras_seen(context)})
+                return handler_fn(args)
+
+            tools.append(builder.context_handler(context_handler).build())
+            continue
         tools.append(builder.handler(handler).build())
     return tools, calls
 
@@ -4401,6 +4667,8 @@ def _run_ai_session_state(fixture):
         except Exception:
             valid = False
         _assert_equal(valid, case["valid"], "raw argument validation: " + json.dumps(case))
+        if "errors" in case:
+            _assert_equal(chat_session_tool_argument_errors(case["schema"], case["arguments"]), case["errors"], "raw argument errors: " + json.dumps(case))
     state = chat_session_create_state(fixture["model"], fixture["path"], fixture["max_steps"])
     for case in fixture["cases"]:
         _assert_equal(chat_session_transition(state, case["event"]), case["expected_action"], "session transition")

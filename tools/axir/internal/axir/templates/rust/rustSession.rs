@@ -576,6 +576,7 @@ pub(crate) struct SessionRun {
     gen: CoreValue,
     tools: Vec<Tool>,
     options: Value,
+    pub(crate) formatter_options: CoreValue,
     control: Option<AxRunControl>,
     path: String,
     after: usize,
@@ -615,7 +616,9 @@ impl SessionRun {
             .and_then(Value::as_str)
             .unwrap_or("root")
             .to_string();
+        let formatter_options = core_get(&gen, &CoreValue::from("options"), CoreValue::new_map());
         Self {
+            formatter_options,
             id: NEXT_SESSION_RUN.fetch_add(1, Ordering::SeqCst),
             routes: Vec::new(),
             route_selected: false,
@@ -676,7 +679,7 @@ impl SessionRun {
             return Ok(());
         }
         let tool = self.tools.iter().find(|tool| tool.name == name).cloned();
-        let arguments = (|| -> AxResult<Value> {
+        let arguments = (|| -> AxResult<(Value, Option<Value>)> {
             let args = match &call["function"]["params"] {
                 Value::String(text) => serde_json::from_str(text)?,
                 value => value.clone(),
@@ -684,14 +687,15 @@ impl SessionRun {
             let tool = tool
                 .as_ref()
                 .ok_or_else(|| AxError::runtime(format!("Function '{name}' not found")))?;
-            validate_fields(&[
-                core_tool_args_fields(&tool.args)?,
-                core_value_from_json(&args),
-                CoreValue::from_string(format!("tool.{name}.args")),
-            ])?;
+            // As TS's session does, a call whose arguments fail the tool's
+            // schema does not run: its result is TS's fixing instructions.
             let schema = core_value_from_json(&tool.schema()?);
-            chat_session_validate_required_arguments(&[schema, core_value_from_json(&args), CoreValue::from_string(format!("tool.{name}.args"))])?;
-            Ok(args)
+            let fixing = core_value_to_json(&chat_session_tool_argument_error(&[
+                CoreValue::from(name),
+                schema,
+                core_value_from_json(&args),
+            ])?);
+            Ok((args, if fixing.is_null() { None } else { Some(fixing) }))
         })();
         let execution = tool
             .as_ref()
@@ -703,13 +707,17 @@ impl SessionRun {
             CoreValue::from(execution),
         ])?;
         let args = match arguments {
-            Ok(args) => args,
+            Ok((_, Some(fixing))) => {
+                chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&call),core_value_from_json(&fixing),CoreValue::Bool(false),self.formatter_options.clone()])?;
+                return Ok(());
+            }
+            Ok((args, None)) => args,
             Err(error) => {
                 let message = _tool_error_message_impl(&[
                     core_value_from_json(&call),
                     CoreValue::Error(Rc::new(error)),
                 ])?;
-                chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&call),core_value_from_json(&core_value_to_json(&message)["result"]),CoreValue::Bool(false)])?;
+                chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&call),core_value_from_json(&core_value_to_json(&message)["result"]),CoreValue::Bool(false),self.formatter_options.clone()])?;
                 return Ok(());
             }
         };
@@ -720,10 +728,12 @@ impl SessionRun {
         // session that started it, never to a later one.
         let sender = self.sender.clone();
         let cancelled = self.cancelled.clone();
+        // As TS, the tool gets the run's extras (tool_call_extras).
+        let extras = core_value_to_json(&tool_call_extras(&[core_value_from_json(&self.options), CoreValue::from(name)])?);
         let inherited=RUNTIME_HOOK_FRAMES.with(|frames|frames.borrow().clone());
         std::thread::spawn(move || {
             RUNTIME_HOOK_FRAMES.with(|frames|*frames.borrow_mut()=inherited);
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()})))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tool.call_with_context(args,AxToolContext{call_id:call["id"].as_str().map(str::to_string),cancelled:cancelled.clone(),..AxToolContext::default()}.with_extras(&extras))))
                 .unwrap_or_else(|_| Err(AxError::runtime("Tool handler panicked")));
             if !cancelled.load(Ordering::SeqCst) {
                 let _ = sender.send(ToolResult { call, result });
@@ -875,15 +885,19 @@ impl SessionRun {
             return Ok(false);
         };
         self.session = Some(session);
+        // As TS's maxResponses: the run's maxSteps (25 by default) less the
+        // request's step.
+        let max_steps = self
+            .options
+            .get("maxSteps")
+            .or_else(|| self.options.get("max_steps"))
+            .and_then(Value::as_f64)
+            .unwrap_or(25.0);
+        let step = request.get("_ax_step_index").and_then(Value::as_f64).unwrap_or(0.0);
         self.state = chat_session_create_state(&[
             core_value_from_json(&request["model"]),
             CoreValue::from(self.path.as_str()),
-            core_value_from_json(
-                self.options
-                    .get("maxSteps")
-                    .or_else(|| self.options.get("max_steps"))
-                    .unwrap_or(&json!(10)),
-            ),
+            CoreValue::Num(max_steps - step),
         ])?;
         Ok(true)
     }
@@ -1035,7 +1049,7 @@ impl SessionRun {
                 ])?)["result"]
                     .clone(),
             };
-            if !core_truthy(&chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&delivery.call),core_value_from_json(&result),CoreValue::Bool(ok)])?){continue;}
+            if !core_truthy(&chat_session_record_result(&[self.gen.clone(),self.state.clone(),core_value_from_json(&delivery.call),core_value_from_json(&result),CoreValue::Bool(ok),self.formatter_options.clone()])?){continue;}
             self.emit("tool.completed", json!({"call_id":id}));
             if core_value_to_json(&self.state)["pending"][id]["execution"] != "background" {
                 self.blocking = false;
@@ -1130,10 +1144,8 @@ impl SessionRun {
     }
     fn submit(&mut self, results: Vec<Value>) -> AxResult<()> {
         let state = core_value_to_json(&self.state);
-        if state["steps"].as_f64().unwrap_or(0.0) >= state["max_steps"].as_f64().unwrap_or(10.0) {
-            return Err(AxError::runtime(
-                "Maximum model steps exhausted before final completion",
-            ));
+        if state["steps"].as_f64().unwrap_or(0.0) >= state["max_steps"].as_f64().unwrap_or(25.0) {
+            return Err(core_as_error(&chat_session_step_limit_error(&[self.state.clone()])?));
         }
         self.session.as_mut().ok_or_else(|| AxError::runtime("Session closed"))?.submit(results.clone())?;
         let ids: Vec<Value> = results
@@ -1865,7 +1877,7 @@ mod tests {
         fn get_features(&self,_:Option<&str>)->Value{json!({"functions":true,"streaming":false,"asyncTools":self.unused})}
         fn chat(&mut self,request:Value)->AxResult<Value>{
             assert!(!self.unused,"Pinned run changed providers");let count=self.calls.fetch_add(1,Ordering::SeqCst)+1;
-            if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","function":{"name":"lookup","params":{}}}]}]}));}
+            if count==1{return Ok(json!({"results":[{"function_calls":[{"id":"balanced-call","type":"function","function":{"name":"lookup","params":{}}}]}]}));}
             assert_eq!(count,2);assert_eq!(self.tools.load(Ordering::SeqCst),1,"request: {request}");assert!(request.to_string().contains("FALLBACK"));assert!(request.to_string().contains("balanced-call"));Ok(json!({"results":[{"content":"{\"answer\":\"FALLBACK\"}"}]}))
         }
         fn open_chat_session(&mut self,_:Value,_:Value)->AxResult<Option<Box<dyn AxChatSession>>>{assert!(!self.unused,"Pinned run changed providers");Ok(None)}

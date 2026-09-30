@@ -20,6 +20,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAxGenRunAssertions:      true,
 	IntrinsicFlowDispatchGroup:       true,
 	IntrinsicAgentStageForward:       true,
+	IntrinsicAgentProgramForward:     true,
 	IntrinsicAgentNativeStageForward: true,
 	IntrinsicAgentStageStreamForward: true,
 	IntrinsicAgentRuntimeCreate:      true,

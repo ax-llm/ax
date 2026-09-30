@@ -30,6 +30,11 @@ public final class AxGen implements AxProgram {
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }
   public interface ResultPickerCallback { int pick(List<Map<String, Object>> samples); }
+  /**
+   * Writes a tool result for the model, as TS's functionResultFormatter option does. A formatter that
+   * throws fails the forward ("Generate failed: ..."), as in TS.
+   */
+  public interface FunctionResultFormatter { String format(Object result); }
 
   final AxSignature signature;
   final Map<String, Object> options;
@@ -98,7 +103,8 @@ public final class AxGen implements AxProgram {
       signature,
       functions,
       (String) this.options.getOrDefault("structured_output_function_name", this.options.get("structuredOutputFunctionName")),
-      (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate"))
+      (String) this.options.getOrDefault("custom_template", this.options.get("customTemplate")),
+      Core.truthy(this.options.getOrDefault("include_optional_input_fields_in_system_prompt", this.options.getOrDefault("includeOptionalInputFieldsInSystemPrompt", false)))
     );
     if (!this.instruction.isEmpty()) {
       this.promptTemplate.setInstruction(this.instruction);
@@ -133,6 +139,14 @@ public final class AxGen implements AxProgram {
 
   public AxGen setResultPicker(ResultPickerCallback resultPicker) {
     this.options.put("resultPicker", resultPicker);
+    return this;
+  }
+
+  // The program's tool result formatter. Without one, a string goes as it is,
+  // null as "done", and any other value as pretty JSON; a forward call's
+  // "functionResultFormatter" option wins over it.
+  public AxGen setFunctionResultFormatter(FunctionResultFormatter formatter) {
+    this.options.put("functionResultFormatter", formatter);
     return this;
   }
 
@@ -525,7 +539,8 @@ public final class AxGen implements AxProgram {
         runtimeHooks,
         "ax_gen_forward",
         "ax_gen_generation",
-        Map.of("ax.program.id", programId, "ax.program.type", "AxGen"));
+        Map.of("ax.program.id", programId, "ax.program.type", "AxGen"),
+        AxGlobals.genMetricLabels(client, options, callOptions));
     try {
       return forwardUnscoped(client, values, callOptions);
     } catch (RuntimeException | Error error) {
@@ -626,7 +641,7 @@ public final class AxGen implements AxProgram {
     attributes.put("ax.program.id", programId);
     attributes.put("ax.program.type", "AxGen");
     attributes.put("ax.streaming", true);
-    AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes);
+    AxGlobals.Scope scope = AxGlobals.openScope(AxRuntimeHooks.fromOptions(forwardOptions), runtimeHooks, "ax_gen_forward", "ax_gen_generation", attributes, AxGlobals.genMetricLabels(client, options, callOptions));
     try {
       java.util.function.Consumer<Object> emit = envelope -> sink.accept(Core.asMap(envelope));
       return streamingForwardUnscoped(client, input, callOptions, emit);
