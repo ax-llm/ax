@@ -241,7 +241,7 @@ public final class AstraSessionTest {
         else if(stage.equals("root/responder"))output=Map.of("answer","REF-42");
         else output=Map.of("javascriptCode",stage.equals("root/executor")&&!runtime.delegated?"delegate":"parent-final");
         var response=new LinkedHashMap<String,Object>(Map.of("id","child-r"+(number+1),"model","gpt-6-astra","usage",Map.of("input_tokens",2,"output_tokens",1,"total_tokens",3),"output",List.of(Map.of("type","message","id","message","content",List.of(Map.of("type","output_text","text",Json.stringify(output)))))));
-        if(cancel&&number==6)response.put("output",List.of(Map.of("type","function_call","name","tools_lookup","call_id","child-mcp","arguments","{}","status","completed")));
+        if(cancel&&number==6)response.put("output",List.of(Map.of("type","function_call","name","utils_lookup","call_id","child-mcp","arguments","{}","status","completed")));
         return new ByteArrayInputStream(("data: "+Json.stringify(Map.of("type","response.completed","response",response))+"\n\n").getBytes(StandardCharsets.UTF_8));
       };
       var mcpCalls=new AtomicInteger();var settled=new CountDownLatch(1);
@@ -405,8 +405,8 @@ public final class AstraSessionTest {
           if(number==5&&!Json.stringify(body).contains("REF-42"))throw new AssertionError("Responder started before incorporation");
           return "data: "+Json.stringify(completed(stage+suffix,number<3?"{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}":"{\"answer\":\"REF-42\"}"))+"\n\n";
         }
-        if(number==3){var tools=(List<Map<String,Object>>)body.get("tools");if(tools.size()!=1||!"tools_lookup".equals(tools.get(0).get("name"))||!Boolean.TRUE.equals(tools.get(0).get("async")))throw new AssertionError("Missing native actor tool");
-          var input=new PipedInputStream(8192);var output=new PipedOutputStream(input);Thread worker=new Thread(()->{try(output){emit(output,Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","agent-call","name","tools_lookup","arguments","{\"query\":\"REF-42\"}")));if(!started.await(2,TimeUnit.SECONDS))throw new AssertionError("Agent tool did not overlap model work");release.countDown();emit(output,completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"));}catch(Exception error){throw new RuntimeException(error);}});worker.setDaemon(true);worker.start();return input;
+        if(number==3){var tools=(List<Map<String,Object>>)body.get("tools");if(tools.size()!=1||!"utils_lookup".equals(tools.get(0).get("name"))||!Boolean.TRUE.equals(tools.get(0).get("async")))throw new AssertionError("Missing native actor tool");
+          var input=new PipedInputStream(8192);var output=new PipedOutputStream(input);Thread worker=new Thread(()->{try(output){emit(output,Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","agent-call","name","utils_lookup","arguments","{\"query\":\"REF-42\"}")));if(!started.await(2,TimeUnit.SECONDS))throw new AssertionError("Agent tool did not overlap model work");release.countDown();emit(output,completed("executor1","{\"completion\":{\"type\":\"final\",\"args\":[\"Report reference\",{\"answer\":\"provisional\"}]}}"));}catch(Exception error){throw new RuntimeException(error);}});worker.setDaemon(true);worker.start();return input;
         }
         if(number!=4||!"executor1".equals(body.get("previous_response_id"))||!Json.stringify(body.get("input")).contains("REF-42"))throw new AssertionError("Lost native result");
         String updates=Json.stringify(body.get("input"));if(!updates.contains("ROOT-GUIDANCE")||updates.contains("RESPONDER-ONLY")||!updates.contains("configuration_update")||!updates.contains("medium"))throw new AssertionError("Missing executor update");
@@ -417,8 +417,8 @@ public final class AstraSessionTest {
     var program=Ax.agent("question -> answer",Map.of("functions",List.of(tool),"directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
     var result=program.forward(client,Map.of("question","Find reference"),Map.of("control",control));if(!"REF-42".equals(result.get("answer"))||calls.get()!=1||requests.get()!=6)throw new AssertionError("Invalid native agent result");
     var activity=program.getActionLog().stream().map(entry->(Map<String,Object>)entry).filter(entry->"function_call".equals(entry.get("type"))).toList();
-    if(activity.size()!=1||!"tools.lookup".equals(activity.get(0).get("qualified_name"))||!"agent-call".equals(activity.get(0).get("call_id")))throw new AssertionError("Lost native activity: "+activity);
-    var duplicate=(Map<String,Object>)program.invokeCallable("tools.lookup",Map.of("query","REF-42"));if(!"error".equals(duplicate.get("status"))||calls.get()!=1)throw new AssertionError("Native call replayed through actor machinery");
+    if(activity.size()!=1||!"utils.lookup".equals(activity.get(0).get("qualified_name"))||!"agent-call".equals(activity.get(0).get("call_id")))throw new AssertionError("Lost native activity: "+activity);
+    var duplicate=(Map<String,Object>)program.invokeCallable("utils.lookup",Map.of("query","REF-42"));if(!"error".equals(duplicate.get("status"))||calls.get()!=1)throw new AssertionError("Native call replayed through actor machinery");
     System.out.println("java native agent tools, authority boundaries, action logs, and duplicate prevention passed");
   }
   static void noncooperativeCancellation() throws Exception {
@@ -647,7 +647,7 @@ public final class AstraSessionTest {
         int number=requests.incrementAndGet();
         if(number==1)return "data: "+Json.stringify(completed("distiller","{\"completion\":{\"type\":\"final\",\"args\":[\"Find reference\",{}]}}"))+"\n\n";
         if(number!=2)throw new AssertionError("Cancelled agent continued");
-        return "data: "+Json.stringify(Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","mcp-pending","name","tools_lookup","arguments","{}")))+"\n\n"+"data: "+Json.stringify(completed("actor","{\"completion\":{\"type\":\"final\",\"args\":[\"provisional\",{}]}}"))+"\n\n";
+        return "data: "+Json.stringify(Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","mcp-pending","name","utils_lookup","arguments","{}")))+"\n\n"+"data: "+Json.stringify(completed("actor","{\"completion\":{\"type\":\"final\",\"args\":[\"provisional\",{}]}}"))+"\n\n";
       }
     };
     var program=Ax.agent("question -> answer",Map.of("functions",List.of(nativeTool),"functionDiscovery",false,"directResponse","off"));

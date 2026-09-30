@@ -1,0 +1,169 @@
+{
+  "expected_prediction_fields": {
+    "functionCalls": [
+      {
+        "arguments": {
+          "query": "ax"
+        },
+        "name": "search",
+        "qualifiedName": "tools.search",
+        "result": {
+          "title": "Docs"
+        }
+      },
+      {
+        "arguments": {
+          "url": "https://example.com"
+        },
+        "error": "fetch failed",
+        "name": "fetch",
+        "qualifiedName": "tools.fetch"
+      }
+    ],
+    "toolErrors": ["tools.fetch: fetch failed"],
+    "turnCount": 3
+  },
+  "expected_prediction_subset": {
+    "completionType": "final",
+    "output": {
+      "answer": "Docs"
+    }
+  },
+  "expected_request_count": 5,
+  "kind": "optimize",
+  "name": "eval-prediction-playbook-no-learning",
+  "operation": "eval",
+  "options": {
+    "callable_results": {
+      "tools.fetch": {
+        "error": "fetch failed"
+      },
+      "tools.search": {
+        "value": {
+          "title": "Docs"
+        }
+      }
+    },
+    "contextFields": [],
+    "functions": [
+      {
+        "functions": [
+          {
+            "description": "Search the docs",
+            "name": "search",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "description": "Query",
+                  "type": "string"
+                }
+              },
+              "required": ["query"],
+              "type": "object"
+            }
+          },
+          {
+            "description": "Fetch a page",
+            "name": "fetch",
+            "parameters": {
+              "properties": {
+                "url": {
+                  "description": "Page URL",
+                  "type": "string"
+                }
+              },
+              "required": ["url"],
+              "type": "object"
+            }
+          }
+        ],
+        "namespace": "tools",
+        "title": "Tools"
+      }
+    ],
+    "playbook": {}
+  },
+  "program": "agent",
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"search\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"fetch\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {'answer': 'Docs'})\"}"
+    },
+    {
+      "content": "Answer: Docs"
+    },
+    {
+      "content": "Reasoning: The fetch tool failed.\nError Identification: fetch failed.\nRoot Cause Analysis: The page was unavailable.\nCorrect Approach: Check tool results.\nKey Insight: Check tool results before using them.\nBullet Tags: []"
+    },
+    {
+      "content": "Reasoning: One avoidance rule covers the failure.\nOperations: [{\"type\":\"ADD\",\"section\":\"failures_to_avoid\",\"content\":\"Check tool results before using them.\"}]"
+    }
+  ],
+  "runtime_language": "JavaScript",
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "search",
+      "result": {
+        "callable": {
+          "args": {
+            "query": "ax"
+          },
+          "qualified_name": "tools.search"
+        },
+        "output": "{\"title\":\"Docs\"}"
+      }
+    },
+    {
+      "expected_code": "fetch",
+      "result": {
+        "callable": {
+          "args": {
+            "url": "https://example.com"
+          },
+          "qualified_name": "tools.fetch"
+        },
+        "error": "Error: fetch failed",
+        "error_category": "runtime_error",
+        "is_error": true
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Docs'})",
+      "result": {
+        "args": [
+          "Answer",
+          {
+            "answer": "Docs"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "task": {
+    "input": {
+      "question": "Find the docs."
+    }
+  }
+}

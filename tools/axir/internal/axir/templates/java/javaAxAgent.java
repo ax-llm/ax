@@ -64,8 +64,8 @@ public final class AxAgent implements AxProgram {
     this.state = Core.asMap(Core._agent_factory(signature, this.options));
     this.signature = Core.get(state, "signature", signature);
     Object actorValidationRetries = this.options.getOrDefault("validation_retries", this.options.getOrDefault("validationRetries", 1));
-    this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), childOptions(actorValidationRetries, "ctx.root.actor", Core.get(state, "distiller_description", "")));
-    this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), childOptions(actorValidationRetries, "task.root.actor", Core.get(state, "executor_description", "")));
+    this.distiller = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "distiller_signature", "input:json -> completion:json"))), actorOptions(actorValidationRetries, "ctx.root.actor", Core.get(state, "distiller_description", "")));
+    this.executor = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "executor_signature", "input:json -> completion:json"))), actorOptions(actorValidationRetries, "task.root.actor", Core.get(state, "executor_description", "")));
     this.responder = newResponder();
     this.llmQuery = new AxGen(AxSignature.create(String.valueOf(Core.get(state, "llm_query_signature", "task:string, context:json -> answer:string"))), childOptions(1, "rlm.llmquery", Core.get(state, "llm_query_description", "")));
     this.stageMode = Core.truthy(Core.get(state, "runtime_enabled", false)) ? "runtime" : "plain";
@@ -87,8 +87,8 @@ public final class AxAgent implements AxProgram {
     if (set == null) {
       Object retries = this.options.getOrDefault("validation_retries", this.options.getOrDefault("validationRetries", 1));
       set = new AxGen[] {
-        new AxGen(AxSignature.create(String.valueOf(record.get("distiller_signature"))), childOptions(retries, "ctx.root.actor", record.getOrDefault("distiller_description", ""))),
-        new AxGen(AxSignature.create(String.valueOf(record.get("executor_signature"))), childOptions(retries, "task.root.actor", record.getOrDefault("executor_description", ""))),
+        new AxGen(AxSignature.create(String.valueOf(record.get("distiller_signature"))), actorOptions(retries, "ctx.root.actor", record.getOrDefault("distiller_description", ""))),
+        new AxGen(AxSignature.create(String.valueOf(record.get("executor_signature"))), actorOptions(retries, "task.root.actor", record.getOrDefault("executor_description", ""))),
         newResponder(),
       };
       stageSets.put(mode, set);
@@ -128,6 +128,14 @@ public final class AxAgent implements AxProgram {
     out.put("validation_retries", retries);
     out.put("id", id);
     out.put("instruction", instruction);
+    return out;
+  }
+
+  // The actor stages list every input field in their system prompt, as TS's
+  // actor AxGen does (includeOptionalInputFieldsInSystemPrompt).
+  private Map<String, Object> actorOptions(Object retries, String id, Object instruction) {
+    Map<String, Object> out = childOptions(retries, id, instruction);
+    out.put("includeOptionalInputFieldsInSystemPrompt", true);
     return out;
   }
 
@@ -537,6 +545,8 @@ public final class AxAgent implements AxProgram {
     // only this run's share of the agent's logs.
     Object marks = Core._agent_eval_marks(state);
     Map<String, Object> completion = new LinkedHashMap<>();
+    // TS's evaluation path runs no playbook run-end learning.
+    state.put("playbook_learning_paused", true);
     try {
       Map<String, Object> output = forward(client, Core.asMap(task.getOrDefault("input", task)), forwardOptions);
       completion.put("type", "final");
@@ -547,6 +557,8 @@ public final class AxAgent implements AxProgram {
     } catch (RuntimeException e) {
       completion.put("type", "error");
       completion.put("message", String.valueOf(e.getMessage()));
+    } finally {
+      state.remove("playbook_learning_paused");
     }
     return Core.asMap(Core._build_agent_run_prediction(state, marks, completion, getUsage(), exportTrace()));
   }
@@ -682,6 +694,8 @@ public final class AxAgent implements AxProgram {
   @SuppressWarnings("unchecked")
   private void learnPlaybookFailures(Map<String, Object> output) {
     if (playbookHandle == null || playbookConfig == null || Boolean.FALSE.equals(playbookConfig)) return;
+    // An evaluated run learns nothing, as TS's evaluation path.
+    if (Core.truthy(Core.get(state, "playbook_learning_paused", false))) return;
     Map<String, Object> config = playbookConfig instanceof Map<?, ?> ? Core.asMap(playbookConfig) : Map.of();
     Object learn = config.getOrDefault("learn", Boolean.TRUE);
     if (Boolean.FALSE.equals(learn)) return;

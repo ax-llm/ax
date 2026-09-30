@@ -1969,6 +1969,14 @@ module @ax.optimize version "0.1" {
       %marks = core.map
       core.set %marks["action_log"] = %log_count
       core.set %marks["function_call_traces"] = %trace_count
+      // As TS (forwardPipelineForEvaluation saves, clears and restores
+      // primary.state): the evaluated run starts without the stages' earlier
+      // actions, which come back after it (@agent_eval_run).
+      %empty_map = core.map
+      %stage_logs = core.get %state["stage_action_logs"] default %empty_map
+      core.set %marks["stage_action_logs"] = %stage_logs
+      %fresh_stage_logs = core.map
+      core.set %state["stage_action_logs"] = %fresh_stage_logs
       core.return %marks
     }
   }
@@ -2041,6 +2049,9 @@ module @ax.optimize version "0.1" {
       // failure signals, and the turn count of the stage whose log TS keeps:
       // the executor's, or the distiller's when the executor did not run.
       %empty_list = core.list
+      %empty_map = core.map
+      %saved_stage_logs = core.get %marks["stage_action_logs"] default %empty_map
+      core.set %state["stage_action_logs"] = %saved_stage_logs
       %log = core.get %state["action_log"] default %empty_list
       %traces = core.get %state["function_call_traces"] default %empty_list
       %log_start = core.get %marks["action_log"] default 0

@@ -1,0 +1,82 @@
+{
+  "name": "agent-context-map-legacy-restore",
+  "description": "Port-only: a context-map snapshot saved by a 24.x port (every header, unpadded ids, no trailing newline, next_id) restores with its items, and the next update numbers new ids after them and normalizes the text as TypeScript's engine does (the TS golden agent-context-map-legacy-text updates the same text).",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "options": {
+    "directResponse": "off",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "restore_runtime_state": {
+    "context_map": {
+      "infiniteEvolve": true,
+      "maxChars": 4000,
+      "next_id": 3,
+      "scores": {},
+      "steps": 0,
+      "text": "## CONTEXT ROADMAP\n## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly\n## DOMAIN CONSTANTS\n## PARSING SCHEMA\n## REUSABLE RESULTS\n[rr-2] Refund window = 30 days\n## ERROR PATTERNS"
+    }
+  },
+  "features": {
+    "functions": false,
+    "streaming": false,
+    "structured_outputs": false
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Answer the question\\\", {policy: \\\"Refunds take 30 days.\\\"})\"}"
+    },
+    {
+      "content": "Answer: Refunds take 30 days."
+    },
+    {
+      "content": "Item Tags: {\"rr-2\": \"helpful\"}"
+    },
+    {
+      "content": "Operations: [{\"type\":\"ADD\",\"section\":\"reusable_results\",\"content\":\"Store credit is instant\"}]"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"Answer the question\", {})",
+      "result": {
+        "args": ["Answer the question", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"Answer the question\", {policy: \"Refunds take 30 days.\"})",
+      "result": {
+        "args": [
+          "Answer the question",
+          {
+            "policy": "Refunds take 30 days."
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "Refunds take 30 days."
+  },
+  "expected_request_count": 5,
+  "expected_request_contains": ["[rr-2] Refund window = 30 days"],
+  "expected_exported_state_subset": {
+    "context_map": {
+      "scores": {
+        "rr-2": 1
+      },
+      "steps": 1,
+      "text": "## CONTEXT ROADMAP\n\n## CONTEXT UNDERSTANDING\n[cu-1] Orders ship weekly\n\n## DOMAIN CONSTANTS\n\n## PARSING SCHEMA\n\n## REUSABLE RESULTS\n[rr-2] Refund window = 30 days\n[rr-00003] Store credit is instant\n\n## ERROR PATTERNS\n"
+    }
+  }
+}

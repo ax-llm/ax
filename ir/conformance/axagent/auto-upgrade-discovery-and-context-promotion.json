@@ -3,7 +3,7 @@
     {
       "fieldName": "document",
       "kind": "field_auto_promoted",
-      "originalChars": 54,
+      "originalChars": 52,
       "promptPreviewChars": 8
     }
   ],
@@ -19,9 +19,8 @@
   },
   "expected_request_count": 3,
   "expected_request_contains": [
-    "[runtime-only context:",
-    "inputs.document",
-    "ABCDEFGH",
+    "ABCDEFGH...[truncated 44 chars]",
+    "prompt=inline-truncated(first 8 chars of 52)",
     "### Available Modules",
     "`docs`"
   ],

@@ -1,0 +1,29 @@
+{
+  "call_cancellation": {
+    "cancelled": false
+  },
+  "constructor_cancellation": {
+    "cancelled": true,
+    "reason": "fixture-stop"
+  },
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-constructor-cancellation-call-signal-wins",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "Answer: ok",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

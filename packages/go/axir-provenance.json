@@ -1,11 +1,11 @@
 {
   "target": "go",
   "enforced": true,
-  "emitted_functions": 973,
+  "emitted_functions": 1043,
   "files": {
     "axllm.go": {
-      "emitted_lines": 92051,
-      "total_lines": 111444
+      "emitted_lines": 98736,
+      "total_lines": 118693
     }
   }
 }

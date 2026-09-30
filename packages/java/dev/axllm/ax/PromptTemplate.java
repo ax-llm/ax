@@ -10,6 +10,9 @@ public final class PromptTemplate {
   private final List<Tool> tools;
   private final String structuredOutputFunctionName;
   private final String customTemplate;
+  // TS includeOptionalInputFieldsInSystemPrompt: the system prompt lists every
+  // input field, provided or not. Off by default.
+  private final boolean includeOptionalInputFieldsInSystemPrompt;
   private String instruction;
 
   public PromptTemplate(AxSignature signature, List<Tool> tools) {
@@ -17,10 +20,15 @@ public final class PromptTemplate {
   }
 
   public PromptTemplate(AxSignature signature, List<Tool> tools, String structuredOutputFunctionName, String customTemplate) {
+    this(signature, tools, structuredOutputFunctionName, customTemplate, false);
+  }
+
+  public PromptTemplate(AxSignature signature, List<Tool> tools, String structuredOutputFunctionName, String customTemplate, boolean includeOptionalInputFieldsInSystemPrompt) {
     this.signature = signature;
     this.tools = tools == null ? List.of() : List.copyOf(tools);
     this.structuredOutputFunctionName = structuredOutputFunctionName;
     this.customTemplate = customTemplate;
+    this.includeOptionalInputFieldsInSystemPrompt = includeOptionalInputFieldsInSystemPrompt;
   }
 
   public void setInstruction(String instruction) { this.instruction = instruction; }
@@ -42,6 +50,7 @@ public final class PromptTemplate {
     if (instruction != null) options.put("instruction", instruction);
     if (structuredOutputFunctionName != null && options.get("structured_output_function_name") == null) options.put("structured_output_function_name", structuredOutputFunctionName);
     if (customTemplate != null) options.put("custom_template", customTemplate);
+    if (includeOptionalInputFieldsInSystemPrompt) options.putIfAbsent("include_optional_input_fields_in_system_prompt", true);
     List<Object> functions = new ArrayList<>(tools);
     functions.addAll(Core.asList(options.remove("extra_functions")));
     return Core.asMapList(Core.render_prompt(signature, values == null ? Map.of() : values, functions, options));

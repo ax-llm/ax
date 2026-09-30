@@ -588,11 +588,10 @@ const responsesConfigMaxEffort: AxAIOpenAIResponsesConfig<
 >['reasoningEffort'] = 'max';
 void responsesConfigMaxEffort;
 
-// === Deprecated responseFormatWithFunctions stays source-compatible ===
-// 24.0.22-24.0.23 exposed this flag; it is ignored since 24.0.24 but code
-// that sets it must keep compiling until the next major.
+// === Ax 25 removes ignored provider options ===
 import type { AxAIFeatures } from './ai/base.js';
 import type { AxMockAIServiceConfig } from './ai/mock/api.js';
+import type { AxAIProfileAuthentication } from './ai/provider_profiles.js';
 
 const deprecatedFeatures: AxAIFeatures = {
   functions: true,
@@ -606,11 +605,20 @@ const deprecatedFeatures: AxAIFeatures = {
   caching: { supported: false, types: [] },
   thinking: false,
   multiTurn: true,
+  // @ts-expect-error Removed in Ax 25; select structuredOutputMode on the program.
   responseFormatWithFunctions: false,
 };
 void deprecatedFeatures;
 
 const deprecatedMockConfig: AxMockAIServiceConfig<string> = {
+  // @ts-expect-error Mock services use the same supported feature surface.
   features: { functions: true, responseFormatWithFunctions: false },
 };
 void deprecatedMockConfig;
+
+const removedQueryKeyAuthentication: AxAIProfileAuthentication = {
+  // @ts-expect-error Query-key authentication was never implemented.
+  type: 'api-key-query',
+  required: true,
+};
+void removedQueryKeyAuthentication;
