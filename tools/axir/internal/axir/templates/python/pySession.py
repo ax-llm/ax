@@ -536,7 +536,9 @@ class _SessionClient:
         self._reset_session()
         session = self.client.open_chat_session(request, {**self.options, **(options or {})})
         self.session = session
-        limit = int(self.options.get("max_steps", self.options.get("maxSteps", 10)))
+        # As TS's maxResponses: the run's maxSteps (25 by default) less the
+        # request's step.
+        limit = int(self.options.get("max_steps", self.options.get("maxSteps", 25))) - int(request.get("_ax_step_index") or 0)
         self.state = core.chat_session_create_state(getattr(session,"model",request.get("model") or getattr(self.client,"model","")), self.path, limit)
         threading.Thread(target=self._bridge, args=(session, self._queue, self._cancel), daemon=True).start()
         try:
@@ -614,7 +616,7 @@ class _SessionClient:
     def _send_continuation(self, results):
         from . import gen as core
         if self.state["steps"] >= self.state["max_steps"]:
-            raise RuntimeError("Maximum model steps exhausted before final completion")
+            raise core.chat_session_step_limit_error(self.state)
         updates = list(self._boundary_updates)
         if results:
             self.session.submit_tool_results(results)

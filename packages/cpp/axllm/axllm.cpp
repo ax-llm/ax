@@ -20104,6 +20104,7 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Va
     Core::set(request, Value("provider_metadata"), provider_metadata);
   }
   Core::set(request, Value("model_config"), model_config);
+  Core::set(request, Value("_ax_step_index"), step);
   return request;
 }
 
@@ -22277,14 +22278,29 @@ Value Core::_date_zone_offset_seconds_impl(Value zone, Value millis) {
   return seconds;
 }
 
-Value Core::chat_session_final_result(Value state, Value response) {
-  axir_coverage_mark("chat_session_final_result");
-  Value id = Core::get(state, Value("response_id"), Value(""));
-  Value result = Core::chat_session_result(response, id);
-  Value empty_turns = Value::array();
-  Value turns = Core::get(state, Value("turns"), empty_turns);
-  Core::set(result, Value("__session_turns"), turns);
-  return result;
+Value Core::chat_session_step_limit_error(Value state) {
+  axir_coverage_mark("chat_session_step_limit_error");
+  Value running = Value::array();
+  Value empty_pending = Value::object();
+  Value pending = Core::get(state, Value("pending"), empty_pending);
+  Value pending_ids = Core::map_keys(pending);
+  for (auto pending_id : Core::iter(pending_ids)) {
+    Value record = Core::get(pending, pending_id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value is_running = Core::eq(status, Value("running"));
+    if (Core::truthy(is_running)) {
+      Core::append(running, pending_id);
+    }
+  }
+  Value count = Core::len(running);
+  Value ids = Core::string_join(Value(", "), running);
+  Value no_ids = Core::eq(ids, Value(""));
+  if (Core::truthy(no_ids)) {
+    ids = Value("none");
+  }
+  Value message = Core::string_format(Value("Chat session failed: Maximum steps reached with unincorporated tool results ({}); unresolved calls: {}"), count, ids);
+  Value error = Core::runtime_error(message);
+  return error;
 }
 
 Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
@@ -22332,22 +22348,14 @@ Value Core::_date_parts_in_zone_impl(Value zone, Value millis) {
   return parts;
 }
 
-Value Core::chat_session_completion(Value response, Value id) {
-  axir_coverage_mark("chat_session_completion");
-  Value completion = Core::chat_response_to_completion(response);
-  Core::set(completion, Value("remote_id"), id);
-  return completion;
-}
-
-Value Core::chat_session_has_continuation_work(Value state) {
-  axir_coverage_mark("chat_session_has_continuation_work");
-  Value pending = Core::chat_session_unresolved(state);
-  pending = Core::truthy_value(pending);
-  Value native_wait = Core::chat_session_native_wait(state);
-  Value continuation = Core::get(state, Value("needs_continuation"), Value(false));
-  Value work = Core::or_(pending, native_wait);
-  work = Core::or_(work, continuation);
-  return work;
+Value Core::chat_session_final_result(Value state, Value response) {
+  axir_coverage_mark("chat_session_final_result");
+  Value id = Core::get(state, Value("response_id"), Value(""));
+  Value result = Core::chat_session_result(response, id);
+  Value empty_turns = Value::array();
+  Value turns = Core::get(state, Value("turns"), empty_turns);
+  Core::set(result, Value("__session_turns"), turns);
+  return result;
 }
 
 Value Core::_regex_atom(Value s) {
@@ -22599,19 +22607,11 @@ Value Core::_date_zone_offset_millis_impl(Value zone, Value millis) {
   return offset;
 }
 
-Value Core::chat_session_normalize_call(Value call) {
-  axir_coverage_mark("chat_session_normalize_call");
-  Value function = Core::get(call, Value("function"), Value());
-  Value missing = Core::is_none(function);
-  if (Core::truthy(missing)) {
-    call = Core::_completion_call_to_chat_impl(call);
-    function = Core::get(call, Value("function"), Value());
-  }
-  Value name = Core::get(function, Value("name"), Value());
-  Value params = Core::get(function, Value("params"), Value());
-  Core::set(call, Value("name"), name);
-  Core::set(call, Value("params"), params);
-  return call;
+Value Core::chat_session_completion(Value response, Value id) {
+  axir_coverage_mark("chat_session_completion");
+  Value completion = Core::chat_response_to_completion(response);
+  Core::set(completion, Value("remote_id"), id);
+  return completion;
 }
 
 Value Core::_date_named_timestamp_impl(Value parts, Value zone) {
@@ -22636,24 +22636,15 @@ Value Core::_date_named_timestamp_impl(Value parts, Value zone) {
   return timestamp;
 }
 
-Value Core::chat_session_defer_final_call(Value state, Value call) {
-  axir_coverage_mark("chat_session_defer_final_call");
-  Value unresolved = Core::chat_session_unresolved(state);
-  Value pending = Core::truthy_value(unresolved);
-  Value updates = Core::get(state, Value("needs_continuation"), Value(false));
-  Value defer = Core::or_(pending, updates);
-  if (Core::truthy(defer)) {
-    Value registered = Core::chat_session_register_call(state, call, Value("blocking"));
-    if (Core::truthy(registered)) {
-      Value id = Core::get(call, Value("id"), Value());
-      Value result = Value::object();
-      Core::set(result, Value("function_id"), id);
-      Core::set(result, Value("result"), Value("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."));
-      Core::chat_session_complete_call(state, id, result);
-    }
-    return registered;
-  }
-  return Value(false);
+Value Core::chat_session_has_continuation_work(Value state) {
+  axir_coverage_mark("chat_session_has_continuation_work");
+  Value pending = Core::chat_session_unresolved(state);
+  pending = Core::truthy_value(pending);
+  Value native_wait = Core::chat_session_native_wait(state);
+  Value continuation = Core::get(state, Value("needs_continuation"), Value(false));
+  Value work = Core::or_(pending, native_wait);
+  work = Core::or_(work, continuation);
+  return work;
 }
 
 Value Core::_stream_field_flag_impl(Value target, Value snake, Value camel) {
@@ -22662,6 +22653,21 @@ Value Core::_stream_field_flag_impl(Value target, Value snake, Value camel) {
   Value value = Core::get(target, camel, snake_value);
   Value flag = Core::truthy_value(value);
   return flag;
+}
+
+Value Core::chat_session_normalize_call(Value call) {
+  axir_coverage_mark("chat_session_normalize_call");
+  Value function = Core::get(call, Value("function"), Value());
+  Value missing = Core::is_none(function);
+  if (Core::truthy(missing)) {
+    call = Core::_completion_call_to_chat_impl(call);
+    function = Core::get(call, Value("function"), Value());
+  }
+  Value name = Core::get(function, Value("name"), Value());
+  Value params = Core::get(function, Value("params"), Value());
+  Core::set(call, Value("name"), name);
+  Core::set(call, Value("params"), params);
+  return call;
 }
 
 Value Core::_stream_field_type_label_impl(Value field) {
@@ -22717,31 +22723,6 @@ Value Core::_stream_field_type_label_impl(Value field) {
   return base;
 }
 
-Value Core::chat_session_complete_call(Value state, Value id, Value result) {
-  axir_coverage_mark("chat_session_complete_call");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value exists = Core::map_contains(pending, id);
-  Value missing = Core::not_(exists);
-  if (Core::truthy(missing)) {
-    throw AxError("runtime", "Tool result has no registered call");
-  }
-  Value record = Core::get(pending, id, Value());
-  Value status = Core::get(record, Value("status"), Value());
-  Value running = Core::eq(status, Value("running"));
-  if (Core::truthy(running)) {
-    Core::set(record, Value("result"), result);
-    Core::set(record, Value("status"), Value("ready"));
-    Core::set(pending, id, record);
-    Core::set(state, Value("pending"), pending);
-    return Value(true);
-  }
-  return Value(false);
-}
-
 Value Core::_date_parse_range_impl(Value value, Value kind) {
   axir_coverage_mark("_date_parse_range_impl");
   Value endpoints = Core::_date_range_endpoints_impl(value);
@@ -22775,6 +22756,26 @@ Value Core::_date_parse_range_impl(Value value, Value kind) {
     Core::raise_error(order_error);
   }
   return range_millis;
+}
+
+Value Core::chat_session_defer_final_call(Value state, Value call) {
+  axir_coverage_mark("chat_session_defer_final_call");
+  Value unresolved = Core::chat_session_unresolved(state);
+  Value pending = Core::truthy_value(unresolved);
+  Value updates = Core::get(state, Value("needs_continuation"), Value(false));
+  Value defer = Core::or_(pending, updates);
+  if (Core::truthy(defer)) {
+    Value registered = Core::chat_session_register_call(state, call, Value("blocking"));
+    if (Core::truthy(registered)) {
+      Value id = Core::get(call, Value("id"), Value());
+      Value result = Value::object();
+      Core::set(result, Value("function_id"), id);
+      Core::set(result, Value("result"), Value("Not executed: incorporate the background tool results and queued updates before calling this finalization function again."));
+      Core::chat_session_complete_call(state, id, result);
+    }
+    return registered;
+  }
+  return Value(false);
 }
 
 Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
@@ -22846,50 +22847,29 @@ Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components)
   return out;
 }
 
-Value Core::chat_session_complete_response(Value state, Value id) {
-  axir_coverage_mark("chat_session_complete_response");
+Value Core::chat_session_complete_call(Value state, Value id, Value result) {
+  axir_coverage_mark("chat_session_complete_call");
   Value terminal = Core::get(state, Value("terminal"), Value(false));
   if (Core::truthy(terminal)) {
     return Value(false);
   }
-  Value responses = Core::get(state, Value("responses"), Value());
-  Value duplicate = Core::map_contains(responses, id);
-  if (Core::truthy(duplicate)) {
-    return Value(false);
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value exists = Core::map_contains(pending, id);
+  Value missing = Core::not_(exists);
+  if (Core::truthy(missing)) {
+    throw AxError("runtime", "Tool result has no registered call");
   }
-  Value steps = Core::get(state, Value("steps"), Value(0));
-  Value limit = Core::get(state, Value("max_steps"), Value());
-  Value exhausted = Core::gte(steps, limit);
-  if (Core::truthy(exhausted)) {
-    throw AxError("runtime", "Maximum model steps exhausted before final completion");
+  Value record = Core::get(pending, id, Value());
+  Value status = Core::get(record, Value("status"), Value());
+  Value running = Core::eq(status, Value("running"));
+  if (Core::truthy(running)) {
+    Core::set(record, Value("result"), result);
+    Core::set(record, Value("status"), Value("ready"));
+    Core::set(pending, id, record);
+    Core::set(state, Value("pending"), pending);
+    return Value(true);
   }
-  Value next = Core::add(steps, Value(1));
-  Core::set(responses, id, Value(true));
-  Core::set(state, Value("responses"), responses);
-  Core::set(state, Value("response_id"), id);
-  Core::set(state, Value("steps"), next);
-  Core::set(state, Value("boundary"), Value(true));
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value update_ids = Core::map_keys(updates);
-  Value had_successor = Value(false);
-  for (auto update_id : Core::iter(update_ids)) {
-    Value record = Core::get(updates, update_id, Value());
-    Value parent = Core::get(record, Value("native_parent"), Value());
-    Value has_parent = Core::is_not_none(parent);
-    Value successor = Core::ne(parent, id);
-    Value finished = Core::and_(has_parent, successor);
-    if (Core::truthy(finished)) {
-      had_successor = Value(true);
-      Core::set(record, Value("native_state"), Value("done"));
-      Core::set(updates, update_id, record);
-    }
-  }
-  Core::set(state, Value("updates"), updates);
-  if (Core::truthy(had_successor)) {
-    Value queued = Core::chat_session_has_queued_updates(state);
-    Core::set(state, Value("needs_continuation"), queued);
-  }
-  return Value(true);
+  return Value(false);
 }
 
 Value Core::_date_range_format_error_impl() {
@@ -22956,6 +22936,53 @@ Value Core::_date_range_endpoints_impl(Value value) {
   Core::raise_error(error);
 }
 
+Value Core::chat_session_complete_response(Value state, Value id) {
+  axir_coverage_mark("chat_session_complete_response");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
+  }
+  Value responses = Core::get(state, Value("responses"), Value());
+  Value duplicate = Core::map_contains(responses, id);
+  if (Core::truthy(duplicate)) {
+    return Value(false);
+  }
+  Value steps = Core::get(state, Value("steps"), Value(0));
+  Value limit = Core::get(state, Value("max_steps"), Value());
+  Value exhausted = Core::gte(steps, limit);
+  if (Core::truthy(exhausted)) {
+    Value limit_error = Core::chat_session_step_limit_error(state);
+    Core::raise_error(limit_error);
+  }
+  Value next = Core::add(steps, Value(1));
+  Core::set(responses, id, Value(true));
+  Core::set(state, Value("responses"), responses);
+  Core::set(state, Value("response_id"), id);
+  Core::set(state, Value("steps"), next);
+  Core::set(state, Value("boundary"), Value(true));
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value update_ids = Core::map_keys(updates);
+  Value had_successor = Value(false);
+  for (auto update_id : Core::iter(update_ids)) {
+    Value record = Core::get(updates, update_id, Value());
+    Value parent = Core::get(record, Value("native_parent"), Value());
+    Value has_parent = Core::is_not_none(parent);
+    Value successor = Core::ne(parent, id);
+    Value finished = Core::and_(has_parent, successor);
+    if (Core::truthy(finished)) {
+      had_successor = Value(true);
+      Core::set(record, Value("native_state"), Value("done"));
+      Core::set(updates, update_id, record);
+    }
+  }
+  Core::set(state, Value("updates"), updates);
+  if (Core::truthy(had_successor)) {
+    Value queued = Core::chat_session_has_queued_updates(state);
+    Core::set(state, Value("needs_continuation"), queued);
+  }
+  return Value(true);
+}
+
 Value Core::_stream_required_missing_error_impl(Value field) {
   axir_coverage_mark("_stream_required_missing_error_impl");
   Value title = Core::_stream_field_title_impl(field);
@@ -22984,43 +23011,6 @@ Value Core::_stream_url_error_impl(Value field, Value value) {
   Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}."), title, value);
   Value error = Core::validation_error(message);
   return error;
-}
-
-Value Core::chat_session_has_queued_updates(Value state) {
-  axir_coverage_mark("chat_session_has_queued_updates");
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value ids = Core::map_keys(updates);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(updates, id, Value());
-    Value status = Core::get(record, Value("status"), Value());
-    Value queued = Core::eq(status, Value("queued"));
-    if (Core::truthy(queued)) {
-      return Value(true);
-    }
-  }
-  return Value(false);
-}
-
-Value Core::chat_session_native_update(Value state, Value id) {
-  axir_coverage_mark("chat_session_native_update");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value record = Core::get(updates, id, Value());
-  Value native_state = Core::get(record, Value("native_state"), Value());
-  Value new_native = Core::is_none(native_state);
-  if (Core::truthy(new_native)) {
-    Core::set(record, Value("native_state"), Value("awaiting_ack"));
-    Value responses = Core::get(state, Value("responses"), Value());
-    Value empty_baseline = Value::object();
-    Value baseline = Core::map_merge(empty_baseline, responses);
-    Core::set(record, Value("native_responses"), baseline);
-    Core::set(updates, id, record);
-    Core::set(state, Value("updates"), updates);
-  }
-  return new_native;
 }
 
 Value Core::_stream_validate_constraints_impl(Value field, Value value, Value kind) {
@@ -23334,6 +23324,21 @@ Value Core::_regex_quantifier(Value s, Value child) {
   return t73;
 }
 
+Value Core::chat_session_has_queued_updates(Value state) {
+  axir_coverage_mark("chat_session_has_queued_updates");
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value ids = Core::map_keys(updates);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(updates, id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value queued = Core::eq(status, Value("queued"));
+    if (Core::truthy(queued)) {
+      return Value(true);
+    }
+  }
+  return Value(false);
+}
+
 Value Core::_ace_estimate_token_count(Value text) {
   axir_coverage_mark("_ace_estimate_token_count");
   Value len = Core::len(text);
@@ -23352,25 +23357,26 @@ Value Core::_ace_estimate_token_count(Value text) {
   return tokens;
 }
 
-Value Core::chat_session_native_wait(Value state) {
-  axir_coverage_mark("chat_session_native_wait");
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value ids = Core::map_keys(updates);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(updates, id, Value());
-    Value native_state = Core::get(record, Value("native_state"), Value());
-    Value has_native = Core::is_not_none(native_state);
-    if (Core::truthy(has_native)) {
-      Value status = Core::get(record, Value("status"), Value());
-      Value queued = Core::eq(status, Value("queued"));
-      Value successor = Core::eq(native_state, Value("awaiting_successor"));
-      Value waiting = Core::or_(queued, successor);
-      if (Core::truthy(waiting)) {
-        return Value(true);
-      }
-    }
+Value Core::chat_session_native_update(Value state, Value id) {
+  axir_coverage_mark("chat_session_native_update");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
   }
-  return Value(false);
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value record = Core::get(updates, id, Value());
+  Value native_state = Core::get(record, Value("native_state"), Value());
+  Value new_native = Core::is_none(native_state);
+  if (Core::truthy(new_native)) {
+    Core::set(record, Value("native_state"), Value("awaiting_ack"));
+    Value responses = Core::get(state, Value("responses"), Value());
+    Value empty_baseline = Value::object();
+    Value baseline = Core::map_merge(empty_baseline, responses);
+    Core::set(record, Value("native_responses"), baseline);
+    Core::set(updates, id, record);
+    Core::set(state, Value("updates"), updates);
+  }
+  return new_native;
 }
 
 Value Core::_ace_recompute_playbook_stats(Value playbook) {
@@ -23405,6 +23411,123 @@ Value Core::_ace_recompute_playbook_stats(Value playbook) {
   Core::set(stats, Value("tokenEstimate"), token_estimate);
   Core::set(playbook, Value("stats"), stats);
   return playbook;
+}
+
+Value Core::_date_delimiter_split_impl(Value text) {
+  axir_coverage_mark("_date_delimiter_split_impl");
+  Value none = Core::none();
+  Value units = Core::string_utf16_units(text);
+  Value count = Core::len(units);
+  Value first_terminator = count;
+  Value last_terminator = Value(-1);
+  Value index = Value(0);
+  while (true) {
+    Value scanned = Core::gte(index, count);
+    if (Core::truthy(scanned)) {
+      break;
+    }
+    Value unit = Core::get(units, index, Value(0));
+    Value terminator = Core::_date_is_line_terminator_impl(unit);
+    if (Core::truthy(terminator)) {
+      last_terminator = index;
+      Value before = Core::lt(index, first_terminator);
+      if (Core::truthy(before)) {
+        first_terminator = index;
+      }
+    }
+    index = Core::add(index, Value(1));
+  }
+  Value cursor = Value(1);
+  while (true) {
+    Value finished = Core::gte(cursor, count);
+    if (Core::truthy(finished)) {
+      break;
+    }
+    Value past_terminator = Core::gt(cursor, first_terminator);
+    if (Core::truthy(past_terminator)) {
+      break;
+    }
+    Value unit = Core::get(units, cursor, Value(0));
+    Value space = Core::_date_space_impl(unit);
+    Value not_space = Core::not_(space);
+    if (Core::truthy(not_space)) {
+      cursor = Core::add(cursor, Value(1));
+      continue;
+    }
+    Value run_start = cursor;
+    Value keyword_at = Core::_date_skip_space_impl(units, cursor, count);
+    Value keyword_length = Core::_date_range_keyword_impl(units, keyword_at, count);
+    cursor = keyword_at;
+    Value no_keyword = Core::eq(keyword_length, Value(0));
+    if (Core::truthy(no_keyword)) {
+      continue;
+    }
+    Value after_keyword = Core::add(keyword_at, keyword_length);
+    Value rest_at = Core::_date_skip_space_impl(units, after_keyword, count);
+    Value no_gap = Core::eq(rest_at, after_keyword);
+    if (Core::truthy(no_gap)) {
+      continue;
+    }
+    Value rest_empty = Core::gte(rest_at, count);
+    Value rest_terminator = Core::gte(last_terminator, rest_at);
+    Value rest_bad = Core::or_(rest_empty, rest_terminator);
+    if (Core::truthy(rest_bad)) {
+      continue;
+    }
+    Value mode = Core::_date_string_mode_impl();
+    Value start_to = Core::_date_native_offset_impl(units, run_start, mode);
+    Value rest_from = Core::_date_native_offset_impl(units, rest_at, mode);
+    Value start_text = Core::string_slice(text, Value(0), start_to);
+    Value rest_text = Core::string_slice(text, rest_from);
+    Value split = Value::object();
+    Value start_trimmed = Core::_date_js_trim_impl(start_text);
+    Core::set(split, Value("start"), start_trimmed);
+    Value rest_trimmed = Core::_date_js_trim_impl(rest_text);
+    Core::set(split, Value("end"), rest_trimmed);
+    return split;
+  }
+  return none;
+}
+
+Value Core::chat_session_native_wait(Value state) {
+  axir_coverage_mark("chat_session_native_wait");
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value ids = Core::map_keys(updates);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(updates, id, Value());
+    Value native_state = Core::get(record, Value("native_state"), Value());
+    Value has_native = Core::is_not_none(native_state);
+    if (Core::truthy(has_native)) {
+      Value status = Core::get(record, Value("status"), Value());
+      Value queued = Core::eq(status, Value("queued"));
+      Value successor = Core::eq(native_state, Value("awaiting_successor"));
+      Value waiting = Core::or_(queued, successor);
+      if (Core::truthy(waiting)) {
+        return Value(true);
+      }
+    }
+  }
+  return Value(false);
+}
+
+Value Core::_ace_empty_playbook(Value description, Value now) {
+  axir_coverage_mark("_ace_empty_playbook");
+  Value out = Value::object();
+  Core::set(out, Value("version"), Value(1));
+  Value sections = Value::object();
+  Core::set(out, Value("sections"), sections);
+  Value stats = Value::object();
+  Core::set(stats, Value("bulletCount"), Value(0));
+  Core::set(stats, Value("helpfulCount"), Value(0));
+  Core::set(stats, Value("harmfulCount"), Value(0));
+  Core::set(stats, Value("tokenEstimate"), Value(0));
+  Core::set(out, Value("stats"), stats);
+  Core::set(out, Value("updatedAt"), now);
+  Value has_description = Core::truthy_value(description);
+  if (Core::truthy(has_description)) {
+    Core::set(out, Value("description"), description);
+  }
+  return out;
 }
 
 Value Core::chat_session_native_event(Value state, Value event) {
@@ -23525,108 +23648,6 @@ Value Core::chat_session_native_event(Value state, Value event) {
   return result;
 }
 
-Value Core::_date_delimiter_split_impl(Value text) {
-  axir_coverage_mark("_date_delimiter_split_impl");
-  Value none = Core::none();
-  Value units = Core::string_utf16_units(text);
-  Value count = Core::len(units);
-  Value first_terminator = count;
-  Value last_terminator = Value(-1);
-  Value index = Value(0);
-  while (true) {
-    Value scanned = Core::gte(index, count);
-    if (Core::truthy(scanned)) {
-      break;
-    }
-    Value unit = Core::get(units, index, Value(0));
-    Value terminator = Core::_date_is_line_terminator_impl(unit);
-    if (Core::truthy(terminator)) {
-      last_terminator = index;
-      Value before = Core::lt(index, first_terminator);
-      if (Core::truthy(before)) {
-        first_terminator = index;
-      }
-    }
-    index = Core::add(index, Value(1));
-  }
-  Value cursor = Value(1);
-  while (true) {
-    Value finished = Core::gte(cursor, count);
-    if (Core::truthy(finished)) {
-      break;
-    }
-    Value past_terminator = Core::gt(cursor, first_terminator);
-    if (Core::truthy(past_terminator)) {
-      break;
-    }
-    Value unit = Core::get(units, cursor, Value(0));
-    Value space = Core::_date_space_impl(unit);
-    Value not_space = Core::not_(space);
-    if (Core::truthy(not_space)) {
-      cursor = Core::add(cursor, Value(1));
-      continue;
-    }
-    Value run_start = cursor;
-    Value keyword_at = Core::_date_skip_space_impl(units, cursor, count);
-    Value keyword_length = Core::_date_range_keyword_impl(units, keyword_at, count);
-    cursor = keyword_at;
-    Value no_keyword = Core::eq(keyword_length, Value(0));
-    if (Core::truthy(no_keyword)) {
-      continue;
-    }
-    Value after_keyword = Core::add(keyword_at, keyword_length);
-    Value rest_at = Core::_date_skip_space_impl(units, after_keyword, count);
-    Value no_gap = Core::eq(rest_at, after_keyword);
-    if (Core::truthy(no_gap)) {
-      continue;
-    }
-    Value rest_empty = Core::gte(rest_at, count);
-    Value rest_terminator = Core::gte(last_terminator, rest_at);
-    Value rest_bad = Core::or_(rest_empty, rest_terminator);
-    if (Core::truthy(rest_bad)) {
-      continue;
-    }
-    Value mode = Core::_date_string_mode_impl();
-    Value start_to = Core::_date_native_offset_impl(units, run_start, mode);
-    Value rest_from = Core::_date_native_offset_impl(units, rest_at, mode);
-    Value start_text = Core::string_slice(text, Value(0), start_to);
-    Value rest_text = Core::string_slice(text, rest_from);
-    Value split = Value::object();
-    Value start_trimmed = Core::_date_js_trim_impl(start_text);
-    Core::set(split, Value("start"), start_trimmed);
-    Value rest_trimmed = Core::_date_js_trim_impl(rest_text);
-    Core::set(split, Value("end"), rest_trimmed);
-    return split;
-  }
-  return none;
-}
-
-Value Core::_ace_empty_playbook(Value description, Value now) {
-  axir_coverage_mark("_ace_empty_playbook");
-  Value out = Value::object();
-  Core::set(out, Value("version"), Value(1));
-  Value sections = Value::object();
-  Core::set(out, Value("sections"), sections);
-  Value stats = Value::object();
-  Core::set(stats, Value("bulletCount"), Value(0));
-  Core::set(stats, Value("helpfulCount"), Value(0));
-  Core::set(stats, Value("harmfulCount"), Value(0));
-  Core::set(stats, Value("tokenEstimate"), Value(0));
-  Core::set(out, Value("stats"), stats);
-  Core::set(out, Value("updatedAt"), now);
-  Value has_description = Core::truthy_value(description);
-  if (Core::truthy(has_description)) {
-    Core::set(out, Value("description"), description);
-  }
-  return out;
-}
-
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::_ace_render_playbook(Value playbook) {
   axir_coverage_mark("_ace_render_playbook");
   Value empty_map = Value::object();
@@ -23682,6 +23703,12 @@ Value Core::_ace_render_playbook(Value playbook) {
   Value combined = Core::string_format(Value("{}\n{}"), header, joined_sections);
   Value result = Core::string_trim(combined);
   return result;
+}
+
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
 }
 
 Value Core::_set_demos(Value gen, Value demos) {
@@ -23849,30 +23876,6 @@ Value Core::_apply_field_processors(Value gen, Value output) {
   return processed;
 }
 
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Value result = Core::axgen_run_assertions(gen, output);
-  Value status = Core::get(result, Value("status"), Value("pass"));
-  Value threw = Core::eq(status, Value("error"));
-  if (Core::truthy(threw)) {
-    Value thrown = Core::get(result, Value("error"), Value());
-    return thrown;
-  }
-  Value failed = Core::eq(status, Value("fail"));
-  if (Core::truthy(failed)) {
-    Value message = Core::get(result, Value("message"), Value());
-    Value has_message = Core::is_not_none(message);
-    if (Core::truthy(has_message)) {
-      Value assertion_error = Core::runtime_error(message);
-      Core::raise_error(assertion_error);
-    }
-    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
-    return message_less;
-  }
-  Value passed = Core::none();
-  return passed;
-}
-
 Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
   axir_coverage_mark("_ace_update_bullet_feedback");
   Value empty_map = Value::object();
@@ -23919,64 +23922,28 @@ Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value t
   return playbook;
 }
 
-Value Core::chat_session_boundary_action(Value state) {
-  axir_coverage_mark("chat_session_boundary_action");
-  Value action = Value::object();
-  Core::set(action, Value("type"), Value("wait"));
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    Core::set(action, Value("type"), Value("closed"));
-    return action;
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Value result = Core::axgen_run_assertions(gen, output);
+  Value status = Core::get(result, Value("status"), Value("pass"));
+  Value threw = Core::eq(status, Value("error"));
+  if (Core::truthy(threw)) {
+    Value thrown = Core::get(result, Value("error"), Value());
+    return thrown;
   }
-  Value native_wait = Core::chat_session_native_wait(state);
-  if (Core::truthy(native_wait)) {
-    return action;
-  }
-  Value boundary = Core::get(state, Value("boundary"), Value(false));
-  Value active = Core::not_(boundary);
-  if (Core::truthy(active)) {
-    return action;
-  }
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value ids = Core::map_keys(pending);
-  Value results = Value::array();
-  Value running = Value(false);
-  Value blocking = Value(false);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(pending, id, Value());
-    Value status = Core::get(record, Value("status"), Value());
-    Value is_running = Core::eq(status, Value("running"));
-    Value execution = Core::get(record, Value("execution"), Value());
-    Value is_blocking = Core::eq(execution, Value("blocking"));
-    Value running_barrier = Core::and_(is_running, is_blocking);
-    blocking = Core::or_(blocking, running_barrier);
-    running = Core::or_(running, is_running);
-    Value ready = Core::eq(status, Value("ready"));
-    if (Core::truthy(ready)) {
-      Value result = Core::get(record, Value("result"), Value());
-      Core::append(results, result);
+  Value failed = Core::eq(status, Value("fail"));
+  if (Core::truthy(failed)) {
+    Value message = Core::get(result, Value("message"), Value());
+    Value has_message = Core::is_not_none(message);
+    if (Core::truthy(has_message)) {
+      Value assertion_error = Core::runtime_error(message);
+      Core::raise_error(assertion_error);
     }
+    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
+    return message_less;
   }
-  if (Core::truthy(blocking)) {
-    return action;
-  }
-  Value has_results = Core::truthy_value(results);
-  if (Core::truthy(has_results)) {
-    Core::set(action, Value("type"), Value("submit"));
-    Core::set(action, Value("results"), results);
-    return action;
-  }
-  if (Core::truthy(running)) {
-    return action;
-  }
-  Value needs_continuation = Core::get(state, Value("needs_continuation"), Value(false));
-  if (Core::truthy(needs_continuation)) {
-    Core::set(action, Value("type"), Value("continue"));
-  }
-  if (!Core::truthy(needs_continuation)) {
-    Core::set(action, Value("type"), Value("validate"));
-  }
-  return action;
+  Value passed = Core::none();
+  return passed;
 }
 
 Value Core::_regex_alternative(Value s) {
@@ -24064,10 +24031,64 @@ Value Core::_append_assertion_retry_messages(Value messages, Value response, Val
   return updated_messages;
 }
 
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
+Value Core::chat_session_boundary_action(Value state) {
+  axir_coverage_mark("chat_session_boundary_action");
+  Value action = Value::object();
+  Core::set(action, Value("type"), Value("wait"));
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    Core::set(action, Value("type"), Value("closed"));
+    return action;
+  }
+  Value native_wait = Core::chat_session_native_wait(state);
+  if (Core::truthy(native_wait)) {
+    return action;
+  }
+  Value boundary = Core::get(state, Value("boundary"), Value(false));
+  Value active = Core::not_(boundary);
+  if (Core::truthy(active)) {
+    return action;
+  }
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value ids = Core::map_keys(pending);
+  Value results = Value::array();
+  Value running = Value(false);
+  Value blocking = Value(false);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(pending, id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value is_running = Core::eq(status, Value("running"));
+    Value execution = Core::get(record, Value("execution"), Value());
+    Value is_blocking = Core::eq(execution, Value("blocking"));
+    Value running_barrier = Core::and_(is_running, is_blocking);
+    blocking = Core::or_(blocking, running_barrier);
+    running = Core::or_(running, is_running);
+    Value ready = Core::eq(status, Value("ready"));
+    if (Core::truthy(ready)) {
+      Value result = Core::get(record, Value("result"), Value());
+      Core::append(results, result);
+    }
+  }
+  if (Core::truthy(blocking)) {
+    return action;
+  }
+  Value has_results = Core::truthy_value(results);
+  if (Core::truthy(has_results)) {
+    Core::set(action, Value("type"), Value("submit"));
+    Core::set(action, Value("results"), results);
+    return action;
+  }
+  if (Core::truthy(running)) {
+    return action;
+  }
+  Value needs_continuation = Core::get(state, Value("needs_continuation"), Value(false));
+  if (Core::truthy(needs_continuation)) {
+    Core::set(action, Value("type"), Value("continue"));
+  }
+  if (!Core::truthy(needs_continuation)) {
+    Core::set(action, Value("type"), Value("validate"));
+  }
+  return action;
 }
 
 Value Core::_ace_dedupe_playbook(Value playbook) {
@@ -24107,6 +24128,12 @@ Value Core::_ace_dedupe_playbook(Value playbook) {
   Core::set(playbook, Value("sections"), sections);
   Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
   return recomputed;
+}
+
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
 }
 
 Value Core::_should_continue_steps(Value gen, Value calls) {
@@ -24339,20 +24366,6 @@ Value Core::_stream_field_value_impl(Value field, Value text) {
   return out;
 }
 
-Value Core::chat_session_mark_submitted(Value state, Value ids) {
-  axir_coverage_mark("chat_session_mark_submitted");
-  Value pending = Core::get(state, Value("pending"), Value());
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(pending, id, Value());
-    Core::set(record, Value("status"), Value("sent"));
-    Core::set(pending, id, record);
-  }
-  Core::set(state, Value("pending"), pending);
-  Core::set(state, Value("boundary"), Value(false));
-  Core::set(state, Value("needs_continuation"), Value(false));
-  return Value();
-}
-
 Value Core::_date_string_mode_impl() {
   axir_coverage_mark("_date_string_mode_impl");
   Value accented = Core::len(Value("é"));
@@ -24373,34 +24386,6 @@ Value Core::_parse_output_impl(Value content) {
   Value text = Core::string_trim(content);
   Value output = Core::json_parse_strict(text);
   return output;
-}
-
-Value Core::chat_session_queue_update(Value state, Value update) {
-  axir_coverage_mark("chat_session_queue_update");
-  Value terminal = Core::get(state, Value("terminal"), Value(false));
-  if (Core::truthy(terminal)) {
-    return Value(false);
-  }
-  Value target = Core::get(update, Value("target"), Value("root"));
-  Value path = Core::get(state, Value("path"), Value());
-  Value matches = Core::chat_session_target_matches(target, path);
-  Value unmatched = Core::not_(matches);
-  if (Core::truthy(unmatched)) {
-    return Value(false);
-  }
-  Value id = Core::get(update, Value("id"), Value());
-  Value updates = Core::get(state, Value("updates"), Value());
-  Value exists = Core::map_contains(updates, id);
-  if (Core::truthy(exists)) {
-    return Value(false);
-  }
-  Value record = Value::object();
-  Core::set(record, Value("update"), update);
-  Core::set(record, Value("status"), Value("queued"));
-  Core::set(updates, id, record);
-  Core::set(state, Value("updates"), updates);
-  Core::set(state, Value("needs_continuation"), Value(true));
-  return Value(true);
 }
 
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
@@ -24551,6 +24536,20 @@ Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
   return offset;
 }
 
+Value Core::chat_session_mark_submitted(Value state, Value ids) {
+  axir_coverage_mark("chat_session_mark_submitted");
+  Value pending = Core::get(state, Value("pending"), Value());
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(pending, id, Value());
+    Core::set(record, Value("status"), Value("sent"));
+    Core::set(pending, id, record);
+  }
+  Core::set(state, Value("pending"), pending);
+  Core::set(state, Value("boundary"), Value(false));
+  Core::set(state, Value("needs_continuation"), Value(false));
+  return Value();
+}
+
 Value Core::_regex_space(Value c) {
   axir_coverage_mark("_regex_space");
   Value t1 = Core::eq(c, Value(9));
@@ -24651,27 +24650,32 @@ Value Core::_parse_json_string_value(Value value) {
   return result;
 }
 
-Value Core::chat_session_record_unresolved(Value gen, Value state) {
-  axir_coverage_mark("chat_session_record_unresolved");
-  Value pending = Core::get(state, Value("pending"), Value());
-  Value ids = Core::map_keys(pending);
-  for (auto id : Core::iter(ids)) {
-    Value record = Core::get(pending, id, Value());
-    Value status = Core::get(record, Value("status"), Value());
-    Value running = Core::eq(status, Value("running"));
-    Value recorded = Core::get(record, Value("diagnostic_recorded"), Value(false));
-    Value not_recorded = Core::not_(recorded);
-    Value needed = Core::and_(running, not_recorded);
-    if (Core::truthy(needed)) {
-      Value call = Core::get(record, Value("call"), Value());
-      Value message = Value("Run closed before the started tool settled; its external effects may still complete");
-      Core::axgen_record_function_call(gen, call, message, Value("unresolved"));
-      Core::set(record, Value("diagnostic_recorded"), Value(true));
-      Core::set(pending, id, record);
-    }
+Value Core::chat_session_queue_update(Value state, Value update) {
+  axir_coverage_mark("chat_session_queue_update");
+  Value terminal = Core::get(state, Value("terminal"), Value(false));
+  if (Core::truthy(terminal)) {
+    return Value(false);
   }
-  Core::set(state, Value("pending"), pending);
-  return Value();
+  Value target = Core::get(update, Value("target"), Value("root"));
+  Value path = Core::get(state, Value("path"), Value());
+  Value matches = Core::chat_session_target_matches(target, path);
+  Value unmatched = Core::not_(matches);
+  if (Core::truthy(unmatched)) {
+    return Value(false);
+  }
+  Value id = Core::get(update, Value("id"), Value());
+  Value updates = Core::get(state, Value("updates"), Value());
+  Value exists = Core::map_contains(updates, id);
+  if (Core::truthy(exists)) {
+    return Value(false);
+  }
+  Value record = Value::object();
+  Core::set(record, Value("update"), update);
+  Core::set(record, Value("status"), Value("queued"));
+  Core::set(updates, id, record);
+  Core::set(state, Value("updates"), updates);
+  Core::set(state, Value("needs_continuation"), Value(true));
+  return Value(true);
 }
 
 Value Core::_parse_json_string_for_field(Value field, Value value) {
@@ -24730,13 +24734,6 @@ Value Core::_parse_json_string_for_field(Value field, Value value) {
   return value;
 }
 
-Value Core::chat_session_close_state(Value state) {
-  axir_coverage_mark("chat_session_close_state");
-  Core::set(state, Value("terminal"), Value(true));
-  Value unresolved = Core::chat_session_unresolved(state);
-  return unresolved;
-}
-
 Value Core::_date_js_trim_impl(Value text) {
   axir_coverage_mark("_date_js_trim_impl");
   Value units = Core::string_utf16_units(text);
@@ -24751,123 +24748,27 @@ Value Core::_date_js_trim_impl(Value text) {
   return trimmed;
 }
 
-Value Core::chat_session_transition(Value state, Value event) {
-  axir_coverage_mark("chat_session_transition");
-  Value type = Core::get(event, Value("type"), Value());
-  Value call = Core::eq(type, Value("tool.validated"));
-  Value result = Core::eq(type, Value("tool.result"));
-  Value response = Core::eq(type, Value("response.completed"));
-  Value update = Core::eq(type, Value("update.queued"));
-  Value submitted = Core::eq(type, Value("results.submitted"));
-  Value closed = Core::eq(type, Value("closed"));
-  Value validated = Core::eq(type, Value("validated"));
-  Value applied = Core::eq(type, Value("update.applied"));
-  Value changed = Value(false);
-  Value native_queued = Core::eq(type, Value("native.queued"));
-  if (Core::truthy(native_queued)) {
-    Value id = Core::get(event, Value("id"), Value());
-    changed = Core::chat_session_native_update(state, id);
-    Value action = Core::chat_session_boundary_action(state);
-    Core::set(action, Value("changed"), changed);
-    return action;
-  }
-  Value steering = Core::eq(type, Value("steering"));
-  if (Core::truthy(steering)) {
-    Value change = Core::chat_session_native_event(state, event);
-    Value action = Core::chat_session_boundary_action(state);
-    action = Core::map_merge(action, change);
-    return action;
-  }
-  Value final_call = Core::eq(type, Value("tool.final"));
-  if (Core::truthy(final_call)) {
-    Value tool_call = Core::get(event, Value("call"), Value());
-    changed = Core::chat_session_defer_final_call(state, tool_call);
-    Value action = Core::chat_session_boundary_action(state);
-    Core::set(action, Value("changed"), changed);
-    return action;
-  }
-  if (Core::truthy(call)) {
-    Value tool_call = Core::get(event, Value("call"), Value());
-    Value execution = Core::get(event, Value("execution"), Value("blocking"));
-    changed = Core::chat_session_register_call(state, tool_call, execution);
-  }
-  if (!Core::truthy(call)) {
-    if (Core::truthy(result)) {
-      Value id = Core::get(event, Value("id"), Value());
-      Value value = Core::get(event, Value("result"), Value());
-      changed = Core::chat_session_complete_call(state, id, value);
-    }
-    if (!Core::truthy(result)) {
-      if (Core::truthy(response)) {
-        Value id = Core::get(event, Value("id"), Value());
-        changed = Core::chat_session_complete_response(state, id);
-      }
-      if (!Core::truthy(response)) {
-        if (Core::truthy(update)) {
-          Value item = Core::get(event, Value("update"), Value());
-          changed = Core::chat_session_queue_update(state, item);
-        }
-        if (!Core::truthy(update)) {
-          if (Core::truthy(submitted)) {
-            Value ids = Core::get(event, Value("ids"), Value());
-            Core::chat_session_mark_submitted(state, ids);
-            changed = Value(true);
-          }
-          if (!Core::truthy(submitted)) {
-            if (Core::truthy(closed)) {
-              Core::chat_session_close_state(state);
-              changed = Value(true);
-            }
-            if (!Core::truthy(closed)) {
-              if (Core::truthy(validated)) {
-                Value action = Core::chat_session_boundary_action(state);
-                Value action_type = Core::get(action, Value("type"), Value());
-                Value ready = Core::eq(action_type, Value("validate"));
-                Value not_ready = Core::not_(ready);
-                if (Core::truthy(not_ready)) {
-                  throw AxError("runtime", "Cannot finalize while model or tool work is unresolved");
-                }
-                Core::set(state, Value("terminal"), Value(true));
-                changed = Value(true);
-              }
-              if (!Core::truthy(validated)) {
-                if (Core::truthy(applied)) {
-                  Value id = Core::get(event, Value("id"), Value());
-                  Value updates = Core::get(state, Value("updates"), Value());
-                  Value exists = Core::map_contains(updates, id);
-                  if (Core::truthy(exists)) {
-                    Value record = Core::get(updates, id, Value());
-                    Value status = Core::get(record, Value("status"), Value());
-                    Value queued = Core::eq(status, Value("queued"));
-                    if (Core::truthy(queued)) {
-                      Core::set(record, Value("status"), Value("applied"));
-                      Core::set(updates, id, record);
-                      Core::set(state, Value("updates"), updates);
-                      Value item = Core::get(record, Value("update"), Value());
-                      Value kind = Core::get(item, Value("type"), Value());
-                      Value steer = Core::eq(kind, Value("steer"));
-                      if (Core::truthy(steer)) {
-                        Value version = Core::get(state, Value("version"), Value(0));
-                        Value next_version = Core::add(version, Value(1));
-                        Core::set(state, Value("version"), next_version);
-                      }
-                      changed = Value(true);
-                    }
-                  }
-                }
-                if (!Core::truthy(applied)) {
-                  throw AxError("runtime", "Unknown chat session transition");
-                }
-              }
-            }
-          }
-        }
-      }
+Value Core::chat_session_record_unresolved(Value gen, Value state) {
+  axir_coverage_mark("chat_session_record_unresolved");
+  Value pending = Core::get(state, Value("pending"), Value());
+  Value ids = Core::map_keys(pending);
+  for (auto id : Core::iter(ids)) {
+    Value record = Core::get(pending, id, Value());
+    Value status = Core::get(record, Value("status"), Value());
+    Value running = Core::eq(status, Value("running"));
+    Value recorded = Core::get(record, Value("diagnostic_recorded"), Value(false));
+    Value not_recorded = Core::not_(recorded);
+    Value needed = Core::and_(running, not_recorded);
+    if (Core::truthy(needed)) {
+      Value call = Core::get(record, Value("call"), Value());
+      Value message = Value("Run closed before the started tool settled; its external effects may still complete");
+      Core::axgen_record_function_call(gen, call, message, Value("unresolved"));
+      Core::set(record, Value("diagnostic_recorded"), Value(true));
+      Core::set(pending, id, record);
     }
   }
-  Value action = Core::chat_session_boundary_action(state);
-  Core::set(action, Value("changed"), changed);
-  return action;
+  Core::set(state, Value("pending"), pending);
+  return Value();
 }
 
 Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now) {
@@ -25062,6 +24963,132 @@ Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
   Core::set(bounds, Value("start"), first);
   Core::set(bounds, Value("end"), last);
   return bounds;
+}
+
+Value Core::chat_session_close_state(Value state) {
+  axir_coverage_mark("chat_session_close_state");
+  Core::set(state, Value("terminal"), Value(true));
+  Value unresolved = Core::chat_session_unresolved(state);
+  return unresolved;
+}
+
+Value Core::chat_session_transition(Value state, Value event) {
+  axir_coverage_mark("chat_session_transition");
+  Value type = Core::get(event, Value("type"), Value());
+  Value call = Core::eq(type, Value("tool.validated"));
+  Value result = Core::eq(type, Value("tool.result"));
+  Value response = Core::eq(type, Value("response.completed"));
+  Value update = Core::eq(type, Value("update.queued"));
+  Value submitted = Core::eq(type, Value("results.submitted"));
+  Value closed = Core::eq(type, Value("closed"));
+  Value validated = Core::eq(type, Value("validated"));
+  Value applied = Core::eq(type, Value("update.applied"));
+  Value changed = Value(false);
+  Value native_queued = Core::eq(type, Value("native.queued"));
+  if (Core::truthy(native_queued)) {
+    Value id = Core::get(event, Value("id"), Value());
+    changed = Core::chat_session_native_update(state, id);
+    Value action = Core::chat_session_boundary_action(state);
+    Core::set(action, Value("changed"), changed);
+    return action;
+  }
+  Value steering = Core::eq(type, Value("steering"));
+  if (Core::truthy(steering)) {
+    Value change = Core::chat_session_native_event(state, event);
+    Value action = Core::chat_session_boundary_action(state);
+    action = Core::map_merge(action, change);
+    return action;
+  }
+  Value final_call = Core::eq(type, Value("tool.final"));
+  if (Core::truthy(final_call)) {
+    Value tool_call = Core::get(event, Value("call"), Value());
+    changed = Core::chat_session_defer_final_call(state, tool_call);
+    Value action = Core::chat_session_boundary_action(state);
+    Core::set(action, Value("changed"), changed);
+    return action;
+  }
+  if (Core::truthy(call)) {
+    Value tool_call = Core::get(event, Value("call"), Value());
+    Value execution = Core::get(event, Value("execution"), Value("blocking"));
+    changed = Core::chat_session_register_call(state, tool_call, execution);
+  }
+  if (!Core::truthy(call)) {
+    if (Core::truthy(result)) {
+      Value id = Core::get(event, Value("id"), Value());
+      Value value = Core::get(event, Value("result"), Value());
+      changed = Core::chat_session_complete_call(state, id, value);
+    }
+    if (!Core::truthy(result)) {
+      if (Core::truthy(response)) {
+        Value id = Core::get(event, Value("id"), Value());
+        changed = Core::chat_session_complete_response(state, id);
+      }
+      if (!Core::truthy(response)) {
+        if (Core::truthy(update)) {
+          Value item = Core::get(event, Value("update"), Value());
+          changed = Core::chat_session_queue_update(state, item);
+        }
+        if (!Core::truthy(update)) {
+          if (Core::truthy(submitted)) {
+            Value ids = Core::get(event, Value("ids"), Value());
+            Core::chat_session_mark_submitted(state, ids);
+            changed = Value(true);
+          }
+          if (!Core::truthy(submitted)) {
+            if (Core::truthy(closed)) {
+              Core::chat_session_close_state(state);
+              changed = Value(true);
+            }
+            if (!Core::truthy(closed)) {
+              if (Core::truthy(validated)) {
+                Value action = Core::chat_session_boundary_action(state);
+                Value action_type = Core::get(action, Value("type"), Value());
+                Value ready = Core::eq(action_type, Value("validate"));
+                Value not_ready = Core::not_(ready);
+                if (Core::truthy(not_ready)) {
+                  throw AxError("runtime", "Cannot finalize while model or tool work is unresolved");
+                }
+                Core::set(state, Value("terminal"), Value(true));
+                changed = Value(true);
+              }
+              if (!Core::truthy(validated)) {
+                if (Core::truthy(applied)) {
+                  Value id = Core::get(event, Value("id"), Value());
+                  Value updates = Core::get(state, Value("updates"), Value());
+                  Value exists = Core::map_contains(updates, id);
+                  if (Core::truthy(exists)) {
+                    Value record = Core::get(updates, id, Value());
+                    Value status = Core::get(record, Value("status"), Value());
+                    Value queued = Core::eq(status, Value("queued"));
+                    if (Core::truthy(queued)) {
+                      Core::set(record, Value("status"), Value("applied"));
+                      Core::set(updates, id, record);
+                      Core::set(state, Value("updates"), updates);
+                      Value item = Core::get(record, Value("update"), Value());
+                      Value kind = Core::get(item, Value("type"), Value());
+                      Value steer = Core::eq(kind, Value("steer"));
+                      if (Core::truthy(steer)) {
+                        Value version = Core::get(state, Value("version"), Value(0));
+                        Value next_version = Core::add(version, Value(1));
+                        Core::set(state, Value("version"), next_version);
+                      }
+                      changed = Value(true);
+                    }
+                  }
+                }
+                if (!Core::truthy(applied)) {
+                  throw AxError("runtime", "Unknown chat session transition");
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  Value action = Core::chat_session_boundary_action(state);
+  Core::set(action, Value("changed"), changed);
+  return action;
 }
 
 Value Core::_regex_member(Value n, Value c) {
@@ -25275,6 +25302,23 @@ Value Core::_date_space_impl(Value unit) {
   return blank;
 }
 
+Value Core::_stream_text_state_impl() {
+  axir_coverage_mark("_stream_text_state_impl");
+  Value xstate = Value::object();
+  Value prev_fields = Value::array();
+  Core::set(xstate, Value("prev_fields"), prev_fields);
+  Value none = Core::none();
+  Core::set(xstate, Value("curr_field"), none);
+  Core::set(xstate, Value("curr_field_index"), none);
+  Core::set(xstate, Value("in_assumed_field"), Value(false));
+  Value extracted = Value::array();
+  Core::set(xstate, Value("extracted_fields"), extracted);
+  Value streamed = Value::object();
+  Core::set(xstate, Value("streamed_index"), streamed);
+  Core::set(xstate, Value("s"), Value(-1));
+  return xstate;
+}
+
 Value Core::_validate_exact_output_keys(Value fields, Value values, Value context) {
   axir_coverage_mark("_validate_exact_output_keys");
   Value is_object = Core::type_is(values, Value("object"));
@@ -25326,23 +25370,6 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
     }
   }
   return Value();
-}
-
-Value Core::_stream_text_state_impl() {
-  axir_coverage_mark("_stream_text_state_impl");
-  Value xstate = Value::object();
-  Value prev_fields = Value::array();
-  Core::set(xstate, Value("prev_fields"), prev_fields);
-  Value none = Core::none();
-  Core::set(xstate, Value("curr_field"), none);
-  Core::set(xstate, Value("curr_field_index"), none);
-  Core::set(xstate, Value("in_assumed_field"), Value(false));
-  Value extracted = Value::array();
-  Core::set(xstate, Value("extracted_fields"), extracted);
-  Value streamed = Value::object();
-  Core::set(xstate, Value("streamed_index"), streamed);
-  Core::set(xstate, Value("s"), Value(-1));
-  return xstate;
 }
 
 Value Core::_date_is_line_terminator_impl(Value unit) {
@@ -25524,23 +25551,6 @@ Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content,
   return Value(false);
 }
 
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
-  Value background = Core::eq(execution, Value("background"));
-  if (Core::truthy(background)) {
-    Core::set(spec, Value("execution"), execution);
-  }
-  return spec;
-}
-
 Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value word) {
   axir_coverage_mark("_date_ascii_matches_impl");
   Value length = Core::len(word);
@@ -25572,6 +25582,23 @@ Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value wor
     index = Core::add(index, Value(1));
   }
   return Value(true);
+}
+
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
+  Value background = Core::eq(execution, Value("background"));
+  if (Core::truthy(background)) {
+    Core::set(spec, Value("execution"), execution);
+  }
+  return spec;
 }
 
 Value Core::_regex_state(Value pos, Value caps) {
@@ -26538,23 +26565,6 @@ Value Core::_date_scan_datetime_impl(Value units, Value start, Value end) {
   return parts;
 }
 
-Value Core::_tool_error_message_impl(Value call, Value error) {
-  axir_coverage_mark("_tool_error_message_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value error_text = Core::exception_message(error);
-  Value payload = Value::object();
-  Core::set(payload, Value("error"), error_text);
-  Value payload_json = Core::json_stringify(payload);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("name"), name);
-  Core::set(message, Value("result"), payload_json);
-  Core::set(message, Value("is_error"), Value(true));
-  return message;
-}
-
 Value Core::_stream_text_required_check_impl(Value values, Value fields) {
   axir_coverage_mark("_stream_text_required_check_impl");
   Value parts = Value::array();
@@ -26589,6 +26599,23 @@ Value Core::_stream_text_required_check_impl(Value values, Value fields) {
   Value message = Core::string_format(Value("Required field not found: {}. Add a line starting with the exact label followed by a colon (e.g., \"{}:\") and then provide a valid {} value. Keep the output concise and avoid unrelated text."), list, first_title, first_label);
   Value error = Core::validation_error(message);
   Core::raise_error(error);
+}
+
+Value Core::_tool_error_message_impl(Value call, Value error) {
+  axir_coverage_mark("_tool_error_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value error_text = Core::exception_message(error);
+  Value payload = Value::object();
+  Core::set(payload, Value("error"), error_text);
+  Value payload_json = Core::json_stringify(payload);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("name"), name);
+  Core::set(message, Value("result"), payload_json);
+  Core::set(message, Value("is_error"), Value(true));
+  return message;
 }
 
 Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
@@ -30496,6 +30523,19 @@ Value Core::_structured_output_render_options_impl(Value selection) {
   return render_options;
 }
 
+Value Core::_stream_state_impl(Value index) {
+  axir_coverage_mark("_stream_state_impl");
+  Value state = Value::object();
+  Core::set(state, Value("index"), index);
+  Core::set(state, Value("content"), Value(""));
+  Value values = Value::object();
+  Core::set(state, Value("values"), values);
+  Value xstate = Core::_stream_text_state_impl();
+  Core::set(state, Value("xstate"), xstate);
+  Core::set(state, Value("last_parse_length"), Value(0));
+  return state;
+}
+
 Value Core::_validate_completion_function_call_names(Value response) {
   axir_coverage_mark("_validate_completion_function_call_names");
   Value empty = Value::array();
@@ -30544,19 +30584,6 @@ Value Core::_validate_completion_function_call_names(Value response) {
     result_index = next_result_index;
   }
   return Value();
-}
-
-Value Core::_stream_state_impl(Value index) {
-  axir_coverage_mark("_stream_state_impl");
-  Value state = Value::object();
-  Core::set(state, Value("index"), index);
-  Core::set(state, Value("content"), Value(""));
-  Value values = Value::object();
-  Core::set(state, Value("values"), values);
-  Value xstate = Core::_stream_text_state_impl();
-  Core::set(state, Value("xstate"), xstate);
-  Core::set(state, Value("last_parse_length"), Value(0));
-  return state;
 }
 
 Value Core::_stream_merge_value_impl(Value base, Value has_base, Value delta) {

@@ -439,6 +439,9 @@ module @ax.gen version "0.1" {
         core.set %request["provider_metadata"] = %provider_metadata
       }
       core.set %request["model_config"] = %model_config
+      // The request's step: a native chat session's response budget is the
+      // run's maxSteps less it, as TS's maxResponses is.
+      core.set %request["_ax_step_index"] = %step
       core.return %request
     }
   }

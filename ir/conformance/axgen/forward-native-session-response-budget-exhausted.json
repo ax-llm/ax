@@ -1,0 +1,834 @@
+{
+  "control": true,
+  "expected_control_events": [
+    {
+      "path": "root",
+      "type": "started"
+    },
+    {
+      "path": "root",
+      "type": "failed"
+    }
+  ],
+  "expected_error_cause_contains": "Chat session failed: Maximum steps reached with unincorporated tool results (0); unresolved calls: none",
+  "expected_error_contains": "Generate failed: Chat session failed: Maximum steps reached with unincorporated tool results (0); unresolved calls: none",
+  "expected_request_count": 1,
+  "expected_request_roles": [["system", "user"]],
+  "expected_session_log": [
+    {
+      "op": "open"
+    },
+    {
+      "call_ids": ["c1"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c2"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c3"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c4"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c5"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c6"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c7"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c8"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c9"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c10"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c11"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c12"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c13"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c14"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c15"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c16"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c17"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c18"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c19"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c20"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c21"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c22"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c23"],
+      "op": "continue"
+    },
+    {
+      "call_ids": ["c24"],
+      "op": "continue"
+    },
+    {
+      "op": "close"
+    }
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    },
+    {
+      "args": {
+        "key": "status"
+      },
+      "name": "lookup"
+    }
+  ],
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-native-session-response-budget-exhausted",
+  "native_session": [
+    [
+      [
+        {
+          "response_id": "r1",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c1",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r2",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c2",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r3",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c3",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r4",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c4",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r5",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c5",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r6",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c6",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r7",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c7",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r8",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c8",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r9",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c9",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r10",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c10",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r11",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c11",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r12",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c12",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r13",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c13",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r14",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c14",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r15",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c15",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r16",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c16",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r17",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c17",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r18",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c18",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r19",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c19",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r20",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c20",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r21",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c21",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r22",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c22",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r23",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c23",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r24",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c24",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r25",
+          "results": [
+            {
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"status\"}"
+                  },
+                  "id": "c25",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ],
+      [
+        {
+          "response_id": "r26",
+          "results": [
+            {
+              "content": "Answer: done",
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ],
+          "type": "response.completed"
+        }
+      ]
+    ]
+  ],
+  "responses": [],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}
