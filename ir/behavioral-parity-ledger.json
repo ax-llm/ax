@@ -821,7 +821,7 @@
     },
     {
       "capability": "agent.callables.flat_function_namespace",
-      "summary": "With flatFunctionNamespace 'own' a flat agent function filed under its own namespace (TS fn().namespace('crm')) is listed and called as crm.<name>, as TS's agent does, and a namespace that shadows a runtime global raises TS's error. The default ('tools', today's behavior until the next major version) keeps tools.<name> and warns once when a flat function names another namespace. A flat function without a namespace is tools.<name> either way (utils.<name> in TS). Go's Tool.WithNamespace and Java's fn(...).namespace(...) set it on a host Tool; JSON function specs in every port take a namespace key.",
+      "summary": "A flat agent function filed under its own namespace (TS fn().namespace('crm')) is listed and called as crm.<name>, as TS's agent does, and a namespace that shadows a runtime global raises TS's error (flatFunctionNamespace 'own', the default since 25.0.0). flatFunctionNamespace 'tools' calls every flat function tools.<name>, as the ports did before. A flat function without a namespace is tools.<name> either way (utils.<name> in TS). Go's Tool.WithNamespace and Java's fn(...).namespace(...) set it on a host Tool; JSON function specs in every port take a namespace key.",
       "ir_ops": [
         "@normalize_agent_callable_inventory",
         "@agent_flat_function_namespace",
@@ -834,17 +834,18 @@
       "fixtures": [
         "axagent/agent-first-requests-flat-namespace.json",
         "axagent-real/agent-runtime-real-flat-namespace-call.json",
-        "axagent/agent-flat-function-namespace-default-tools.json",
+        "axagent/agent-flat-function-namespace-default-own.json",
         "axagent/agent-flat-function-namespace-tools-explicit.json",
+        "axagent/agent-flat-function-namespace-tools-reserved.json",
         "axagent/agent-flat-function-namespace-default-reserved.json",
         "axagent/agent-flat-function-namespace-own-reserved.json",
         "axagent/agent-flat-function-namespace-invalid-mode.json",
-        "axagent/agent-flat-function-namespace-own-with-child.json"
+        "axagent/agent-flat-function-namespace-with-child.json"
       ],
       "gate": "G3 prompt-parity + G1 real-engine antidote",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES: the TypeScript golden agent-first-requests-flat-namespace (interleaved crm/web flat functions, run by the ports with flatFunctionNamespace 'own') pins each stage's first request, whose function listing TS sorts by namespace and name; the port-only real-engine fixture agent-runtime-real-flat-namespace-call runs the executor's crm.lookup call through each port's JavaScript engine, and only an executed call puts the engine-computed gold:42 in the responder's request. Port-only fixtures pin the default (tools.<name> and the one-time warning, also for a reserved namespace), 'tools' without the warning, 'own' with TS's reserved-namespace error, an invalid mode, and 'own' keeping crm.lookup after a child agent is registered."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES: the TypeScript golden agent-first-requests-flat-namespace (interleaved crm/web flat functions) pins each stage's first request, whose function listing TS sorts by namespace and name; the port-only real-engine fixture agent-runtime-real-flat-namespace-call runs the executor's crm.lookup call through each port's JavaScript engine, and only an executed call puts the engine-computed gold:42 in the responder's request. Port-only fixtures pin the default without a deprecation warning, 'tools' (also with a reserved namespace), TS's reserved-namespace error by default and with 'own', an invalid mode, and the namespace kept after a child agent is registered."
     }
   ]
 }

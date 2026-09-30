@@ -1,6 +1,6 @@
 {
   "name": "agent-flat-function-namespace-own-reserved",
-  "description": "Port-only: with flatFunctionNamespace 'own' a flat function namespaced with a reserved runtime name raises TypeScript's error at construction.",
+  "description": "Port-only: flatFunctionNamespace 'own' (the default) raises TypeScript's error for a flat function namespaced with a reserved runtime name (final).",
   "kind": "agent_forward",
   "signature": "question:string -> answer:string",
   "input": {
