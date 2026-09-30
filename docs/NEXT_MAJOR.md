@@ -17,7 +17,6 @@ release flow.
 - Speak results drop the older keys (`audio`, `mime_type`, `sample_rate`) in favor of TypeScript's `data`, `mimeType` and `sampleRate` (#736). The deprecated JSON `audio` key fallback in speak responses is removed (#743).
 - `playbook.seed` means TypeScript's numeric seed, and snapshot seeds go in `playbook.playbook` (#739).
 - TypeScript's deprecated, ignored `responseFormatWithFunctions` is removed (#721).
-- An agent without runtime config builds TypeScript's JavaScript actor stages by default, and the runtime-less completion mode becomes opt-in (pending PR).
 - TypeScript `AxAIProfileAuthentication.type` drops `'api-key-query'`. No profile uses it and TypeScript never implemented query-key auth (such a profile fell through to a Bearer header), so it is deprecated until then (#747).
 - A user content item that is not an object or has no type raises `AxAIServiceResponseError` in the ports, like the other chat-message checks. Today it raises `AxUnsupportedCapabilityError` with TypeScript's message (#754).
 - Per-call `timeout` is read in milliseconds, as in TypeScript. Today Python, Go, Java and C++ ignore it and Rust reads it in seconds, and each warns once when a call gives it without `timeoutMs`, which works now. Python's and Go's Typesafe native calls also read it in seconds today (#761).

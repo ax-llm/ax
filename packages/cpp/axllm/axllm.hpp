@@ -532,6 +532,7 @@ struct Core {
   static Value agent_stage_usage(Value stage);
   static Value agent_stage_traces(Value stage);
   static Value agent_clarification_error(Value payload, Value state);
+  static Value agent_runtime_is_executable(Value runtime);
   static Value agent_runtime_create_session(Value runtime, Value globals, Value options);
   static Value agent_runtime_execute(Value session, Value code, Value options);
   static Value agent_runtime_inspect(Value session, Value options);
@@ -1454,6 +1455,9 @@ struct Core {
   static Value _agent_stage_render_audio(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _agent_stage_parse_dates(Value out, Value base_options, Value stage_options, Value forward_options);
   static Value _agent_actor_stage_signatures(Value state, Value runtime_enabled, Value contract);
+  static Value _agent_resolve_actor_mode(Value options);
+  static Value _agent_resolve_run_actor_mode(Value state, Value options);
+  static Value _agent_validate_run_runtime(Value state, Value options);
   static Value _agent_runtime_configured(Value state);
   static Value _agent_stage_mode_fields(Value state);
   static Value _agent_runtime_stage_fields(Value state, Value runtime);

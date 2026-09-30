@@ -29,5 +29,8 @@
     "mcpError": -32000,
     "genExamples": 1,
     "genDemos": 1
+  },
+  "options": {
+    "actorMode": "completion"
   }
 }

@@ -2669,6 +2669,10 @@ def _core_agent_clarification_error(payload, state):
     )
 
 
+def _core_agent_runtime_is_executable(runtime):
+    return callable(getattr(runtime, "create_session", None))
+
+
 def _core_agent_runtime_create_session(runtime, globals_, options):
     if not hasattr(runtime, "create_session"):
         raise RuntimeError("agent runtime does not implement AxCodeRuntime")

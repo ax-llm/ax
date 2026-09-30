@@ -131,5 +131,8 @@
   },
   "kind": "optimize",
   "name": "gepa-ts-helper-contract",
-  "operation": "evidence"
+  "operation": "evidence",
+  "options": {
+    "actorMode": "completion"
+  }
 }

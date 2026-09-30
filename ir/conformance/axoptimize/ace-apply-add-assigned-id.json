@@ -48,5 +48,8 @@
     },
     "updatedAt": "2026-07-15T11:59:00.000Z",
     "version": 1
+  },
+  "options": {
+    "actorMode": "completion"
   }
 }

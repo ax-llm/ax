@@ -34,7 +34,7 @@
       "type": "failed"
     }
   ],
-  "expected_error_contains": "Generate failed: Unable to fix validation error: Invalid evidenceCitations entries: made_up_source. Cite only evidence ids that exist: policy — or leave the field empty.",
+  "expected_error_contains": "Generate failed: Unable to fix validation error: Invalid evidenceCitations entries: made_up_source. Cite only evidence ids that exist: policy \u2014 or leave the field empty.",
   "expected_request_count": 6,
   "expected_transcript": [
     "request:distiller",

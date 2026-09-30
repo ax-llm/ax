@@ -3528,7 +3528,7 @@ static void run_ai_cancellation(Value fixture) {
   Value preflight_fixture=fixture;Core::set(preflight_fixture,"transport_responses",array({Core::get(fixture,"success_response")}));ClientFixture preflight(preflight_fixture);AxCancellationToken token;token.cancel(reason);try{preflight.client->chat(request,Value::object(),&token);throw AxError("fixture","pre-cancelled provider request unexpectedly reached transport");}catch(const AxError& error){if(error.type!="AxAIServiceAbortedError"||error.retryable||std::string(error.what()).find(reason)==std::string::npos)throw;}if(!preflight.transport.requests.empty())throw AxError("fixture","pre-cancelled provider request reached transport");
 
   AxGen cancellation_gen(Core::parse_signature(Value("question:string -> answer:string")));
-  AxAgent cancellation_agent(Value("question:string -> answer:string"));
+  AxAgent cancellation_agent(Value("question:string -> answer:string"), object({{"actorMode","completion"}}));
   AxGen cancellation_flow_gen(Core::parse_signature(Value("question:string -> answer:string")));
   AxFlow cancellation_flow(Value(Object{{"id","cancellation-flow"}}));
   cancellation_flow.execute("answer",cancellation_flow_gen);

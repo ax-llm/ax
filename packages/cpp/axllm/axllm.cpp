@@ -2428,6 +2428,10 @@ Value Core::agent_clarification_error(Value payload, Value state) {
       {"payload", payload},
   });
 }
+Value Core::agent_runtime_is_executable(Value runtime) {
+  auto it = code_runtime_registry().find(str(get_key(runtime, "__code_runtime_id")));
+  return Value(it != code_runtime_registry().end() && it->second != nullptr);
+}
 Value Core::agent_runtime_create_session(Value runtime, Value globals, Value options) {
   std::string runtime_id = str(get_key(runtime, "__code_runtime_id"));
   auto it = code_runtime_registry().find(runtime_id);
@@ -32851,11 +32855,8 @@ Value Core::_agent_factory(Value signature, Value options) {
   Value status_log = Value::array();
   Value state = Value::object();
   Value runtime_contract = Core::_normalize_agent_runtime(options);
-  Value has_runtime_direct = Core::map_contains(options, Value("runtime"));
-  Value has_runtime_config = Core::map_contains(options, Value("runtimeConfig"));
-  Value has_runtime_config_snake = Core::map_contains(options, Value("runtime_config"));
-  Value has_any_runtime_config = Core::or_(has_runtime_config, has_runtime_config_snake);
-  Value runtime_enabled = Core::or_(has_runtime_direct, has_any_runtime_config);
+  Value actor_mode = Core::_agent_resolve_actor_mode(options);
+  Value runtime_enabled = Core::eq(actor_mode, Value("runtime"));
   Value context_policy = Core::_resolve_agent_context_policy(options);
   Value executor_model_policy = Core::_resolve_agent_executor_model_policy(options);
   Value callable_inventory = Core::_normalize_agent_callable_inventory(options);
@@ -33147,7 +33148,8 @@ Value Core::_agent_runtime_code_fence_language(Value tokens, Value alias_key, Va
 Value Core::_normalize_agent_runtime(Value options) {
   axir_coverage_mark("_normalize_agent_runtime");
   Value empty_map = Value::object();
-  Value runtime_camel = Core::get(options, Value("runtimeConfig"), empty_map);
+  Value runtime_snake = Core::get(options, Value("runtime_config"), empty_map);
+  Value runtime_camel = Core::get(options, Value("runtimeConfig"), runtime_snake);
   Value runtime = Core::get(options, Value("runtime"), runtime_camel);
   Value raw_language = Core::get(runtime, Value("language"), Value("JavaScript"));
   Value trimmed_language = Core::string_trim(raw_language);
@@ -42825,6 +42827,77 @@ Value Core::_agent_actor_stage_signatures(Value state, Value runtime_enabled, Va
   return out;
 }
 
+Value Core::_agent_resolve_actor_mode(Value options) {
+  axir_coverage_mark("_agent_resolve_actor_mode");
+  Value camel = Core::get(options, Value("actorMode"), Value("runtime"));
+  Value mode = Core::get(options, Value("actor_mode"), camel);
+  Value runtime = Core::eq(mode, Value("runtime"));
+  Value completion = Core::eq(mode, Value("completion"));
+  Value valid = Core::or_(runtime, completion);
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value error = Core::runtime_error(Value("actorMode must be 'runtime' or 'completion'"));
+    Core::raise_error(error);
+  }
+  if (Core::truthy(completion)) {
+    Value direct = Core::get(options, Value("runtime"), Value());
+    Value camel_config = Core::get(options, Value("runtimeConfig"), Value());
+    Value config = Core::get(options, Value("runtime_config"), camel_config);
+    Value has_direct = Core::is_not_none(direct);
+    Value has_config = Core::is_not_none(config);
+    Value conflict = Core::or_(has_direct, has_config);
+    if (Core::truthy(conflict)) {
+      Value error = Core::runtime_error(Value("actorMode 'completion' cannot be combined with a runtime"));
+      Core::raise_error(error);
+    }
+  }
+  return mode;
+}
+
+Value Core::_agent_resolve_run_actor_mode(Value state, Value options) {
+  axir_coverage_mark("_agent_resolve_run_actor_mode");
+  Value configured = Core::get(state, Value("options"), Value());
+  Value default_mode = Core::_agent_resolve_actor_mode(configured);
+  Value camel = Core::get(options, Value("actorMode"), default_mode);
+  Value mode = Core::get(options, Value("actor_mode"), camel);
+  Value copy = Value::object();
+  copy = Core::map_merge(copy, configured);
+  Core::set(copy, Value("actorMode"), mode);
+  Core::set(copy, Value("actor_mode"), mode);
+  Value resolved = Core::_agent_resolve_actor_mode(copy);
+  return resolved;
+}
+
+Value Core::_agent_validate_run_runtime(Value state, Value options) {
+  axir_coverage_mark("_agent_validate_run_runtime");
+  Value configured = Core::get(state, Value("options"), Value());
+  Value mode = Core::_agent_resolve_run_actor_mode(state, options);
+  Value call_runtime = Core::get(options, Value("runtime"), Value());
+  Value completion = Core::eq(mode, Value("completion"));
+  if (Core::truthy(completion)) {
+    Value has_runtime = Core::is_not_none(call_runtime);
+    if (Core::truthy(has_runtime)) {
+      Value error = Core::runtime_error(Value("actorMode 'completion' cannot be combined with a runtime"));
+      Core::raise_error(error);
+    }
+    return call_runtime;
+  }
+  Value constructor_runtime = Core::get(configured, Value("runtime"), Value());
+  Value constructor_executable = Core::agent_runtime_is_executable(constructor_runtime);
+  Value runtime = call_runtime;
+  if (Core::truthy(constructor_executable)) {
+    runtime = constructor_runtime;
+  }
+  Value executable = Core::agent_runtime_is_executable(runtime);
+  Value missing = Core::not_(executable);
+  if (Core::truthy(missing)) {
+    Value error = Core::runtime_error(Value("Agent runtime mode requires an executable AxCodeRuntime before forward; pass a runtime or select actorMode 'completion'"));
+    Core::raise_error(error);
+  }
+  Core::set(options, Value("runtime"), runtime);
+  return runtime;
+}
+
 Value Core::_agent_runtime_configured(Value state) {
   axir_coverage_mark("_agent_runtime_configured");
   Value empty_map = Value::object();
@@ -42890,13 +42963,20 @@ Value Core::_agent_runtime_stage_fields(Value state, Value runtime) {
 
 Value Core::_agent_use_stage_mode(Value state, Value options) {
   axir_coverage_mark("_agent_use_stage_mode");
+  Value state_options = Core::get(state, Value("options"), Value());
+  Value actor_mode = Core::_agent_resolve_run_actor_mode(state, options);
+  Value runtime_mode = Core::eq(actor_mode, Value("runtime"));
   Value configured = Core::_agent_runtime_configured(state);
-  Value runtime = Core::get(options, Value("runtime"), Value());
-  Value has_runtime = Core::is_not_none(runtime);
-  Value runtime_mode = Core::or_(configured, has_runtime);
+  Value runtime = Core::_agent_validate_run_runtime(state, options);
   Value mode = Value("plain");
   if (Core::truthy(runtime_mode)) {
     mode = Value("runtime");
+    Value unconfigured = Core::not_(configured);
+    if (Core::truthy(unconfigured)) {
+      Value language = Core::agent_runtime_language(runtime);
+      Value usage = Core::agent_runtime_usage_instructions(runtime);
+      mode = Core::string_format(Value("runtime:{}:{}"), language, usage);
+    }
   }
   Value state_runtime = Core::get(state, Value("runtime_enabled"), Value(false));
   Value active_default = Value("plain");
@@ -42916,7 +42996,18 @@ Value Core::_agent_use_stage_mode(Value state, Value options) {
       // empty
     }
     if (!Core::truthy(cached)) {
-      target = Core::_agent_runtime_stage_fields(state, runtime);
+      if (Core::truthy(runtime_mode)) {
+        target = Core::_agent_runtime_stage_fields(state, runtime);
+      }
+      if (!Core::truthy(runtime_mode)) {
+        Value plain_options = Value::object();
+        plain_options = Core::map_merge(plain_options, state_options);
+        Core::set(plain_options, Value("actorMode"), Value("completion"));
+        Core::set(plain_options, Value("actor_mode"), Value("completion"));
+        Value signature = Core::get(state, Value("signature"), Value());
+        Value plain_state = Core::_agent_factory(signature, plain_options);
+        target = Core::_agent_stage_mode_fields(plain_state);
+      }
     }
     for (auto field : Core::iter(target)) {
       Value field_value = Core::get(target, field, Value());

@@ -3508,7 +3508,7 @@ public final class Conformance {
     int programRequestCount=preflight.transport.requests.size();
     AxFlow cancellationFlow=Ax.flow(Map.of("id","cancellation-flow")).execute("answer",Ax.ax("question:string -> answer:string"));
     AxGen cancellationGen=Ax.ax("question:string -> answer:string");
-    AxAgent cancellationAgent=Ax.agent("question:string -> answer:string",Map.of());
+    AxAgent cancellationAgent=Ax.agent("question:string -> answer:string",Map.of("actorMode","completion"));
     List<Map.Entry<String,java.util.concurrent.Callable<Map<String,Object>>>> programCalls=List.of(
       Map.entry("AxGen",()->cancellationGen.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),
       Map.entry("AxAgent",()->cancellationAgent.forwardWithCancellation(preflight.client,Map.of("question","cancel"),Map.of("infraRetries",2),token)),

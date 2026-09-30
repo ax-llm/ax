@@ -28,7 +28,8 @@
   "kind": "agent_forward",
   "name": "simple-pipeline",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {

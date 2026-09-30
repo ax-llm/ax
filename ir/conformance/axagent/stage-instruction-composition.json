@@ -15,7 +15,8 @@
   "set_instruction": "Verify every claim before finalizing.",
   "add_actor_instruction": "Record the evidence id before answering.",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {

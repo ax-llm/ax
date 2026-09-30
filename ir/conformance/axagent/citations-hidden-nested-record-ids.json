@@ -14,7 +14,8 @@
       "field": "sources",
       "surface": "hidden"
     },
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {

@@ -2931,7 +2931,7 @@ mod tests {
         allowed.store(true, Ordering::SeqCst);
         let mut program = agent_with_options(
             "question -> answer",
-            json!({"functionDiscovery":true,"directResponse":"off"}),
+            json!({"actorMode":"completion","functionDiscovery":true,"directResponse":"off"}),
         )?
         .with_tool_module("orders", vec![native])?;
         let hidden = Arc::new(AtomicBool::new(true));
@@ -3264,7 +3264,7 @@ mod tests {
             mcp.init()?;
             let mut child = agent_with_options(
                 "question -> answer",
-                json!({"directResponse":"off","functionDiscovery":false}),
+                json!({"actorMode":"completion","directResponse":"off","functionDiscovery":false}),
             )?;
             if cancel {
                 let mut native = mcp.native_tools().remove(0);
@@ -3397,9 +3397,11 @@ mod tests {
             });
         let mut client =
             AxBalancer::from_clients(vec![Box::new(client)], AxBalancerOptions::default())?;
-        let mut program =
-            agent_with_options("question -> answer", json!({"directResponse":"off"}))?
-                .with_tool_module("tools", vec![lookup])?;
+        let mut program = agent_with_options(
+            "question -> answer",
+            json!({"actorMode":"completion","directResponse":"off"}),
+        )?
+        .with_tool_module("tools", vec![lookup])?;
         assert_eq!(
             program.forward_with_options(
                 &mut client,
@@ -3697,8 +3699,10 @@ mod tests {
                 ));
             }
         });
-        let mut program =
-            agent_with_options("question -> answer", json!({"directResponse":"off"}))?;
+        let mut program = agent_with_options(
+            "question -> answer",
+            json!({"actorMode":"completion","directResponse":"off"}),
+        )?;
         let answer = Rc::new(RefCell::new(String::new()));
         let streamed = answer.clone();
         program.streaming_forward(

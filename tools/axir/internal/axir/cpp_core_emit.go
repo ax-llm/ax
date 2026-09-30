@@ -467,6 +467,7 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicAgentStageTraces:          "Core::agent_stage_traces",
 	IntrinsicAgentClarificationErr:     "Core::agent_clarification_error",
 	IntrinsicAgentRuntimeCreate:        "Core::agent_runtime_create_session",
+	IntrinsicAgentRuntimeExecutable:        "Core::agent_runtime_is_executable",
 	IntrinsicAgentRuntimeExecute:       "Core::agent_runtime_execute",
 	IntrinsicAgentRuntimeInspect:       "Core::agent_runtime_inspect",
 	IntrinsicAgentRuntimeExport:        "Core::agent_runtime_export_state",

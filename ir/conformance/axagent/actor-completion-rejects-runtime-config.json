@@ -1,0 +1,12 @@
+{
+  "expected_error_contains": "actorMode 'completion' cannot be combined with a runtime",
+  "kind": "agent_runtime_policy",
+  "name": "actor-completion-rejects-runtime-config",
+  "options": {
+    "actorMode": "completion",
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "signature": "question:string -> answer:string"
+}

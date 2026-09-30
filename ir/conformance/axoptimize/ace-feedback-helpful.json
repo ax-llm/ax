@@ -68,5 +68,8 @@
     "updatedAt": "2023-12-01T00:00:00.000Z",
     "version": 1
   },
-  "tag": "helpful"
+  "tag": "helpful",
+  "options": {
+    "actorMode": "completion"
+  }
 }

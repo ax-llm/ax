@@ -1,0 +1,17 @@
+{
+  "expected_error_contains": "requires an executable AxCodeRuntime before forward",
+  "expected_request_count": 0,
+  "expected_request_roles": [],
+  "input": {
+    "question": "Hello"
+  },
+  "kind": "agent_forward",
+  "name": "actor-metadata-only-runtime-preflight",
+  "options": {
+    "runtime_config": {
+      "language": "Python"
+    }
+  },
+  "responses": [],
+  "signature": "question:string -> answer:string"
+}

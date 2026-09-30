@@ -21,5 +21,8 @@
   "operation": "apply",
   "program": "agent",
   "serialized_artifact": true,
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

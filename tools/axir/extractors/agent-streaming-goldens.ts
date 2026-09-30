@@ -18,6 +18,7 @@ import type { AxChatResponse } from '../../../src/ax/ai/types.js';
 import { runControl } from '../../../src/ax/dsp/runControl.js';
 import { mergeDeltas } from '../../../src/ax/dsp/util.js';
 import { AxJSRuntime } from '../../../src/ax/funcs/jsRuntime.js';
+import { legacyCompletionFixture } from './agent-fixture-mode.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type JsonMap = { [key: string]: Json };
@@ -810,31 +811,31 @@ const FLAT_NAMESPACED: JsonMap[] = [
 
 const cases: Record<string, Case> = {
   // ----- each stage's first request, in full -----
-  'agent-first-requests-base': {
+  'agent-first-requests-base': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-tools': {
+  }),
+  'agent-first-requests-tools': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', functions: TOOL_GROUPS },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-flat-namespace': {
+  }),
+  'agent-first-requests-flat-namespace': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', functions: FLAT_NAMESPACED },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-context-field': {
+  }),
+  'agent-first-requests-context-field': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: 'question:string, policyDoc:string -> answer:string',
     input: {
@@ -847,8 +848,8 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-skills': {
+  }),
+  'agent-first-requests-skills': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -865,8 +866,8 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-discovery': {
+  }),
+  'agent-first-requests-discovery': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -877,8 +878,8 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-memories': {
+  }),
+  'agent-first-requests-memories': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -891,8 +892,8 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
-  'agent-first-requests-skills-catalog': {
+  }),
+  'agent-first-requests-skills-catalog': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -915,11 +916,11 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
+  }),
   // Two forwards with a context map: each run's distiller reads the map, and
   // after each run its distiller and cartographer update it (an ADD, then a
   // REPLACE and an ADD by section title).
-  'agent-first-requests-context-map': {
+  'agent-first-requests-context-map': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -964,9 +965,9 @@ const cases: Record<string, Case> = {
     first_requests: true,
     pin_stage_requests: ['context_map'],
     pin_context_map: true,
-  },
+  }),
   // No map: TS starts from its template of every section.
-  'agent-first-requests-context-map-template': {
+  'agent-first-requests-context-map-template': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', contextMap: {} },
     features: { functions: false, streaming: false, structured_outputs: false },
@@ -977,10 +978,10 @@ const cases: Record<string, Case> = {
     first_requests: true,
     pin_stage_requests: ['context_map'],
     pin_context_map: true,
-  },
+  }),
   // A map in the ports' pre-25.0.0 format loads, keeps its items, numbers new
   // ids after them and is normalized by the update.
-  'agent-context-map-legacy-text': {
+  'agent-context-map-legacy-text': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', contextMap: { map: LEGACY_MAP } },
     features: { functions: false, streaming: false, structured_outputs: false },
@@ -996,9 +997,9 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
     request_contains: ['[rr-2] Refund window = 30 days'],
     pin_context_map: true,
-  },
+  }),
   // The map's budget: an item tagged harmful goes first.
-  'agent-context-map-evict': {
+  'agent-context-map-evict': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -1019,9 +1020,9 @@ const cases: Record<string, Case> = {
     ),
     runtime_script: baseRuntime(),
     pin_context_map: true,
-  },
+  }),
   // A finite map past its evolve steps is read but not updated.
-  'agent-context-map-read': {
+  'agent-context-map-read': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -1041,10 +1042,10 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
     request_contains: ['[rr-1] France capital is Paris'],
     pin_context_map: true,
-  },
+  }),
   // A map given as text: the scores follow the tags and an ADD lands in its
   // own new section.
-  'agent-context-map-config': {
+  'agent-context-map-config': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -1064,19 +1065,19 @@ const cases: Record<string, Case> = {
     ),
     runtime_script: baseRuntime(),
     pin_context_map: true,
-  },
+  }),
   // TS's own AxJSRuntime runs the model's code: variables of several types
   // made by the distiller, what console.log prints, the live runtime state
   // each stage sees (the executor shares the distiller's session), the
   // evidence summary and the runtime's usage instructions.
-  'agent-cached-dynamic-stage-prompts': {
+  'agent-cached-dynamic-stage-prompts': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', contextCache: {} },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
+  }),
   'agent-cached-dynamic-stage-streaming': {
     options: {
       directResponse: 'off',
@@ -1087,7 +1088,7 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
     first_requests: true,
   },
-  'agent-runtime-real-ts-live-state': {
+  'agent-runtime-real-ts-live-state': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     features: { functions: false, streaming: false, structured_outputs: false },
@@ -1104,11 +1105,11 @@ const cases: Record<string, Case> = {
     real_runtime: true,
     first_requests: true,
     pin_stage_requests: ['distiller', 'executor'],
-  },
+  }),
   // TS's AxJSRuntime again: a distiller turn that makes no variable (the
   // live state has no user variables) and a final with empty evidence (the
   // executor still sees the distilledContext global).
-  'agent-runtime-real-ts-no-user-variables': {
+  'agent-runtime-real-ts-no-user-variables': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     features: { functions: false, streaming: false, structured_outputs: false },
@@ -1123,10 +1124,10 @@ const cases: Record<string, Case> = {
     real_runtime: true,
     first_requests: true,
     pin_stage_requests: ['distiller', 'executor'],
-  },
+  }),
   // Two forwards on one agent: each stage of the second run restores its own
   // earlier actions and says so.
-  'agent-first-requests-second-forward': {
+  'agent-first-requests-second-forward': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     features: { functions: false, streaming: false, structured_outputs: false },
@@ -1139,10 +1140,10 @@ const cases: Record<string, Case> = {
     runtime_script: [...baseRuntime(), ...baseRuntime()],
     forward_runs: 2,
     first_requests: true,
-  },
+  }),
   // An oversized input that is not a context field: autoUpgrade keeps it in
   // the runtime and gives the actors and the responder a truncated preview.
-  'agent-first-requests-auto-promotion': {
+  'agent-first-requests-auto-promotion': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: 'document:string, question:string -> answer:string',
     input: {
@@ -1159,12 +1160,12 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
+  }),
   // The other promotion modes: an oversized json value previews as its JSON,
   // an optional array is left out of the prompt, and a required array stays
   // inline. Input names in sorted order: the fixture sync sorts input keys,
   // and the context metadata lists the inputs in their order.
-  'agent-first-requests-auto-promotion-modes': {
+  'agent-first-requests-auto-promotion-modes': legacyCompletionFixture({
     kind: 'agent_forward',
     signature:
       'question:string, record:json, remarks?:string[], tags:string[] -> answer:string',
@@ -1185,7 +1186,7 @@ const cases: Record<string, Case> = {
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     first_requests: true,
-  },
+  }),
   // ----- streaming -----
   'agent-streaming-forward-plain': {
     options: { directResponse: 'off' },
@@ -1217,7 +1218,7 @@ const cases: Record<string, Case> = {
     ],
     pin_clarification: true,
   },
-  'agent-forward-clarification-structured': {
+  'agent-forward-clarification-structured': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     responses: [actor(CLARIFY)],
@@ -1225,7 +1226,7 @@ const cases: Record<string, Case> = {
       step(CLARIFY, 'askClarification', 'Which order do you mean?'),
     ],
     pin_clarification: true,
-  },
+  }),
   'agent-streaming-forward-citations': {
     options: { directResponse: 'off', citations: {} },
     observers: ['citations'],
@@ -1321,7 +1322,7 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
   },
   // ----- forward -----
-  'agent-forward-citations-retry': {
+  'agent-forward-citations-retry': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', citations: {} },
     observers: ['citations'],
@@ -1334,8 +1335,8 @@ const cases: Record<string, Case> = {
     request_contains: [
       'Invalid evidenceCitations entries: made_up_source. Cite only evidence ids that exist: policy',
     ],
-  },
-  'agent-forward-citations-exhausted': {
+  }),
+  'agent-forward-citations-exhausted': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', citations: {} },
     responses: [
@@ -1347,8 +1348,8 @@ const cases: Record<string, Case> = {
     ],
     runtime_script: baseRuntime(),
     no_request_roles: RETRY_MEMORY_GAP,
-  },
-  'agent-forward-citations-no-evidence': {
+  }),
+  'agent-forward-citations-no-evidence': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', citations: {} },
     responses: [
@@ -1367,22 +1368,22 @@ const cases: Record<string, Case> = {
       ),
     ],
     request_contains: ['This answer has no evidence to cite'],
-  },
-  'agent-forward-used-observers': {
+  }),
+  'agent-forward-used-observers': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', citations: {} },
     observers: ['used_memories', 'used_skills', 'citations'],
     responses: [...baseActors(), cited('["policy"]')],
     runtime_script: baseRuntime(),
-  },
-  'agent-forward-control': {
+  }),
+  'agent-forward-control': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     control: true,
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
-  },
-  'agent-forward-control-steer-continues': {
+  }),
+  'agent-forward-control-steer-continues': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     control: true,
@@ -1395,8 +1396,8 @@ const cases: Record<string, Case> = {
     ],
     runtime_script: baseRuntime(),
     request_contains: ['Answer in French.'],
-  },
-  'agent-forward-control-failed': {
+  }),
+  'agent-forward-control-failed': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', citations: {} },
     control: true,
@@ -1409,8 +1410,8 @@ const cases: Record<string, Case> = {
     ],
     runtime_script: baseRuntime(),
     no_request_roles: RETRY_MEMORY_GAP,
-  },
-  'agent-forward-context-map': {
+  }),
+  'agent-forward-context-map': legacyCompletionFixture({
     kind: 'agent_forward',
     options: {
       directResponse: 'off',
@@ -1424,8 +1425,8 @@ const cases: Record<string, Case> = {
       ...contextMapTurns(),
     ],
     runtime_script: baseRuntime(),
-  },
-  'agent-forward-playbook': {
+  }),
+  'agent-forward-playbook': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off', playbook: {} },
     observers: ['playbook_update'],
@@ -1435,37 +1436,37 @@ const cases: Record<string, Case> = {
       ...playbookTeacher(),
     ],
     runtime_script: playbookRuntime(),
-  },
-  'agent-forward-runtime-on-forward': {
+  }),
+  'agent-forward-runtime-on-forward': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     runtime_on_forward: true,
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
-  },
-  'agent-forward-parse-dates': {
+  }),
+  'agent-forward-parse-dates': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: DATED,
     options: { directResponse: 'off', parse_dates: true },
     responses: [...baseActors(), datedAnswer()],
     runtime_script: baseRuntime(),
-  },
-  'agent-forward-parse-dates-call-wins': {
+  }),
+  'agent-forward-parse-dates-call-wins': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: DATED,
     options: { directResponse: 'off', parse_dates: false },
     forward_options: { parse_dates: true },
     responses: [...baseActors(), datedAnswer()],
     runtime_script: baseRuntime(),
-  },
-  'agent-forward-call-timeout-ms-reaches-each-stage': {
+  }),
+  'agent-forward-call-timeout-ms-reaches-each-stage': legacyCompletionFixture({
     kind: 'agent_forward',
     options: { directResponse: 'off' },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),
     call_timeout_ms: 250,
-  },
-  'agent-forward-keeps-date-text-call-false': {
+  }),
+  'agent-forward-keeps-date-text-call-false': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: DATED,
     options: { directResponse: 'off', parse_dates: true },
@@ -1474,7 +1475,7 @@ const cases: Record<string, Case> = {
     runtime_script: baseRuntime(),
     keeps_date_text:
       'Port-only: parse_dates false on the forward call wins over the agent constructor, so the responder keeps the model text of the date field; TS always parses it.',
-  },
+  }),
 };
 
 for (const [name, spec] of Object.entries(cases)) {
@@ -1494,23 +1495,23 @@ const plainAnswer = (): ResponseSpec => ({
   content: 'Answer: Refunds take 30 days.',
 });
 const inputCases: Record<string, Case> = {
-  'agent-forward-input-missing': {
+  'agent-forward-input-missing': legacyCompletionFixture({
     kind: 'agent_forward',
     input: {},
     options: { directResponse: 'off' },
     // TS fails the run before any request.
     responses: [],
     runtime_script: [],
-  },
-  'agent-forward-input-empty-string': {
+  }),
+  'agent-forward-input-empty-string': legacyCompletionFixture({
     kind: 'agent_forward',
     input: { question: '' },
     options: { directResponse: 'off' },
     // TS fails the run before any request.
     responses: [],
     runtime_script: [],
-  },
-  'agent-forward-input-context-field-missing': {
+  }),
+  'agent-forward-input-context-field-missing': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: CONTEXTUAL,
     input: {},
@@ -1518,8 +1519,8 @@ const inputCases: Record<string, Case> = {
     // TS fails the run before any request.
     responses: [],
     runtime_script: [],
-  },
-  'agent-forward-input-context-field-only-missing': {
+  }),
+  'agent-forward-input-context-field-only-missing': legacyCompletionFixture({
     kind: 'agent_forward',
     signature: CONTEXTUAL,
     input: { question: 'How long do refunds take?' },
@@ -1527,22 +1528,24 @@ const inputCases: Record<string, Case> = {
     // TS fails the run before any request.
     responses: [],
     runtime_script: [],
-  },
-  'agent-forward-input-context-field-empty-is-a-value': {
-    kind: 'agent_forward',
-    signature: CONTEXTUAL,
-    input: { question: 'How long do refunds take?', doc: '' },
-    options: { directResponse: 'off', contextFields: ['doc'] },
-    responses: [...baseActors(), plainAnswer()],
-    runtime_script: baseRuntime(),
-  },
-  'agent-forward-input-whitespace-is-a-value': {
+  }),
+  'agent-forward-input-context-field-empty-is-a-value': legacyCompletionFixture(
+    {
+      kind: 'agent_forward',
+      signature: CONTEXTUAL,
+      input: { question: 'How long do refunds take?', doc: '' },
+      options: { directResponse: 'off', contextFields: ['doc'] },
+      responses: [...baseActors(), plainAnswer()],
+      runtime_script: baseRuntime(),
+    }
+  ),
+  'agent-forward-input-whitespace-is-a-value': legacyCompletionFixture({
     kind: 'agent_forward',
     input: { question: '   ' },
     options: { directResponse: 'off' },
     responses: [...baseActors(), plainAnswer()],
     runtime_script: baseRuntime(),
-  },
+  }),
 };
 for (const [name, spec] of Object.entries(inputCases)) {
   await record(name, spec);
@@ -1555,47 +1558,57 @@ for (const [name, portOptions] of [
     { inputValidation: 'lenient' },
   ],
 ] as const) {
-  writeFixture(name, {
+  writeFixture(
+    name,
+    legacyCompletionFixture({
+      kind: 'agent_forward',
+      description:
+        "Port-only: explicit inputValidation: 'lenient' allows a missing required context field. The default and TypeScript fail before any request.",
+      signature: CONTEXTUAL,
+      input: { question: 'How long do refunds take?' },
+      options: {
+        directResponse: 'off',
+        contextFields: ['doc'],
+        ...portOptions,
+        runtime: { language: 'JavaScript' },
+      },
+      features: {
+        functions: false,
+        streaming: true,
+        structured_outputs: false,
+      },
+      responses: [...baseActors(), plainAnswer()],
+      runtime_script: baseRuntime(),
+      expected_output: { answer: 'Refunds take 30 days.' },
+      expected_request_count: 3,
+    })
+  );
+}
+
+// Port-only: the forward call's inputValidation wins over the agent's.
+writeFixture(
+  'agent-forward-input-context-field-missing-fail-on-forward',
+  legacyCompletionFixture({
     kind: 'agent_forward',
     description:
-      "Port-only: explicit inputValidation: 'lenient' allows a missing required context field. The default and TypeScript fail before any request.",
+      "Port-only: inputValidation: 'fail' on the forward call checks the context fields of an agent built without it, before any request.",
     signature: CONTEXTUAL,
     input: { question: 'How long do refunds take?' },
     options: {
       directResponse: 'off',
       contextFields: ['doc'],
-      ...portOptions,
       runtime: { language: 'JavaScript' },
     },
+    forward_options: { inputValidation: 'fail' },
     features: { functions: false, streaming: true, structured_outputs: false },
-    responses: [...baseActors(), plainAnswer()],
-    runtime_script: baseRuntime(),
-    expected_output: { answer: 'Refunds take 30 days.' },
-    expected_request_count: 3,
-  });
-}
-
-// Port-only: the forward call's inputValidation wins over the agent's.
-writeFixture('agent-forward-input-context-field-missing-fail-on-forward', {
-  kind: 'agent_forward',
-  description:
-    "Port-only: inputValidation: 'fail' on the forward call checks the context fields of an agent built without it, before any request.",
-  signature: CONTEXTUAL,
-  input: { question: 'How long do refunds take?' },
-  options: {
-    directResponse: 'off',
-    contextFields: ['doc'],
-    runtime: { language: 'JavaScript' },
-  },
-  forward_options: { inputValidation: 'fail' },
-  features: { functions: false, streaming: true, structured_outputs: false },
-  responses: [],
-  runtime_script: [],
-  expected_error_contains:
-    'RLM contextField "doc" is missing from input values',
-  expected_request_count: 0,
-  expected_transcript: [],
-});
+    responses: [],
+    runtime_script: [],
+    expected_error_contains:
+      'RLM contextField "doc" is missing from input values',
+    expected_request_count: 0,
+    expected_transcript: [],
+  })
+);
 
 // Port-only: the ports' own agent options take only their named values; the
 // agent fails when it is built.
@@ -1611,21 +1624,28 @@ for (const [name, option, message] of [
     "inputValidation must be 'lenient' or 'fail', received: \"strict\"",
   ],
 ] as const) {
-  writeFixture(name, {
-    kind: 'agent_forward',
-    description:
-      'Port-only: an agent option of the ports with a value it does not name fails when the agent is built.',
-    signature: 'question:string -> answer:string',
-    input: { question: 'How long do refunds take?' },
-    options: {
-      directResponse: 'off',
-      ...option,
-      runtime: { language: 'JavaScript' },
-    },
-    features: { functions: false, streaming: true, structured_outputs: false },
-    responses: [],
-    runtime_script: [],
-    expected_error_contains: message,
-    expected_request_count: 0,
-  });
+  writeFixture(
+    name,
+    legacyCompletionFixture({
+      kind: 'agent_forward',
+      description:
+        'Port-only: an agent option of the ports with a value it does not name fails when the agent is built.',
+      signature: 'question:string -> answer:string',
+      input: { question: 'How long do refunds take?' },
+      options: {
+        directResponse: 'off',
+        ...option,
+        runtime: { language: 'JavaScript' },
+      },
+      features: {
+        functions: false,
+        streaming: true,
+        structured_outputs: false,
+      },
+      responses: [],
+      runtime_script: [],
+      expected_error_contains: message,
+      expected_request_count: 0,
+    })
+  );
 }

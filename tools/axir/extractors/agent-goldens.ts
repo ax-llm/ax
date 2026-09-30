@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
 // cspell:ignore kwargs needleafterlimit replayable
 import {
   AX_HOST_SNIPPET_MARKER,
@@ -34,6 +33,7 @@ import {
 } from '../../../src/ax/agent/truncate.js';
 import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
+import { legacyCompletionFixture } from './agent-fixture-mode.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
@@ -561,173 +561,176 @@ async function writeSemanticParityLifecycleOracle(): Promise<void> {
     'axagent.method.setState',
     'axagent.state.skillsPromptState',
   ];
-  writeFixture('semantic-parity-lifecycle-oracle', {
-    parity_contract_ids: contractIDs,
-    exact_observable_projection: exactProjection as Json,
-    option_effect:
-      'Removing any enrolled option changes loaded prompt state, ranking/search precedence, callback transcript, used-state consolidation, or exported/restored skill state.',
-    option_effects: {
-      'axagent.constructor.skills': 'loadedSkills',
-      'axagent.constructor.skillsCatalog': 'stageRequests',
-      'axagent.constructor.onSkillsSearch': 'loadedSkills',
-      'axagent.constructor.onMemoriesSearch': 'loadedMemories',
-      'axagent.constructor.onLoadedSkills': 'observerTranscript',
-      'axagent.constructor.onLoadedMemories': 'observerTranscript',
-      'axagent.constructor.onUsedSkills': 'observerTranscript',
-      'axagent.constructor.onUsedMemories': 'observerTranscript',
-      'axagent.forward.skills': 'loadedSkills',
-      'axagent.forward.onUsedSkills': 'observerTranscript',
-      'axagent.forward.onUsedMemories': 'observerTranscript',
-      'axagent.method.forward': 'output',
-      'axagent.method.getState': 'loadedSkills',
-      'axagent.state.skillsPromptState': 'loadedSkills',
-    },
-    kind: 'agent_forward',
-    signature: 'query:string -> answer:string',
-    options: {
-      runtime: { language: 'JavaScript' },
-      directResponse: 'off',
-      maxTurns: 8,
-      relevanceRanking: { topK: 2, minScore: 0 },
-      skills: [
-        { id: ' shared ', name: 'Constructor shared', content: 'old skill' },
-        { name: ' empty-skill ', content: '' },
-        { id: '', name: '', content: 'malformed' },
-      ],
-      skillsCatalog: [
-        {
-          id: 'catalog-release',
-          name: 'Catalog release',
-          description: 'release checklist',
-          content: 'CATALOG SKILL MUST NOT WIN HOST PRECEDENCE',
+  writeFixture(
+    'semantic-parity-lifecycle-oracle',
+    legacyCompletionFixture({
+      parity_contract_ids: contractIDs,
+      exact_observable_projection: exactProjection as Json,
+      option_effect:
+        'Removing any enrolled option changes loaded prompt state, ranking/search precedence, callback transcript, used-state consolidation, or exported/restored skill state.',
+      option_effects: {
+        'axagent.constructor.skills': 'loadedSkills',
+        'axagent.constructor.skillsCatalog': 'stageRequests',
+        'axagent.constructor.onSkillsSearch': 'loadedSkills',
+        'axagent.constructor.onMemoriesSearch': 'loadedMemories',
+        'axagent.constructor.onLoadedSkills': 'observerTranscript',
+        'axagent.constructor.onLoadedMemories': 'observerTranscript',
+        'axagent.constructor.onUsedSkills': 'observerTranscript',
+        'axagent.constructor.onUsedMemories': 'observerTranscript',
+        'axagent.forward.skills': 'loadedSkills',
+        'axagent.forward.onUsedSkills': 'observerTranscript',
+        'axagent.forward.onUsedMemories': 'observerTranscript',
+        'axagent.method.forward': 'output',
+        'axagent.method.getState': 'loadedSkills',
+        'axagent.state.skillsPromptState': 'loadedSkills',
+      },
+      kind: 'agent_forward',
+      signature: 'query:string -> answer:string',
+      options: {
+        runtime: { language: 'JavaScript' },
+        directResponse: 'off',
+        maxTurns: 8,
+        relevanceRanking: { topK: 2, minScore: 0 },
+        skills: [
+          { id: ' shared ', name: 'Constructor shared', content: 'old skill' },
+          { name: ' empty-skill ', content: '' },
+          { id: '', name: '', content: 'malformed' },
+        ],
+        skillsCatalog: [
+          {
+            id: 'catalog-release',
+            name: 'Catalog release',
+            description: 'release checklist',
+            content: 'CATALOG SKILL MUST NOT WIN HOST PRECEDENCE',
+          },
+          {
+            id: 'catalog-incident',
+            name: 'Catalog incident',
+            description: 'incident response',
+            content: 'catalog incident body',
+          },
+        ],
+        memoriesCatalog: [
+          {
+            id: 'catalog-deploy',
+            content: 'CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE',
+          },
+          { id: 'catalog-coffee', content: 'catalog coffee body' },
+        ],
+        onSkillsSearch: true,
+        onMemoriesSearch: true,
+        onLoadedSkills: true,
+        onLoadedMemories: true,
+        onUsedSkills: true,
+        onUsedMemories: true,
+        skillSearchResults: {
+          release: [
+            { id: 'host-release', name: 'Host release', content: 'HOST SKILL' },
+          ],
         },
-        {
-          id: 'catalog-incident',
-          name: 'Catalog incident',
-          description: 'incident response',
-          content: 'catalog incident body',
+        memorySearchResults: {
+          deploy: [
+            { id: 'mem-a', content: 'HOST MEMORY OVERRIDE' },
+            { id: 'host-memory', content: 'HOST MEMORY' },
+          ],
         },
-      ],
-      memoriesCatalog: [
-        {
-          id: 'catalog-deploy',
-          content: 'CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE',
-        },
-        { id: 'catalog-coffee', content: 'catalog coffee body' },
-      ],
-      onSkillsSearch: true,
-      onMemoriesSearch: true,
-      onLoadedSkills: true,
-      onLoadedMemories: true,
-      onUsedSkills: true,
-      onUsedMemories: true,
-      skillSearchResults: {
-        release: [
-          { id: 'host-release', name: 'Host release', content: 'HOST SKILL' },
+      },
+      input: {
+        query: 'prepare the release deploy',
+        memories: [
+          { id: ' mem-a ', content: 'PRELOADED MEMORY' },
+          { id: 'z-memory', content: '' },
+          { id: '', content: 'malformed' },
         ],
       },
-      memorySearchResults: {
-        deploy: [
-          { id: 'mem-a', content: 'HOST MEMORY OVERRIDE' },
-          { id: 'host-memory', content: 'HOST MEMORY' },
+      forward_options: {
+        // Generated runtimes expose their actor-loop safety budget as a native
+        // forward option. Keep it explicit here so the five-action oracle
+        // scenario exercises lifecycle semantics instead of the native default.
+        max_actor_steps: 8,
+        skills: [
+          { id: 'shared', name: 'Forward shared', content: 'FORWARD SKILL' },
+          { id: 'forward-only', name: 'Forward only', content: '' },
         ],
+        onUsedSkills: true,
+        onUsedMemories: true,
       },
-    },
-    input: {
-      query: 'prepare the release deploy',
-      memories: [
-        { id: ' mem-a ', content: 'PRELOADED MEMORY' },
-        { id: 'z-memory', content: '' },
-        { id: '', content: 'malformed' },
-      ],
-    },
-    forward_options: {
-      // Generated runtimes expose their actor-loop safety budget as a native
-      // forward option. Keep it explicit here so the five-action oracle
-      // scenario exercises lifecycle semantics instead of the native default.
-      max_actor_steps: 8,
-      skills: [
-        { id: 'shared', name: 'Forward shared', content: 'FORWARD SKILL' },
-        { id: 'forward-only', name: 'Forward only', content: '' },
-      ],
-      onUsedSkills: true,
-      onUsedMemories: true,
-    },
-    responses: [
-      {
-        content:
-          '{"javascriptCode":"final(\\"execute\\", {\\"context\\":\\"ready\\"})"}',
-      },
-      {
-        content:
-          '{"javascriptCode":"discover({\\"skills\\":[\\"release\\"]})"}',
-      },
-      { content: '{"javascriptCode":"recall([\\"deploy\\"])"}' },
-      {
-        content:
-          '{"javascriptCode":"used(\\"shared\\", \\"forward override used\\")"}',
-      },
-      {
-        content:
-          '{"javascriptCode":"used(\\"mem-a\\", \\"preload then recall override used\\")"}',
-      },
-      {
-        content:
-          '{"javascriptCode":"final(\\"done\\", {\\"answer\\":\\"oracle\\"})"}',
-      },
-      { content: '{"answer":"oracle"}' },
-    ],
-    runtime_script: [
-      {
-        expected_code: 'final("execute", {"context":"ready"})',
-        result: { type: 'final', args: ['execute', { context: 'ready' }] },
-      },
-      {
-        expected_code: 'discover({"skills":["release"]})',
-        result: { discover: { skills: ['release'] } },
-      },
-      {
-        expected_code: 'recall(["deploy"])',
-        result: { recall: ['deploy'] },
-      },
-      {
-        expected_code: 'used("shared", "forward override used")',
-        result: {
-          used: { id: 'shared', reason: 'forward override used' },
+      responses: [
+        {
+          content:
+            '{"javascriptCode":"final(\\"execute\\", {\\"context\\":\\"ready\\"})"}',
         },
-      },
-      {
-        expected_code: 'used("mem-a", "preload then recall override used")',
-        result: {
-          used: {
-            id: 'mem-a',
-            reason: 'preload then recall override used',
+        {
+          content:
+            '{"javascriptCode":"discover({\\"skills\\":[\\"release\\"]})"}',
+        },
+        { content: '{"javascriptCode":"recall([\\"deploy\\"])"}' },
+        {
+          content:
+            '{"javascriptCode":"used(\\"shared\\", \\"forward override used\\")"}',
+        },
+        {
+          content:
+            '{"javascriptCode":"used(\\"mem-a\\", \\"preload then recall override used\\")"}',
+        },
+        {
+          content:
+            '{"javascriptCode":"final(\\"done\\", {\\"answer\\":\\"oracle\\"})"}',
+        },
+        { content: '{"answer":"oracle"}' },
+      ],
+      runtime_script: [
+        {
+          expected_code: 'final("execute", {"context":"ready"})',
+          result: { type: 'final', args: ['execute', { context: 'ready' }] },
+        },
+        {
+          expected_code: 'discover({"skills":["release"]})',
+          result: { discover: { skills: ['release'] } },
+        },
+        {
+          expected_code: 'recall(["deploy"])',
+          result: { recall: ['deploy'] },
+        },
+        {
+          expected_code: 'used("shared", "forward override used")',
+          result: {
+            used: { id: 'shared', reason: 'forward override used' },
           },
         },
-      },
-      {
-        expected_code: 'final("done", {"answer":"oracle"})',
-        result: { type: 'final', args: ['done', { answer: 'oracle' }] },
-      },
-    ],
-    expected_output: output as Json,
-    expected_request_count: requestTranscript.length,
-    expected_request_contains: [
-      '### Likely Relevant',
-      '### Available Skills',
-      'ID: `shared`',
-      'FORWARD SKILL',
-      'HOST SKILL',
-      'HOST MEMORY OVERRIDE',
-      'ID: `mem-a`',
-    ],
-    expected_loaded_skill_docs_subset: loadedSkills as Json,
-    expected_loaded_skill_docs: loadedSkills as Json,
-    expected_loaded_memories: loadedMemories,
-    expected_used_skills: usedSkills,
-    expected_used_memories: usedMemories,
-    expected_observer_transcript: observerTranscript as Json,
-  });
+        {
+          expected_code: 'used("mem-a", "preload then recall override used")',
+          result: {
+            used: {
+              id: 'mem-a',
+              reason: 'preload then recall override used',
+            },
+          },
+        },
+        {
+          expected_code: 'final("done", {"answer":"oracle"})',
+          result: { type: 'final', args: ['done', { answer: 'oracle' }] },
+        },
+      ],
+      expected_output: output as Json,
+      expected_request_count: requestTranscript.length,
+      expected_request_contains: [
+        '### Likely Relevant',
+        '### Available Skills',
+        'ID: `shared`',
+        'FORWARD SKILL',
+        'HOST SKILL',
+        'HOST MEMORY OVERRIDE',
+        'ID: `mem-a`',
+      ],
+      expected_loaded_skill_docs_subset: loadedSkills as Json,
+      expected_loaded_skill_docs: loadedSkills as Json,
+      expected_loaded_memories: loadedMemories,
+      expected_used_skills: usedSkills,
+      expected_used_memories: usedMemories,
+      expected_observer_transcript: observerTranscript as Json,
+    })
+  );
 }
 
 async function writeSemanticParityStaticDirectSkillOracle(): Promise<void> {
@@ -787,69 +790,72 @@ async function writeSemanticParityStaticDirectSkillOracle(): Promise<void> {
     }
   );
   const stageRequests = semanticStageRequests(requestTranscript);
-  writeFixture('semantic-parity-static-direct-skill-oracle', {
-    parity_contract_ids: [
-      'axagent.constructor.directResponse',
-      'axagent.forward.skills',
-      'axagent.method.forward',
-    ],
-    exact_observable_projection: {
-      output,
-      stageRequests,
-      errors: [],
-    } as Json,
-    option_effect:
-      'Removing forward skills hides FORWARD SKILL from the static direct-response distiller; disabling direct response introduces an executor request.',
-    option_effects: {
-      'axagent.constructor.directResponse': 'stageRequests',
-      'axagent.forward.skills': 'stageRequests',
-      'axagent.method.forward': 'output',
-    },
-    kind: 'agent_forward',
-    signature: 'query:string -> answer:string',
-    options: {
-      runtime: { language: 'JavaScript' },
-      skills: [
+  writeFixture(
+    'semantic-parity-static-direct-skill-oracle',
+    legacyCompletionFixture({
+      parity_contract_ids: [
+        'axagent.constructor.directResponse',
+        'axagent.forward.skills',
+        'axagent.method.forward',
+      ],
+      exact_observable_projection: {
+        output,
+        stageRequests,
+        errors: [],
+      } as Json,
+      option_effect:
+        'Removing forward skills hides FORWARD SKILL from the static direct-response distiller; disabling direct response introduces an executor request.',
+      option_effects: {
+        'axagent.constructor.directResponse': 'stageRequests',
+        'axagent.forward.skills': 'stageRequests',
+        'axagent.method.forward': 'output',
+      },
+      kind: 'agent_forward',
+      signature: 'query:string -> answer:string',
+      options: {
+        runtime: { language: 'JavaScript' },
+        skills: [
+          {
+            id: 'constructor-direct',
+            name: 'Constructor direct',
+            content: 'CONSTRUCTOR DIRECT SKILL',
+          },
+        ],
+      },
+      input: { query: 'answer directly' },
+      forward_options: {
+        skills: [
+          {
+            id: 'forward-direct',
+            name: 'Forward direct',
+            content: 'FORWARD SKILL',
+          },
+        ],
+      },
+      responses: [
         {
-          id: 'constructor-direct',
-          name: 'Constructor direct',
-          content: 'CONSTRUCTOR DIRECT SKILL',
+          content:
+            '{"javascriptCode":"respond(\\"direct\\", {\\"source\\":\\"forward-skill\\"})"}',
+        },
+        { content: '{"answer":"direct"}' },
+      ],
+      runtime_script: [
+        {
+          expected_code: 'respond("direct", {"source":"forward-skill"})',
+          result: {
+            type: 'respond',
+            args: ['direct', { source: 'forward-skill' }],
+          },
         },
       ],
-    },
-    input: { query: 'answer directly' },
-    forward_options: {
-      skills: [
-        {
-          id: 'forward-direct',
-          name: 'Forward direct',
-          content: 'FORWARD SKILL',
-        },
+      expected_output: output as Json,
+      expected_request_count: requestTranscript.length,
+      expected_request_contains: ['FORWARD SKILL', 'ID: `forward-direct`'],
+      expected_stage_request_not_contains: [
+        { index: 0, absent: ['You (`executor`)'] },
       ],
-    },
-    responses: [
-      {
-        content:
-          '{"javascriptCode":"respond(\\"direct\\", {\\"source\\":\\"forward-skill\\"})"}',
-      },
-      { content: '{"answer":"direct"}' },
-    ],
-    runtime_script: [
-      {
-        expected_code: 'respond("direct", {"source":"forward-skill"})',
-        result: {
-          type: 'respond',
-          args: ['direct', { source: 'forward-skill' }],
-        },
-      },
-    ],
-    expected_output: output as Json,
-    expected_request_count: requestTranscript.length,
-    expected_request_contains: ['FORWARD SKILL', 'ID: `forward-direct`'],
-    expected_stage_request_not_contains: [
-      { index: 0, absent: ['You (`executor`)'] },
-    ],
-  });
+    })
+  );
 }
 
 async function writeSemanticParityForwardResetOracle(): Promise<void> {
@@ -990,112 +996,115 @@ async function writeSemanticParityForwardResetOracle(): Promise<void> {
     }
   }
   const stageRequests = semanticStageRequests(requestTranscript);
-  writeFixture('semantic-parity-forward-reset-oracle', {
-    parity_contract_ids: [
-      'axagent.constructor.skills',
-      'axagent.forward.skills',
-      'axagent.method.forward',
-      'axagent.method.getState',
-      'axagent.method.setState',
-      'axagent.state.skillsPromptState',
-    ],
-    exact_observable_projection: {
-      output: outputs,
-      stageRequests,
-      runStateProjections,
-      stateRoundtrip,
-      errors: [],
-    } as Json,
-    option_effect:
-      'Removing constructor or forward skills changes run projections; retaining values.memories across forwards changes the second run; ignoring reset or restore changes the third, fourth, and state-roundtrip projections.',
-    option_effects: {
-      'axagent.constructor.skills': 'runStateProjections',
-      'axagent.forward.skills': 'runStateProjections',
-      'axagent.method.forward': 'output',
-      'axagent.method.getState': 'stateRoundtrip.saved',
-      'axagent.method.setState': 'stateRoundtrip.restored',
-      'axagent.state.skillsPromptState': 'runStateProjections',
-    },
-    kind: 'agent_forward',
-    signature: 'query:string -> answer:string',
-    options: {
-      runtime: { language: 'JavaScript' },
-      directResponse: 'off',
-      relevanceRanking: false,
-      memoriesCatalog: [
-        { id: 'catalog-unused', content: 'UNUSED CATALOG MEMORY' },
+  writeFixture(
+    'semantic-parity-forward-reset-oracle',
+    legacyCompletionFixture({
+      parity_contract_ids: [
+        'axagent.constructor.skills',
+        'axagent.forward.skills',
+        'axagent.method.forward',
+        'axagent.method.getState',
+        'axagent.method.setState',
+        'axagent.state.skillsPromptState',
       ],
-      skills: [
+      exact_observable_projection: {
+        output: outputs,
+        stageRequests,
+        runStateProjections,
+        stateRoundtrip,
+        errors: [],
+      } as Json,
+      option_effect:
+        'Removing constructor or forward skills changes run projections; retaining values.memories across forwards changes the second run; ignoring reset or restore changes the third, fourth, and state-roundtrip projections.',
+      option_effects: {
+        'axagent.constructor.skills': 'runStateProjections',
+        'axagent.forward.skills': 'runStateProjections',
+        'axagent.method.forward': 'output',
+        'axagent.method.getState': 'stateRoundtrip.saved',
+        'axagent.method.setState': 'stateRoundtrip.restored',
+        'axagent.state.skillsPromptState': 'runStateProjections',
+      },
+      kind: 'agent_forward',
+      signature: 'query:string -> answer:string',
+      options: {
+        runtime: { language: 'JavaScript' },
+        directResponse: 'off',
+        relevanceRanking: false,
+        memoriesCatalog: [
+          { id: 'catalog-unused', content: 'UNUSED CATALOG MEMORY' },
+        ],
+        skills: [
+          {
+            id: 'constructor-preset',
+            name: 'Constructor preset',
+            content: 'CONSTRUCTOR PRESET SKILL',
+          },
+        ],
+      },
+      forward_runs: [
         {
-          id: 'constructor-preset',
-          name: 'Constructor preset',
-          content: 'CONSTRUCTOR PRESET SKILL',
+          input: {
+            query: 'first run',
+            memories: [{ id: 'run-memory', content: 'HOST MEMORY FIRST RUN' }],
+          },
+          forward_options: {
+            skills: [
+              {
+                id: 'forward-persist',
+                name: 'Forward persist',
+                content: 'FORWARD SKILL',
+              },
+            ],
+          },
+          save_runtime_state: true,
+        },
+        { input: { query: 'second run' }, forward_options: {} },
+        {
+          input: { query: 'third run after reset' },
+          forward_options: {},
+          state_action: 'reset',
+        },
+        {
+          input: { query: 'fourth run after restore' },
+          forward_options: {},
+          state_action: 'restore_saved',
         },
       ],
-    },
-    forward_runs: [
-      {
-        input: {
-          query: 'first run',
-          memories: [{ id: 'run-memory', content: 'HOST MEMORY FIRST RUN' }],
+      responses: runLabels.flatMap((label) => [
+        { content: `{"javascriptCode":"final(\\"execute-${label}\\", {})"}` },
+        {
+          content: `{"javascriptCode":"final(\\"answer-${label}\\", {\\"answer\\":\\"${label}\\"})"}`,
         },
-        forward_options: {
-          skills: [
-            {
-              id: 'forward-persist',
-              name: 'Forward persist',
-              content: 'FORWARD SKILL',
-            },
-          ],
+        { content: `{"answer":"${label}"}` },
+      ]),
+      runtime_script: runLabels.flatMap((label) => [
+        {
+          expected_code: `final("execute-${label}", {})`,
+          result: { type: 'final', args: [`execute-${label}`, {}] },
         },
-        save_runtime_state: true,
-      },
-      { input: { query: 'second run' }, forward_options: {} },
-      {
-        input: { query: 'third run after reset' },
-        forward_options: {},
-        state_action: 'reset',
-      },
-      {
-        input: { query: 'fourth run after restore' },
-        forward_options: {},
-        state_action: 'restore_saved',
-      },
-    ],
-    responses: runLabels.flatMap((label) => [
-      { content: `{"javascriptCode":"final(\\"execute-${label}\\", {})"}` },
-      {
-        content: `{"javascriptCode":"final(\\"answer-${label}\\", {\\"answer\\":\\"${label}\\"})"}`,
-      },
-      { content: `{"answer":"${label}"}` },
-    ]),
-    runtime_script: runLabels.flatMap((label) => [
-      {
-        expected_code: `final("execute-${label}", {})`,
-        result: { type: 'final', args: [`execute-${label}`, {}] },
-      },
-      {
-        expected_code: `final("answer-${label}", {"answer":"${label}"})`,
-        result: {
-          type: 'final',
-          args: [`answer-${label}`, { answer: label }],
+        {
+          expected_code: `final("answer-${label}", {"answer":"${label}"})`,
+          result: {
+            type: 'final',
+            args: [`answer-${label}`, { answer: label }],
+          },
         },
-      },
-    ]),
-    expected_output: outputs,
-    expected_request_count: requestTranscript.length,
-    expected_request_contains: [
-      'CONSTRUCTOR PRESET SKILL',
-      'FORWARD SKILL',
-      'HOST MEMORY FIRST RUN',
-    ],
-    expected_stage_request_not_contains: [
-      { index: 4, absent: ['HOST MEMORY FIRST RUN'] },
-      { index: 7, absent: ['HOST MEMORY FIRST RUN', 'FORWARD SKILL'] },
-    ],
-    expected_run_state_projections: runStateProjections,
-    expected_state_roundtrip_projection: stateRoundtrip,
-  });
+      ]),
+      expected_output: outputs,
+      expected_request_count: requestTranscript.length,
+      expected_request_contains: [
+        'CONSTRUCTOR PRESET SKILL',
+        'FORWARD SKILL',
+        'HOST MEMORY FIRST RUN',
+      ],
+      expected_stage_request_not_contains: [
+        { index: 4, absent: ['HOST MEMORY FIRST RUN'] },
+        { index: 7, absent: ['HOST MEMORY FIRST RUN', 'FORWARD SKILL'] },
+      ],
+      expected_run_state_projections: runStateProjections,
+      expected_state_roundtrip_projection: stateRoundtrip,
+    })
+  );
 }
 
 function rankingProbeProjection(
@@ -1233,91 +1242,94 @@ async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
   const stageRequests = semanticStageRequests(requestTranscript);
   const ranking = rankingProbeProjection(requestTranscript, probes);
   const loadedSkills = state?.skillsPromptState?.loaded ?? [];
-  writeFixture('semantic-parity-catalog-ranking-oracle', {
-    parity_contract_ids: [
-      'axagent.constructor.skillsCatalog',
-      'axagent.constructor.memoriesCatalog',
-      'axagent.constructor.relevanceRanking',
-      'axagent.method.forward',
-    ],
-    exact_observable_projection: {
-      output,
-      stageRequests,
-      ranking,
-      loadedSkills,
-      loadedMemories,
-      errors: [],
-    } as Json,
-    option_effect:
-      'Removing either static catalog changes exact loaded state; ignoring ranking changes the topK hint, snippet, loaded exclusion, identifier, and 600-character probes.',
-    option_effects: {
-      'axagent.constructor.skillsCatalog': 'loadedSkills',
-      'axagent.constructor.memoriesCatalog': 'loadedMemories',
-      'axagent.constructor.relevanceRanking': 'ranking',
-      'axagent.method.forward': 'output',
-    },
-    kind: 'agent_forward',
-    signature: 'query:string -> answer:string',
-    options: {
-      runtime: { language: 'JavaScript' },
-      directResponse: 'off',
-      relevanceRanking: { topK: 1, minScore: 0 },
-      skillsCatalog: catalogOptions.skillsCatalog,
-      memoriesCatalog: catalogOptions.memoriesCatalog,
-    },
-    input: {
-      query: 'invoice status deploy release needleafterlimit',
-      memories: [
+  writeFixture(
+    'semantic-parity-catalog-ranking-oracle',
+    legacyCompletionFixture({
+      parity_contract_ids: [
+        'axagent.constructor.skillsCatalog',
+        'axagent.constructor.memoriesCatalog',
+        'axagent.constructor.relevanceRanking',
+        'axagent.method.forward',
+      ],
+      exact_observable_projection: {
+        output,
+        stageRequests,
+        ranking,
+        loadedSkills,
+        loadedMemories,
+        errors: [],
+      } as Json,
+      option_effect:
+        'Removing either static catalog changes exact loaded state; ignoring ranking changes the topK hint, snippet, loaded exclusion, identifier, and 600-character probes.',
+      option_effects: {
+        'axagent.constructor.skillsCatalog': 'loadedSkills',
+        'axagent.constructor.memoriesCatalog': 'loadedMemories',
+        'axagent.constructor.relevanceRanking': 'ranking',
+        'axagent.method.forward': 'output',
+      },
+      kind: 'agent_forward',
+      signature: 'query:string -> answer:string',
+      options: {
+        runtime: { language: 'JavaScript' },
+        directResponse: 'off',
+        relevanceRanking: { topK: 1, minScore: 0 },
+        skillsCatalog: catalogOptions.skillsCatalog,
+        memoriesCatalog: catalogOptions.memoriesCatalog,
+      },
+      input: {
+        query: 'invoice status deploy release needleafterlimit',
+        memories: [
+          {
+            id: 'loaded-deploy',
+            content: 'deploy release strongest loaded memory',
+          },
+        ],
+      },
+      forward_options: { max_actor_steps: 8 },
+      responses: [...distillerCodes, ...executorCodes, 'catalog'].map(
+        (content, index, values) => ({
+          content:
+            index === values.length - 1
+              ? '{"answer":"catalog"}'
+              : `{"javascriptCode":${JSON.stringify(content)}}`,
+        })
+      ),
+      runtime_script: [
         {
-          id: 'loaded-deploy',
-          content: 'deploy release strongest loaded memory',
+          expected_code: distillerCodes[0],
+          result: { type: 'final', args: ['catalog execute', {}] },
+        },
+        {
+          expected_code: executorCodes[0],
+          result: { discover: { skills: ['invoice status'] } },
+        },
+        {
+          expected_code: executorCodes[1],
+          result: { recall: ['deploy release'] },
+        },
+        {
+          expected_code: executorCodes[2],
+          result: { discover: { skills: ['needleafterlimit'] } },
+        },
+        {
+          expected_code: executorCodes[3],
+          result: { recall: ['needleafterlimit'] },
+        },
+        {
+          expected_code: executorCodes[4],
+          result: {
+            type: 'final',
+            args: ['catalog done', { answer: 'catalog' }],
+          },
         },
       ],
-    },
-    forward_options: { max_actor_steps: 8 },
-    responses: [...distillerCodes, ...executorCodes, 'catalog'].map(
-      (content, index, values) => ({
-        content:
-          index === values.length - 1
-            ? '{"answer":"catalog"}'
-            : `{"javascriptCode":${JSON.stringify(content)}}`,
-      })
-    ),
-    runtime_script: [
-      {
-        expected_code: distillerCodes[0],
-        result: { type: 'final', args: ['catalog execute', {}] },
-      },
-      {
-        expected_code: executorCodes[0],
-        result: { discover: { skills: ['invoice status'] } },
-      },
-      {
-        expected_code: executorCodes[1],
-        result: { recall: ['deploy release'] },
-      },
-      {
-        expected_code: executorCodes[2],
-        result: { discover: { skills: ['needleafterlimit'] } },
-      },
-      {
-        expected_code: executorCodes[3],
-        result: { recall: ['needleafterlimit'] },
-      },
-      {
-        expected_code: executorCodes[4],
-        result: {
-          type: 'final',
-          args: ['catalog done', { answer: 'catalog' }],
-        },
-      },
-    ],
-    ranking_probe: probes,
-    expected_output: output as Json,
-    expected_loaded_skill_docs: loadedSkills as Json,
-    expected_loaded_memories: loadedMemories as Json,
-    expected_request_count: requestTranscript.length,
-  });
+      ranking_probe: probes,
+      expected_output: output as Json,
+      expected_loaded_skill_docs: loadedSkills as Json,
+      expected_loaded_memories: loadedMemories as Json,
+      expected_request_count: requestTranscript.length,
+    })
+  );
 
   const tieRequests: Array<{ stage: string; system: string; user: string }> =
     [];
@@ -1377,56 +1389,59 @@ async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
     { label: 'tie_memory_a', needle: '`tie-memory-a` —' },
   ];
   const tieRanking = rankingProbeProjection(tieRequests, tieProbes);
-  writeFixture('semantic-parity-ranking-tie-oracle', {
-    parity_contract_ids: ['axagent.constructor.relevanceRanking'],
-    exact_observable_projection: {
-      output: tieOutput,
-      ranking: tieRanking,
-      errors: [],
-    } as Json,
-    option_effect:
-      'Changing default tie suppression makes the tied skill or memory catalog appear in the exact relevance-hint projection.',
-    option_effects: {
-      'axagent.constructor.relevanceRanking': 'ranking',
-    },
-    kind: 'agent_forward',
-    signature: 'query:string -> answer:string',
-    options: {
-      runtime: { language: 'JavaScript' },
-      directResponse: 'off',
-      relevanceRanking: true,
-      skillsCatalog: [
-        { id: 'tie-skill-a', name: 'Tie A', content: 'zebra quokka' },
-        { id: 'tie-skill-b', name: 'Tie B', content: 'zebra quokka' },
+  writeFixture(
+    'semantic-parity-ranking-tie-oracle',
+    legacyCompletionFixture({
+      parity_contract_ids: ['axagent.constructor.relevanceRanking'],
+      exact_observable_projection: {
+        output: tieOutput,
+        ranking: tieRanking,
+        errors: [],
+      } as Json,
+      option_effect:
+        'Changing default tie suppression makes the tied skill or memory catalog appear in the exact relevance-hint projection.',
+      option_effects: {
+        'axagent.constructor.relevanceRanking': 'ranking',
+      },
+      kind: 'agent_forward',
+      signature: 'query:string -> answer:string',
+      options: {
+        runtime: { language: 'JavaScript' },
+        directResponse: 'off',
+        relevanceRanking: true,
+        skillsCatalog: [
+          { id: 'tie-skill-a', name: 'Tie A', content: 'zebra quokka' },
+          { id: 'tie-skill-b', name: 'Tie B', content: 'zebra quokka' },
+        ],
+        memoriesCatalog: [
+          { id: 'tie-memory-a', content: 'zebra quokka' },
+          { id: 'tie-memory-b', content: 'zebra quokka' },
+        ],
+      },
+      input: { query: 'zebra quokka' },
+      responses: [
+        { content: '{"javascriptCode":"final(\\"execute-one\\", {})"}' },
+        {
+          content:
+            '{"javascriptCode":"final(\\"answer-one\\", {\\"answer\\":\\"tie\\"})"}',
+        },
+        { content: '{"answer":"tie"}' },
       ],
-      memoriesCatalog: [
-        { id: 'tie-memory-a', content: 'zebra quokka' },
-        { id: 'tie-memory-b', content: 'zebra quokka' },
+      runtime_script: [
+        {
+          expected_code: 'final("execute-one", {})',
+          result: { type: 'final', args: ['execute-one', {}] },
+        },
+        {
+          expected_code: 'final("answer-one", {"answer":"tie"})',
+          result: { type: 'final', args: ['answer-one', { answer: 'tie' }] },
+        },
       ],
-    },
-    input: { query: 'zebra quokka' },
-    responses: [
-      { content: '{"javascriptCode":"final(\\"execute-one\\", {})"}' },
-      {
-        content:
-          '{"javascriptCode":"final(\\"answer-one\\", {\\"answer\\":\\"tie\\"})"}',
-      },
-      { content: '{"answer":"tie"}' },
-    ],
-    runtime_script: [
-      {
-        expected_code: 'final("execute-one", {})',
-        result: { type: 'final', args: ['execute-one', {}] },
-      },
-      {
-        expected_code: 'final("answer-one", {"answer":"tie"})',
-        result: { type: 'final', args: ['answer-one', { answer: 'tie' }] },
-      },
-    ],
-    ranking_probe: tieProbes,
-    expected_output: tieOutput as Json,
-    expected_request_count: tieRequests.length,
-  });
+      ranking_probe: tieProbes,
+      expected_output: tieOutput as Json,
+      expected_request_count: tieRequests.length,
+    })
+  );
 }
 
 function touchReferenceBehavior(): void {
@@ -1520,150 +1535,169 @@ const checkpointSummary =
 mkdirSync(outDir, { recursive: true });
 touchReferenceBehavior();
 
-writeFixture('simple-pipeline', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: { contextFields: [] },
-  input: { question: 'Capital of France?' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer the question",{}]}}',
-    },
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
-    },
-    { content: '{"answer":"Paris"}' },
-  ],
-  expected_output: { answer: 'Paris' },
-  expected_request_count: 3,
-  expected_request_contains: [
-    'Capital of France?',
-    'Executor Request',
-    'Answer the question',
-  ],
-  expected_chat_log_subset: [
-    { name: 'distiller', stage: 'ctx' },
-    { name: 'executor', stage: 'task' },
-    { name: 'responder', stage: 'task' },
-  ],
-});
+writeFixture(
+  'simple-pipeline',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: { contextFields: [] },
+    input: { question: 'Capital of France?' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer the question",{}]}}',
+      },
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer the question",{"answer":"Paris"}]}}',
+      },
+      { content: '{"answer":"Paris"}' },
+    ],
+    expected_output: { answer: 'Paris' },
+    expected_request_count: 3,
+    expected_request_contains: [
+      'Capital of France?',
+      'Executor Request',
+      'Answer the question',
+    ],
+    expected_chat_log_subset: [
+      { name: 'distiller', stage: 'ctx' },
+      { name: 'executor', stage: 'task' },
+      { name: 'responder', stage: 'task' },
+    ],
+  })
+);
 
-writeFixture('context-routing', {
-  kind: 'agent_forward',
-  signature: 'question:string, document:string -> answer:string',
-  options: { contextFields: ['document'] },
-  input: {
-    question: 'What does the document say?',
-    document: 'Large document: AxIR is portable.',
-  },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Use distilled context",{"summary":"AxIR is portable"}]}}',
+writeFixture(
+  'context-routing',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string, document:string -> answer:string',
+    options: { contextFields: ['document'] },
+    input: {
+      question: 'What does the document say?',
+      document: 'Large document: AxIR is portable.',
     },
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer from evidence",{"answer":"AxIR is portable"}]}}',
-    },
-    { content: '{"answer":"AxIR is portable"}' },
-  ],
-  expected_output: { answer: 'AxIR is portable' },
-  expected_request_count: 3,
-  expected_request_contains: [
-    'Large document',
-    'Distilled Context',
-    'AxIR is portable',
-  ],
-  expected_chat_log_subset: [
-    { name: 'distiller', stage: 'ctx' },
-    { name: 'executor', stage: 'task' },
-    { name: 'responder', stage: 'task' },
-  ],
-});
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Use distilled context",{"summary":"AxIR is portable"}]}}',
+      },
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer from evidence",{"answer":"AxIR is portable"}]}}',
+      },
+      { content: '{"answer":"AxIR is portable"}' },
+    ],
+    expected_output: { answer: 'AxIR is portable' },
+    expected_request_count: 3,
+    expected_request_contains: [
+      'Large document',
+      'Distilled Context',
+      'AxIR is portable',
+    ],
+    expected_chat_log_subset: [
+      { name: 'distiller', stage: 'ctx' },
+      { name: 'executor', stage: 'task' },
+      { name: 'responder', stage: 'task' },
+    ],
+  })
+);
 
-writeFixture('clarification', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: { contextFields: [] },
-  input: { question: 'Book it' },
-  responses: [
-    {
-      content: '{"completion":{"type":"final","args":["Clarify booking",{}]}}',
-    },
-    {
-      content:
-        '{"completion":{"type":"askClarification","args":[{"question":"Which city?","type":"text"}]}}',
-    },
-  ],
-  expected_error_contains: 'Which city',
-  expected_clarification: { question: 'Which city?', type: 'text' },
-});
+writeFixture(
+  'clarification',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: { contextFields: [] },
+    input: { question: 'Book it' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Clarify booking",{}]}}',
+      },
+      {
+        content:
+          '{"completion":{"type":"askClarification","args":[{"question":"Which city?","type":"text"}]}}',
+      },
+    ],
+    expected_error_contains: 'Which city',
+    expected_clarification: { question: 'Which city?', type: 'text' },
+  })
+);
 
-writeFixture('exclude-fields', {
-  kind: 'agent_forward',
-  signature:
-    'question:string, document:string, secret:string, scratch?:string -> answer:string',
-  options: {
-    contextFields: ['document'],
-    executorOptions: { excludeFields: ['secret'] },
-    responderOptions: { excludeFields: ['scratch'] },
-  },
-  input: {
-    question: 'Answer safely',
-    document: 'public context',
-    secret: 'do-not-send-to-executor',
-    scratch: 'do-not-send-to-responder',
-  },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer safely",{"evidence":"public"}]}}',
+writeFixture(
+  'exclude-fields',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature:
+      'question:string, document:string, secret:string, scratch?:string -> answer:string',
+    options: {
+      contextFields: ['document'],
+      executorOptions: { excludeFields: ['secret'] },
+      responderOptions: { excludeFields: ['scratch'] },
     },
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer safely",{"answer":"safe"}]}}',
+    input: {
+      question: 'Answer safely',
+      document: 'public context',
+      secret: 'do-not-send-to-executor',
+      scratch: 'do-not-send-to-responder',
     },
-    { content: '{"answer":"safe"}' },
-  ],
-  expected_output: { answer: 'safe' },
-  expected_request_count: 3,
-  expected_stage_request_not_contains: [
-    { index: 1, absent: ['do-not-send-to-executor'] },
-    { index: 2, absent: ['do-not-send-to-responder'] },
-  ],
-});
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer safely",{"evidence":"public"}]}}',
+      },
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer safely",{"answer":"safe"}]}}',
+      },
+      { content: '{"answer":"safe"}' },
+    ],
+    expected_output: { answer: 'safe' },
+    expected_request_count: 3,
+    expected_stage_request_not_contains: [
+      { index: 1, absent: ['do-not-send-to-executor'] },
+      { index: 2, absent: ['do-not-send-to-responder'] },
+    ],
+  })
+);
 
-writeFixture('state-round-trip', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: { contextFields: [] },
-  set_state: { session: 'alpha' },
-  input: { question: 'Remember session' },
-  responses: [
-    {
-      content: '{"completion":{"type":"final","args":["Answer",{}]}}',
-    },
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer",{"answer":"ok"}]}}',
-    },
-    { content: '{"answer":"ok"}' },
-  ],
-  expected_output: { answer: 'ok' },
-  expected_state: { session: 'alpha' },
-  expected_request_count: 3,
-});
+writeFixture(
+  'state-round-trip',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: { contextFields: [] },
+    set_state: { session: 'alpha' },
+    input: { question: 'Remember session' },
+    responses: [
+      {
+        content: '{"completion":{"type":"final","args":["Answer",{}]}}',
+      },
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer",{"answer":"ok"}]}}',
+      },
+      { content: '{"answer":"ok"}' },
+    ],
+    expected_output: { answer: 'ok' },
+    expected_state: { session: 'alpha' },
+    expected_request_count: 3,
+  })
+);
 
-writeFixture('config-validation', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: { contextFields: ['missing'] },
-  input: { question: 'hello' },
-  responses: [],
-  expected_error_contains: 'context field not found: missing',
-});
+writeFixture(
+  'config-validation',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: { contextFields: ['missing'] },
+    input: { question: 'hello' },
+    responses: [],
+    expected_error_contains: 'context field not found: missing',
+  })
+);
 
 writeFixture('runtime-metadata-javascript', {
   kind: 'agent_runtime_policy',
@@ -2598,333 +2632,345 @@ writeFixture('context-export-restore-preserves-provenance-state', {
   },
 });
 
-writeFixture('runtime-forward-python-final', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    runtime: { language: 'Python' },
-  },
-  input: { question: 'Use runtime' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
+writeFixture(
+  'runtime-forward-python-final',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      runtime: { language: 'Python' },
     },
-    {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
-    },
-    { content: '{"answer":"from runtime"}' },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'final("Answer", {"answer": "from runtime"})',
-      result: {
-        type: 'final',
-        args: ['Answer', { answer: 'from runtime' }],
+    input: { question: 'Use runtime' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
       },
-    },
-  ],
-  expected_output: { answer: 'from runtime' },
-  expected_request_count: 3,
-  expected_executed: ['final("Answer", {"answer": "from runtime"})'],
-  expected_runtime_contract_subset: runtimeContractSubset('Python'),
-  expected_action_log_subset: [
-    { type: 'runtime_session', action: 'create_session' },
-    { kind: 'final', code: 'final("Answer", {"answer": "from runtime"})' },
-  ],
-});
-
-writeFixture('runtime-forward-javascript-final', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    runtime: { language: 'JavaScript' },
-  },
-  input: { question: 'Use runtime' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
-    },
-    {
-      content:
-        '{"javascriptCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
-    },
-    { content: '{"answer":"from runtime"}' },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'final("Answer", {"answer": "from runtime"})',
-      result: {
-        type: 'final',
-        args: ['Answer', { answer: 'from runtime' }],
+      {
+        content:
+          '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
       },
-    },
-  ],
-  expected_output: { answer: 'from runtime' },
-  expected_request_count: 3,
-  expected_executed: ['final("Answer", {"answer": "from runtime"})'],
-  expected_runtime_contract_subset: runtimeContractSubset('JavaScript'),
-  expected_action_log_subset: [
-    { type: 'runtime_session', action: 'create_session' },
-    { kind: 'final', code: 'final("Answer", {"answer": "from runtime"})' },
-  ],
-});
-
-writeFixture('trace-replay-runtime-final', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    runtime: { language: 'Python' },
-  },
-  input: { question: 'Trace runtime' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
-    },
-    {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"trace ok\\"})"}',
-    },
-    { content: '{"answer":"trace ok"}' },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'final("Answer", {"answer": "trace ok"})',
-      result: {
-        type: 'final',
-        args: ['Answer', { answer: 'trace ok' }],
-      },
-    },
-  ],
-  expected_output: { answer: 'trace ok' },
-  expected_request_count: 3,
-  expected_trace_subset: {
-    schema_version: 'axir-agent-trace-v1',
-    kind: 'agent_run',
-    status: 'completed',
-    replayable: true,
-    final_output: { answer: 'trace ok' },
-    optimizer_metadata: {
-      policy_version: 'agent-runtime-decision-v1',
-    },
-  },
-  expected_trace_event_kinds: [
-    'stage_request',
-    'stage_response',
-    'stage_request',
-    'stage_response',
-    'runtime_lifecycle',
-    'runtime_execute',
-    'final',
-    'stage_request',
-    'stage_response',
-    'final',
-  ],
-  replay_trace: true,
-  expected_replay_result_subset: {
-    ok: true,
-    status: 'replayed',
-    output: { answer: 'trace ok' },
-  },
-});
-
-writeFixture('runtime-forward-discover-continues', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    functionDiscovery: true,
-    runtime: { language: 'Python' },
-    functions: [{ name: 'search', description: 'Search docs' }],
-  },
-  input: { question: 'Find docs' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Discover tools first",{}]}}',
-    },
-    {
-      content: '{"pythonCode":"discover({\\"tools\\":[\\"search\\"]})"}',
-    },
-    {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Docs found\\"})"}',
-    },
-    { content: '{"answer":"Docs found"}' },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'discover({"tools":["search"]})',
-      result: { discover: { tools: ['search'] } },
-    },
-    {
-      expected_code: 'final("Answer", {"answer": "Docs found"})',
-      result: {
-        type: 'final',
-        args: ['Answer', { answer: 'Docs found' }],
-      },
-    },
-  ],
-  expected_output: { answer: 'Docs found' },
-  expected_request_count: 4,
-  expected_request_contains: ['Search docs', 'Discovered Tool Docs'],
-  expected_executed: [
-    'discover({"tools":["search"]})',
-    'final("Answer", {"answer": "Docs found"})',
-  ],
-  expected_action_log_subset: [
-    { kind: 'result', code: 'discover({"tools":["search"]})' },
-    { type: 'discover', request: { tools: ['search'] } },
-    { kind: 'final', code: 'final("Answer", {"answer": "Docs found"})' },
-  ],
-});
-
-writeFixture('runtime-forward-recall-continues', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    memoriesMode: true,
-    runtime: { language: 'Python' },
-    memory_search_results: {
-      prefs: [{ id: 'mem-1', content: 'User likes concise docs.' }],
-    },
-  },
-  input: { question: 'Use memory' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Recall preferences",{}]}}',
-    },
-    { content: '{"pythonCode":"recall(\\"prefs\\")"}' },
-    {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"User likes concise docs.\\"})"}',
-    },
-    { content: '{"answer":"User likes concise docs."}' },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'recall("prefs")',
-      result: { kind: 'recall', recall: 'prefs' },
-    },
-    {
-      expected_code: 'final("Answer", {"answer": "User likes concise docs."})',
-      result: {
-        type: 'final',
-        args: ['Answer', { answer: 'User likes concise docs.' }],
-      },
-    },
-  ],
-  expected_output: { answer: 'User likes concise docs.' },
-  expected_request_count: 4,
-  expected_request_contains: ['User likes concise docs.'],
-  expected_executed: [
-    'recall("prefs")',
-    'final("Answer", {"answer": "User likes concise docs."})',
-  ],
-  expected_exported_state_subset: {
-    loaded_memories: [{ id: 'mem-1', content: 'User likes concise docs.' }],
-  },
-  expected_action_log_subset: [
-    { type: 'recall', searches: ['prefs'] },
-    {
-      kind: 'final',
-      code: 'final("Answer", {"answer": "User likes concise docs."})',
-    },
-  ],
-});
-
-writeFixture('runtime-forward-guide-continues', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    runtime: { language: 'Python' },
-  },
-  input: { question: 'Use guidance' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Guide before answering",{}]}}',
-    },
-    { content: '{"pythonCode":"guideAgent(\\"Prefer concise final.\\")"}' },
-    {
-      content:
-        '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Concise\\"})"}',
-    },
-    { content: '{"answer":"Concise"}' },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'guideAgent("Prefer concise final.")',
-      result: { type: 'guide_agent', guidance: 'Prefer concise final.' },
-    },
-    {
-      expected_code: 'final("Answer", {"answer": "Concise"})',
-      result: {
-        type: 'final',
-        args: ['Answer', { answer: 'Concise' }],
-      },
-    },
-  ],
-  expected_output: { answer: 'Concise' },
-  expected_request_count: 4,
-  expected_request_contains: ['Prefer concise final.'],
-  expected_executed: [
-    'guideAgent("Prefer concise final.")',
-    'final("Answer", {"answer": "Concise"})',
-  ],
-  expected_exported_state_subset: {
-    guidance_log: [{ turn: 1, guidance: 'Prefer concise final.' }],
-  },
-  expected_action_log_subset: [
-    { type: 'guide_agent', guidance: 'Prefer concise final.' },
-    { kind: 'final', code: 'final("Answer", {"answer": "Concise"})' },
-  ],
-});
-
-writeFixture('trace-max-step-error', {
-  kind: 'agent_forward',
-  signature: 'question:string -> answer:string',
-  options: {
-    runtime: { language: 'Python' },
-  },
-  forward_options: {
-    max_actor_steps: 1,
-  },
-  input: { question: 'Never finish' },
-  responses: [
-    {
-      content: '{"completion":{"type":"final","args":["Try runtime",{}]}}',
-      usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
-    },
-    {
-      content: '{"pythonCode":"reportSuccess(\\"still working\\")"}',
-      usage: { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
-    },
-  ],
-  runtime_script: [
-    {
-      expected_code: 'reportSuccess("still working")',
-      result: {
-        kind: 'status',
-        status: { type: 'success', message: 'still working' },
-      },
-    },
-  ],
-  expected_error_contains: 'agent actor loop exceeded max steps',
-  expected_chat_log_length: 2,
-  expected_usage_subset: {
-    chat_log_entries: 2,
-    actor: [
-      { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
-      { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
+      { content: '{"answer":"from runtime"}' },
     ],
-    responder: [],
-  },
-  expected_trace_subset: {
-    usage: {
+    runtime_script: [
+      {
+        expected_code: 'final("Answer", {"answer": "from runtime"})',
+        result: {
+          type: 'final',
+          args: ['Answer', { answer: 'from runtime' }],
+        },
+      },
+    ],
+    expected_output: { answer: 'from runtime' },
+    expected_request_count: 3,
+    expected_executed: ['final("Answer", {"answer": "from runtime"})'],
+    expected_runtime_contract_subset: runtimeContractSubset('Python'),
+    expected_action_log_subset: [
+      { type: 'runtime_session', action: 'create_session' },
+      { kind: 'final', code: 'final("Answer", {"answer": "from runtime"})' },
+    ],
+  })
+);
+
+writeFixture(
+  'runtime-forward-javascript-final',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      runtime: { language: 'JavaScript' },
+    },
+    input: { question: 'Use runtime' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
+      },
+      {
+        content:
+          '{"javascriptCode":"final(\\"Answer\\", {\\"answer\\": \\"from runtime\\"})"}',
+      },
+      { content: '{"answer":"from runtime"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'final("Answer", {"answer": "from runtime"})',
+        result: {
+          type: 'final',
+          args: ['Answer', { answer: 'from runtime' }],
+        },
+      },
+    ],
+    expected_output: { answer: 'from runtime' },
+    expected_request_count: 3,
+    expected_executed: ['final("Answer", {"answer": "from runtime"})'],
+    expected_runtime_contract_subset: runtimeContractSubset('JavaScript'),
+    expected_action_log_subset: [
+      { type: 'runtime_session', action: 'create_session' },
+      { kind: 'final', code: 'final("Answer", {"answer": "from runtime"})' },
+    ],
+  })
+);
+
+writeFixture(
+  'trace-replay-runtime-final',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      runtime: { language: 'Python' },
+    },
+    input: { question: 'Trace runtime' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Execute runtime code",{}]}}',
+      },
+      {
+        content:
+          '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"trace ok\\"})"}',
+      },
+      { content: '{"answer":"trace ok"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'final("Answer", {"answer": "trace ok"})',
+        result: {
+          type: 'final',
+          args: ['Answer', { answer: 'trace ok' }],
+        },
+      },
+    ],
+    expected_output: { answer: 'trace ok' },
+    expected_request_count: 3,
+    expected_trace_subset: {
+      schema_version: 'axir-agent-trace-v1',
+      kind: 'agent_run',
+      status: 'completed',
+      replayable: true,
+      final_output: { answer: 'trace ok' },
+      optimizer_metadata: {
+        policy_version: 'agent-runtime-decision-v1',
+      },
+    },
+    expected_trace_event_kinds: [
+      'stage_request',
+      'stage_response',
+      'stage_request',
+      'stage_response',
+      'runtime_lifecycle',
+      'runtime_execute',
+      'final',
+      'stage_request',
+      'stage_response',
+      'final',
+    ],
+    replay_trace: true,
+    expected_replay_result_subset: {
+      ok: true,
+      status: 'replayed',
+      output: { answer: 'trace ok' },
+    },
+  })
+);
+
+writeFixture(
+  'runtime-forward-discover-continues',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      functionDiscovery: true,
+      runtime: { language: 'Python' },
+      functions: [{ name: 'search', description: 'Search docs' }],
+    },
+    input: { question: 'Find docs' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Discover tools first",{}]}}',
+      },
+      {
+        content: '{"pythonCode":"discover({\\"tools\\":[\\"search\\"]})"}',
+      },
+      {
+        content:
+          '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Docs found\\"})"}',
+      },
+      { content: '{"answer":"Docs found"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'discover({"tools":["search"]})',
+        result: { discover: { tools: ['search'] } },
+      },
+      {
+        expected_code: 'final("Answer", {"answer": "Docs found"})',
+        result: {
+          type: 'final',
+          args: ['Answer', { answer: 'Docs found' }],
+        },
+      },
+    ],
+    expected_output: { answer: 'Docs found' },
+    expected_request_count: 4,
+    expected_request_contains: ['Search docs', 'Discovered Tool Docs'],
+    expected_executed: [
+      'discover({"tools":["search"]})',
+      'final("Answer", {"answer": "Docs found"})',
+    ],
+    expected_action_log_subset: [
+      { kind: 'result', code: 'discover({"tools":["search"]})' },
+      { type: 'discover', request: { tools: ['search'] } },
+      { kind: 'final', code: 'final("Answer", {"answer": "Docs found"})' },
+    ],
+  })
+);
+
+writeFixture(
+  'runtime-forward-recall-continues',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      memoriesMode: true,
+      runtime: { language: 'Python' },
+      memory_search_results: {
+        prefs: [{ id: 'mem-1', content: 'User likes concise docs.' }],
+      },
+    },
+    input: { question: 'Use memory' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Recall preferences",{}]}}',
+      },
+      { content: '{"pythonCode":"recall(\\"prefs\\")"}' },
+      {
+        content:
+          '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"User likes concise docs.\\"})"}',
+      },
+      { content: '{"answer":"User likes concise docs."}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'recall("prefs")',
+        result: { kind: 'recall', recall: 'prefs' },
+      },
+      {
+        expected_code:
+          'final("Answer", {"answer": "User likes concise docs."})',
+        result: {
+          type: 'final',
+          args: ['Answer', { answer: 'User likes concise docs.' }],
+        },
+      },
+    ],
+    expected_output: { answer: 'User likes concise docs.' },
+    expected_request_count: 4,
+    expected_request_contains: ['User likes concise docs.'],
+    expected_executed: [
+      'recall("prefs")',
+      'final("Answer", {"answer": "User likes concise docs."})',
+    ],
+    expected_exported_state_subset: {
+      loaded_memories: [{ id: 'mem-1', content: 'User likes concise docs.' }],
+    },
+    expected_action_log_subset: [
+      { type: 'recall', searches: ['prefs'] },
+      {
+        kind: 'final',
+        code: 'final("Answer", {"answer": "User likes concise docs."})',
+      },
+    ],
+  })
+);
+
+writeFixture(
+  'runtime-forward-guide-continues',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      runtime: { language: 'Python' },
+    },
+    input: { question: 'Use guidance' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Guide before answering",{}]}}',
+      },
+      { content: '{"pythonCode":"guideAgent(\\"Prefer concise final.\\")"}' },
+      {
+        content:
+          '{"pythonCode":"final(\\"Answer\\", {\\"answer\\": \\"Concise\\"})"}',
+      },
+      { content: '{"answer":"Concise"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'guideAgent("Prefer concise final.")',
+        result: { type: 'guide_agent', guidance: 'Prefer concise final.' },
+      },
+      {
+        expected_code: 'final("Answer", {"answer": "Concise"})',
+        result: {
+          type: 'final',
+          args: ['Answer', { answer: 'Concise' }],
+        },
+      },
+    ],
+    expected_output: { answer: 'Concise' },
+    expected_request_count: 4,
+    expected_request_contains: ['Prefer concise final.'],
+    expected_executed: [
+      'guideAgent("Prefer concise final.")',
+      'final("Answer", {"answer": "Concise"})',
+    ],
+    expected_exported_state_subset: {
+      guidance_log: [{ turn: 1, guidance: 'Prefer concise final.' }],
+    },
+    expected_action_log_subset: [
+      { type: 'guide_agent', guidance: 'Prefer concise final.' },
+      { kind: 'final', code: 'final("Answer", {"answer": "Concise"})' },
+    ],
+  })
+);
+
+writeFixture(
+  'trace-max-step-error',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'question:string -> answer:string',
+    options: {
+      runtime: { language: 'Python' },
+    },
+    forward_options: {
+      max_actor_steps: 1,
+    },
+    input: { question: 'Never finish' },
+    responses: [
+      {
+        content: '{"completion":{"type":"final","args":["Try runtime",{}]}}',
+        usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
+      },
+      {
+        content: '{"pythonCode":"reportSuccess(\\"still working\\")"}',
+        usage: { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
+      },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'reportSuccess("still working")',
+        result: {
+          kind: 'status',
+          status: { type: 'success', message: 'still working' },
+        },
+      },
+    ],
+    expected_error_contains: 'agent actor loop exceeded max steps',
+    expected_chat_log_length: 2,
+    expected_usage_subset: {
       chat_log_entries: 2,
       actor: [
         { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
@@ -2932,55 +2978,68 @@ writeFixture('trace-max-step-error', {
       ],
       responder: [],
     },
-  },
-  expected_trace_event_kinds: [
-    'stage_request',
-    'stage_response',
-    'stage_request',
-    'stage_response',
-    'runtime_lifecycle',
-    'runtime_execute',
-    'status',
-    'error',
-  ],
-  replay_trace: true,
-});
+    expected_trace_subset: {
+      usage: {
+        chat_log_entries: 2,
+        actor: [
+          { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
+          { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
+        ],
+        responder: [],
+      },
+    },
+    expected_trace_event_kinds: [
+      'stage_request',
+      'stage_response',
+      'stage_request',
+      'stage_response',
+      'runtime_lifecycle',
+      'runtime_execute',
+      'status',
+      'error',
+    ],
+    replay_trace: true,
+  })
+);
 
-writeFixture('agent-context-cache-precedence', {
-  kind: 'agent_forward',
-  signature: 'document:string, question:string -> answer:string',
-  options: {
-    contextFields: ['document'],
-    contextCache: { ttlSeconds: 1111 },
-    contextOptions: {
-      contextCache: { ttlSeconds: 2222, cacheBreakpoint: 'system' },
+writeFixture(
+  'agent-context-cache-precedence',
+  legacyCompletionFixture({
+    kind: 'agent_forward',
+    signature: 'document:string, question:string -> answer:string',
+    options: {
+      contextFields: ['document'],
+      contextCache: { ttlSeconds: 1111 },
+      contextOptions: {
+        contextCache: { ttlSeconds: 2222, cacheBreakpoint: 'system' },
+      },
+      executorOptions: {
+        contextCache: { ttlSeconds: 3333, cacheBreakpoint: 'after-functions' },
+      },
+      responderOptions: {
+        contextCache: { ttlSeconds: 4444, cacheBreakpoint: 'after-examples' },
+      },
     },
-    executorOptions: {
-      contextCache: { ttlSeconds: 3333, cacheBreakpoint: 'after-functions' },
+    forward_options: {
+      contextCache: { ttlSeconds: 5555, cacheBreakpoint: 'system' },
     },
-    responderOptions: {
-      contextCache: { ttlSeconds: 4444, cacheBreakpoint: 'after-examples' },
-    },
-  },
-  forward_options: {
-    contextCache: { ttlSeconds: 5555, cacheBreakpoint: 'system' },
-  },
-  input: { document: 'cached context', question: 'q' },
-  responses: [
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer with cache",{"summary":"cached"}]}}',
-    },
-    {
-      content:
-        '{"completion":{"type":"final","args":["Answer with cache",{"answer":"cached"}]}}',
-    },
-    { content: '{"answer":"cached"}' },
-  ],
-  expected_output: { answer: 'cached' },
-  expected_request_count: 3,
-  expected_cached_request_indices: [0, 1, 2],
-});
+    input: { document: 'cached context', question: 'q' },
+    responses: [
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer with cache",{"summary":"cached"}]}}',
+      },
+      {
+        content:
+          '{"completion":{"type":"final","args":["Answer with cache",{"answer":"cached"}]}}',
+      },
+      { content: '{"answer":"cached"}' },
+    ],
+    expected_output: { answer: 'cached' },
+    expected_request_count: 3,
+    expected_cached_request_indices: [0, 1, 2],
+  })
+);
 
 writeFixture('reserved-runtime-name-conflict', {
   kind: 'agent_runtime_policy',
@@ -4678,7 +4737,7 @@ async function writeAgentAudioOutputOracles(): Promise<void> {
       speakResponses,
     };
   };
-  const base = {
+  const base = legacyCompletionFixture({
     kind: 'agent_forward',
     signature: 'question:string -> speech:audio',
     input: { question: 'Say hi' },
@@ -4699,7 +4758,7 @@ async function writeAgentAudioOutputOracles(): Promise<void> {
       },
     ],
     expected_request_count: 2,
-  };
+  });
   const cases: {
     name: string;
     agentOptions: Record<string, unknown>;
@@ -4822,3 +4881,78 @@ for (const discovered of [false, true]) {
     }
   );
 }
+
+// Ax 25 default actors use the same JavaScript stage contract as TypeScript.
+{
+  const reference = agent('question:string -> answer:string', {
+    contextFields: [],
+  }) as unknown as {
+    executor: {
+      executorDescription: string;
+      actorProgram: { getSignature(): AxSignature };
+    };
+  };
+  const description =
+    reference.executor.actorProgram.getSignature().getDescription() ?? '';
+  const marker = 'Your ONLY job is to write JavaScript code';
+  if (
+    !description.includes(marker) ||
+    !reference.executor.actorProgram
+      .getSignature()
+      .toString()
+      .includes('javascriptCode:code')
+  ) {
+    throw new Error(
+      'TypeScript default agent must build JavaScript actor stages'
+    );
+  }
+  writeFixture('actor-default-javascript-prompt', {
+    kind: 'agent_prompt',
+    signature: 'question:string -> answer:string',
+    options: {},
+    expected_description_contains: {
+      executor_description: [marker, 'JavaScript runtime (REPL)'],
+    },
+  });
+}
+for (const streaming of [false, true]) {
+  writeFixture(
+    `actor-default-missing-runtime-${streaming ? 'stream' : 'forward'}`,
+    {
+      kind: streaming ? 'agent_streaming_forward' : 'agent_forward',
+      signature: 'question:string -> answer:string',
+      options: {},
+      input: { question: 'Hello' },
+      responses: [],
+      expected_error_contains:
+        'requires an executable AxCodeRuntime before forward',
+      expected_request_roles: [],
+      expected_request_count: 0,
+      expected_deltas: [],
+    }
+  );
+}
+writeFixture('actor-metadata-only-runtime-preflight', {
+  kind: 'agent_forward',
+  signature: 'question:string -> answer:string',
+  options: { runtime_config: { language: 'Python' } },
+  input: { question: 'Hello' },
+  responses: [],
+  expected_error_contains:
+    'requires an executable AxCodeRuntime before forward',
+  expected_request_roles: [],
+  expected_request_count: 0,
+});
+writeFixture('actor-completion-rejects-runtime-config', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: { actorMode: 'completion', runtime: { language: 'JavaScript' } },
+  expected_error_contains:
+    "actorMode 'completion' cannot be combined with a runtime",
+});
+writeFixture('actor-mode-invalid', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: { actorMode: 'invalid' },
+  expected_error_contains: "actorMode must be 'runtime' or 'completion'",
+});

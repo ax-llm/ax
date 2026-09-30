@@ -24,5 +24,8 @@
   },
   "kind": "optimize",
   "name": "dataset-normalization-array",
-  "operation": "dataset"
+  "operation": "dataset",
+  "options": {
+    "actorMode": "completion"
+  }
 }

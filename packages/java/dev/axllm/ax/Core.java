@@ -1611,6 +1611,7 @@ final class Core {
     Object clarification = asList(args).isEmpty() ? payload : asList(args).get(0);
     return new AxAgentClarificationException(clarification, get(state, "runtime_state", Map.of()), payload);
   }
+  static Object agentRuntimeIsExecutable(Object runtime) { return runtime instanceof AxCodeRuntime; }
   static Object agentRuntimeCreateSession(Object runtime, Object globals, Object options) {
     if (!(runtime instanceof AxCodeRuntime rt)) throw new RuntimeException("agent runtime does not implement AxCodeRuntime");
     AxCodeSession session = rt.createSession(asMap(globals), asMap(options));
@@ -31065,11 +31066,8 @@ final class Core {
     Object status_log = new java.util.ArrayList<Object>();
     Object state = new java.util.LinkedHashMap<String, Object>();
     Object runtime_contract = Core._normalize_agent_runtime(options);
-    Object has_runtime_direct = Core.mapContains(options, "runtime");
-    Object has_runtime_config = Core.mapContains(options, "runtimeConfig");
-    Object has_runtime_config_snake = Core.mapContains(options, "runtime_config");
-    Object has_any_runtime_config = Core.or(has_runtime_config, has_runtime_config_snake);
-    Object runtime_enabled = Core.or(has_runtime_direct, has_any_runtime_config);
+    Object actor_mode = Core._agent_resolve_actor_mode(options);
+    Object runtime_enabled = Core.eq(actor_mode, "runtime");
     Object context_policy = Core._resolve_agent_context_policy(options);
     Object executor_model_policy = Core._resolve_agent_executor_model_policy(options);
     Object callable_inventory = Core._normalize_agent_callable_inventory(options);
@@ -31361,7 +31359,8 @@ final class Core {
   static Object _normalize_agent_runtime(Object options) {
     axirCoverageMark("_normalize_agent_runtime");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object runtime_camel = Core.get(options, "runtimeConfig", empty_map);
+    Object runtime_snake = Core.get(options, "runtime_config", empty_map);
+    Object runtime_camel = Core.get(options, "runtimeConfig", runtime_snake);
     Object runtime = Core.get(options, "runtime", runtime_camel);
     Object raw_language = Core.get(runtime, "language", "JavaScript");
     Object trimmed_language = Core.stringTrim(raw_language);
@@ -41046,6 +41045,77 @@ final class Core {
     return out;
   }
 
+  static Object _agent_resolve_actor_mode(Object options) {
+    axirCoverageMark("_agent_resolve_actor_mode");
+    Object camel = Core.get(options, "actorMode", "runtime");
+    Object mode = Core.get(options, "actor_mode", camel);
+    Object runtime = Core.eq(mode, "runtime");
+    Object completion = Core.eq(mode, "completion");
+    Object valid = Core.or(runtime, completion);
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object error = Core.runtimeError("actorMode must be 'runtime' or 'completion'");
+      throw Core.asRuntime(error);
+    }
+    if (Core.truthy(completion)) {
+      Object direct = Core.get(options, "runtime", null);
+      Object camel_config = Core.get(options, "runtimeConfig", null);
+      Object config = Core.get(options, "runtime_config", camel_config);
+      Object has_direct = Core.isNotNone(direct);
+      Object has_config = Core.isNotNone(config);
+      Object conflict = Core.or(has_direct, has_config);
+      if (Core.truthy(conflict)) {
+        Object error = Core.runtimeError("actorMode 'completion' cannot be combined with a runtime");
+        throw Core.asRuntime(error);
+      }
+    }
+    return mode;
+  }
+
+  static Object _agent_resolve_run_actor_mode(Object state, Object options) {
+    axirCoverageMark("_agent_resolve_run_actor_mode");
+    Object configured = Core.get(state, "options", null);
+    Object default_mode = Core._agent_resolve_actor_mode(configured);
+    Object camel = Core.get(options, "actorMode", default_mode);
+    Object mode = Core.get(options, "actor_mode", camel);
+    Object copy = new java.util.LinkedHashMap<String, Object>();
+    copy = Core.mapMerge(copy, configured);
+    Core.set(copy, "actorMode", mode);
+    Core.set(copy, "actor_mode", mode);
+    Object resolved = Core._agent_resolve_actor_mode(copy);
+    return resolved;
+  }
+
+  static Object _agent_validate_run_runtime(Object state, Object options) {
+    axirCoverageMark("_agent_validate_run_runtime");
+    Object configured = Core.get(state, "options", null);
+    Object mode = Core._agent_resolve_run_actor_mode(state, options);
+    Object call_runtime = Core.get(options, "runtime", null);
+    Object completion = Core.eq(mode, "completion");
+    if (Core.truthy(completion)) {
+      Object has_runtime = Core.isNotNone(call_runtime);
+      if (Core.truthy(has_runtime)) {
+        Object error = Core.runtimeError("actorMode 'completion' cannot be combined with a runtime");
+        throw Core.asRuntime(error);
+      }
+      return call_runtime;
+    }
+    Object constructor_runtime = Core.get(configured, "runtime", null);
+    Object constructor_executable = Core.agentRuntimeIsExecutable(constructor_runtime);
+    Object runtime = call_runtime;
+    if (Core.truthy(constructor_executable)) {
+      runtime = constructor_runtime;
+    }
+    Object executable = Core.agentRuntimeIsExecutable(runtime);
+    Object missing = Core.not(executable);
+    if (Core.truthy(missing)) {
+      Object error = Core.runtimeError("Agent runtime mode requires an executable AxCodeRuntime before forward; pass a runtime or select actorMode 'completion'");
+      throw Core.asRuntime(error);
+    }
+    Core.set(options, "runtime", runtime);
+    return runtime;
+  }
+
   static Object _agent_runtime_configured(Object state) {
     axirCoverageMark("_agent_runtime_configured");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -41111,13 +41181,20 @@ final class Core {
 
   static Object _agent_use_stage_mode(Object state, Object options) {
     axirCoverageMark("_agent_use_stage_mode");
+    Object state_options = Core.get(state, "options", null);
+    Object actor_mode = Core._agent_resolve_run_actor_mode(state, options);
+    Object runtime_mode = Core.eq(actor_mode, "runtime");
     Object configured = Core._agent_runtime_configured(state);
-    Object runtime = Core.get(options, "runtime", null);
-    Object has_runtime = Core.isNotNone(runtime);
-    Object runtime_mode = Core.or(configured, has_runtime);
+    Object runtime = Core._agent_validate_run_runtime(state, options);
     Object mode = "plain";
     if (Core.truthy(runtime_mode)) {
       mode = "runtime";
+      Object unconfigured = Core.not(configured);
+      if (Core.truthy(unconfigured)) {
+        Object language = Core.agentRuntimeLanguage(runtime);
+        Object usage = Core.agentRuntimeUsageInstructions(runtime);
+        mode = Core.stringFormat("runtime:{}:{}", language, usage);
+      }
     }
     Object state_runtime = Core.get(state, "runtime_enabled", Boolean.FALSE);
     Object active_default = "plain";
@@ -41137,7 +41214,18 @@ final class Core {
         // empty
       }
       if (!Core.truthy(cached)) {
-        target = Core._agent_runtime_stage_fields(state, runtime);
+        if (Core.truthy(runtime_mode)) {
+          target = Core._agent_runtime_stage_fields(state, runtime);
+        }
+        if (!Core.truthy(runtime_mode)) {
+          Object plain_options = new java.util.LinkedHashMap<String, Object>();
+          plain_options = Core.mapMerge(plain_options, state_options);
+          Core.set(plain_options, "actorMode", "completion");
+          Core.set(plain_options, "actor_mode", "completion");
+          Object signature = Core.get(state, "signature", null);
+          Object plain_state = Core._agent_factory(signature, plain_options);
+          target = Core._agent_stage_mode_fields(plain_state);
+        }
       }
       for (Object field : Core.iter(target)) {
         Object field_value = Core.get(target, field, null);

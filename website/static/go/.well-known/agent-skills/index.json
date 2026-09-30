@@ -55,7 +55,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-go-agent/SKILL.md",
-      "digest": "sha256:f28e2fa7484aade2b4d4d8a658fc8030ec19d509d7738952d95098823a952bc8"
+      "digest": "sha256:5dc334ce26a5a80196074da068ab20846defcf84114905edabde25fef221e8c1"
     },
     {
       "name": "ax-go-agent-rlm",

@@ -12,7 +12,8 @@
   "kind": "agent_forward",
   "name": "state-round-trip",
   "options": {
-    "contextFields": []
+    "contextFields": [],
+    "actorMode": "completion"
   },
   "responses": [
     {

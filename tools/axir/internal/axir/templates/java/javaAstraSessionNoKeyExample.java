@@ -120,7 +120,7 @@ public final class AstraSessionTest {
     var mcp=new AxMCPClient(mcpTransport,Map.of("era","modern","namespace","orders","authorizeToolCall",authorize));clientRef.set(mcp);mcp.init();var original=mcp.nativeTools().get(0);if(!"blocking".equals(original.execution))throw new AssertionError("MCP hint enabled background work");
     try{original.handler.call(Map.of("query","REF-42"));throw new AssertionError("Denied MCP tool executed");}catch(RuntimeException error){if(!error.getMessage().contains("MCP tool call denied by host policy: lookup"))throw error;}if(!calls.isEmpty())throw new AssertionError("Denied MCP request reached transport");allowed.set(true);
     var nativeTool=Ax.fn(original.name).description(original.description).parameters(original.schema()).execution("background").handler(original.handler).build();
-    var program=Ax.agent("question -> answer",Map.of("functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","functions",List.of(Map.of("namespace","orders","functions",List.of(nativeTool))),"functionDiscovery",true,"directResponse","off"));
     OpenAICompatibleClient.Transport transport=new OpenAICompatibleClient.Transport(){
       public Object call(Map<String,Object> request)throws Exception{return event(request,false);}
       public Object stream(Map<String,Object> request)throws Exception{return event(request,true);}
@@ -261,7 +261,7 @@ public final class AstraSessionTest {
         }
       };
       var mcp=new AxMCPClient(mcpTransport,Map.of("era","legacy","namespace","inventory"));mcp.init();var imported=mcp.nativeTools().get(0);
-      var childOptions=new LinkedHashMap<String,Object>(Map.of("directResponse","off"));
+      var childOptions=new LinkedHashMap<String,Object>(Map.of("actorMode","completion","directResponse","off"));
       if(cancel){childOptions.put("functionDiscovery",false);childOptions.put("functions",List.of(Ax.fn(imported.name).description("Lookup").parameters(imported.schema()).execution("background").contextHandler(imported::call).build()));}
       var child=Ax.agent("question -> answer",childOptions);
       var parent=Ax.agent("question -> answer",Map.of("directResponse","off","runtime",runtime)).addChildAgent("team","researcher",child);
@@ -359,7 +359,7 @@ public final class AstraSessionTest {
         writer.setDaemon(true);writer.start();return input;
       }
     };
-    var program=Ax.agent("question -> answer",Map.of("directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
     var answer=new StringBuilder();
     try(var stream=program.streamingForward(client,Map.of("question","Find reference"),Map.of("control",Ax.runControl()))){
       for(var delta:stream){answer.append(String.valueOf(delta.delta().getOrDefault("answer","")));firstDelta.countDown();}
@@ -414,7 +414,7 @@ public final class AstraSessionTest {
       }
     };
     var tool=Ax.fn("lookup").description("Lookup").arg("query",Ax.f().string()).execution("background").handler(args->{calls.incrementAndGet();started.countDown();if(!release.await(2,TimeUnit.SECONDS))throw new AssertionError("Model did not overlap the handler");return args.get("query");}).build();
-    var program=Ax.agent("question -> answer",Map.of("functions",List.of(tool),"directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","functions",List.of(tool),"directResponse","off"));var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",transport));
     var result=program.forward(client,Map.of("question","Find reference"),Map.of("control",control));if(!"REF-42".equals(result.get("answer"))||calls.get()!=1||requests.get()!=6)throw new AssertionError("Invalid native agent result");
     var activity=program.getActionLog().stream().map(entry->(Map<String,Object>)entry).filter(entry->"function_call".equals(entry.get("type"))).toList();
     if(activity.size()!=1||!"utils.lookup".equals(activity.get(0).get("qualified_name"))||!"agent-call".equals(activity.get(0).get("call_id")))throw new AssertionError("Lost native activity: "+activity);
@@ -650,7 +650,7 @@ public final class AstraSessionTest {
         return "data: "+Json.stringify(Map.of("type","response.output_item.done","item",Map.of("type","function_call","id","item","call_id","mcp-pending","name","utils_lookup","arguments","{}")))+"\n\n"+"data: "+Json.stringify(completed("actor","{\"completion\":{\"type\":\"final\",\"args\":[\"provisional\",{}]}}"))+"\n\n";
       }
     };
-    var program=Ax.agent("question -> answer",Map.of("functions",List.of(nativeTool),"functionDiscovery",false,"directResponse","off"));
+    var program=Ax.agent("question -> answer",Map.of("actorMode","completion","functions",List.of(nativeTool),"functionDiscovery",false,"directResponse","off"));
     var client=Ax.ai("openai",Map.of("api_key","test","model","gpt-6-astra","transport",model));
     try{program.forward(client,Map.of("question","Find reference"),Map.of("control",control));throw new AssertionError("Cancelled agent succeeded");}
     catch(RuntimeException error){if(!error.toString().toLowerCase().contains("abort"))throw error;}

@@ -35,7 +35,8 @@
           "history": []
         }
       }
-    }
+    },
+    "actorMode": "completion"
   },
   "input": {
     "question": "What should I check?"

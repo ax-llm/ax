@@ -58,11 +58,11 @@
   "ranking_probe": [
     {
       "label": "tie_skill_a",
-      "needle": "`tie-skill-a` —"
+      "needle": "`tie-skill-a` \u2014"
     },
     {
       "label": "tie_memory_a",
-      "needle": "`tie-memory-a` —"
+      "needle": "`tie-memory-a` \u2014"
     }
   ],
   "responses": [

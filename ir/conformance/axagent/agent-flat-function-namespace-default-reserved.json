@@ -23,7 +23,8 @@
           "required": ["id"]
         }
       }
-    ]
+    ],
+    "actorMode": "completion"
   },
   "responses": [],
   "expected_error_contains": "Agent function namespace \"inputs\" conflicts with an AxAgent runtime global and is reserved"

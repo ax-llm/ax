@@ -23,7 +23,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-6-luna" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
 
@@ -56,7 +56,6 @@ int main() {
       // Keep the handbook in the runtime, out of the prompt.
       axllm::object({
           {"contextFields", axllm::array({"handbook"})},
-          {"runtime", axllm::object({{"language", "JavaScript"}})},
       }));
 
   axllm::runtime::quickjs::QuickJsCodeRuntime runtime;

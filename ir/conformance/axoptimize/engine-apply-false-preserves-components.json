@@ -32,5 +32,8 @@
     "target": "responder"
   },
   "program": "agent",
-  "signature": "question:string -> answer:string"
+  "signature": "question:string -> answer:string",
+  "options": {
+    "actorMode": "completion"
+  }
 }

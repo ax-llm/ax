@@ -29,7 +29,8 @@
         },
         "updatedAt": "2026-07-15T00:00:00.000Z"
       }
-    }
+    },
+    "actorMode": "completion"
   },
   "input": {
     "question": "What should I check?"

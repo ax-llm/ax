@@ -14,7 +14,8 @@
         "namespace": "crm",
         "description": "Look up a customer by id"
       }
-    ]
+    ],
+    "actorMode": "completion"
   },
   "responses": [],
   "expected_error_contains": "flatFunctionNamespace must be 'tools' or 'own', received: \"utils\""
