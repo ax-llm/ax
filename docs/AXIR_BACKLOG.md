@@ -18,18 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime` [runtime] Return console output from the Java QuickJS code runtime
-  - Status: open
-  - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
-  - TS paths: `src/ax/funcs/jsRuntime.ts`
-  - Impact: TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.
-  - Suggested AxIR work: Capture console output in the Java QuickJS bootstrap and return it as the step's output; Pin a runtime-protocol fixture with console output reaching the action log in every port
-- `axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un` [prompt] Split the actor prompt into cached and uncached user messages under contextCache in the ports
-  - Status: open
-  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
-  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
-  - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
-  - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
+No entries.
 
 ## Done
 
@@ -1277,6 +1266,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `1c20db2fa68af33ebeebcf55b8d533947fa5db7c`
   - Verification: `Each stage keeps its own action log across forwards and opens with TS's Runtime Restore notice on its first turn (its own notice wins over the shared-session one); a finished final() turn renders as its code and '(no output)'; evaluation runs start without the stages' earlier actions (TS forwardPipelineForEvaluation). The two-forward TS golden axagent/agent-first-requests-second-forward pins each run's first request of each stage and fails on the base Python.`
+- `axir-2026-09-27-return-console-output-from-the-java-quickjs-code-runtime` [runtime] Return console output from the Java QuickJS code runtime
+  - Status: done
+  - Source commit: `0b6a079a75591e15c7be5cabd3e12d2ca23146b7`
+  - TS paths: `src/ax/funcs/jsRuntime.ts`
+  - Impact: TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.
+  - Suggested AxIR work: Capture console output in the Java QuickJS bootstrap and return it as the step's output; Pin a runtime-protocol fixture with console output reaching the action log in every port
+  - Completed at: 2026-09-30
+  - Completed by: `72788456546f95dc07e5cf4ae210ea5a8b747b6f`
+  - Verification: `PR #780 exact-head CI: all five real-engine runners passed agent-runtime-real-console-output; https://github.com/ax-llm/ax/actions/runs/36661139986/job/109716053015`
 - `axir-2026-09-27-run-flow-nodes-at-parent-node-and-report-a-flow-s-own-lifecycle-` [axflow] Run flow nodes at <parent>/<node> and report a flow's own lifecycle to its run control in the ports
   - Status: done
   - Source commit: `b5130b8359db5173fe09c312d93612f9635ba86f`
@@ -1304,6 +1302,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-27
   - Completed by: `67b2e78e8`
   - Verification: `12 TS-derived axai speak goldens (TypeScript's real OpenAI, Mistral, Grok and Gemini speak() against fetch stubs, with expected_transport_json_absent for keys TS leaves out) fail on origin/main in all five ports and pass in all five; responses-speak pins the deprecated audio-key fallback.`
+- `axir-2026-09-27-split-the-actor-prompt-into-cached-and-uncached-user-messages-un` [prompt] Split the actor prompt into cached and uncached user messages under contextCache in the ports
+  - Status: done
+  - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: TS's actor marks the stage's own inputs and the stable loop inputs cached (buildSplitPrograms), and under contextCache TS's prompt renderer sends the cached fields as a user message of their own with cache: true, then the other fields in a second user message (prompt.ts). The ports' renderer instead turns a cached field's user content into a list of parts with a cache flag, so the ports' actor signatures leave the cache markers out (3a2 PR A) and the ports' actor requests under contextCache carry no cached user message. Without contextCache both send the same single user message.
+  - Suggested AxIR work: Port TS's contextCache user-message split to the ports' prompt renderer; Mark the actor signatures' cached inputs as TS does once the split lands; Pin a contextCache agent golden with TS's cached and uncached user messages
+  - Completed at: 2026-09-30
+  - Completed by: `41886d7369e2d92914eb18c8b08724f422ea8e6a`
+  - Verification: `PR #784 exact-head CI: TypeScript-derived cached/uncached actor and generator prompt fixtures passed release verification in Python, Java, C++, Go and Rust; https://github.com/ax-llm/ax/actions/runs/36663651062`
 - `axir-2026-09-27-stable-stringify-locale-order` [axai] TS stableStringify sorts keys with localeCompare while the ports sort by code point (context-cache tool-state hash)
   - Status: done
   - Source commit: `0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346`
