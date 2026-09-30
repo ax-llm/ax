@@ -667,11 +667,17 @@ module @ax.gen version "0.1" {
       // system prompt, and no instruction turn follows the user message.
       %render_options = core.call @structured_output_render_options_impl(%selection)
       core.call @include_optional_render_option_impl(%render_options, %options)
+      %cache_snake = core.get %runtime_options["context_cache"]
+      %cache = core.get %runtime_options["contextCache"] default %cache_snake
+      core.set %render_options["contextCache"] = %cache
+      %caching_features = core.get %features["caching"]
+      %breakpoints = core.get %caching_features["cacheBreakpoints"] default true
+      %ignore_breakpoints = core.call intrinsic.eq(%breakpoints, false)
+      core.set %render_options["ignoreBreakpoints"] = %ignore_breakpoints
       %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
       %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
-      %user_message = core.call intrinsic.list.get(%messages, 1, %messages)
       %ordered_messages = core.list
       core.append %ordered_messages, %system_message
       core.for %example_message in %example_messages {
@@ -680,7 +686,14 @@ module @ax.gen version "0.1" {
       core.for %demo_message in %demo_messages {
         core.append %ordered_messages, %demo_message
       }
-      core.append %ordered_messages, %user_message
+      %message_index = core.let 0
+      core.for %message in %messages {
+        %after_system = core.call intrinsic.gt(%message_index, 0)
+        core.if %after_system {
+          core.append %ordered_messages, %message
+        }
+        %message_index = core.call intrinsic.add(%message_index, 1)
+      }
       %output_fields = core.get %signature["output_fields"]
       %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
@@ -1959,11 +1972,17 @@ module @ax.gen version "0.1" {
       // system prompt, and no instruction turn follows the user message.
       %render_options = core.call @structured_output_render_options_impl(%selection)
       core.call @include_optional_render_option_impl(%render_options, %options)
+      %cache_snake = core.get %runtime_options["context_cache"]
+      %cache = core.get %runtime_options["contextCache"] default %cache_snake
+      core.set %render_options["contextCache"] = %cache
+      %caching_features = core.get %features["caching"]
+      %breakpoints = core.get %caching_features["cacheBreakpoints"] default true
+      %ignore_breakpoints = core.call intrinsic.eq(%breakpoints, false)
+      core.set %render_options["ignoreBreakpoints"] = %ignore_breakpoints
       %messages = core.call intrinsic.object.call_method(%prompt_template, "render", %values, %render_options)
       %example_messages = core.call @render_examples(%gen)
       %demo_messages = core.call @render_demos(%gen)
       %system_message = core.call intrinsic.list.get(%messages, 0, %messages)
-      %user_message = core.call intrinsic.list.get(%messages, 1, %messages)
       %ordered_messages = core.list
       core.append %ordered_messages, %system_message
       core.for %example_message in %example_messages {
@@ -1972,7 +1991,14 @@ module @ax.gen version "0.1" {
       core.for %demo_message in %demo_messages {
         core.append %ordered_messages, %demo_message
       }
-      core.append %ordered_messages, %user_message
+      %message_index = core.let 0
+      core.for %message in %messages {
+        %after_system = core.call intrinsic.gt(%message_index, 0)
+        core.if %after_system {
+          core.append %ordered_messages, %message
+        }
+        %message_index = core.call intrinsic.add(%message_index, 1)
+      }
       %output_fields = core.get %signature["output_fields"]
       %output_fields = core.call @date_parse_fields_impl(%output_fields, %base_options, %options)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""

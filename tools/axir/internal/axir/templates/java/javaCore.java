@@ -2047,7 +2047,7 @@ class PromptRuntime {
       }
     }
     boolean allText = true;
-    for (Map<String, Object> part : parts) if (!"text".equals(part.get("type")) || Boolean.TRUE.equals(part.get("cache"))) allText = false;
+    for (Map<String, Object> part : parts) if (!"text".equals(part.get("type"))) allText = false;
     if (allText) {
       List<String> text = new ArrayList<>();
       for (Map<String, Object> part : parts) text.add(String.valueOf(part.getOrDefault("text", "")));

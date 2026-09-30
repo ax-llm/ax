@@ -128,21 +128,9 @@ export type AxAIProfileModelRule = {
   };
 };
 
-/**
- * @deprecated Unused: no profile has it, it was never implemented (it fell
- * through to a Bearer header), and the profile generator rejects it. It is
- * removed from `AxAIProfileAuthentication['type']` in the next major version.
- */
-type AxAIProfileQueryKeyAuth = 'api-key-query';
-
 export type AxAIProfileAuthentication = {
-  /** How the API key is sent. `'api-key-query'` is deprecated (see above). */
-  type:
-    | 'bearer'
-    | 'api-key-header'
-    | AxAIProfileQueryKeyAuth
-    | 'x-api-key'
-    | 'none';
+  /** How the API key is sent. */
+  type: 'bearer' | 'api-key-header' | 'x-api-key' | 'none';
   header?: string;
   required: boolean;
 };
