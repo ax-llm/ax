@@ -2420,7 +2420,7 @@ public final class Conformance {
     out.put("toolName", Core.get(Core.get(toolCall, "function", Map.of()), "name", null));
     out.put("profileId", Core.get(profile, "id", null));
     out.put("geminiText", Core.get(geminiTranscript, "text", null));
-    out.put("geminiAudio", Core.get(geminiSpeech, "audio", null));
+    out.put("geminiAudio", Core.get(geminiSpeech, "data", null));
     out.put("grokCodec", Core.get(Core.get(grokSpeak, "output_format", Map.of()), "codec", null));
     out.put("grokFormat", Core.get(grokTranscribe, "format", null));
     out.put("policyActions", Core.asList(Core._select_protocol_actions(registry)).size());

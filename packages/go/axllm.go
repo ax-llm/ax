@@ -108305,7 +108305,7 @@ func conformanceVerificationSummary() Value {
 		"toolName", coreGet(coreGet(toolCall, "function", Object()), "name", nil),
 		"profileId", coreGet(profile, "id", nil),
 		"geminiText", coreGet(geminiTranscript, "text", nil),
-		"geminiAudio", coreGet(geminiSpeech, "audio", nil),
+		"geminiAudio", coreGet(geminiSpeech, "data", nil),
 		"grokCodec", coreGet(coreGet(grokSpeak, "output_format", Object()), "codec", nil),
 		"grokFormat", coreGet(grokTranscribe, "format", nil),
 		"policyActions", len(asSlice(mustCore(_select_protocol_actions(registry)))),
