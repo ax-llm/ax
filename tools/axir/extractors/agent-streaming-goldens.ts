@@ -242,6 +242,8 @@ type Case = {
   // agent(sig, {}) runs with its default JavaScript runtime; the extractor
   // gives TS the scripted runtime in its place.
   runtime_on_forward?: boolean;
+  // Port-only constructor options supplement the TypeScript case.
+  port_options?: JsonMap;
   // Port-only: TS passes a forward timeout (milliseconds) to every stage's
   // ai.chat. TS runs the case with that timeout, and the extractor checks each
   // chat call got it; the fixture gives the ports' forward timeoutMs, their
@@ -392,8 +394,12 @@ async function record(name: string, spec: Case): Promise<void> {
     signature,
     input,
     options: spec.runtime_on_forward
-      ? clone(spec.options ?? {})
-      : { ...clone(spec.options ?? {}), runtime: { language: 'JavaScript' } },
+      ? { ...clone(spec.options ?? {}), ...clone(spec.port_options ?? {}) }
+      : {
+          ...clone(spec.options ?? {}),
+          ...clone(spec.port_options ?? {}),
+          runtime: { language: 'JavaScript' },
+        },
     features,
     responses: spec.responses,
     runtime_script: spec.runtime_script,
@@ -422,6 +428,9 @@ async function record(name: string, spec: Case): Promise<void> {
       throw new Error(`${name}: keeps_date_text supports agent_forward only`);
     }
     fixture.description = spec.keeps_date_text;
+  }
+  if (spec.port_options && fixture.description === undefined) {
+    fixture.description = `The ports run this TS golden with the port-only options ${JSON.stringify(spec.port_options)}, their opt-in to what TS always does.`;
   }
   for (const key of [
     ...(spec.call_timeout_ms === undefined
@@ -669,6 +678,43 @@ const TOOL_GROUPS: JsonMap[] = [
   },
 ];
 
+// Flat functions, each filed under its own namespace (TS fn().namespace()),
+// with the namespaces interleaved and in neither name nor namespace order.
+// Every one names its namespace: a flat function without one is
+// `utils.<name>` in TS and `tools.<name>` in the ports.
+const FLAT_NAMESPACED: JsonMap[] = [
+  {
+    name: 'search',
+    namespace: 'web',
+    description: 'Search public pages',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'lookup',
+    namespace: 'crm',
+    description: 'Look up a customer by id',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'fetch',
+    namespace: 'web',
+    description: 'Fetch a public page',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+  },
+];
+
 const cases: Record<string, Case> = {
   // ----- each stage's first request, in full -----
   'agent-first-requests-base': {
@@ -682,6 +728,18 @@ const cases: Record<string, Case> = {
   'agent-first-requests-tools': {
     kind: 'agent_forward',
     options: { directResponse: 'off', functions: TOOL_GROUPS },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  // The ports file a flat function under its own namespace, as TS does, with
+  // flatFunctionNamespace 'own'; their default keeps tools.<name> until the
+  // next major version.
+  'agent-first-requests-flat-namespace': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', functions: FLAT_NAMESPACED },
+    port_options: { flatFunctionNamespace: 'own' },
     features: { functions: false, streaming: false, structured_outputs: false },
     responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
     runtime_script: baseRuntime(),

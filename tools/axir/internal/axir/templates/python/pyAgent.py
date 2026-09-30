@@ -40,6 +40,7 @@ from .gen import (
     _core_string_str,
     _core_string_utf16_units,
     _core_tool_invoke,
+    _core_validation_error,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,

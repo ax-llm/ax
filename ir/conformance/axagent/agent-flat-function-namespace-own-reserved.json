@@ -1,0 +1,22 @@
+{
+  "name": "agent-flat-function-namespace-own-reserved",
+  "description": "Port-only: with flatFunctionNamespace 'own' a flat function namespaced with a reserved runtime name raises TypeScript's error at construction.",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "How long do refunds take?"
+  },
+  "options": {
+    "directResponse": "off",
+    "flatFunctionNamespace": "own",
+    "functions": [
+      {
+        "name": "lookup",
+        "namespace": "final",
+        "description": "Look up a customer by id"
+      }
+    ]
+  },
+  "responses": [],
+  "expected_error_contains": "Agent function namespace \"final\" conflicts with an AxAgent runtime global and is reserved"
+}

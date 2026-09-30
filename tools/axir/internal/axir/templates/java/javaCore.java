@@ -378,6 +378,7 @@ final class Core {
     if (target instanceof Tool t) {
       return switch (k) {
         case "name" -> t.name;
+        case "namespace" -> t.namespace() == null ? defaultValue : t.namespace();
         case "execution" -> t.execution;
         case "description" -> t.description;
         case "parameters" -> t.schema();

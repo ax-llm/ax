@@ -3900,7 +3900,11 @@ module @ax.agent version "0.1" {
       %empty_list = core.list
       %functions = core.get %options["functions"] default %empty_list
       %groups = core.list
-      %flat_callables = core.list
+      // Flat functions group by namespace in first-seen order: "tools", or
+      // with flatFunctionNamespace 'own' each one's own (TS fn().namespace()).
+      %flat_mode = core.call @agent_flat_function_namespace_mode(%options)
+      %flat_namespaces = core.list
+      %flat_by_namespace = core.map
       %has_flat = core.let false
       %has_group = core.let false
       core.for %item in %functions {
@@ -3920,16 +3924,31 @@ module @ax.agent version "0.1" {
             %error = core.call intrinsic.error.runtime("agent functions cannot mix grouped modules and flat functions")
             core.raise %error
           }
-          %callable = core.call @normalize_agent_callable(%item, "tools")
-          core.append %flat_callables, %callable
+          %flat_namespace = core.call @agent_flat_function_namespace(%item, %options)
+          core.call @agent_check_flat_function_namespace(%item, %flat_mode, %flat_namespace)
+          %callable = core.call @normalize_agent_callable(%item, %flat_namespace)
+          %seen_namespace = core.call intrinsic.contains(%flat_namespaces, %flat_namespace)
+          core.if %seen_namespace {
+          } else {
+            core.append %flat_namespaces, %flat_namespace
+            %fresh_bucket = core.list
+            core.set %flat_by_namespace[%flat_namespace] = %fresh_bucket
+          }
+          %bucket = core.get %flat_by_namespace[%flat_namespace]
+          core.append %bucket, %callable
+          core.set %flat_by_namespace[%flat_namespace] = %bucket
         }
       }
-      %flat_count = core.call intrinsic.len(%flat_callables)
-      %has_any_flat = core.call intrinsic.gt(%flat_count, 0)
-      core.if %has_any_flat {
+      core.for %flat_namespace in %flat_namespaces {
+        %flat_callables = core.get %flat_by_namespace[%flat_namespace]
+        %flat_title = core.let %flat_namespace
+        %is_tools = core.call intrinsic.eq(%flat_namespace, "tools")
+        core.if %is_tools {
+          %flat_title = core.let "Tools"
+        }
         %flat_group = core.map
-        core.set %flat_group["namespace"] = "tools"
-        core.set %flat_group["title"] = "Tools"
+        core.set %flat_group["namespace"] = %flat_namespace
+        core.set %flat_group["title"] = %flat_title
         core.set %flat_group["description"] = ""
         core.set %flat_group["selection_criteria"] = ""
         core.set %flat_group["always_include"] = true
@@ -5010,6 +5029,7 @@ module @ax.agent version "0.1" {
           %namespace = core.get %item["namespace"] default %group_name
           %candidates = core.let %group_functions
         } else {
+          %namespace = core.call @agent_flat_function_namespace(%item, %options)
           core.append %candidates, %item
         }
         core.for %candidate in %candidates {
@@ -9574,14 +9594,36 @@ module @ax.agent version "0.1" {
         core.if %group { core.append %modules, %item }
         else { core.append %flat, %item }
       }
-      %count = core.call intrinsic.len(%flat)
-      %has_flat = core.call intrinsic.gt(%count, 0)
-      core.if %has_flat {
+      // The flat functions become modules under the namespaces the
+      // inventory files them under: "tools", or with flatFunctionNamespace
+      // 'own' each one's own.
+      %flat_namespaces = core.list
+      %flat_by_namespace = core.map
+      core.for %flat_item in %flat {
+        %flat_namespace = core.call @agent_flat_function_namespace(%flat_item, %options)
+        %seen_namespace = core.call intrinsic.contains(%flat_namespaces, %flat_namespace)
+        core.if %seen_namespace {
+        } else {
+          core.append %flat_namespaces, %flat_namespace
+          %fresh_bucket = core.list
+          core.set %flat_by_namespace[%flat_namespace] = %fresh_bucket
+        }
+        %bucket = core.get %flat_by_namespace[%flat_namespace]
+        core.append %bucket, %flat_item
+        core.set %flat_by_namespace[%flat_namespace] = %bucket
+      }
+      core.for %flat_namespace in %flat_namespaces {
         %module = core.map
-        core.set %module["namespace"] = "tools"
-        core.set %module["title"] = "Tools"
+        %module_title = core.let %flat_namespace
+        %is_tools = core.call intrinsic.eq(%flat_namespace, "tools")
+        core.if %is_tools {
+          %module_title = core.let "Tools"
+        }
+        core.set %module["namespace"] = %flat_namespace
+        core.set %module["title"] = %module_title
         core.set %module["alwaysInclude"] = true
-        core.set %module["functions"] = %flat
+        %module_functions = core.get %flat_by_namespace[%flat_namespace]
+        core.set %module["functions"] = %module_functions
         core.append %modules, %module
       }
       core.for %module in %additional { core.append %modules, %module }
@@ -11377,6 +11419,115 @@ module @ax.agent version "0.1" {
         core.return "number"
       }
       core.return "object"
+    }
+  }
+
+  op ax.agent.policy @agent_flat_function_namespace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> string"
+    body @entry(%item: json, %options: json) {
+      // The namespace an agent files a flat function under: "tools", or with
+      // flatFunctionNamespace 'own' the function's own (TS fn().namespace()),
+      // else "tools" (TS's is utils).
+      %mode_snake = core.get %options["flat_function_namespace"] default null
+      %mode = core.get %options["flatFunctionNamespace"] default %mode_snake
+      %use_own = core.call intrinsic.eq(%mode, "own")
+      core.if %use_own {
+        %own = core.call @agent_flat_function_own_namespace(%item)
+        %has_own = core.call intrinsic.ne(%own, "")
+        core.if %has_own {
+          core.return %own
+        }
+      }
+      core.return "tools"
+    }
+  }
+
+  op ax.agent.policy @agent_flat_function_own_namespace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%item: json) {
+      // A flat function's own namespace, trimmed, or "" without one.
+      %own = core.get %item["namespace"] default null
+      %is_text = core.type_is %own type "string"
+      core.if %is_text {
+        %trimmed = core.string_trim %own
+        core.return %trimmed
+      }
+      core.return ""
+    }
+  }
+
+  op ax.agent.policy @agent_flat_function_namespace_mode {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string throws"
+    body @entry(%options: json) {
+      // flatFunctionNamespace says which namespace an agent files a flat
+      // function under. 'tools', this release's default, files every flat
+      // function under tools, as the ports always have. 'own' files one under
+      // its own namespace, as TypeScript does. Left unset it is "default":
+      // 'tools', warning once when a flat function names another namespace
+      // that the next major version files it under its own.
+      %mode_snake = core.get %options["flat_function_namespace"] default null
+      %mode = core.get %options["flatFunctionNamespace"] default %mode_snake
+      %mode_set = core.call intrinsic.is_not_none(%mode)
+      core.if %mode_set {
+        %is_own = core.call intrinsic.eq(%mode, "own")
+        %is_tools = core.call intrinsic.eq(%mode, "tools")
+        %known = core.call intrinsic.or(%is_own, %is_tools)
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %mode_json = core.call intrinsic.json.pretty(%mode)
+          %mode_message = core.call intrinsic.string.format("flatFunctionNamespace must be 'tools' or 'own', received: {}", %mode_json)
+          %mode_error = core.call intrinsic.error.validation(%mode_message)
+          core.raise %mode_error
+        }
+        core.if %is_own {
+          core.return "own"
+        }
+        core.return "tools"
+      }
+      core.return "default"
+    }
+  }
+
+  op ax.agent.policy @agent_check_flat_function_namespace {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string, string) -> void throws"
+    body @entry(%item: json, %mode: string, %namespace: string) {
+      // 'own': TS's error for a namespace that would shadow a runtime global.
+      // Unset: warn once when the function names a namespace it is not filed
+      // under.
+      %is_own = core.call intrinsic.eq(%mode, "own")
+      core.if %is_own {
+        %reserved_names = core.call @agent_reserved_runtime_names()
+        %shadows = core.call intrinsic.contains(%reserved_names, %namespace)
+        core.if %shadows {
+          %shadow_message = core.call intrinsic.string.format("Agent function namespace \"{}\" conflicts with an AxAgent runtime global and is reserved", %namespace)
+          %shadow_error = core.call intrinsic.error.runtime(%shadow_message)
+          core.raise %shadow_error
+        }
+        core.return
+      }
+      %is_default = core.call intrinsic.eq(%mode, "default")
+      core.if %is_default {
+        %own = core.call @agent_flat_function_own_namespace(%item)
+        %named = core.call intrinsic.ne(%own, "")
+        %elsewhere = core.call intrinsic.ne(%own, %namespace)
+        %ignored = core.call intrinsic.and(%named, %elsewhere)
+        core.if %ignored {
+          core.call intrinsic.axgen.deprecation("agent-flat-function-namespace", "An agent calls a flat function tools.<name> even when the function names its own namespace; TypeScript Ax calls it <namespace>.<name>. Pass flatFunctionNamespace: 'own' to use the function's namespace now, or flatFunctionNamespace: 'tools' to keep tools. The function's own namespace becomes the default in the next major version.")
+        }
+      }
+      core.return
     }
   }
 }

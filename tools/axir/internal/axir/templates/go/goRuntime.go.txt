@@ -3261,6 +3261,9 @@ type Tool struct {
     Parameters Value
     ExecutionMode string
 	Name        string
+	// Namespace files a flat agent function under it (TS fn().namespace());
+	// empty means the agent's default "tools".
+	Namespace   string
 	Description string
 	Args        map[string]Field
 	Returns     map[string]Field
@@ -3275,6 +3278,12 @@ func (t Tool) Execution(mode string) Tool {
     if mode != "blocking" && mode != "background" { panic("Tool execution must be blocking or background") }
     t.ExecutionMode = mode
     return t
+}
+// WithNamespace sets the namespace an agent lists and calls a flat function
+// under, as TS fn().namespace() does.
+func (t Tool) WithNamespace(namespace string) Tool {
+	t.Namespace = namespace
+	return t
 }
 func (t Tool) WithHandler(handler func(map[string]Value) (Value, error)) Tool {
 	t.Handler = handler
@@ -3356,6 +3365,11 @@ func (t Tool) get(key string, fallback Value) Value {
         if t.ExecutionMode == "" { return "blocking" }; return t.ExecutionMode
 	case "name":
 		return t.Name
+	case "namespace":
+		if t.Namespace == "" {
+			return fallback
+		}
+		return t.Namespace
 	case "description":
 		return t.Description
 	case "args":
