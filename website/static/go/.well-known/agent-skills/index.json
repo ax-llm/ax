@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:b8c7abf529a914d6753e71f14a24211574cd94e4c54a37be2c94b7c8d9c7905f"
+      "digest": "sha256:518acec1a7c88a13cbf3c336a03a5b397f641a478e3dadc96601acfdf525c269"
     },
     {
       "name": "ax-go-typesafe",

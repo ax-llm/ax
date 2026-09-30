@@ -19102,7 +19102,6 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 		part := Object("type", "text", "text", text)
 		if field.IsCached {
 			coreSet(part, "cache", true)
-			allText = false
 		}
 		parts = append(parts, part)
 	}

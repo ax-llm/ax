@@ -1069,6 +1069,24 @@ const cases: Record<string, Case> = {
   // made by the distiller, what console.log prints, the live runtime state
   // each stage sees (the executor shares the distiller's session), the
   // evidence summary and the runtime's usage instructions.
+  'agent-cached-dynamic-stage-prompts': {
+    kind: 'agent_forward',
+    options: { directResponse: 'off', contextCache: {} },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
+  'agent-cached-dynamic-stage-streaming': {
+    options: {
+      directResponse: 'off',
+      contextCache: { cacheBreakpoint: 'after-examples' },
+    },
+    features: { functions: false, streaming: false, structured_outputs: false },
+    responses: [...baseActors(), { content: 'Answer: Refunds take 30 days.' }],
+    runtime_script: baseRuntime(),
+    first_requests: true,
+  },
   'agent-runtime-real-ts-live-state': {
     kind: 'agent_forward',
     options: { directResponse: 'off' },

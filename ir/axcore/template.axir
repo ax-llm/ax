@@ -112,9 +112,96 @@ module @ax.template version "0.1" {
     type signature = "(AxSignature, json, list<Tool>, options?:json) -> list<ChatMessage> throws"
     body @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
       %system_content = core.call @prompt_structured_impl(%signature, %values, %functions, %options)
+      %none = core.call intrinsic.none()
+      %cache_snake = core.get %options["context_cache"] default %none
+      %cache = core.get %options["contextCache"] default %cache_snake
+      %cache_object = core.type_is %cache type "object"
+      %cache_truthy = core.call intrinsic.truthy(%cache)
+      %cache_enabled = core.call intrinsic.or(%cache_object, %cache_truthy)
+      %breakpoint_snake = core.get %cache["cache_breakpoint"] default "after-examples"
+      %breakpoint = core.get %cache["cacheBreakpoint"] default %breakpoint_snake
+      %system_only = core.call intrinsic.eq(%breakpoint, "system")
+      %functions_only = core.call intrinsic.eq(%breakpoint, "after-functions")
+      %early_breakpoint = core.call intrinsic.or(%system_only, %functions_only)
+      %split_allowed = core.call intrinsic.not(%early_breakpoint)
+      %ignore = core.get %options["ignoreBreakpoints"] default false
+      %split_allowed = core.call intrinsic.or(%split_allowed, %ignore)
+      %split_allowed = core.call intrinsic.and(%split_allowed, %cache_enabled)
+      %cached = core.list
+      %dynamic = core.list
+      %fields = core.get %signature["input_fields"]
+      core.for %field in %fields {
+        %is_cached = core.get %field["is_cached"] default false
+        core.if %is_cached {
+          core.append %cached, %field
+        } else {
+          core.append %dynamic, %field
+        }
+      }
+      %cached_count = core.call intrinsic.len(%cached)
+      %dynamic_count = core.call intrinsic.len(%dynamic)
+      %has_cached = core.call intrinsic.gt(%cached_count, 0)
+      %has_dynamic = core.call intrinsic.gt(%dynamic_count, 0)
+      %split = core.call intrinsic.and(%split_allowed, %has_cached)
+      %split = core.call intrinsic.and(%split, %has_dynamic)
+      core.if %split {
+        %messages = core.list
+        %system_message = core.map
+        core.set %system_message["role"] = "system"
+        core.set %system_message["content"] = %system_content
+        core.set %system_message["cache"] = true
+        core.append %messages, %system_message
+        %cached_content = core.call @prompt_field_group_content_impl(%signature, %values, %cached)
+        %has_cached_content = core.call intrinsic.truthy(%cached_content)
+        core.if %has_cached_content {
+          %cached_message = core.map
+          core.set %cached_message["role"] = "user"
+          core.set %cached_message["content"] = %cached_content
+          core.set %cached_message["cache"] = true
+          core.append %messages, %cached_message
+        }
+        %dynamic_content = core.call @prompt_field_group_content_impl(%signature, %values, %dynamic)
+        %has_dynamic_content = core.call intrinsic.truthy(%dynamic_content)
+        core.if %has_dynamic_content {
+          %dynamic_message = core.map
+          core.set %dynamic_message["role"] = "user"
+          core.set %dynamic_message["content"] = %dynamic_content
+          core.append %messages, %dynamic_message
+        }
+        core.return %messages
+      }
       %user_content = core.call @prompt_user_content_impl(%signature, %values)
       %messages = core.call @prompt_messages_impl(%system_content, %user_content)
+      %first = core.let 0
+      %system_message = core.get %messages[%first]
+      core.set %system_message["cache"] = %cache_enabled
+      %no_dynamic = core.call intrinsic.not(%has_dynamic)
+      %all_cached = core.call intrinsic.and(%has_cached, %no_dynamic)
+      %all_cached = core.call intrinsic.and(%all_cached, %cache_enabled)
+      core.if %all_cached {
+        %second = core.let 1
+        %user_message = core.get %messages[%second]
+        core.set %user_message["cache"] = true
+      }
       core.return %messages
+    }
+  }
+
+  op ax.template.semantic @prompt_field_group_content_impl {
+    attr core_kind = "func"
+    attr emit_module = "prompt"
+    attr private = true
+    type signature = "(AxSignature, json, list<Field>) -> json throws"
+    body @entry(%signature: AxSignature, %values: json, %fields: list<Field>) {
+      %attrs = core.map
+      core.set %attrs["inputs"] = %fields
+      %outputs = core.get %signature["output_fields"]
+      core.set %attrs["outputs"] = %outputs
+      %description = core.get %signature["description"]
+      core.set %attrs["description"] = %description
+      %group = core.call intrinsic.record.new("AxSignature", %attrs)
+      %content = core.call @prompt_user_content_impl(%group, %values)
+      core.return %content
     }
   }
 
