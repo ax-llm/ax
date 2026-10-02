@@ -12,6 +12,10 @@ import { AxAITypesafe, type AxAITypesafeArgs } from './typesafe/api.js';
 import { AxAIAnthropic, type AxAIAnthropicArgs } from './anthropic/api.js';
 import type { AxAIAnthropicModel } from './anthropic/types.js';
 import type { AxAIFeatures } from './base.js';
+// axir-nonportable:end webllm
+// axir-nonportable:start chrome-ai
+import { AxAIChromeAI, type AxAIChromeAIArgs } from './chrome-ai/api.js';
+import type { AxAIChromeAIModelId } from './chrome-ai/types.js';
 import type { AxAICohereEmbedModel, AxAICohereModel } from './cohere/types.js';
 import type { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
@@ -64,7 +68,7 @@ import type {
 // axir-nonportable:start webllm
 import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
 import type { AxAIWebLLMModelId } from './webllm/types.js';
-// axir-nonportable:end webllm
+// axir-nonportable:end chrome-ai
 import type { AxAIGrokModel } from './x-grok/types.js';
 
 export type AxAIArgs<TModelKey> =
@@ -81,8 +85,11 @@ export type AxAIArgs<TModelKey> =
   | AxAITypesafeArgs<TModelKey>
   | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
-  | AxAIWebLLMArgs<TModelKey>;
-// axir-nonportable:end webllm
+  | AxAIWebLLMArgs<TModelKey>
+  // axir-nonportable:end webllm
+  // axir-nonportable:start chrome-ai
+  | AxAIChromeAIArgs<TModelKey>;
+// axir-nonportable:end chrome-ai
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -95,6 +102,9 @@ export type AxAIModels =
   // axir-nonportable:start webllm
   | AxAIWebLLMModelId
   // axir-nonportable:end webllm
+  // axir-nonportable:start chrome-ai
+  | AxAIChromeAIModelId
+  // axir-nonportable:end chrome-ai
   | AxAIGrokModel;
 
 export type AxAIEmbedModels =
@@ -302,6 +312,11 @@ export class AxAI<TModelKey = string>
         this.ai = new AxAIWebLLM<TModelKey>(options as any);
         break;
       // axir-nonportable:end webllm
+      // axir-nonportable:start chrome-ai
+      case 'chrome-ai':
+        this.ai = new AxAIChromeAI<TModelKey>(options as any);
+        break;
+      // axir-nonportable:end chrome-ai
       default:
         throw new Error(`Unsupported AI transport: ${profile.transport}`);
     }
