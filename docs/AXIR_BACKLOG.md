@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-10-02-add-chrome-built-in-ai-prompt-api-provider` [axai] Add Chrome Built-in AI (Prompt API) provider
+  - Status: open
+  - Source PR: #794
+  - Source commit: `bf9c7596d3d3243496e8955fe65354dc64f0e7bb`
+  - TS paths: `src/ax/ai/catalog.test.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/chrome-ai/api.test.ts`, `src/ax/ai/chrome-ai/api.ts`, `src/ax/ai/chrome-ai/info.ts`, `src/ax/ai/chrome-ai/types.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/wrap.test.ts`, `src/ax/ai/wrap.ts`
+  - Impact: Adds browser-only Chrome Prompt API (Gemini Nano) adapter for browser environments
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
