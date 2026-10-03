@@ -39,7 +39,7 @@ structure:
 src/<package-name>/
 ├── package.json          # Package configuration with proper workspace setup
 ├── tsconfig.json         # TypeScript configuration extending root config
-├── tsdown.config.ts        # Build configuration for ESM/CJS/DTS output
+├── tsdown.config.ts      # Build configuration for ESM/CJS/DTS output
 ├── index.ts              # Main entry point
 ├── lib.ts                # Main implementation file
 ├── index.test.ts         # Vitest test file
@@ -55,7 +55,7 @@ Each generated package includes:
 - **TypeScript**: Full TypeScript support with proper configuration
 - **Build System**: tsdown configuration for ESM, CJS, and TypeScript declarations
 - **Testing**: Vitest test setup with example tests
-- **Linting**: ESLint and Prettier configuration
+- **Linting**: Shared Biome configuration
 - **Versioning**: Integrated with monorepo versioning system
 - **Publishing**: Ready for npm publishing with proper scoping
 
