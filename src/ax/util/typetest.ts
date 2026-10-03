@@ -7,11 +7,10 @@
  * Exact type equality, including optionality and readonly-ness of properties.
  * The double-conditional trick makes the comparison non-distributive.
  */
-export type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <
-  T,
->() => T extends B ? 1 : 2
-  ? true
-  : false;
+export type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 
 /** Compile-time witness: `type _ok = Expect<Equal<A, B>>` fails when false. */
 export type Expect<T extends true> = T;

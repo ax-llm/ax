@@ -108,7 +108,9 @@ export function loadBearingResponses(fixture) {
     });
   }
   if (selected.length === 0 && teacher.length === 0) return [];
-  teacher.forEach((_, index) => selected.push(`teacher_responses#${index}`));
+  teacher.forEach((_, index) => {
+    selected.push(`teacher_responses#${index}`);
+  });
   return selected;
 }
 

@@ -511,14 +511,14 @@ describe('named AI deployment profiles', () => {
     });
 
     expect(
-      (capture.body?.messages as Record<string, unknown>[])[1]
+      (capture.body!.messages as Record<string, unknown>[])[1]
     ).toMatchObject({
       content: 'Use the lookup.',
       reasoning: 'Check the inventory first.',
       role: 'assistant',
     });
     expect(
-      (capture.body?.messages as Record<string, unknown>[])[1]
+      (capture.body!.messages as Record<string, unknown>[])[1]
     ).not.toHaveProperty('reasoning_content');
   });
 
@@ -590,8 +590,8 @@ describe('named AI deployment profiles', () => {
     });
     expect(
       (
-        (capture.body?.messages as Record<string, unknown>[])[1]
-          ?.reasoning_details as unknown[]
+        (capture.body!.messages as Record<string, unknown>[])[1]!
+          .reasoning_details as unknown[]
       )[0]
     ).toMatchObject({ id: 'reasoning-1', type: 'reasoning.summary' });
   });

@@ -171,26 +171,26 @@ function semanticParityRuntime(projection: {
           }
           if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
           if (code.includes('discover(')) {
-            await (globals?.discover as (request: unknown) => Promise<void>)({
+            await (globals!.discover as (request: unknown) => Promise<void>)({
               skills: ['release'],
             });
             return 'discovered';
           }
           if (code.includes('recall(')) {
-            await (globals?.recall as (request: unknown) => Promise<void>)([
+            await (globals!.recall as (request: unknown) => Promise<void>)([
               'deploy',
             ]);
             return 'recalled';
           }
           if (code.includes('used("shared"')) {
-            (globals?.used as (id: string, reason: string) => void)(
+            (globals!.used as (id: string, reason: string) => void)(
               'shared',
               'forward override used'
             );
             return 'used skill';
           }
           if (code.includes('used("mem-a"')) {
-            (globals?.used as (id: string, reason: string) => void)(
+            (globals!.used as (id: string, reason: string) => void)(
               'mem-a',
               'preload then recall override used'
             );
@@ -312,25 +312,25 @@ function semanticCatalogRuntime(): AxCodeRuntime {
         async execute(code: string) {
           if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
           if (code.includes('discover-invoice')) {
-            await (globals?.discover as (request: unknown) => Promise<void>)({
+            await (globals!.discover as (request: unknown) => Promise<void>)({
               skills: ['invoice status'],
             });
             return 'discovered invoice';
           }
           if (code.includes('recall-deploy')) {
-            await (globals?.recall as (request: unknown) => Promise<void>)([
+            await (globals!.recall as (request: unknown) => Promise<void>)([
               'deploy release',
             ]);
             return 'recalled deploy';
           }
           if (code.includes('discover-limit')) {
-            await (globals?.discover as (request: unknown) => Promise<void>)({
+            await (globals!.discover as (request: unknown) => Promise<void>)({
               skills: ['needleafterlimit'],
             });
             return 'checked skill limit';
           }
           if (code.includes('recall-limit')) {
-            await (globals?.recall as (request: unknown) => Promise<void>)([
+            await (globals!.recall as (request: unknown) => Promise<void>)([
               'needleafterlimit',
             ]);
             return 'checked memory limit';

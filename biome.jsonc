@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.1.1/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -14,11 +14,13 @@
     // diffs it), so biome must not reformat it either.
     "includes": [
       "**",
-      "!.claude/**",
-      "!demo/**",
-      "!ir/axcore/data/**",
-      "!tools/axir/internal/axir/templates/**",
-      "!packages/**"
+      "!!.claude/**",
+      "!!demo/**",
+      "!!ir/axcore/data/**",
+      "!!tools/axir/internal/axir/templates/**",
+      "!!packages/**",
+      // Hugo templates are not standalone HTML; Biome cannot parse their directives.
+      "!!website/layouts/**"
     ]
   },
   "formatter": {
@@ -35,7 +37,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "a11y": {
         // TODO: we need to decide what the best practice is for these
         "noNoninteractiveTabindex": "off",
@@ -106,6 +108,11 @@
     "linter": {
       "enabled": true
     }
+  },
+  // Keep HTML outside this tooling upgrade, matching the previous lint/format scope.
+  "html": {
+    "formatter": { "enabled": false },
+    "linter": { "enabled": false }
   },
   "css": {
     "formatter": {

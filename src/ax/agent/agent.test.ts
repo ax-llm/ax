@@ -1290,7 +1290,7 @@ describe('Split-architecture signature derivation', () => {
           execute: async (code: string) => {
             if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
             executedCodes.push(code);
-            (globals?.final as (...args: unknown[]) => void)('done', {
+            (globals!.final as (...args: unknown[]) => void)('done', {
               answer: 'ok',
             });
             return 'python-result';
@@ -6626,7 +6626,7 @@ describe('final()/askClarification() as runtime globals', () => {
         return {
           execute: async (code: string) => {
             if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
-            (globals?.final as (...args: unknown[]) => void)();
+            (globals!.final as (...args: unknown[]) => void)();
             return 'unreachable';
           },
           // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
@@ -6717,7 +6717,7 @@ describe('final()/askClarification() as runtime globals', () => {
         return {
           execute: async (code: string) => {
             if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
-            (globals?.askClarification as (...args: unknown[]) => void)();
+            (globals!.askClarification as (...args: unknown[]) => void)();
             return 'unreachable';
           },
           // REPL-faithful: merge (phase-2 rebinding) + honor staged input merges.
@@ -9775,7 +9775,7 @@ describe('RLM llmQuery runtime behavior', () => {
             abortController.abort('stop now');
             try {
               await (
-                globals?.llmQuery as (
+                globals!.llmQuery as (
                   q: string,
                   context?: string
                 ) => Promise<string>
@@ -15578,7 +15578,7 @@ describe('AxFunction', () => {
           execute: async (code: string) => {
             if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
             if (code === 'RUNTIME_FINAL') {
-              (globals?.final as (...args: unknown[]) => never)('done', {});
+              (globals!.final as (...args: unknown[]) => never)('done', {});
               continuedAfterCompletion = true;
               return 'after final';
             }
@@ -15753,7 +15753,7 @@ describe('AxFunction', () => {
           execute: async (code: string) => {
             if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
             if (code === 'RUNTIME_ASK') {
-              (globals?.askClarification as (...args: unknown[]) => never)(
+              (globals!.askClarification as (...args: unknown[]) => never)(
                 'Need more details'
               );
               continuedAfterClarification = true;

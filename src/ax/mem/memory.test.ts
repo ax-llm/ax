@@ -419,12 +419,12 @@ describe('MemoryImpl', () => {
     const last = memory.getLast();
     expect(last?.role).toBe('function');
     expect(last?.chat).toHaveLength(2);
-    expect(last?.chat[0]!.value).toEqual({
+    expect(last!.chat[0]!.value).toEqual({
       role: 'function',
       result: 'result1',
       functionId: 'func1',
     });
-    expect(last?.chat[1]!.value).toEqual({
+    expect(last!.chat[1]!.value).toEqual({
       role: 'function',
       result: 'result2',
       functionId: 'func2',

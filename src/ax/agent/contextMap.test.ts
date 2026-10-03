@@ -21,12 +21,12 @@ const contextMapRuntime: AxCodeRuntime = {
       execute: async (code: string) => {
         if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (code.includes('final("distilled"')) {
-          (globals?.final as (...args: unknown[]) => void)('distilled', {
+          (globals!.final as (...args: unknown[]) => void)('distilled', {
             section: 'billing',
           });
         }
         if (code.includes('final("done"')) {
-          (globals?.final as (...args: unknown[]) => void)('done', {
+          (globals!.final as (...args: unknown[]) => void)('done', {
             answer: 'ok',
           });
         }

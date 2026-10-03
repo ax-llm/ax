@@ -119,7 +119,7 @@ describe('Meta Model API profiles', () => {
         { role: 'user', content: 'continue' },
       ],
     });
-    expect((bodies[1]?.input as any[])[1]).toMatchObject({
+    expect((bodies[1]!.input as any[])[1]).toMatchObject({
       type: 'reasoning',
       id: 'reasoning-1',
       encrypted_content: 'opaque-state',
@@ -212,14 +212,14 @@ describe('Meta Model API profiles', () => {
         { role: 'user', content: 'make it sunset' },
       ],
     });
-    expect((bodies[1]?.input as any[])[1]).toMatchObject({
+    expect((bodies[1]!.input as any[])[1]).toMatchObject({
       type: 'image_generation_call',
       id: 'image-1',
       status: 'completed',
       result: null,
     });
     expect(
-      (bodies[1]?.input as any[]).some((item) => item.type === 'reasoning')
+      (bodies[1]!.input as any[]).some((item) => item.type === 'reasoning')
     ).toBe(false);
 
     await expect(

@@ -385,7 +385,7 @@ describe('end-to-end failure learning through forward()', () => {
     const out = await ag.forward(ai, { question: 'q' });
     expect(out.answer).toBe('done');
     expect(update).toHaveBeenCalledTimes(1);
-    const feedback = (update.mock.calls[0]?.[0] as any).feedback as string;
+    const feedback = (update.mock.calls[0]![0] as any).feedback as string;
     expect(feedback).toContain(
       '[ReferenceError: nonexistentHelper is not defined]'
     );
@@ -444,9 +444,9 @@ describe('end-to-end failure learning through forward()', () => {
     const result = await learn.mock.results[0]?.value;
     expect(result?.status).not.toBe('skipped');
     expect(update).toHaveBeenCalledTimes(1);
-    expect(
-      (update.mock.calls[0]?.[0] as any).example.failureSignatures
-    ).toEqual([BROKEN_HELPER]);
+    expect((update.mock.calls[0]![0] as any).example.failureSignatures).toEqual(
+      [BROKEN_HELPER]
+    );
   });
 
   it('classifies a repeated runtime ReferenceError as a dead end', async () => {
