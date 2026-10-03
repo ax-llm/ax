@@ -156,12 +156,10 @@ type ResolveType<
 // Recursively parses the body of an `object{ ... }` type into a structural
 // object type, reusing the full field pipeline. The mapped-type wrap flattens
 // BuildObject's required & optional intersection into a single object type.
-type ParseObjectBody<
-  Body extends string,
-  TMode extends 'input' | 'output',
-> = BuildObject<ParseFields<Trim<Body>>, TMode> extends infer O
-  ? { [K in keyof O]: O[K] }
-  : never;
+type ParseObjectBody<Body extends string, TMode extends 'input' | 'output'> =
+  BuildObject<ParseFields<Trim<Body>>, TMode> extends infer O
+    ? { [K in keyof O]: O[K] }
+    : never;
 
 // Helper to trim whitespace from a type string
 type Trim<S extends string> = S extends ` ${infer T}`
@@ -232,14 +230,15 @@ type TakeBraced<
 
 // Tags an object type expression as `obj|body` or `obj[]|body` so ResolveType
 // can recurse into the body later.
-type ExtractObjectTag<Rest extends string> = TakeBraced<Rest> extends [
-  infer Body extends string,
-  infer After extends string,
-]
-  ? Trim<After> extends `[]${string}`
-    ? `obj[]|${Body}`
-    : `obj|${Body}`
-  : never;
+type ExtractObjectTag<Rest extends string> =
+  TakeBraced<Rest> extends [
+    infer Body extends string,
+    infer After extends string,
+  ]
+    ? Trim<After> extends `[]${string}`
+      ? `obj[]|${Body}`
+      : `obj|${Body}`
+    : never;
 
 // Helper to extract type from a string, handling class with descriptions,
 // object bodies, and modifier bags. Order matters: class first (its quoted
@@ -268,14 +267,12 @@ type SkipModifierBag<S extends string> = S extends `"${infer Rest}`
       ? SkipModifierBag<Rest>
       : '';
 
-type ExtractClassTag<
-  S extends string,
-  Prefix extends string,
-> = Trim<S> extends `"${infer Rest}`
-  ? TakeQuoted<Rest> extends [infer Options extends string, string]
-    ? `${Prefix}|${Options}`
-    : 'class'
-  : 'class';
+type ExtractClassTag<S extends string, Prefix extends string> =
+  Trim<S> extends `"${infer Rest}`
+    ? TakeQuoted<Rest> extends [infer Options extends string, string]
+      ? `${Prefix}|${Options}`
+      : 'class'
+    : 'class';
 
 type ExtractType<S extends string> = S extends `class[]${infer Rest}`
   ? ExtractClassTag<Rest, 'class[]'>
@@ -568,11 +565,13 @@ type SplitOnArrow<
  *
  * Where FieldType is inferred from the signature (string, number, 'option1'|'option2', etc.)
  */
-export type ParseSignature<S extends string> = SplitOnArrow<
-  StripSignatureDescription<Trim<S>>
-> extends [infer Inputs extends string, infer Outputs extends string]
-  ? {
-      inputs: BuildObject<ParseFields<Trim<Inputs>>, 'input'>;
-      outputs: BuildObject<ParseFields<Trim<Outputs>>, 'output'>;
-    }
-  : { inputs: Record<string, any>; outputs: Record<string, any> }; // Fallback for invalid format
+export type ParseSignature<S extends string> =
+  SplitOnArrow<StripSignatureDescription<Trim<S>>> extends [
+    infer Inputs extends string,
+    infer Outputs extends string,
+  ]
+    ? {
+        inputs: BuildObject<ParseFields<Trim<Inputs>>, 'input'>;
+        outputs: BuildObject<ParseFields<Trim<Outputs>>, 'output'>;
+      }
+    : { inputs: Record<string, any>; outputs: Record<string, any> }; // Fallback for invalid format

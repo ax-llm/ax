@@ -67,9 +67,9 @@ function assertPersistable(
   if (seen.has(value)) throw new Error(`Event value at ${path} is cyclic`);
   seen.add(value);
   if (Array.isArray(value)) {
-    value.forEach((item, index) =>
-      assertPersistable(item, `${path}[${index}]`, seen)
-    );
+    value.forEach((item, index) => {
+      assertPersistable(item, `${path}[${index}]`, seen);
+    });
   } else {
     const proto = Object.getPrototypeOf(value);
     if (proto !== Object.prototype && proto !== null) {

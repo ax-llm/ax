@@ -1456,17 +1456,18 @@ type InferAudioValueType<
 // Fields without declared options (or widened to string[]) fall back to string.
 type InferClassValueType<
   T extends { isArray?: boolean; options?: readonly string[] | undefined },
-> = NonNullable<T['options']> extends readonly (infer U)[]
-  ? [U] extends [never]
-    ? T['isArray'] extends true
-      ? string[]
-      : string
+> =
+  NonNullable<T['options']> extends readonly (infer U)[]
+    ? [U] extends [never]
+      ? T['isArray'] extends true
+        ? string[]
+        : string
+      : T['isArray'] extends true
+        ? U[]
+        : U
     : T['isArray'] extends true
-      ? U[]
-      : U
-  : T['isArray'] extends true
-    ? string[]
-    : string;
+      ? string[]
+      : string;
 
 type InferFieldValueType<
   T,
@@ -1782,23 +1783,21 @@ type AddFieldToShape<
   K extends string,
   T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
   TMode extends 'input' | 'output' = 'input',
-> = _IsInternal<T> extends true
-  ? S
-  : _IsOptional<T> extends true
-    ? S & { readonly [P in K]?: InferFluentType<T, TMode> }
-    : S & { readonly [P in K]: InferFluentType<T, TMode> };
+> =
+  _IsInternal<T> extends true
+    ? S
+    : _IsOptional<T> extends true
+      ? S & { readonly [P in K]?: InferFluentType<T, TMode> }
+      : S & { readonly [P in K]: InferFluentType<T, TMode> };
 
 // Object shape contributed by one AxSignature field-addition call
 // (append/prepend input/output field): `{ K: V }`, or `{ K?: V }` when the
 // field is declared `isOptional: true`, so optionality survives at the type
 // level alongside the inferred value type.
-type AddedFieldShape<
-  K extends string,
-  T,
-  TMode extends 'input' | 'output',
-> = _IsOptional<T> extends true
-  ? { [P in K]?: InferFieldValueType<T, TMode> }
-  : { [P in K]: InferFieldValueType<T, TMode> };
+type AddedFieldShape<K extends string, T, TMode extends 'input' | 'output'> =
+  _IsOptional<T> extends true
+    ? { [P in K]?: InferFieldValueType<T, TMode> }
+    : { [P in K]: InferFieldValueType<T, TMode> };
 
 // Helper function to convert AxFieldType to AxField
 function convertFieldTypeToAxField(

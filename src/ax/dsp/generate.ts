@@ -2343,7 +2343,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       // thought yielded so far into it, so thought still joins across steps.
       if (n > 0 && outputEmittedThisVersion) {
         controlVersion = Math.max(controlVersion, currentVersion) + 1;
-        committedValues.forEach((_, index) => committedValues.set(index, {}));
+        committedValues.forEach((_, index) => {
+          committedValues.set(index, {});
+        });
         const carried = [...emittedThought.entries()];
         currentVersion = controlVersion;
         emittedThought.clear();
@@ -2371,7 +2373,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             );
           else mutableOptions.thinkingTokenBudget = update.level;
           controlVersion = Math.max(controlVersion, currentVersion) + 1;
-          committedValues.forEach((_, index) => committedValues.set(index, {}));
+          committedValues.forEach((_, index) => {
+            committedValues.set(index, {});
+          });
           options.control.emit({
             type: 'applied',
             path,
@@ -2524,12 +2528,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                       lastSessionVersion = innerVersion;
                       controlVersion =
                         Math.max(controlVersion, currentVersion - errCount) + 1;
-                      committedValues.forEach((_, index) =>
-                        committedValues.set(index, {})
-                      );
-                      currentAttemptValues.forEach((_, index) =>
-                        currentAttemptValues.set(index, {})
-                      );
+                      committedValues.forEach((_, index) => {
+                        committedValues.set(index, {});
+                      });
+                      currentAttemptValues.forEach((_, index) => {
+                        currentAttemptValues.set(index, {});
+                      });
                     }
                     const index = result.index;
                     const delta = result.delta;
@@ -2829,9 +2833,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 // Count unique functions executed across all states
                 const allFunctionsExecuted = new Set<string>();
                 states.forEach((state) => {
-                  state.functionsExecuted.forEach((func) =>
-                    allFunctionsExecuted.add(func)
-                  );
+                  state.functionsExecuted.forEach((func) => {
+                    allFunctionsExecuted.add(func);
+                  });
                 });
 
                 // Record function metrics if functions were used

@@ -101,9 +101,9 @@ export function axValidateToolArguments(
       if (spec.maxItems !== undefined && input.length > spec.maxItems)
         fail('Too many items');
       if (spec.items)
-        input.forEach((item, index) =>
-          visit(spec.items, item, `${path}[${index}]`, depth + 1)
-        );
+        input.forEach((item, index) => {
+          visit(spec.items, item, `${path}[${index}]`, depth + 1);
+        });
     } else if (input && typeof input === 'object') {
       const object = input as Record<string, unknown>;
       for (const required of spec.required ?? [])

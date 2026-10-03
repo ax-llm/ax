@@ -44,9 +44,9 @@ export function axMCPParamHeaderBindings(
     visiting.add(value);
 
     if (Array.isArray(value)) {
-      value.forEach((item, index) =>
-        visit(item, path, false, false, `${location}[${index}]`)
-      );
+      value.forEach((item, index) => {
+        visit(item, path, false, false, `${location}[${index}]`);
+      });
       visiting.delete(value);
       return;
     }

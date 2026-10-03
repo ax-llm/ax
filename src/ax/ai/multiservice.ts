@@ -31,11 +31,12 @@ type AxAIServiceListItem<
 };
 
 // Helper type to extract model keys from a service
-type ExtractServiceModelKeys<T> = T extends AxAIService<any, any, infer K>
-  ? K
-  : T extends AxAIServiceListItem<any, any, infer K>
+type ExtractServiceModelKeys<T> =
+  T extends AxAIService<any, any, infer K>
     ? K
-    : never;
+    : T extends AxAIServiceListItem<any, any, infer K>
+      ? K
+      : never;
 
 // Helper type to extract model keys from an array of services
 type ExtractAllModelKeys<T extends readonly any[]> = T extends readonly [

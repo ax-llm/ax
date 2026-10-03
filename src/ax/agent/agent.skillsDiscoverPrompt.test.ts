@@ -43,7 +43,7 @@ async function runAgent(options: Record<string, unknown>): Promise<Run> {
         execute: async (code: string) => {
           if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
           runtimeHasDiscover = typeof globals?.discover === 'function';
-          await (globals?.final as (...args: unknown[]) => Promise<void>)(
+          await (globals!.final as (...args: unknown[]) => Promise<void>)(
             'Answer the question',
             {}
           );
