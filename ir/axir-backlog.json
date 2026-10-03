@@ -3290,6 +3290,35 @@
       "completedAt": "2026-09-30",
       "completedByCommit": "334b7dfdd80ec0784db9009545471a38426e8315",
       "verification": "TypeScript multiservice tests: 13 passed. The lastEmbed fixture fails on 24.0.24 and passes on the branch. Rust public router mapped/default/unknown-key transport regression passes. All five generated-language release verifications, generated examples, real-engine checks, package freshness, workspace tests and documentation checks passed in CI on 334b7dfdd80ec0784db9009545471a38426e8315."
+    },
+    {
+      "id": "axir-2026-10-02-add-chrome-built-in-ai-prompt-api-provider",
+      "status": "open",
+      "title": "Add Chrome Built-in AI (Prompt API) provider",
+      "createdAt": "2026-10-02",
+      "sourcePR": 794,
+      "sourceCommit": "bf9c7596d3d3243496e8955fe65354dc64f0e7bb",
+      "tsPaths": [
+        "src/ax/ai/catalog.test.ts",
+        "src/ax/ai/catalog.ts",
+        "src/ax/ai/chrome-ai/api.test.ts",
+        "src/ax/ai/chrome-ai/api.ts",
+        "src/ax/ai/chrome-ai/info.ts",
+        "src/ax/ai/chrome-ai/types.ts",
+        "src/ax/ai/provider_profiles.ts",
+        "src/ax/ai/wrap.test.ts",
+        "src/ax/ai/wrap.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Adds browser-only Chrome Prompt API (Gemini Nano) adapter for browser environments",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

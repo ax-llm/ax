@@ -1,5 +1,9 @@
 import { axModelInfoAnthropic } from './anthropic/info.js';
 import { AxAIAnthropicModel } from './anthropic/types.js';
+// axir-nonportable:end webllm
+// axir-nonportable:start chrome-ai
+import { axModelInfoChromeAI } from './chrome-ai/info.js';
+import { AxAIChromeAIModel } from './chrome-ai/types.js';
 import { axModelInfoCohere } from './cohere/info.js';
 import { AxAICohereModel } from './cohere/types.js';
 import { axModelInfoDeepSeek } from './deepseek/info.js';
@@ -28,6 +32,7 @@ import { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
 import {
   type AxAIProfileSummary,
   axAIProfiles,
+  axGetAIProfile,
   axResolveAIProfileFeatures,
 } from './provider_profiles.js';
 import { axModelInfoReka } from './reka/info.js';
@@ -41,7 +46,7 @@ import type {
 import { axModelInfoWebLLM } from './webllm/info.js';
 import { AxAIWebLLMModel } from './webllm/types.js';
 import type { AxAIArgs } from './wrap.js';
-// axir-nonportable:end webllm
+// axir-nonportable:end chrome-ai
 import { axIsGrokVoiceModel } from './x-grok/api.js';
 import { axModelInfoGrok } from './x-grok/info.js';
 import { AxAIGrokModel } from './x-grok/types.js';
@@ -225,6 +230,14 @@ const axKnownModelCatalogProviderDefinitions = {
     modelInfo: axModelInfoWebLLM,
   },
   // axir-nonportable:end webllm
+  // axir-nonportable:start chrome-ai
+  'chrome-ai': {
+    displayName: 'Chrome AI',
+    defaultModel: AxAIChromeAIModel.GeminiNano,
+    isDynamic: false,
+    modelInfo: axModelInfoChromeAI,
+  },
+  // axir-nonportable:end chrome-ai
 } as const;
 
 const axAIModelCatalogProviderDefinitions = {
@@ -244,9 +257,12 @@ const axAIModelCatalogProviderDefinitions = {
   AxAIModelCatalogProviderDefinition
 >;
 
-const axAIModelCatalogProfiles = new Map(
-  axAIProfiles().map((profile) => [profile.id, profile] as const)
-);
+const axAIModelCatalogProfiles = new Map([
+  ...axAIProfiles().map((profile) => [profile.id, profile] as const),
+  // axir-nonportable:start chrome-ai
+  ['chrome-ai', axGetAIProfile('chrome-ai')] as const,
+  // axir-nonportable:end chrome-ai
+]);
 
 const axAIModelCatalogThinkingLevels = [
   'none',

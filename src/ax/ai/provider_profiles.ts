@@ -63,6 +63,9 @@ export type AxAIProfileTransport =
   | 'anthropic-messages'
   | 'gemini-generate-content'
   | 'webllm'
+  // axir-nonportable:start chrome-ai
+  | 'chrome-ai'
+  // axir-nonportable:end chrome-ai
   | 'typesafe-system-one';
 
 export type AxAIProfileCapabilities = {
@@ -241,12 +244,64 @@ export const axAIProfiles = (): readonly AxAIProfileSummary[] =>
     };
   });
 
+// axir-nonportable:start chrome-ai
+const chromeAIProfile: ProfileSpec = {
+  id: 'chrome-ai' as any,
+  name: 'Chrome Built-in AI',
+  aliases: ['chrome', 'chrome-ai', 'prompt-api', 'gemini-nano'],
+  transport: 'chrome-ai',
+  baseURL: null,
+  requiresApiURL: false,
+  defaults: { model: 'gemini-nano' },
+  auth: { type: 'none', required: false },
+  operations: { chat: { path: '', dialect: 'chrome-ai' } },
+  modelRules: [],
+  capabilities: {
+    functions: false,
+    streaming: true,
+    structuredOutputs: true,
+    structuredOutputModes: ['native'],
+    thinking: false,
+    multiTurn: true,
+  },
+  sources: [],
+  reviewedAt: '2026-10-02',
+};
+// axir-nonportable:end chrome-ai
+
 export const axGetAIProfile = (name: string): AxAIProfileSummary => {
   const profile = resolveProfile(name);
+  // axir-nonportable:start chrome-ai
+  if (profile.id === 'chrome-ai') {
+    return {
+      id: 'chrome-ai' as any,
+      name: profile.name,
+      aliases: profile.aliases,
+      transport: profile.transport,
+      requiresApiURL: false,
+      authentication: profile.auth,
+      operations: profile.operations,
+      modelRules: profile.modelRules,
+      capabilities: profile.capabilities,
+      sources: profile.sources,
+      reviewedAt: profile.reviewedAt,
+    };
+  }
+  // axir-nonportable:end chrome-ai
   return axAIProfiles().find((candidate) => candidate.id === profile.id)!;
 };
 
 export const axResolveAIProfileId = (name: string): AxAIProfileId => {
+  // axir-nonportable:start chrome-ai
+  if (
+    name.toLowerCase() === 'chrome-ai' ||
+    name.toLowerCase() === 'chrome' ||
+    name.toLowerCase() === 'prompt-api' ||
+    name.toLowerCase() === 'gemini-nano'
+  ) {
+    return 'chrome-ai' as any;
+  }
+  // axir-nonportable:end chrome-ai
   const id = aliases[name.toLowerCase()];
   if (!id) {
     throw new Error(
@@ -256,8 +311,19 @@ export const axResolveAIProfileId = (name: string): AxAIProfileId => {
   return id;
 };
 
-const resolveProfile = (name: string): ProfileSpec =>
-  profiles[axResolveAIProfileId(name)];
+const resolveProfile = (name: string): ProfileSpec => {
+  // axir-nonportable:start chrome-ai
+  if (
+    name.toLowerCase() === 'chrome-ai' ||
+    name.toLowerCase() === 'chrome' ||
+    name.toLowerCase() === 'prompt-api' ||
+    name.toLowerCase() === 'gemini-nano'
+  ) {
+    return chromeAIProfile;
+  }
+  // axir-nonportable:end chrome-ai
+  return profiles[axResolveAIProfileId(name)];
+};
 
 const matchesRule = (model: string, rule: AxAIProfileModelRule): boolean =>
   (rule.match.exact?.includes(model) ?? false) ||
@@ -816,6 +882,9 @@ export type AxAIDeploymentProfileId = Exclude<
   | 'anthropic'
   | 'google-gemini'
   | 'webllm'
+  // axir-nonportable:start chrome-ai
+  | 'chrome-ai'
+  // axir-nonportable:end chrome-ai
   | 'typesafe'
   | 'meta'
   | 'meta-chat'
