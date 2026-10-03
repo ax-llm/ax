@@ -1,5 +1,6 @@
 import { runInNewContext } from 'node:vm';
 
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 import { getWorkerSource } from './worker.js';
@@ -35,9 +36,35 @@ describe('axWorkerRuntime bootstrap', () => {
     // esbuild is smart enough to see through `globalThis['require']` and
     // still replaces it with a module-scope polyfill variable. The function
     // must use `new Function(...)` instead.
-    const globalThisRequire =
-      /globalThis\s*(\[\s*['"]require['"]\s*]|\.require)/;
-    expect(source).not.toMatch(globalThisRequire);
+    // Inspect executable accesses: newer transforms retain the comments above.
+    const sourceFile = ts.createSourceFile(
+      'worker.js',
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.JS
+    );
+    const directRequireReferences: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (
+        (ts.isPropertyAccessExpression(node) ||
+          ts.isElementAccessExpression(node)) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'globalThis'
+      ) {
+        const property = ts.isPropertyAccessExpression(node)
+          ? node.name.text
+          : ts.isStringLiteral(node.argumentExpression)
+            ? node.argumentExpression.text
+            : undefined;
+        if (property === 'require') {
+          directRequireReferences.push(node.getText(sourceFile));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    expect(directRequireReferences).toEqual([]);
   });
 
   it('detects Node runtime via globalThis.require in isolated sandbox', () => {

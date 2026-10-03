@@ -90,7 +90,7 @@
     "@release-it/conventional-changelog": "^11.0.0",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^22.13.10",
-    "@vitest/coverage-v8": "^3.2.1",
+    "@vitest/coverage-v8": "5.0.3",
     "cspell": "^8.17.3",
     "lefthook": "^1.7.15",
     "mermaid": "^11.15.0",
@@ -103,7 +103,7 @@
     "typedoc-plugin-frontmatter": "^1.2.1",
     "typedoc-plugin-markdown": "^4.4.2",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.1"
+    "vitest": "5.0.3"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"

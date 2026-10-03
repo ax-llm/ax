@@ -13,7 +13,9 @@ const mockWorkerInstance = {
 
 vi.stubGlobal(
   'Worker',
-  vi.fn(() => mockWorkerInstance)
+  vi.fn(function MockWorker() {
+    return mockWorkerInstance;
+  })
 );
 vi.stubGlobal('Blob', vi.fn());
 vi.stubGlobal('URL', {
