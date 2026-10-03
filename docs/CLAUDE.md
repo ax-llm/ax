@@ -837,7 +837,7 @@ PINECONE_API_KEY=your_key_here
 
 ## Build & Release
 
-- Uses `tsup` for building
+- Uses `tsdown` for building
 - Automated versioning with `standard-version`
 - Multi-workspace publishing with `release-it`
 - GitHub Actions for CI/CD

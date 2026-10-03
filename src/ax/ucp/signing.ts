@@ -136,7 +136,7 @@ export async function axSignUCPRequest(
   };
 }
 
-function decodeBase64(value: string): Uint8Array {
+function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
   try {
     const binary = atob(value);
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
@@ -214,7 +214,7 @@ function parseSignatureInput(value: string): {
   };
 }
 
-function parseSignature(value: string, label: string): Uint8Array {
+function parseSignature(value: string, label: string): Uint8Array<ArrayBuffer> {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = value.match(
     new RegExp(`(?:^|,)\\s*${escaped}=:([A-Za-z0-9+/=]+):`)

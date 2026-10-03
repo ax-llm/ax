@@ -16,8 +16,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "tsup",
+    "dev": "tsdown --watch",
+    "build": "tsdown",
     "clean": "rm -rf dist",
     "test": "run-s test:*",
     "test:type-check": "tsc --noEmit",
