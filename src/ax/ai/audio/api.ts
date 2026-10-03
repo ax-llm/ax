@@ -19,7 +19,7 @@ type FetchLike = typeof fetch;
 
 type JsonRecord = Record<string, any>;
 
-const base64ToBytes = (value: string): Uint8Array => {
+const base64ToBytes = (value: string): Uint8Array<ArrayBuffer> => {
   const g = globalThis as typeof globalThis & {
     Buffer?: {
       from: (value: string, encoding: 'base64') => Uint8Array;

@@ -14,8 +14,8 @@
   "keywords": [],
   "types": "./dist/index.d.ts",
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "npm run build:templates && npm run build:index && tsup",
+    "dev": "tsdown --watch",
+    "build": "npm run build:templates && npm run build:index && tsdown",
     "build:templates": "node ../../scripts/buildPromptTemplates.mjs",
     "build:index": "node --import=tsx ../../scripts/generateIndex.ts",
     "clean": "rm -rf dist",

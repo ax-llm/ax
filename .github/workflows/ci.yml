@@ -36,22 +36,28 @@ jobs:
           DIFF_BASE: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
 
   build:
-    name: Build
+    name: Build (Node ${{ matrix.node }})
     needs: changes
     if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v7
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version-file: '.node-version'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Build packages
         run: npm run build
+      - name: Verify published package outputs
+        run: npm run test:packages
 
   repo-checks:
     name: Repo Checks

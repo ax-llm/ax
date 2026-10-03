@@ -39,7 +39,7 @@ structure:
 src/<package-name>/
 ├── package.json          # Package configuration with proper workspace setup
 ├── tsconfig.json         # TypeScript configuration extending root config
-├── tsup.config.ts        # Build configuration for ESM/CJS/DTS output
+├── tsdown.config.ts      # Build configuration for ESM/CJS/DTS output
 ├── index.ts              # Main entry point
 ├── lib.ts                # Main implementation file
 ├── index.test.ts         # Vitest test file
@@ -53,9 +53,9 @@ src/<package-name>/
 Each generated package includes:
 
 - **TypeScript**: Full TypeScript support with proper configuration
-- **Build System**: tsup configuration for ESM, CJS, and TypeScript declarations
+- **Build System**: tsdown configuration for ESM, CJS, and TypeScript declarations
 - **Testing**: Vitest test setup with example tests
-- **Linting**: ESLint and Prettier configuration
+- **Linting**: Shared Biome configuration
 - **Versioning**: Integrated with monorepo versioning system
 - **Publishing**: Ready for npm publishing with proper scoping
 
@@ -81,12 +81,12 @@ The script uses the `src/ax` package as a template, ensuring consistency with:
 
 - **Package.json**: Copies structure and scripts from `src/ax`, filtering out
   package-specific scripts like `build:index`
-- **Configuration Files**: Copies `tsconfig.json`, `tsup.config.ts`,
+- **Configuration Files**: Copies `tsconfig.json`, `tsdown.config.ts`,
   `.prettierignore`, and `.release-it.json` directly from `src/ax`
 - **Dependencies**: Intelligently filters dependencies, keeping only core ones
   (`@ax-llm/ax`) plus any additional specified dependencies
 - **Scripts**: Inherits all scripts from `src/ax` except package-specific ones,
-  with build script simplified to just `tsup`
+  with build script simplified to just `tsdown`
 
 ## Dependency Management
 
@@ -107,6 +107,10 @@ Instead of generating configuration files, the script copies them directly from
 `src/ax`:
 
 - **tsconfig.json**: Ensures consistent TypeScript configuration
-- **tsup.config.ts**: Maintains consistent build setup
+- **tsdown.config.ts**: Maintains consistent build setup
 - **.prettierignore**: Keeps formatting rules consistent
 - **.release-it.json**: Ensures proper release configuration
+
+## Published package checks
+
+After `npm run build`, run `npm run test:packages` to install packed outputs in a temporary consumer. The check compares ESM and CommonJS exports, exercises serialized workers and the browser global bundle in isolated contexts, and type-checks public declaration imports and signature inference. CI runs this check on Node 22 and 24.

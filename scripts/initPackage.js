@@ -13,7 +13,7 @@ const CoreDependencies = ['@ax-llm/ax'];
 // Files to copy from src/ax (excluding generated files and directories)
 const FilesToCopy = [
   'tsconfig.json',
-  'tsup.config.ts',
+  'tsdown.config.ts',
   '.prettierignore',
   '.release-it.json',
 ];
@@ -94,7 +94,7 @@ async function initPackage() {
 
   // Fix the build script to not include build:index
   if (filteredScripts.build?.includes('build:index')) {
-    filteredScripts.build = 'tsup';
+    filteredScripts.build = 'tsdown';
   }
 
   const packageJson = {
