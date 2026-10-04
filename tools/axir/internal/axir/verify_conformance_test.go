@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -116,5 +117,32 @@ func TestConformanceWorkerSettings(t *testing.T) {
 	t.Setenv("AXIR_CONFORMANCE_WORKERS", "4")
 	if workers, err := conformanceWorkers(); err != nil || workers != 4 {
 		t.Fatalf("workers %d, error %v", workers, err)
+	}
+}
+
+func TestConformanceSequentialUsesSuiteDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stand-in runner")
+	}
+	t.Setenv("AXIR_CONFORMANCE_WORKERS", "1")
+	root := t.TempDir()
+	for _, suite := range conformanceSuitePaths(root) {
+		if err := os.MkdirAll(suite, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(suite, "fixture.json"), []byte(`{}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report := VerifyTargetReport{Target: "cpp"}
+	script := `for suite in "$@"; do
+    test -d "$suite" || exit 1
+    for fixture in "$suite"/*.json; do echo "ok $fixture"; done
+  done`
+	if err := runConformanceVerifyCommand(&report, root, "", nil, "sh", "-c", script, "runner"); err != nil {
+		t.Fatal(err)
+	}
+	if countConformanceFixtures(report.Steps[0].Message) != 12 {
+		t.Fatal("lost sequential fixtures")
 	}
 }

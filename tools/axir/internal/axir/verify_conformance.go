@@ -58,7 +58,13 @@ func runConformanceVerifyCommand(report *VerifyTargetReport, root, dir string, e
 		return err
 	}
 	return runConformanceShards(report, shards, func(fixtures []string) (string, error) {
-		args := append(append([]string{}, prefix...), fixtures...)
+		inputs := fixtures
+		if workers == 1 {
+			// Preserve compact directory arguments for local sequential
+			// runs; thousands of absolute file paths can exceed ARG_MAX.
+			inputs = conformanceSuitePaths(root)
+		}
+		args := append(append([]string{}, prefix...), inputs...)
 		return runCommandMessage(dir, env, command, args...)
 	})
 }

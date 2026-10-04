@@ -82,6 +82,7 @@ export const FAST_GO_TESTS = [
   'TestConformanceShardsRejectMissingResults',
   'TestConformanceShardsPropagateFailureAndWait',
   'TestConformanceWorkerSettings',
+  'TestConformanceSequentialUsesSuiteDirectories',
   'TestVerifyQuickJSProfileCanAutoDrivePythonThroughJavaServer',
   'TestVerifyGojaProfileIsGoNative',
   // Docs, examples and the public surface (README, docs, examples, scripts,
