@@ -478,8 +478,11 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 			return report, err
 		}
 	}
-	args := append([]string{"run", "./conformance"}, conformanceSuitePaths(conformanceRoot)...)
-	if err := runVerifyCommand(&report, "conformance", report.OutDir, env, goTool, args...); err != nil {
+	conformanceBin := filepath.Join(report.OutDir, "conformance_bin")
+	if err := runVerifyCommand(&report, "build conformance", report.OutDir, env, goTool, "build", "-o", conformanceBin, "./conformance"); err != nil {
+		return report, err
+	}
+	if err := runConformanceVerifyCommand(&report, conformanceRoot, report.OutDir, env, conformanceBin); err != nil {
 		return report, err
 	}
 	if err := requireConformanceFixtures(&report); err != nil {
@@ -580,8 +583,21 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 			return report, err
 		}
 	}
-	args := append([]string{"run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--bin", "axllm-conformance", "--"}, conformanceSuitePaths(conformanceRoot)...)
-	if err := runCargoVerifyCommand(&report, "conformance", report.OutDir, env, cargo, args...); err != nil {
+	if err := runCargoVerifyCommand(&report, "build conformance", report.OutDir, env, cargo, "build", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--bin", "axllm-conformance"); err != nil {
+		return report, err
+	}
+	targetDir := os.Getenv("CARGO_TARGET_DIR")
+	if targetDir == "" {
+		targetDir = "target"
+	}
+	if !filepath.IsAbs(targetDir) {
+		targetDir = filepath.Join(report.OutDir, targetDir)
+	}
+	conformanceBin := filepath.Join(targetDir, "debug", "axllm-conformance")
+	if runtime.GOOS == "windows" {
+		conformanceBin += ".exe"
+	}
+	if err := runConformanceVerifyCommand(&report, conformanceRoot, report.OutDir, env, conformanceBin); err != nil {
 		return report, err
 	}
 	if err := requireConformanceFixtures(&report); err != nil {
@@ -780,8 +796,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 			return report, err
 		}
 	}
-	args := append([]string{"-m", "axllm.conformance"}, conformanceSuitePaths(conformanceRoot)...)
-	if err := runVerifyCommand(&report, "conformance", "", env, python, args...); err != nil {
+	if err := runConformanceVerifyCommand(&report, conformanceRoot, "", env, python, "-m", "axllm.conformance"); err != nil {
 		return report, err
 	}
 	if err := requireConformanceFixtures(&report); err != nil {
@@ -934,8 +949,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 			return report, err
 		}
 	}
-	args = append([]string{"-cp", report.OutDir, "dev.axllm.ax.Conformance"}, conformanceSuitePaths(conformanceRoot)...)
-	if err := runVerifyCommand(&report, "conformance", "", nil, java, args...); err != nil {
+	if err := runConformanceVerifyCommand(&report, conformanceRoot, "", env, java, "-cp", report.OutDir, "dev.axllm.ax.Conformance"); err != nil {
 		return report, err
 	}
 	if err := requireConformanceFixtures(&report); err != nil {
@@ -1371,8 +1385,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 	if err := runVerifyCommand(&report, "compile conformance", "", nil, cpp, "-std=c++17", "-I", report.OutDir, filepath.Join(report.OutDir, "conformance.cpp"), axObj, mcpObj, "-o", conformanceBin); err != nil {
 		return report, err
 	}
-	args := append([]string{}, conformanceSuitePaths(conformanceRoot)...)
-	if err := runVerifyCommand(&report, "conformance", "", nil, conformanceBin, args...); err != nil {
+	if err := runConformanceVerifyCommand(&report, conformanceRoot, "", runtimeProtocolEnv(conformanceRoot, scrubbedEnviron()), conformanceBin); err != nil {
 		return report, err
 	}
 	if err := requireConformanceFixtures(&report); err != nil {

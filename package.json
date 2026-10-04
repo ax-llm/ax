@@ -15,7 +15,7 @@
     "test": "run-s test:contribution-policy test:release-workflow test:axir:tools test:axir test:axir:packages test:mcp-events:generated test:mcp-oauth test:mcp-interop test:examples:generated test:format test:lint test:tests test:spelling",
     "test:contribution-policy": "vitest run scripts/external-contribution-policy.test.js",
     "test:release-workflow": "vitest run scripts/release.test.js",
-    "test:axir:tools": "vitest run scripts/axir-backlog.test.js scripts/axir-conformance-sync.test.js scripts/axir-runtime-support.test.js scripts/axir-perturb-check.test.js scripts/ci-scope.test.js scripts/prepare-axir-perturb-runners.test.js scripts/test-generated-examples.test.js scripts/test-axir-go-fast.test.js",
+    "test:axir:tools": "vitest run scripts/axir-conformance-workers.test.js scripts/axir-backlog.test.js scripts/axir-conformance-sync.test.js scripts/axir-runtime-support.test.js scripts/axir-perturb-check.test.js scripts/ci-scope.test.js scripts/prepare-axir-perturb-runners.test.js scripts/test-generated-examples.test.js scripts/test-axir-go-fast.test.js",
     "test:axir:go-fast": "node scripts/test-axir-go-fast.mjs",
     "test:axir": "node scripts/test-axir.mjs",
     "test:axir:packages": "npm run axir:check-packages",

@@ -174,3 +174,24 @@ Every claimed capability needs at least one **"real water through real pipes"** 
 whose passing requires the real runtime to actually do the work — plus a completeness-ledger entry.
 Origin-tracking (provenance) and script-faithfulness (coverage/conformance/perturbation/verify) are
 all satisfiable by a hollow implementation; only a real-execution gate is not.
+
+## CI execution
+
+CI runs the complete scripted conformance corpus with four independent worker
+processes per target (`AXIR_CONFORMANCE_WORKERS=4`). Fixtures are assigned once
+across balanced shards; each shard must report every assigned fixture as passed
+or explicitly skipped for a documented capability. A failed shard fails the
+required verification job. Local commands default to one worker; values from
+1 through 32 are accepted.
+
+Expected-value mutation checks run the sampled fixture in isolation before and
+after mutation. Full pristine-suite coverage remains in the separate required
+AxIR verification job. Model-response mutation checks keep every detected
+response mutation and the existing requirement that at least one mutation per
+fixture must fail. Workers use separate fixture directories, and crashes or
+timeouts fail the gate rather than counting as successful mutation rejection.
+
+C++ CI jobs restore a compiler cache and report its hit statistics. Verification
+uses a stable output directory to permit reuse; compilation still checks the
+current generated sources. Superseded pull-request runs are cancelled while
+main-branch pushes retain independent runs.
