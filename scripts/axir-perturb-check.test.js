@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   perturbFixture,
   runnerForTarget,
+  runnerForTargetAsync,
   sampleFixtures,
 } from './axir-perturb-check.mjs';
 
@@ -82,5 +83,43 @@ describe('sampleFixtures', () => {
     const suites = sample.map(({ suite }) => suite);
     expect(new Set(suites).size).toBe(suites.length);
     expect(sample.every(({ file }) => file.endsWith('.json'))).toBe(true);
+  });
+});
+
+describe('async mutation runner', () => {
+  async function withRunner(script, check, timeoutMs = 5000) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'axir-async-test-'));
+    writeFileSync(path.join(dir, 'conformance_bin'), `#!/bin/sh\n${script}\n`);
+    chmodSync(path.join(dir, 'conformance_bin'), 0o755);
+    try {
+      await check(runnerForTargetAsync('cpp', dir, timeoutMs));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  it('preserves nonzero assertion results', async () => {
+    await withRunner('echo assertion-failed; exit 1', async (runner) => {
+      const result = await runner('/case', 'mutated fixture');
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('assertion-failed');
+    });
+  });
+  it('fails the gate on a timeout instead of counting it as a rejection', async () => {
+    await withRunner(
+      'exec sleep 30',
+      async (runner) => {
+        await expect(runner('/case', 'mutated fixture')).rejects.toThrow(
+          'TIMEOUT: cpp conformance runner exceeded 0.5s on mutated fixture'
+        );
+      },
+      500
+    );
+  });
+  it('fails the gate when a process is terminated by a signal', async () => {
+    await withRunner('kill -TERM $$', async (runner) => {
+      await expect(runner('/case', 'mutated fixture')).rejects.toThrow(
+        'terminated by SIGTERM'
+      );
+    });
   });
 });

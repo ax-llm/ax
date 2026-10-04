@@ -5,7 +5,15 @@ on:
   push:
     branches: [main]
 
+# Superseded PR revisions can stop; every main push retains its own run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
+  AXIR_CONFORMANCE_WORKERS: '4'
+  CCACHE_DIR: /tmp/axir-ccache
+  CCACHE_BASEDIR: /home/runner/work
   AXIR_BIN_CACHE: /tmp/axir-bin-cache
   GOCACHE: /tmp/go-build
   GOMODCACHE: /tmp/go-mod
@@ -188,6 +196,20 @@ jobs:
       - name: Install C++ QuickJS runtime
         if: matrix.target == 'cpp'
         run: sudo apt-get update && sudo apt-get install --yes libquickjs
+      - name: Setup C++ compiler cache
+        if: matrix.target == 'cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ccache
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+      - name: Cache C++ objects
+        if: matrix.target == 'cpp'
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-
       - name: Install dependencies
         run: npm ci
       - name: Run generated examples
@@ -208,6 +230,10 @@ jobs:
         run: npm run axir:gate:response-perturb -- ${{ matrix.target }}
         env:
           AXIR_PERTURB_RUNNER_ROOT: ${{ runner.temp }}/axir-perturb-runners
+
+      - name: Report C++ cache statistics
+        if: always() && matrix.target == 'cpp'
+        run: ccache --show-stats
 
   axir-packages:
     name: AxIR Package Freshness
@@ -362,12 +388,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-verify-
             ${{ runner.os }}-cargo-
+      - name: Setup C++ compiler cache
+        if: matrix.target == 'cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ccache
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+      - name: Cache C++ objects
+        if: matrix.target == 'cpp'
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-
       - name: Install dependencies
         run: npm ci
       - name: Verify AxIR ${{ matrix.target }} package
-        run: npm run axir:verify:release -- --targets ${{ matrix.target }}
+        run: npm run axir:verify:release -- --targets ${{ matrix.target }} --workdir /tmp/axir-verify
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: '3'
+
+      - name: Report C++ cache statistics
+        if: always() && matrix.target == 'cpp'
+        run: ccache --show-stats
 
   axir-agent-antidote:
     # Real-engine antidote (see docs/AXIR_GATES.md). Runs the WHOLE ir/conformance/axagent-real

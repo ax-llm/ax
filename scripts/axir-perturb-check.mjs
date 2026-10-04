@@ -5,7 +5,6 @@
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
-  cpSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -15,6 +14,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { mapConformanceCases } from './axir-conformance-workers.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, '..');
@@ -117,13 +118,24 @@ function run(command, args, options = {}) {
 
 function runAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const { envExtra, ...spawnOptions } = options;
+    const { envExtra, timeout, ...spawnOptions } = options;
     const startedAt = performance.now();
     const child = spawn(command, args, {
       ...spawnOptions,
       env: cleanEnv(envExtra),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    let timedOut = false;
+    const timer = timeout
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill('SIGKILL');
+          // Descendants can inherit the pipes; do not wait indefinitely for
+          // them after killing the direct runner.
+          child.stdout.destroy();
+          child.stderr.destroy();
+        }, timeout)
+      : undefined;
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -134,9 +146,14 @@ function runAsync(command, args, options = {}) {
     child.stderr.on('data', (chunk) => {
       stderr += chunk;
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on('close', (status, signal) => {
+      clearTimeout(timer);
       resolve({
+        timedOut,
         status,
         signal,
         stdout,
@@ -182,6 +199,44 @@ export function runnerForTarget(target, outDir, timeoutMs = RUNNER_TIMEOUT_MS) {
     }
     return result;
   };
+}
+
+export function runnerForTargetAsync(
+  target,
+  outDir,
+  timeoutMs = RUNNER_TIMEOUT_MS
+) {
+  const runSuite = suiteRunner(target, outDir, (command, args, options = {}) =>
+    runAsync(command, args, { ...options, timeout: timeoutMs })
+  );
+  return async (suiteDir, label = suiteDir) => {
+    const result = await runSuite(suiteDir);
+    if (result.timedOut) {
+      throw new Error(
+        `TIMEOUT: ${target} conformance runner exceeded ${timeoutMs / 1000}s on ${label} and was killed.\n${result.stdout}${result.stderr}`
+      );
+    }
+    if (result.signal)
+      throw new Error(
+        `${target} runner terminated by ${result.signal} on ${label}`
+      );
+    return result;
+  };
+}
+
+// Every mutation uses an isolated copy of exactly its fixture, so rejection
+// cannot be attributed to a different case in the surrounding suite.
+export async function runIsolatedFixture(runner, work, fixture, label) {
+  const dir = mkdtempSync(path.join(work, 'case-'));
+  try {
+    writeFileSync(
+      path.join(dir, 'fixture.json'),
+      `${JSON.stringify(fixture)}\n`
+    );
+    return await runner(dir, label);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function suiteRunner(target, outDir, exec) {
@@ -350,7 +405,11 @@ export async function prepareTargetRunner(target, outDir) {
   return runner;
 }
 
-export function loadPreparedRunner(target, outDir) {
+export function loadPreparedRunner(
+  target,
+  outDir,
+  runnerFactory = runnerForTarget
+) {
   let manifest;
   try {
     manifest = JSON.parse(readFileSync(runnerManifestPath(outDir), 'utf8'));
@@ -367,22 +426,27 @@ export function loadPreparedRunner(target, outDir) {
       `prepared AxIR runner mismatch at ${outDir}: expected version ${PREPARED_RUNNER_VERSION} target ${target}`
     );
   }
-  return runnerForTarget(target, outDir);
+  return runnerFactory(target, outDir);
 }
 
-export async function loadOrPrepareRunners(selected, outDirForTarget) {
+export async function loadOrPrepareRunners(
+  selected,
+  outDirForTarget,
+  runnerFactory = runnerForTarget
+) {
   const runners = {};
   const preparedRoot = process.env[PERTURB_RUNNER_ROOT_ENV];
   for (const target of selected) {
     if (preparedRoot) {
       const outDir = path.join(path.resolve(preparedRoot), target);
       console.log(`[reuse] ${target} runner from ${outDir}`);
-      runners[target] = loadPreparedRunner(target, outDir);
+      runners[target] = loadPreparedRunner(target, outDir, runnerFactory);
       continue;
     }
     const outDir = outDirForTarget(target);
     console.log(`[build] ${target}`);
-    runners[target] = await prepareTargetRunner(target, outDir);
+    await prepareTargetRunner(target, outDir);
+    runners[target] = runnerFactory(target, outDir);
   }
   return runners;
 }
@@ -396,55 +460,54 @@ async function main() {
   );
 
   const work = mkdtempSync(path.join(os.tmpdir(), 'axir-perturb-'));
-  const runners = await loadOrPrepareRunners(selected, (target) =>
-    path.join(work, target)
-  );
-
-  // Self-test: the pristine tree must pass every sampled suite everywhere.
-  for (const target of selected) {
-    for (const { suite } of sample) {
-      const result = runners[target](
-        path.join(conformanceRoot, suite),
-        `pristine suite ${suite}`
-      );
-      if (result.status !== 0) {
-        console.error(
-          `SELF-TEST FAILED: ${target} fails pristine suite ${suite}\n${result.stdout}${result.stderr}`
+  let failures;
+  try {
+    const runners = await loadOrPrepareRunners(
+      selected,
+      (target) => path.join(work, target),
+      runnerForTargetAsync
+    );
+    const cases = sample.flatMap((fixture) =>
+      selected.map((target) => ({ ...fixture, target }))
+    );
+    const results = await mapConformanceCases(
+      cases,
+      async ({ suite, file, target }) => {
+        const fixture = JSON.parse(
+          readFileSync(path.join(conformanceRoot, suite, file), 'utf8')
         );
-        process.exit(2);
+        const pristine = await runIsolatedFixture(
+          runners[target],
+          work,
+          fixture,
+          `pristine ${suite}/${file}`
+        );
+        if (pristine.status !== 0) {
+          throw new Error(
+            `SELF-TEST FAILED: ${target} fails pristine ${suite}/${file}\n${pristine.stdout}${pristine.stderr}`
+          );
+        }
+        const mutation = perturbFixture(fixture);
+        if (!mutation)
+          throw new Error(`No expectation to mutate in ${suite}/${file}`);
+        const result = await runIsolatedFixture(
+          runners[target],
+          work,
+          fixture,
+          `${suite}/${file} perturbed`
+        );
+        const failed = result.status !== 0;
+        console.log(
+          `[${failed ? 'rejected' : 'ACCEPTED-PERTURBED'}] ${target} ${suite}/${file} (${mutation.key})`
+        );
+        return failed ? null : { target, suite, file, mutation };
       }
-    }
-    console.log(`[self-test] ${target} passes all sampled pristine suites`);
+    );
+    failures = results.filter(Boolean);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
   }
 
-  const failures = [];
-  for (const { suite, file } of sample) {
-    const perturbedRoot = path.join(work, `perturbed-${suite}`);
-    cpSync(conformanceRoot, perturbedRoot, { recursive: true });
-    const fixturePath = path.join(perturbedRoot, suite, file);
-    const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
-    const mutation = perturbFixture(fixture);
-    if (!mutation) {
-      console.log(`[skip] ${suite}/${file}: no expected_* key to perturb`);
-      continue;
-    }
-    writeFileSync(fixturePath, `${JSON.stringify(fixture, null, 1)}\n`);
-    for (const target of selected) {
-      const result = runners[target](
-        path.join(perturbedRoot, suite),
-        `suite ${suite} with ${file} perturbed`
-      );
-      const failed = result.status !== 0;
-      const verdict = failed ? 'rejected' : 'ACCEPTED-PERTURBED';
-      console.log(`[${verdict}] ${target} ${suite}/${file} (${mutation.key})`);
-      if (!failed) {
-        failures.push({ target, suite, file, mutation });
-      }
-    }
-    rmSync(perturbedRoot, { recursive: true, force: true });
-  }
-
-  rmSync(work, { recursive: true, force: true });
   if (failures.length > 0) {
     console.error(
       `\n${failures.length} target/fixture pairs ACCEPTED perturbed expectations:`
