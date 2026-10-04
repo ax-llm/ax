@@ -115,6 +115,17 @@ describe('async mutation runner', () => {
       500
     );
   });
+  it('bounds a runner whose descendant keeps stdout open', async () => {
+    await withRunner(
+      'sleep 2 & exit 0',
+      async (runner) => {
+        await expect(runner('/case', 'leaked child')).rejects.toThrow(
+          'TIMEOUT:'
+        );
+      },
+      500
+    );
+  });
   it('fails the gate when a process is terminated by a signal', async () => {
     await withRunner('kill -TERM $$', async (runner) => {
       await expect(runner('/case', 'mutated fixture')).rejects.toThrow(

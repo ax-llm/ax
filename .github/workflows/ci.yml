@@ -207,9 +207,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-
+            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-
       - name: Install dependencies
         run: npm ci
       - name: Run generated examples
@@ -399,9 +399,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-
+            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-
       - name: Install dependencies
         run: npm ci
       - name: Verify AxIR ${{ matrix.target }} package
