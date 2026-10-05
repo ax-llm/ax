@@ -12,6 +12,10 @@ import { AxAITypesafe, type AxAITypesafeArgs } from './typesafe/api.js';
 import { AxAIAnthropic, type AxAIAnthropicArgs } from './anthropic/api.js';
 import type { AxAIAnthropicModel } from './anthropic/types.js';
 import type { AxAIFeatures } from './base.js';
+// axir-nonportable:start chrome-ai
+import { AxAIChromeAI, type AxAIChromeAIArgs } from './chrome-ai/api.js';
+import type { AxAIChromeAIModelId } from './chrome-ai/types.js';
+// axir-nonportable:end chrome-ai
 import type { AxAICohereEmbedModel, AxAICohereModel } from './cohere/types.js';
 import type { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
@@ -81,8 +85,11 @@ export type AxAIArgs<TModelKey> =
   | AxAITypesafeArgs<TModelKey>
   | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
-  | AxAIWebLLMArgs<TModelKey>;
-// axir-nonportable:end webllm
+  | AxAIWebLLMArgs<TModelKey>
+  // axir-nonportable:end webllm
+  // axir-nonportable:start chrome-ai
+  | AxAIChromeAIArgs<TModelKey>;
+// axir-nonportable:end chrome-ai
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -95,6 +102,9 @@ export type AxAIModels =
   // axir-nonportable:start webllm
   | AxAIWebLLMModelId
   // axir-nonportable:end webllm
+  // axir-nonportable:start chrome-ai
+  | AxAIChromeAIModelId
+  // axir-nonportable:end chrome-ai
   | AxAIGrokModel;
 
 export type AxAIEmbedModels =
@@ -137,6 +147,9 @@ type InferTModelKey<T> = T extends { models: infer M }
  * // axir-nonportable:start webllm
  * - `'webllm'` - WebLLM browser runtime with a caller-supplied MLCEngine
  * // axir-nonportable:end webllm
+ * // axir-nonportable:start chrome-ai
+ * - `'chrome-ai'` - Chrome Built-in AI, TypeScript/JavaScript browser only
+ * // axir-nonportable:end chrome-ai
  *
  * @param options - Provider-specific configuration. Must include `name` to identify the provider.
  * @param options.name - The provider identifier (see list above)
@@ -302,6 +315,11 @@ export class AxAI<TModelKey = string>
         this.ai = new AxAIWebLLM<TModelKey>(options as any);
         break;
       // axir-nonportable:end webllm
+      // axir-nonportable:start chrome-ai
+      case 'chrome-ai':
+        this.ai = new AxAIChromeAI<TModelKey>(options as any);
+        break;
+      // axir-nonportable:end chrome-ai
       default:
         throw new Error(`Unsupported AI transport: ${profile.transport}`);
     }

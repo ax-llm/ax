@@ -45,6 +45,11 @@ result = program.forward(client, inputs)
 
 ## Common Patterns
 
+Chrome Built-in AI (`chrome-ai`) is **TypeScript/JavaScript only** and requires
+Chrome's browser `LanguageModel` API. It runs Gemini Nano locally without an API
+key. It is excluded from AxIR portability and the Python, Java, C++, Go, and Rust
+packages. Browser availability and model download requirements still apply.
+
 - Use a provider `name` and environment-backed API key.
 - Set a default model in provider config when the app has one obvious model.
 - Define model aliases when callers should choose `fast`, `smart`, or `cheap` instead of provider model IDs.

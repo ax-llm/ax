@@ -197,6 +197,24 @@ describe('AxAI Wrapper', () => {
           },
         },
         // axir-nonportable:end webllm
+        // axir-nonportable:start chrome-ai
+        {
+          name: 'chrome-ai',
+          languageModel: {
+            availability: async () => 'available' as const,
+            create: async () => ({
+              prompt: async () => 'ok',
+              promptStreaming: () =>
+                new ReadableStream({
+                  start(controller) {
+                    controller.close();
+                  },
+                }),
+              destroy: () => {},
+            }),
+          },
+        },
+        // axir-nonportable:end chrome-ai
       ] as const;
 
       providerConfigs.forEach((config) => {

@@ -3294,6 +3294,30 @@
   ],
   "nonPortableExemptions": [
     {
+      "id": "chrome-ai-browser-only",
+      "surface": "axai",
+      "paths": [
+        "src/ax/ai/chrome-ai",
+        "src/examples/chrome-ai-chat.html"
+      ],
+      "scopedFiles": [
+        "src/ax/ai/wrap.ts",
+        "src/ax/ai/catalog.ts",
+        "src/ax/ai/catalog.test.ts",
+        "src/ax/ai/wrap.test.ts",
+        "src/ax/ai/provider_profiles.ts",
+        "src/ax/skills/ax-ai.md"
+      ],
+      "tags": [
+        "chrome-ai",
+        "browser-only",
+        "typescript-only",
+        "host-engine"
+      ],
+      "reason": "Chrome Built-in AI uses the browser LanguageModel JavaScript host API. The provider is TypeScript/JavaScript only and is excluded from portable AxIR catalogs and Python/Java/C++/Go/Rust packages.",
+      "createdAt": "2026-10-04"
+    },
+    {
       "id": "axagent-claim-complete-target-native-surfaces",
       "surface": "axagent",
       "paths": [

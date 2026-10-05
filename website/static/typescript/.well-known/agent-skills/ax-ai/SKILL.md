@@ -137,6 +137,35 @@ const llm = ai({
 ```
 <!-- axir-nonportable:end webllm -->
 
+<!-- axir-nonportable:start chrome-ai -->
+### Chrome Built-in AI (TypeScript/JavaScript only)
+
+The `chrome-ai` provider calls Chrome's browser `LanguageModel` API and runs
+Gemini Nano locally without an API key. It is available only to the
+TypeScript/JavaScript package inside Chrome, not to Node.js or the generated
+Python, Java, C++, Go, and Rust packages. It has a browser-only AxIR exemption;
+do not add it to portable provider catalogs or migration backlogs.
+
+```typescript
+import { ai, ax } from '@ax-llm/ax';
+
+const llm = ai({ name: 'chrome-ai' });
+const program = ax('question -> answer');
+// Call from a user interaction in a supported Chrome browser.
+const result = await program.forward(llm, { question: 'What is 2+2?' });
+```
+
+The default uses Chrome's sampling settings. Chrome extensions can specify
+`temperature` and `topK` together; when only one is supplied, Ax obtains the
+other from `LanguageModel.params()`. An incomplete pair without defaults fails
+before session creation. Web pages do not support these legacy numeric settings.
+Streaming chunks contain successive text and are passed through unchanged.
+Ax releases each session on completion, cancellation, or failure. The adapter
+supports native JSON Schema output and text conversations, with no tools or
+embeddings. For a runnable browser demo, build Ax and open
+`src/examples/chrome-ai-chat.html` through a local web server.
+<!-- axir-nonportable:end chrome-ai -->
+
 ## Model Presets
 
 ```typescript

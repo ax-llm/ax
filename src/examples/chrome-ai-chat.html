@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ax Chrome Built-in AI</title>
+    <!-- From the repo root: npm run build --workspace=@ax-llm/ax
+         Then serve the repo over localhost and open this page in Chrome. -->
+    <script src="../ax/dist/index.global.js"></script>
+  </head>
+  <body>
+    <h1>Chrome Built-in AI</h1>
+    <p>TypeScript/JavaScript only. Runs Gemini Nano locally in supported Chrome browsers.</p>
+    <p>The first request may download the model. No API key is needed.</p>
+    <form id="chat">
+      <label>Question <input id="question" value="What is 2+2?" required /></label>
+      <button id="ask">Ask</button>
+    </form>
+    <pre id="answer" role="status" aria-live="polite"></pre>
+    <script>
+      const output = document.querySelector('#answer');
+      const button = document.querySelector('#ask');
+      document.querySelector('#chat').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!globalThis.LanguageModel) {
+          output.textContent = 'Chrome Built-in AI is unavailable in this browser.';
+          return;
+        }
+        button.disabled = true;
+        output.textContent = 'Preparing the model and generating a reply…';
+        try {
+          const client = ax.ai({ name: 'chrome-ai' });
+          const stream = await client.chat({
+            chatPrompt: [{ role: 'user', content: document.querySelector('#question').value }],
+          }, { stream: true });
+          output.textContent = '';
+          for await (const chunk of stream) {
+            output.textContent += chunk.results[0]?.content ?? '';
+          }
+        } catch (error) {
+          output.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

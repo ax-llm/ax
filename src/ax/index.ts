@@ -327,6 +327,25 @@ import {
   type AxAIModelCatalogThinkingLevel,
   axGetSupportedAIModels,
 } from './ai/catalog.js';
+import {
+  AxAIChromeAI,
+  type AxAIChromeAIArgs,
+  AxAIChromeAIImpl,
+  axAIChromeAICreativeConfig,
+  axAIChromeAIDefaultConfig,
+} from './ai/chrome-ai/api.js';
+import { axModelInfoChromeAI } from './ai/chrome-ai/info.js';
+import {
+  type AxAIChromeAIChatRequest,
+  type AxAIChromeAIChatResponse,
+  type AxAIChromeAIChatResponseDelta,
+  type AxAIChromeAIConfig,
+  type AxAIChromeAIEmbedModel,
+  type AxAIChromeAIEmbedRequest,
+  type AxAIChromeAIEmbedResponse,
+  AxAIChromeAIModel,
+  type AxAIChromeAIModelId,
+} from './ai/chrome-ai/types.js';
 import { axModelInfoCohere } from './ai/cohere/info.js';
 import { AxAICohereEmbedModel, AxAICohereModel } from './ai/cohere/types.js';
 import { axModelInfoDeepSeek } from './ai/deepseek/info.js';
@@ -1535,6 +1554,15 @@ export type {
   AxAIAnthropicThinkingWire,
   AxAIAnthropicWebSearchTool,
   AxAIArgs,
+  AxAIChromeAIArgs,
+  AxAIChromeAIChatRequest,
+  AxAIChromeAIChatResponse,
+  AxAIChromeAIChatResponseDelta,
+  AxAIChromeAIConfig,
+  AxAIChromeAIEmbedModel,
+  AxAIChromeAIEmbedRequest,
+  AxAIChromeAIEmbedResponse,
+  AxAIChromeAIModelId,
   AxAICredentialProvider,
   AxAICredentialRequest,
   AxAIDeploymentProfileArgs,
@@ -2252,6 +2280,9 @@ export {
   AxAIAnthropic,
   AxAIAnthropicModel,
   AxAIAnthropicVertexModel,
+  AxAIChromeAI,
+  AxAIChromeAIImpl,
+  AxAIChromeAIModel,
   AxAICohereEmbedModel,
   AxAICohereModel,
   AxAIDeepSeekModel,
@@ -2373,6 +2404,8 @@ export {
   ax,
   axAIAnthropicDefaultConfig,
   axAIAnthropicVertexDefaultConfig,
+  axAIChromeAICreativeConfig,
+  axAIChromeAIDefaultConfig,
   axAIGoogleGeminiDefaultConfig,
   axAIGoogleGeminiDefaultCreativeConfig,
   axAIGoogleGeminiLiveAudioDefaultConfig,
@@ -2478,6 +2511,7 @@ export {
   axMergeChatAudioConfig,
   axMergeUsageContexts,
   axModelInfoAnthropic,
+  axModelInfoChromeAI,
   axModelInfoCohere,
   axModelInfoDeepSeek,
   axModelInfoGoogleGemini,

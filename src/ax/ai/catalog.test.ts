@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AxAIAnthropicModel } from './anthropic/types.js';
 import { axGetSupportedAIModels } from './catalog.js';
+// axir-nonportable:start chrome-ai
+import { AxAIChromeAIModel } from './chrome-ai/types.js';
+// axir-nonportable:end chrome-ai
 import { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
   AxAIGoogleGeminiEmbedModel,
@@ -35,10 +38,15 @@ describe('axGetSupportedAIModels', () => {
         // axir-nonportable:start webllm
         'webllm',
         // axir-nonportable:end webllm
+        // axir-nonportable:start chrome-ai
+        'chrome-ai',
+        // axir-nonportable:end chrome-ai
       ])
     );
     // axir-nonportable:start webllm
-    expect(providerNames).toHaveLength(axAIProfiles().length);
+    // axir-nonportable:start chrome-ai
+    expect(providerNames).toHaveLength(axAIProfiles().length + 1);
+    // axir-nonportable:end chrome-ai
     // axir-nonportable:end webllm
   });
 
@@ -297,6 +305,23 @@ describe('axGetSupportedAIModels', () => {
       completionTokenCostPer1M: 0,
     });
     // axir-nonportable:end webllm
+    // axir-nonportable:start chrome-ai
+    const chromeAI = providers.find(
+      (provider) => provider.name === 'chrome-ai'
+    );
+    const geminiNano = chromeAI?.models.find(
+      (model) => model.name === AxAIChromeAIModel.GeminiNano
+    );
+
+    expect(chromeAI?.defaultModel).toBe(AxAIChromeAIModel.GeminiNano);
+    expect(geminiNano).toMatchObject({
+      provider: 'chrome-ai',
+      type: 'text',
+      isDefault: true,
+      promptTokenCostPer1M: 0,
+      completionTokenCostPer1M: 0,
+    });
+    // axir-nonportable:end chrome-ai
   });
 
   it('returns provider and model thinking levels and service tiers', () => {
