@@ -97,6 +97,17 @@ export class AxInMemoryEventStore implements AxEventStore {
       const remaining = deadline - this.clock.now();
       if (remaining <= 0) throw new AxEventBackpressureError();
       await this.waitForCapacity(remaining, signal);
+      // Another publisher may have accepted this event while we awaited capacity.
+      const accepted = this.dedupe.get(dedupeKey);
+      if (accepted) {
+        return {
+          eventId: accepted.eventId,
+          accepted: true,
+          duplicate: true,
+          durability: 'volatile',
+          deliveryIds: [...accepted.deliveryIds],
+        };
+      }
       required = this.capacityRequirement(request);
     }
 
