@@ -238,7 +238,9 @@ export class AxOpenAIChatSession implements AxChatSession {
             { ...this.options, abortSignal: this.abortController.signal }
           );
         const events = this.options.rateLimiter
-          ? await this.options.rateLimiter(issue, {
+          ? await this.options.rateLimiter<
+              AsyncIterable<AxAIOpenAIResponsesSessionEvent>
+            >(issue, {
               operation: 'chat',
               provider: 'openai',
               ai: 'openai',

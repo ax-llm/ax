@@ -202,7 +202,7 @@ describe('AxAIOpenAI model key preset merging', () => {
     expect(mc?.maxTokens).toBe(256);
     // Temperature may be omitted by model; ensure no crash and allow undefined
     expect(
-      Array.isArray(mc?.stopSequences) ? mc?.stopSequences!.length : 0
+      Array.isArray(mc?.stopSequences) ? mc!.stopSequences!.length : 0
     ).toBeGreaterThan(0);
   });
 

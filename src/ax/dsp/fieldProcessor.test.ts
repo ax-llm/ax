@@ -136,15 +136,15 @@ describe('streaming field processor feedback', () => {
   const streamOf = (contents: string[]) =>
     new ReadableStream<AxChatResponse>({
       start(controller) {
-        contents.forEach((content, i) =>
+        contents.forEach((content, i) => {
           controller.enqueue({
             results: [
               i === contents.length - 1
                 ? { index: 0, content, finishReason: 'stop' }
                 : { index: 0, content },
             ],
-          })
-        );
+          });
+        });
         controller.close();
       },
     });

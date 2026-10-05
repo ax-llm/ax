@@ -298,7 +298,10 @@ describe('OpenAI prompt cache breakpoints', () => {
     Object.freeze(chatPrompt);
     for (const m of chatPrompt) {
       Object.freeze(m);
-      if (Array.isArray(m.content)) m.content.forEach((p) => Object.freeze(p));
+      if (Array.isArray(m.content))
+        m.content.forEach((p) => {
+          Object.freeze(p);
+        });
     }
 
     await ai.chat({ chatPrompt }, { sessionId: 's' });

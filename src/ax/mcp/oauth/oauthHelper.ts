@@ -272,9 +272,9 @@ export class OAuthHelper {
           request_uri: pushed.requestUri,
         })
       : authorizationParameters;
-    finalParameters.forEach((value, name) =>
-      authorizationURL.searchParams.append(name, value)
-    );
+    finalParameters.forEach((value, name) => {
+      authorizationURL.searchParams.append(name, value);
+    });
     const authUrl = authorizationURL.toString();
 
     if (!this.oauth.onAuthCode) {

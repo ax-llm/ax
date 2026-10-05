@@ -321,8 +321,12 @@ export class AxFlow<
     const produced = new Set<string>();
     const consumed = new Set<string>();
     for (const step of executionPlan.steps) {
-      step.produces.forEach((field) => produced.add(field));
-      step.dependencies.forEach((field) => consumed.add(field));
+      step.produces.forEach((field) => {
+        produced.add(field);
+      });
+      step.dependencies.forEach((field) => {
+        consumed.add(field);
+      });
     }
 
     const inputNames = [...consumed].filter((field) => !produced.has(field));

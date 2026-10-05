@@ -5,7 +5,15 @@ on:
   push:
     branches: [main]
 
+# Superseded PR revisions can stop; every main push retains its own run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
+  AXIR_CONFORMANCE_WORKERS: '4'
+  CCACHE_DIR: /tmp/axir-ccache
+  CCACHE_BASEDIR: /home/runner/work
   AXIR_BIN_CACHE: /tmp/axir-bin-cache
   GOCACHE: /tmp/go-build
   GOMODCACHE: /tmp/go-mod
@@ -22,13 +30,13 @@ jobs:
       axir_targets: ${{ steps.scope.outputs.axir_targets }}
       core: ${{ steps.scope.outputs.run_core }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
       - name: Detect CI scope
         id: scope
         run: node scripts/ci-scope.mjs --base "$DIFF_BASE" --head HEAD --github-output "$GITHUB_OUTPUT"
@@ -36,34 +44,40 @@ jobs:
           DIFF_BASE: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
 
   build:
-    name: Build
+    name: Build (Node ${{ matrix.node }})
     needs: changes
     if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Build packages
         run: npm run build
+      - name: Verify published package outputs
+        run: npm run test:packages
 
   repo-checks:
     name: Repo Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
@@ -100,16 +114,20 @@ jobs:
         run: npm run test:spelling
 
   workspace-tests:
-    name: Workspace Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    name: Workspace Tests (Node ${{ matrix.node }})
     needs: changes
     if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
@@ -130,42 +148,42 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.changes.outputs.axir_targets) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Setup Python
         if: matrix.target == 'python'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
       - name: Setup Java
         if: matrix.target == 'java'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: false
       - name: Cache AxIR Go outputs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.AXIR_BIN_CACHE }}
             ${{ env.GOCACHE }}
             ${{ env.GOMODCACHE }}
-          key: ${{ runner.os }}-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          key: ${{ runner.os }}-go1.27-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
           restore-keys: |
-            ${{ runner.os }}-axir-go-
+            ${{ runner.os }}-go1.27-axir-go-
       - name: Cache Cargo outputs
         if: matrix.target == 'rust'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
@@ -178,6 +196,20 @@ jobs:
       - name: Install C++ QuickJS runtime
         if: matrix.target == 'cpp'
         run: sudo apt-get update && sudo apt-get install --yes libquickjs
+      - name: Setup C++ compiler cache
+        if: matrix.target == 'cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ccache
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+      - name: Cache C++ objects
+        if: matrix.target == 'cpp'
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-
       - name: Install dependencies
         run: npm ci
       - name: Run generated examples
@@ -199,34 +231,38 @@ jobs:
         env:
           AXIR_PERTURB_RUNNER_ROOT: ${{ runner.temp }}/axir-perturb-runners
 
+      - name: Report C++ cache statistics
+        if: always() && matrix.target == 'cpp'
+        run: ccache --show-stats
+
   axir-packages:
     name: AxIR Package Freshness
     needs: changes
     if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: false
       - name: Cache AxIR Go outputs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.AXIR_BIN_CACHE }}
             ${{ env.GOCACHE }}
             ${{ env.GOMODCACHE }}
-          key: ${{ runner.os }}-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          key: ${{ runner.os }}-go1.27-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
           restore-keys: |
-            ${{ runner.os }}-axir-go-
+            ${{ runner.os }}-go1.27-axir-go-
       - name: Install dependencies
         run: npm ci
       - name: Check complete AxAgent semantic parity
@@ -241,23 +277,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: false
       - name: Cache Go build outputs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.GOCACHE }}
-          key: ${{ runner.os }}-axir-go-fast-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          key: ${{ runner.os }}-go1.27-axir-go-fast-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
           restore-keys: |
-            ${{ runner.os }}-axir-go-fast-
+            ${{ runner.os }}-go1.27-axir-go-fast-
       - name: Run the fast tools/axir Go tests
         run: npm run test:axir:go-fast
 
@@ -265,11 +301,11 @@ jobs:
     name: Documentation Website
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install Hugo
@@ -307,42 +343,42 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.changes.outputs.axir_targets) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Setup Python
         if: matrix.target == 'python'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
       - name: Setup Java
         if: matrix.target == 'java'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: false
       - name: Cache AxIR Go outputs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.AXIR_BIN_CACHE }}
             ${{ env.GOCACHE }}
             ${{ env.GOMODCACHE }}
-          key: ${{ runner.os }}-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
+          key: ${{ runner.os }}-go1.27-axir-go-${{ hashFiles('tools/axir/go.mod', 'tools/axir/**/*.go') }}
           restore-keys: |
-            ${{ runner.os }}-axir-go-
+            ${{ runner.os }}-go1.27-axir-go-
       - name: Cache Cargo outputs
         if: matrix.target == 'rust'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
@@ -352,12 +388,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-verify-
             ${{ runner.os }}-cargo-
+      - name: Setup C++ compiler cache
+        if: matrix.target == 'cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ccache
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+      - name: Cache C++ objects
+        if: matrix.target == 'cpp'
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cpp-ccache-v1-${{ github.job }}-
       - name: Install dependencies
         run: npm ci
       - name: Verify AxIR ${{ matrix.target }} package
-        run: npm run axir:verify:release -- --targets ${{ matrix.target }}
+        run: npm run axir:verify:release -- --targets ${{ matrix.target }} --workdir /tmp/axir-verify
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: '3'
+
+      - name: Report C++ cache statistics
+        if: always() && matrix.target == 'cpp'
+        run: ccache --show-stats
 
   axir-agent-antidote:
     # Real-engine antidote (see docs/AXIR_GATES.md). Runs the WHOLE ir/conformance/axagent-real
@@ -378,12 +432,12 @@ jobs:
     if: needs.changes.outputs.axir == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Go
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'go')
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: false
       - name: Go in-process engine antidote (goja, bundled)
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'go')
@@ -399,7 +453,7 @@ jobs:
           /tmp/ax-cpp-agent-real ir/conformance/axagent-real
       - name: Setup Python
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'python')
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
       - name: Python in-process engine antidote (axllm[runtime-quickjs])
@@ -409,7 +463,7 @@ jobs:
           PYTHONPATH=packages/python python -m axllm.conformance ir/conformance/axagent-real
       - name: Cache Cargo outputs
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'rust')
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
@@ -435,7 +489,7 @@ jobs:
         run: cargo run --offline --manifest-path packages/rust/Cargo.toml --features runtime-quickjs --bin axllm-conformance -- ir/conformance/axagent-real
       - name: Setup Java
         if: contains(fromJSON(needs.changes.outputs.axir_targets), 'java')
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'

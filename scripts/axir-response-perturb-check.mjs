@@ -14,22 +14,18 @@
 // blind spot is visible rather than silent. Default target is `go` (fast,
 // always-on in the go-test lane); set AXIR_PERTURB_ALL=1 (CI) to run all five.
 
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mapConformanceCases } from './axir-conformance-workers.mjs';
 import {
   conformanceRoot,
   DEFAULT_TARGETS,
   ENGINE_ONLY_SUITES,
   loadOrPrepareRunners,
+  runIsolatedFixture,
+  runnerForTargetAsync,
 } from './axir-perturb-check.mjs';
 
 // Shortest string we trust as a model-output marker. Below this, coincidental
@@ -108,7 +104,9 @@ export function loadBearingResponses(fixture) {
     });
   }
   if (selected.length === 0 && teacher.length === 0) return [];
-  teacher.forEach((_, index) => selected.push(`teacher_responses#${index}`));
+  teacher.forEach((_, index) => {
+    selected.push(`teacher_responses#${index}`);
+  });
   return selected;
 }
 
@@ -144,21 +142,6 @@ function discoverCases() {
   return cases;
 }
 
-// Run a single fixture in isolation (its own one-file suite dir) on a target.
-// `description` names the fixture if the runner times out.
-function runFixture(runner, work, label, fixture, description) {
-  const dir = path.join(work, `case-${label}`);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    path.join(dir, 'fixture.json'),
-    `${JSON.stringify(fixture, null, 1)}\n`
-  );
-  const result = runner(dir, description);
-  rmSync(dir, { recursive: true, force: true });
-  return result;
-}
-
 async function main() {
   const targets = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
   const selected =
@@ -183,70 +166,59 @@ async function main() {
   }
 
   const work = mkdtempSync(path.join(os.tmpdir(), 'axir-respperturb-'));
-  const runners = await loadOrPrepareRunners(selected, (target) =>
-    path.join(work, `pkg-${target}`)
-  );
-
-  // A fixture is anti-hardcode-verified for a target when mutating AT LEAST ONE
-  // of its load-bearing responses makes the run fail — i.e. some asserted value
-  // genuinely depends on a model response. (Requiring EVERY detected response to
-  // fail is wrong: a discarded first attempt in a retry fixture is superseded by
-  // its retry, so mutating it correctly does not fail.) A fixture where NO
-  // detected response mutation fails is asserting a hardcoded/unwired value.
-  const failures = [];
-  let checks = 0;
-  for (const c of cases) {
-    const pristine = JSON.parse(
-      readFileSync(path.join(conformanceRoot, c.suite, c.file), 'utf8')
+  let failures;
+  let checks;
+  try {
+    const runners = await loadOrPrepareRunners(
+      selected,
+      (target) => path.join(work, `pkg-${target}`),
+      runnerForTargetAsync
     );
-    for (const target of selected) {
-      const ok = runFixture(
+    const pairs = cases.flatMap((c) =>
+      selected.map((target) => ({ ...c, target }))
+    );
+    const results = await mapConformanceCases(pairs, async (c) => {
+      const { target } = c;
+      const pristine = JSON.parse(
+        readFileSync(path.join(conformanceRoot, c.suite, c.file), 'utf8')
+      );
+      const ok = await runIsolatedFixture(
         runners[target],
         work,
-        `${target}-self`,
         pristine,
         `pristine ${c.suite}/${c.file}`
       );
       if (ok.status !== 0) {
-        console.error(
+        throw new Error(
           `SELF-TEST FAILED: ${target} fails pristine ${c.suite}/${c.file}\n${ok.stdout}${ok.stderr}`
         );
-        process.exit(2);
       }
+      // Keep every selected mutation, including accepted retries, and require
+      // at least one rejection per fixture, as the sequential gate does.
       let anyFailed = false;
       for (const selection of c.responses) {
         const mutated = JSON.parse(JSON.stringify(pristine));
         mutateResponse(mutated, selection);
-        const label = selection.replace('#', '-');
-        const result = runFixture(
+        const result = await runIsolatedFixture(
           runners[target],
           work,
-          `${target}-${label}`,
           mutated,
           `${c.suite}/${c.file} with ${selection} mutated`
         );
         const failed = result.status !== 0;
-        checks += 1;
         if (failed) anyFailed = true;
         console.log(
           `[${failed ? 'rejected' : 'accepted'}] ${target} ${c.suite}/${c.file} ${selection}`
         );
       }
-      if (!anyFailed) {
-        console.error(
-          `[HARDCODED] ${target} ${c.suite}/${c.file}: no load-bearing response [${c.responses.join(', ')}] changed the result`
-        );
-        failures.push({
-          target,
-          suite: c.suite,
-          file: c.file,
-          responses: c.responses,
-        });
-      }
-    }
+      return { checks: c.responses.length, failure: anyFailed ? null : c };
+    });
+    checks = results.reduce((sum, r) => sum + r.checks, 0);
+    failures = results.map((r) => r.failure).filter(Boolean);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
   }
 
-  rmSync(work, { recursive: true, force: true });
   if (failures.length > 0) {
     console.error(
       `\n${failures.length} target/fixture pairs assert a value no model response affects (hardcoded/unwired):`

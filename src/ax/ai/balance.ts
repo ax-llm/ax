@@ -42,9 +42,8 @@ import type {
 } from './types.js';
 
 // Helper type to extract model keys from a service
-type ExtractServiceModelKeys<T> = T extends AxAIService<any, any, infer K>
-  ? K
-  : never;
+type ExtractServiceModelKeys<T> =
+  T extends AxAIService<any, any, infer K> ? K : never;
 
 // Helper type to extract model keys from an array of services
 type ExtractAllModelKeys<T extends readonly any[]> = T extends readonly [

@@ -11,11 +11,12 @@
     "allowSyntheticDefaultImports": true,
     "outDir": "build/module",
     "pretty": true,
-    "baseUrl": ".",
     "paths": {
-      "@ax-llm/ax-tools/event/sqlite": ["src/tools/event/sqlite.ts"],
-      "@ax-llm/*": ["src/*"]
-    }
+      "@ax-llm/ax-tools/event/sqlite": ["./src/tools/event/sqlite.ts"],
+      "@ax-llm/*": ["./src/*"]
+    },
+    "types": ["node"],
+    "rootDir": "."
   },
   "exclude": [
     "node_modules/**",

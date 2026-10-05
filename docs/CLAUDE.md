@@ -256,7 +256,7 @@ npm run build --workspace=@ax-llm/ax
 ### Environment Issues
 
 - Ensure you're in the repo root when running commands
-- Check Node.js version >= 20
+- Use the Node.js version in `.node-version` (Node 24); CI also checks Node 22
 - Verify workspace structure with `npm run --workspace=@ax-llm/ax`
 
 ## 📝 Writing Good Tests
@@ -753,7 +753,8 @@ export * from "./prompts/index.js";
 
 ## Dependencies & Constraints
 
-- **Node.js**: >= 20
+- **Node.js runtime**: >= 20
+- **Development tooling**: Node 24 from `.node-version`; Node 22.18+ is also supported
 - **Runtime**: ES Modules only
 - **Core Dependencies**: Minimal, zero-dependencies philosophy
 - **Peer Dependencies**: Handle LLM SDKs as peer deps where possible
@@ -837,7 +838,7 @@ PINECONE_API_KEY=your_key_here
 
 ## Build & Release
 
-- Uses `tsup` for building
+- Uses `tsdown` for building
 - Automated versioning with `standard-version`
 - Multi-workspace publishing with `release-it`
 - GitHub Actions for CI/CD

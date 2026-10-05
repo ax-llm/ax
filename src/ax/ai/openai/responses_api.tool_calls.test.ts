@@ -144,8 +144,8 @@ describe('OpenAI Responses function-call streaming', () => {
       state
     ) as AxChatResponse;
 
-    expect(added.results[0]!.functionCalls?.[0]!.id).toBe('call_1');
-    expect(delta.results[0]!.functionCalls?.[0]!.id).toBe('call_1');
+    expect(added.results[0]!.functionCalls![0]!.id).toBe('call_1');
+    expect(delta.results[0]!.functionCalls![0]!.id).toBe('call_1');
   });
 });
 

@@ -21,36 +21,36 @@ const memoryRuntime: AxCodeRuntime = {
       execute: async (code: string) => {
         if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
         if (code.includes('recall(')) {
-          await (globals?.recall as (queries: string[]) => Promise<void>)([
+          await (globals!.recall as (queries: string[]) => Promise<void>)([
             'coffee',
           ]);
           return 'loaded coffee memory';
         }
         if (code.includes('Used to resolve the user preference')) {
           await (
-            globals?.used as (id: unknown, reason?: unknown) => Promise<void>
+            globals!.used as (id: unknown, reason?: unknown) => Promise<void>
           )('coffee', 'Used to resolve the user preference');
           await (
-            globals?.used as (id: unknown, reason?: unknown) => Promise<void>
+            globals!.used as (id: unknown, reason?: unknown) => Promise<void>
           )('missing', 'Should be ignored');
         }
         if (code.includes('Used to personalize the final answer')) {
           await (
-            globals?.used as (id: unknown, reason?: unknown) => Promise<void>
+            globals!.used as (id: unknown, reason?: unknown) => Promise<void>
           )('coffee', 'Used to personalize the final answer');
         }
         if (code.includes('used("skill:planning")')) {
           await (
-            globals?.used as (id: unknown, reason?: unknown) => Promise<void>
+            globals!.used as (id: unknown, reason?: unknown) => Promise<void>
           )('skill:planning');
         }
         if (code.includes('final("distilled"')) {
-          (globals?.final as (...args: unknown[]) => void)('distilled', {
+          (globals!.final as (...args: unknown[]) => void)('distilled', {
             note: 'coffee',
           });
         }
         if (code.includes('final("done"')) {
-          (globals?.final as (...args: unknown[]) => void)('done', {
+          (globals!.final as (...args: unknown[]) => void)('done', {
             answer: 'ok',
           });
         }

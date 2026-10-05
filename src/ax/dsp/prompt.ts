@@ -636,6 +636,8 @@ export class AxPromptTemplate {
             description: valuesList,
           };
         }
+
+        return undefined;
       })
       .filter(Boolean) as AxIField[];
 

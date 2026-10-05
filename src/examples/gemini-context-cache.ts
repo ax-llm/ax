@@ -158,7 +158,9 @@ class UserService {
     console.log(`Review (${elapsed}ms):`);
     console.log(result.review);
     console.log('\nSuggestions:');
-    result.suggestions.forEach((s, idx) => console.log(`  ${idx + 1}. ${s}`));
+    result.suggestions.forEach((s, idx) => {
+      console.log(`  ${idx + 1}. ${s}`);
+    });
 
     // On subsequent calls, the cached system prompt should provide faster responses
     if (i > 0) {
