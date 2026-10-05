@@ -2,6 +2,7 @@ import type { AxModelConfig } from '../types.js';
 
 export enum AxAIAnthropicModel {
   Claude55Opus = 'claude-opus-5-5',
+  Claude55Sonnet = 'claude-sonnet-5-5',
   Claude51Fable = 'claude-fable-5-1',
   Claude5Opus = 'claude-opus-5',
   Claude5Fable = 'claude-fable-5',
@@ -42,6 +43,7 @@ export enum AxAIAnthropicModel {
 
 export enum AxAIAnthropicVertexModel {
   Claude55Opus = 'claude-opus-5-5',
+  Claude55Sonnet = 'claude-sonnet-5-5',
   Claude51Fable = 'claude-fable-5-1',
   Claude5Opus = 'claude-opus-5',
   Claude5Fable = 'claude-fable-5',
@@ -76,7 +78,10 @@ export type AxAIAnthropicThinkingWire =
   | { type: 'enabled'; budget_tokens: number }
   | { type: 'adaptive'; display?: 'summarized' | 'omitted' }
   // Only for models that think by default yet allow turning it off.
-  | { type: 'disabled' };
+  | { type: 'disabled' }
+  // Sonnet 5.5's off switch: no thinking before responding, but the short
+  // updates it writes between tool calls still come back as thinking blocks.
+  | { type: 'between_tools' };
 
 export type AxAIAnthropicEffortLevel =
   | 'low'

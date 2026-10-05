@@ -3290,6 +3290,30 @@
       "completedAt": "2026-09-30",
       "completedByCommit": "334b7dfdd80ec0784db9009545471a38426e8315",
       "verification": "TypeScript multiservice tests: 13 passed. The lastEmbed fixture fails on 24.0.24 and passes on the branch. Rust public router mapped/default/unknown-key transport regression passes. All five generated-language release verifications, generated examples, real-engine checks, package freshness, workspace tests and documentation checks passed in CI on 334b7dfdd80ec0784db9009545471a38426e8315."
+    },
+    {
+      "id": "axir-2026-10-05-port-claude-sonnet-5-5-to-axir-and-the-generated-packages",
+      "status": "open",
+      "title": "Port Claude Sonnet 5.5 to AxIR and the generated packages",
+      "createdAt": "2026-10-05",
+      "sourcePR": 814,
+      "sourceCommit": "439d654e5bdc75440523aa6d6a0773b16d571776",
+      "tsPaths": [
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/api.test.ts",
+        "src/ax/ai/anthropic/info.ts",
+        "src/ax/ai/anthropic/types.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Generated languages lack Claude Sonnet 5.5: its catalog/pricing entry and provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), and the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

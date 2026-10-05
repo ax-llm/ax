@@ -5,6 +5,7 @@ import {
   AxAIServiceAuthenticationError,
   AxAIServiceStatusError,
 } from '../../util/apicall.js';
+import type { AxChatResponse } from '../types.js';
 import {
   AxAIAnthropic,
   axAIAnthropicDefaultConfig,
@@ -1756,6 +1757,7 @@ describe('AxAIAnthropic Claude 5.x models', () => {
 
   it.each([
     AxAIAnthropicModel.Claude55Opus,
+    AxAIAnthropicModel.Claude55Sonnet,
     AxAIAnthropicModel.Claude51Fable,
     AxAIAnthropicModel.Claude5Opus,
     AxAIAnthropicModel.Claude5Fable,
@@ -1800,6 +1802,84 @@ describe('AxAIAnthropic Claude 5.x models', () => {
     }
   );
 
+  it('none turns Sonnet 5.5 thinking off with between_tools', async () => {
+    const body = await chatBody(
+      AxAIAnthropicModel.Claude55Sonnet,
+      { thinkingTokenBudget: 'none' },
+      { modelConfig: { temperature: 0, topP: 0.9 } }
+    );
+    expect(body.thinking).toEqual({ type: 'between_tools' });
+    expect(body.output_config).toBeUndefined();
+    expect(body.temperature).toBeUndefined();
+    expect(body.top_p).toBeUndefined();
+  });
+
+  it('keeps Sonnet 5.5 at effort high or below when thinking is off', async () => {
+    const high = await chatBody(
+      AxAIAnthropicModel.Claude55Sonnet,
+      { thinkingTokenBudget: 'none' },
+      {},
+      { effort: 'high' }
+    );
+    expect(high.thinking).toEqual({ type: 'between_tools' });
+    expect(high.output_config).toEqual({ effort: 'high' });
+
+    await expect(
+      chatBody(
+        AxAIAnthropicModel.Claude55Sonnet,
+        { thinkingTokenBudget: 'none' },
+        {},
+        { effort: 'max' }
+      )
+    ).rejects.toThrow(/cannot disable thinking at effort 'max'/);
+
+    await expect(
+      chatBody(
+        AxAIAnthropicModel.Claude55Sonnet,
+        { thinkingTokenBudget: 'none' },
+        { modelConfig: { effort: 'xhigh' } }
+      )
+    ).rejects.toThrow(/cannot disable thinking at effort 'xhigh'/);
+  });
+
+  it('hides Sonnet 5.5 between-tool updates under none', async () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude55Sonnet },
+    });
+    const fetch = createMockFetch({
+      id: 'msg_between_tools',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-5-5',
+      content: [
+        { type: 'thinking', thinking: 'Checking Paris first.' },
+        {
+          type: 'tool_use',
+          id: 'call_1',
+          name: 'getWeather',
+          input: { city: 'Paris' },
+        },
+      ],
+      stop_reason: 'tool_use',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+    ai.setOptions({ fetch });
+    const res = (await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'Weather in Paris?' }],
+        functions: [weather],
+      },
+      { stream: false, thinkingTokenBudget: 'none' }
+    )) as AxChatResponse;
+    const body = JSON.parse(fetch.mock.calls[0]?.[1]?.body as string);
+    expect(body.thinking).toEqual({ type: 'between_tools' });
+    expect(res.results[0]?.thought).toBeUndefined();
+    expect(res.results[0]?.functionCalls?.[0]?.function.name).toBe(
+      'getWeather'
+    );
+  });
+
   it('rejects disabling thinking at xhigh effort on Opus 5 locally', async () => {
     await expect(
       chatBody(
@@ -1843,11 +1923,39 @@ describe('AxAIAnthropic Claude 5.x models', () => {
     expect(datedOpus5.thinking).toEqual({ type: 'disabled' });
   });
 
+  it('does not mistake Sonnet 5.5 or a dated Sonnet 5 snapshot for each other', async () => {
+    const qualified = await chatBody(
+      'publishers/anthropic/models/claude-sonnet-5-5',
+      { thinkingTokenBudget: 'none' }
+    );
+    expect(qualified.thinking).toEqual({ type: 'between_tools' });
+
+    const datedSonnet55 = await chatBody('claude-sonnet-5-5-20261001', {
+      thinkingTokenBudget: 'none',
+    });
+    expect(datedSonnet55.thinking).toEqual({ type: 'between_tools' });
+
+    const datedSonnet5 = await chatBody('claude-sonnet-5@20260601', {
+      thinkingTokenBudget: 'none',
+    });
+    expect(datedSonnet5.thinking).toEqual({ type: 'disabled' });
+
+    const sonnet550 = await chatBody('claude-sonnet-5-50', {
+      thinkingTokenBudget: 'none',
+    });
+    expect(sonnet550.thinking).toBeUndefined();
+  });
+
   it.each([
     [AxAIAnthropicModel.Claude55Opus, 'required'],
+    [AxAIAnthropicModel.Claude55Sonnet, 'required'],
     [AxAIAnthropicModel.Claude51Fable, 'required'],
     [
       AxAIAnthropicModel.Claude55Opus,
+      { type: 'function', function: { name: 'getWeather' } },
+    ],
+    [
+      AxAIAnthropicModel.Claude55Sonnet,
       { type: 'function', function: { name: 'getWeather' } },
     ],
   ] as const)(
@@ -1876,17 +1984,18 @@ describe('AxAIAnthropic Claude 5.x models', () => {
     expect(body.tools?.[0]?.name).toBe('__axOutput');
   });
 
-  it.each([AxAIAnthropicModel.Claude5Opus, AxAIAnthropicModel.Claude5Fable])(
-    '%s still accepts a forced tool choice',
-    async (model) => {
-      const body = await chatBody(
-        model,
-        {},
-        { functions: [weather], functionCall: 'required' }
-      );
-      expect(body.tool_choice).toEqual({ type: 'any' });
-    }
-  );
+  it.each([
+    AxAIAnthropicModel.Claude5Opus,
+    AxAIAnthropicModel.Claude5Fable,
+    AxAIAnthropicModel.Claude5Sonnet,
+  ])('%s still accepts a forced tool choice', async (model) => {
+    const body = await chatBody(
+      model,
+      {},
+      { functions: [weather], functionCall: 'required' }
+    );
+    expect(body.tool_choice).toEqual({ type: 'any' });
+  });
 
   it('keeps thinking on when replaying a pre-supplied tool call to a model that thinks by default', async () => {
     const body = await chatBody(
@@ -1937,5 +2046,24 @@ describe('AxAIAnthropic Claude 5.x models', () => {
       });
     expect(cost()).toBeCloseTo(4 + 20 + 0.2);
     expect(cost('fast')).toBeCloseTo(8 + 40 + 0.4);
+  });
+
+  it('prices Sonnet 5.5 at the published rates', () => {
+    const ai = new AxAIAnthropic({
+      apiKey: 'key',
+      config: { model: AxAIAnthropicModel.Claude55Sonnet },
+    });
+    const cost = ai.getEstimatedCost({
+      ai: 'anthropic',
+      model: AxAIAnthropicModel.Claude55Sonnet,
+      tokens: {
+        promptTokens: 1_000_000,
+        completionTokens: 1_000_000,
+        cacheReadTokens: 1_000_000,
+        cacheCreationTokens: 1_000_000,
+        totalTokens: 4_000_000,
+      },
+    });
+    expect(cost).toBeCloseTo(2 + 10 + 0.2 + 2.5);
   });
 });
