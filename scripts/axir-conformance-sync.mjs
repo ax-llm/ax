@@ -112,8 +112,9 @@ export function normalizeCatalog(catalog) {
 }
 
 export async function buildTypeScriptCatalog() {
-  const catalogModule = await import('../src/ax/ai/catalog.ts');
-  const { axGetSupportedAIModels } = catalogModule;
+  const { getPortableAIModels: axGetSupportedAIModels } = await import(
+    '../tools/axir/extractors/portable-ai-catalog.ts'
+  );
   return normalizeCatalog({
     all: axGetSupportedAIModels(),
     text: axGetSupportedAIModels({ type: 'text' }),

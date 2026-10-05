@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { axGetSupportedAIModels } from '../src/ax/ai/catalog.js';
+import { getPortableAIModels } from '../tools/axir/extractors/portable-ai-catalog.js';
 import {
   buildProviderModelIndex,
   compareDateData,
@@ -270,4 +272,25 @@ describe('axir-conformance-sync helpers', () => {
       'stale data ir/axcore/data/date-zone-abbreviations.json'
     );
   });
+});
+
+describe('TypeScript-only Chrome provider boundary', () => {
+  const portableCatalog = JSON.parse(
+    readFileSync(
+      new URL('../ir/axcore/data/provider-model-catalog.json', import.meta.url),
+      'utf8'
+    )
+  );
+  it.each([undefined, 'text', 'embeddings', 'code', 'audio', 'image'])(
+    'keeps Chrome in TypeScript and the portable %s catalog unchanged',
+    (type) => {
+      const options = type ? { type } : undefined;
+      expect(
+        axGetSupportedAIModels(options).some((p) => p.name === 'chrome-ai')
+      ).toBe(true);
+      expect(getPortableAIModels(options)).toEqual(
+        portableCatalog[type ?? 'all']
+      );
+    }
+  );
 });

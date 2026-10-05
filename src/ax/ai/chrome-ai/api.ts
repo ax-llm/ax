@@ -1,9 +1,5 @@
 import type { AxAPI } from '../../util/apicall.js';
-import {
-  AxBaseAI,
-  axBaseAIDefaultConfig,
-  axBaseAIDefaultCreativeConfig,
-} from '../base.js';
+import { AxBaseAI } from '../base.js';
 import type {
   AxAIInputModelList,
   AxAIServiceImpl,
@@ -35,13 +31,12 @@ import {
 export const axAIChromeAIDefaultConfig = (): AxAIChromeAIConfig =>
   structuredClone({
     model: AxAIChromeAIModel.GeminiNano,
-    ...axBaseAIDefaultConfig(),
   });
 
 export const axAIChromeAICreativeConfig = (): AxAIChromeAIConfig =>
   structuredClone({
     model: AxAIChromeAIModel.GeminiNano,
-    ...axBaseAIDefaultCreativeConfig(),
+    temperature: 0.4,
   });
 
 export interface AxAIChromeAIArgs<TModelKey = string> {
@@ -276,17 +271,31 @@ export class AxAIChromeAIImpl
           }
         }
 
+        let { temperature, topK } = reqData;
+        if ((temperature === undefined) !== (topK === undefined)) {
+          const params = languageModel.params
+            ? await languageModel.params()
+            : await languageModel.capabilities?.();
+          temperature ??= params?.defaultTemperature;
+          topK ??= params?.defaultTopK;
+          if (temperature === undefined || topK === undefined) {
+            throw new Error(
+              'Chrome AI sampling requires both temperature and topK, or neither. ' +
+                'Supply both values or use a Chrome extension with LanguageModel.params().'
+            );
+          }
+        }
+
         const session = await languageModel.create({
           ...(reqData.initialPrompts.length > 0
             ? { initialPrompts: reqData.initialPrompts }
             : {}),
-          ...(reqData.temperature !== undefined
-            ? { temperature: reqData.temperature }
-            : {}),
-          ...(reqData.topK !== undefined ? { topK: reqData.topK } : {}),
+          ...(temperature !== undefined ? { temperature } : {}),
+          ...(topK !== undefined ? { topK } : {}),
           signal: options?.abortSignal,
         });
 
+        let streamOwnsSession = false;
         try {
           const promptOptions: ChromeAIPromptOptions = {
             ...(reqData.responseConstraint
@@ -298,11 +307,13 @@ export class AxAIChromeAIImpl
           const hasPromptOptions = Object.keys(promptOptions).length > 0;
 
           if (stream) {
-            return this.handleStreaming(
+            const result = this.handleStreaming(
               session,
               reqData.prompt,
               hasPromptOptions ? promptOptions : undefined
-            ) as TResponse | ReadableStream<TResponse>;
+            );
+            streamOwnsSession = true;
+            return result as TResponse | ReadableStream<TResponse>;
           }
 
           const content = await session.prompt(
@@ -318,7 +329,7 @@ export class AxAIChromeAIImpl
 
           return response as TResponse | ReadableStream<TResponse>;
         } finally {
-          if (!stream) {
+          if (!streamOwnsSession) {
             destroySession(session);
           }
         }
@@ -465,29 +476,15 @@ export class AxAIChromeAIImpl
 
   createChatStreamResp = (
     resp: Readonly<AxAIChromeAIChatResponseDelta>,
-    state: object
+    _state: object
   ): AxChatResponse => {
-    const ss = state as {
-      previousContent?: string;
-    };
-
-    // Chrome AI streaming returns cumulative content.
-    // Compute the delta by diffing with previous content.
-    const cumulativeContent = resp.content || '';
-    const previousContent = ss.previousContent || '';
-    const deltaContent = cumulativeContent.startsWith(previousContent)
-      ? cumulativeContent.slice(previousContent.length)
-      : cumulativeContent;
-
-    ss.previousContent = cumulativeContent;
-
     const finishReason = resp.done ? ('stop' as const) : undefined;
 
     const results = [
       {
         index: 0,
         id: resp.id,
-        content: deltaContent,
+        content: resp.content,
         finishReason,
       },
     ];
@@ -508,7 +505,7 @@ export class AxAIChromeAIImpl
  * chat completions with structured output support.
  *
  * Key characteristics:
- * - Browser-only (Chrome 138+)
+ * - TypeScript/JavaScript only, running inside Chrome (not an AxIR provider)
  * - No API key required — runs locally
  * - Supports structured outputs via responseConstraint (JSON schema)
  * - No function/tool calling support

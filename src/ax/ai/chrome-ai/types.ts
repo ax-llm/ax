@@ -24,6 +24,13 @@ export type AxAIChromeAIConfig = AxModelConfig & {
  * https://developer.chrome.com/docs/ai/prompt-api
  */
 export interface ChromeAILanguageModel {
+  /** Legacy sampling parameters are available in Chrome extensions. */
+  params?(): Promise<{
+    defaultTemperature: number;
+    maxTemperature: number;
+    defaultTopK: number;
+    maxTopK: number;
+  } | null>;
   availability?(options?: {
     temperature?: number;
     topK?: number;
@@ -113,12 +120,11 @@ export type AxAIChromeAIChatResponse = {
 
 /**
  * Chrome AI: Streaming response delta
- * Chrome AI's promptStreaming() returns cumulative text.
- * This type wraps a cumulative chunk for processing.
+ * Chrome AI's promptStreaming() returns successive text chunks.
  */
 export type AxAIChromeAIChatResponseDelta = {
   id: string;
-  /** Cumulative content so far (or delta chunk) */
+  /** New text in this chunk */
   content: string;
   done: boolean;
 };

@@ -56,7 +56,11 @@ import {
   axShouldUseGrokRealtime,
 } from './x-grok/api.js';
 
-export type AxAIProfileId = keyof typeof axAIProviderProfiles;
+export type AxAIProfileId =
+  | keyof typeof axAIProviderProfiles
+  // axir-nonportable:start chrome-ai
+  | 'chrome-ai';
+// axir-nonportable:end chrome-ai
 export type AxAIProfileTransport =
   | 'openai-chat'
   | 'openai-responses'
@@ -246,7 +250,7 @@ export const axAIProfiles = (): readonly AxAIProfileSummary[] =>
 
 // axir-nonportable:start chrome-ai
 const chromeAIProfile: ProfileSpec = {
-  id: 'chrome-ai' as any,
+  id: 'chrome-ai',
   name: 'Chrome Built-in AI',
   aliases: ['chrome', 'chrome-ai', 'prompt-api', 'gemini-nano'],
   transport: 'chrome-ai',
@@ -274,11 +278,12 @@ export const axGetAIProfile = (name: string): AxAIProfileSummary => {
   // axir-nonportable:start chrome-ai
   if (profile.id === 'chrome-ai') {
     return {
-      id: 'chrome-ai' as any,
+      id: 'chrome-ai',
       name: profile.name,
       aliases: profile.aliases,
       transport: profile.transport,
       requiresApiURL: false,
+      defaultModel: profile.defaults.model,
       authentication: profile.auth,
       operations: profile.operations,
       modelRules: profile.modelRules,
@@ -299,7 +304,7 @@ export const axResolveAIProfileId = (name: string): AxAIProfileId => {
     name.toLowerCase() === 'prompt-api' ||
     name.toLowerCase() === 'gemini-nano'
   ) {
-    return 'chrome-ai' as any;
+    return 'chrome-ai';
   }
   // axir-nonportable:end chrome-ai
   const id = aliases[name.toLowerCase()];

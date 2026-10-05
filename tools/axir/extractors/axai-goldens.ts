@@ -11,7 +11,6 @@ import {
   sampleBalancerRouteHealth,
 } from '../../../src/ax/ai/balance_adaptive.js';
 import { resetDroppedSamplingWarnings } from '../../../src/ax/ai/base.js';
-import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import {
   AxAIGoogleGemini,
@@ -53,6 +52,7 @@ import {
   NumberLiteral,
   restoreNumberLiterals,
 } from './number-literals.js';
+import { getPortableAIModels as axGetSupportedAIModels } from './portable-ai-catalog.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;

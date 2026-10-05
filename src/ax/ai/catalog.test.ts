@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AxAIAnthropicModel } from './anthropic/types.js';
 import { axGetSupportedAIModels } from './catalog.js';
-// axir-nonportable:end webllm
 // axir-nonportable:start chrome-ai
 import { AxAIChromeAIModel } from './chrome-ai/types.js';
+// axir-nonportable:end chrome-ai
 import { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
   AxAIGoogleGeminiEmbedModel,
@@ -14,7 +14,7 @@ import { axAIProfiles } from './provider_profiles.js';
 // axir-nonportable:start webllm
 import { AxAIWebLLMModel } from './webllm/types.js';
 
-// axir-nonportable:end chrome-ai
+// axir-nonportable:end webllm
 import { AxAIGrokModel } from './x-grok/types.js';
 
 describe('axGetSupportedAIModels', () => {

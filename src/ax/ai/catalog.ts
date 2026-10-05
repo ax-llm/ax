@@ -1,9 +1,9 @@
 import { axModelInfoAnthropic } from './anthropic/info.js';
 import { AxAIAnthropicModel } from './anthropic/types.js';
-// axir-nonportable:end webllm
 // axir-nonportable:start chrome-ai
 import { axModelInfoChromeAI } from './chrome-ai/info.js';
 import { AxAIChromeAIModel } from './chrome-ai/types.js';
+// axir-nonportable:end chrome-ai
 import { axModelInfoCohere } from './cohere/info.js';
 import { AxAICohereModel } from './cohere/types.js';
 import { axModelInfoDeepSeek } from './deepseek/info.js';
@@ -46,7 +46,7 @@ import type {
 import { axModelInfoWebLLM } from './webllm/info.js';
 import { AxAIWebLLMModel } from './webllm/types.js';
 import type { AxAIArgs } from './wrap.js';
-// axir-nonportable:end chrome-ai
+// axir-nonportable:end webllm
 import { axIsGrokVoiceModel } from './x-grok/api.js';
 import { axModelInfoGrok } from './x-grok/info.js';
 import { AxAIGrokModel } from './x-grok/types.js';

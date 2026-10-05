@@ -6,6 +6,11 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Non-Portable Exemptions
 
+- `chrome-ai-browser-only` [axai]
+  - Reason: Chrome Built-in AI uses the browser LanguageModel JavaScript host API. The provider is TypeScript/JavaScript only and is excluded from portable AxIR catalogs and Python/Java/C++/Go/Rust packages.
+  - Paths: `src/ax/ai/chrome-ai`, `src/examples/chrome-ai-chat.html`
+  - Scoped files: `src/ax/ai/wrap.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/catalog.test.ts`, `src/ax/ai/wrap.test.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/skills/ax-ai.md`
+  - Tags: `chrome-ai`, `browser-only`, `typescript-only`, `host-engine`
 - `axagent-claim-complete-target-native-surfaces` [axagent]
   - Reason: The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.
   - Paths: `src/ax/agent/agentInternal/agentOptimizeTypes.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/agentInternal/agentStateTypes.ts`
@@ -18,13 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-10-02-add-chrome-built-in-ai-prompt-api-provider` [axai] Add Chrome Built-in AI (Prompt API) provider
-  - Status: open
-  - Source PR: #794
-  - Source commit: `bf9c7596d3d3243496e8955fe65354dc64f0e7bb`
-  - TS paths: `src/ax/ai/catalog.test.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/chrome-ai/api.test.ts`, `src/ax/ai/chrome-ai/api.ts`, `src/ax/ai/chrome-ai/info.ts`, `src/ax/ai/chrome-ai/types.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/wrap.test.ts`, `src/ax/ai/wrap.ts`
-  - Impact: Adds browser-only Chrome Prompt API (Gemini Nano) adapter for browser environments
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
