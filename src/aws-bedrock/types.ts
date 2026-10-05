@@ -10,6 +10,7 @@ export enum AxAIBedrockModel {
   // Claude models
   ClaudeSonnet5 = 'us.anthropic.claude-sonnet-5',
   ClaudeOpus55 = 'us.anthropic.claude-opus-5-5',
+  ClaudeSonnet55 = 'us.anthropic.claude-sonnet-5-5',
   ClaudeOpus5 = 'us.anthropic.claude-opus-5',
   ClaudeOpus48 = 'us.anthropic.claude-opus-4-8',
   ClaudeSonnet46 = 'us.anthropic.claude-sonnet-4-6',
@@ -27,6 +28,7 @@ export enum AxAIBedrockModel {
   Gpt6Sol = 'us.openai.gpt-6-sol',
   Gpt6Luna = 'us.openai.gpt-6-luna',
   Gpt6Astra = 'us.openai.gpt-6-astra',
+  Gpt61Sol = 'us.openai.gpt-6.1-sol',
 }
 
 // Embed models

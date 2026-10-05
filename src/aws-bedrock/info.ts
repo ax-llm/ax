@@ -102,6 +102,14 @@ export const axBedrockModelCapabilities: Readonly<
     thinkingAlwaysOn: true,
     structuredOutputModes: ['json_object'],
   }),
+  // Sonnet 5.5 rejects the same Converse requests as Opus 5.5.
+  [AxAIBedrockModel.ClaudeSonnet55]: claude({
+    cacheTTLs: ['5m', '1h'],
+    thinking: 'adaptive',
+    thinkingDefault: true,
+    thinkingAlwaysOn: true,
+    structuredOutputModes: ['json_object'],
+  }),
   [AxAIBedrockModel.ClaudeOpus5]: claude({
     cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
@@ -138,6 +146,8 @@ export const axBedrockModelCapabilities: Readonly<
   [AxAIBedrockModel.Gpt6Luna]: gpt6(),
   // Astra rejects reasoning effort 'none'.
   [AxAIBedrockModel.Gpt6Astra]: gpt6({ thinkingAlwaysOn: true }),
+  // GPT-6.1 Sol also rejects reasoning effort 'none', unlike GPT-6 Sol.
+  [AxAIBedrockModel.Gpt61Sol]: gpt6({ thinkingAlwaysOn: true }),
 };
 
 export function axGetBedrockModelCapabilities(
@@ -175,6 +185,17 @@ export const axModelInfoBedrock: AxModelInfo[] = [
     maxTokens: 128000,
     contextWindow: 1000000,
     isExpensive: true,
+    supported: {
+      showThoughts: true,
+      structuredOutputModes: ['json_object'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.ClaudeSonnet55,
+    currency: 'usd',
+    maxTokens: 128000,
+    contextWindow: 1000000,
     supported: {
       showThoughts: true,
       structuredOutputModes: ['json_object'],
@@ -352,6 +373,18 @@ export const axModelInfoBedrock: AxModelInfo[] = [
     name: AxAIBedrockModel.Gpt6Astra,
     currency: 'usd',
     maxTokens: 131072,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.Gpt61Sol,
+    currency: 'usd',
+    maxTokens: 131072,
+    contextWindow: 1000000,
     notSupported: { temperature: true, topP: true },
     supported: {
       structuredOutputs: true,
