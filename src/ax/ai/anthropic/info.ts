@@ -44,6 +44,43 @@ export const axModelInfoAnthropic: AxModelInfo[] = [
       structuredOutputModes: ['native'],
     },
   },
+  // 5.5 Sonnet (2026-09). Same rates as Sonnet 5; no fast mode. Forced tool
+  // choice is refused, so structured output must stay native.
+  {
+    name: AxAIAnthropicModel.Claude55Sonnet,
+    currency: 'usd',
+    promptTokenCostPer1M: 2.0,
+    completionTokenCostPer1M: 10.0,
+    cacheReadTokenCostPer1M: 0.2,
+    cacheWriteTokenCostPer1M: 2.5,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
+    supported: {
+      temperatureOne: true,
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+      structuredOutputModes: ['native'],
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude55Sonnet,
+    currency: 'usd',
+    promptTokenCostPer1M: 2.0,
+    completionTokenCostPer1M: 10.0,
+    cacheReadTokenCostPer1M: 0.2,
+    cacheWriteTokenCostPer1M: 2.5,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+      structuredOutputModes: ['native'],
+    },
+  },
   // 5.1 Fable (2026-08). Cache hits bill at 0.025x input. Forced tool
   // choice is refused, so structured output must stay native.
   {

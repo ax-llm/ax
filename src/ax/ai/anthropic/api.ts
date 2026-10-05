@@ -105,6 +105,7 @@ function mapAnthropicErrorEvent(error: {
 const isClaudeOpus47OrLater = (model: string): boolean =>
   model.includes('claude-opus-4-7') || model.includes('claude-opus-4-8');
 
+/** Sonnet 5 and its minor versions (Sonnet 5.5). */
 const isClaude5 = (model: string): boolean => model.includes('claude-sonnet-5');
 
 // Model ids arrive qualified (`publishers/anthropic/models/claude-opus-5`) or
@@ -126,6 +127,7 @@ const CLAUDE_OPUS_5_5 = versionPattern('claude-opus-5-5');
 const CLAUDE_FABLE_5 = familyPattern('claude-fable-5');
 const CLAUDE_FABLE_5_1 = versionPattern('claude-fable-5-1');
 const CLAUDE_SONNET_5 = familyPattern('claude-sonnet-5');
+const CLAUDE_SONNET_5_5 = versionPattern('claude-sonnet-5-5');
 
 /**
  * Models that use adaptive thinking + output_config.effort and reject the legacy
@@ -168,11 +170,27 @@ const isThinkingAlwaysOn = (model: string): boolean =>
   CLAUDE_FABLE_5_1.test(model);
 
 /**
- * Models that think when `thinking` is omitted but accept `disabled`, so
- * turning thinking off has to be explicit.
+ * Models that think when `thinking` is omitted, so turning thinking off has to
+ * be explicit: `disabled`, or `between_tools` on Sonnet 5.5.
  */
 const isThinkingOnByDefault = (model: string): boolean =>
-  CLAUDE_OPUS_5.test(model) || CLAUDE_SONNET_5.test(model);
+  CLAUDE_OPUS_5.test(model) ||
+  CLAUDE_SONNET_5.test(model) ||
+  CLAUDE_SONNET_5_5.test(model);
+
+/**
+ * Models whose off switch is `thinking.type.between_tools`: `disabled` is a
+ * 400, and the model still writes short updates between tool calls, returned
+ * as thinking blocks.
+ */
+const turnsThinkingOffBetweenTools = (model: string): boolean =>
+  CLAUDE_SONNET_5_5.test(model);
+
+/** Whether a thinking wire asks the model to think before it responds. */
+const isThinkingOnWire = (
+  wire: AxAIAnthropicThinkingWire | undefined
+): boolean =>
+  !!wire && wire.type !== 'disabled' && wire.type !== 'between_tools';
 
 /**
  * The sampling fields to send. A default (the provider's temperature 0) keeps
@@ -209,7 +227,7 @@ const anthropicSampling = ({
 }>): { temperature?: number; top_p?: number; top_k?: number } => {
   const adaptive = isAdaptiveThinkingModel(model);
   const deprecated = deprecatesSampling(model);
-  const thinking = !!thinkingWire && thinkingWire.type !== 'disabled';
+  const thinking = isThinkingOnWire(thinkingWire);
   const historical = !thinkingWire && !adaptive;
   const out: { temperature?: number; top_p?: number; top_k?: number } = {};
   // Why a rejected explicit value was dropped.
@@ -287,7 +305,9 @@ const anthropicSampling = ({
 
 /** Models that answer `tool_choice` of type `any` or `tool` with a 400. */
 const rejectsForcedToolChoice = (model: string): boolean =>
-  CLAUDE_OPUS_5_5.test(model) || CLAUDE_FABLE_5_1.test(model);
+  CLAUDE_OPUS_5_5.test(model) ||
+  CLAUDE_SONNET_5_5.test(model) ||
+  CLAUDE_FABLE_5_1.test(model);
 
 /**
  * Models that keep a later `system` entry in place in the messages array
@@ -573,9 +593,10 @@ class AxAIAnthropicImpl
       }
     }
 
-    // Opus 5.5 and Fable 5.1 answer a forced choice with a 400. Ax's own
-    // structured-output force is dropped, since these models return the schema
-    // natively; a caller's explicit force is surfaced instead of weakened.
+    // Opus 5.5, Sonnet 5.5 and Fable 5.1 answer a forced choice with a 400.
+    // Ax's own structured-output force is dropped, since these models return
+    // the schema natively; a caller's explicit force is surfaced instead of
+    // weakened.
     const forcedChoice = toolsChoice?.tool_choice;
     if (
       forcedChoice &&
@@ -748,6 +769,10 @@ class AxAIAnthropicImpl
           // reasoning summary hidden is the closest match.
           thinkingWire = { type: 'adaptive', display: 'omitted' };
           outputConfig = { effort: 'low' };
+        } else if (turnsThinkingOffBetweenTools(modelStr)) {
+          // The between-tool updates stay hidden, like any thought under 'none'.
+          thinkingWire = { type: 'between_tools' };
+          outputConfig = undefined;
         } else if (isThinkingOnByDefault(modelStr)) {
           // These models think when `thinking` is omitted, so switching it
           // off has to be explicit.
@@ -805,10 +830,12 @@ class AxAIAnthropicImpl
       outputConfig = { ...outputConfig, effort };
     }
 
-    // Opus 5 only lets thinking be switched off at effort `high` or below.
+    // Opus 5 and Sonnet 5.5 only let thinking be switched off at effort
+    // `high` or below.
     if (
-      thinkingWire?.type === 'disabled' &&
-      CLAUDE_OPUS_5.test(modelStr) &&
+      ((thinkingWire?.type === 'disabled' && CLAUDE_OPUS_5.test(modelStr)) ||
+        (thinkingWire?.type === 'between_tools' &&
+          turnsThinkingOffBetweenTools(modelStr))) &&
       (outputConfig?.effort === 'xhigh' || outputConfig?.effort === 'max')
     ) {
       throw new Error(
@@ -853,7 +880,7 @@ class AxAIAnthropicImpl
     }
 
     // Alias for use in downstream logic (messages, request building)
-    const thinkingEnabled = !!thinkingWire && thinkingWire.type !== 'disabled';
+    const thinkingEnabled = isThinkingOnWire(thinkingWire);
 
     const messages = createMessages(
       otherMessages,
