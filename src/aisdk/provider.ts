@@ -370,18 +370,23 @@ function convertToAxChatPrompt(
                 if (!part.mediaType) {
                   throw new Error('File part must have a mediaType');
                 }
-                let dataContent: string;
-                if (typeof part.data === 'string') {
-                  dataContent = part.data;
-                } else if (part.data instanceof URL) {
-                  dataContent = part.data.toString();
-                } else {
-                  dataContent = Buffer.from(part.data).toString('base64');
+                if (part.data instanceof URL) {
+                  return {
+                    type: 'file',
+                    fileUri: part.data.toString(),
+                    filename: part.filename,
+                    mimeType: part.mediaType,
+                  };
                 }
+                const data =
+                  typeof part.data === 'string'
+                    ? part.data
+                    : Buffer.from(part.data).toString('base64');
                 return {
-                  type: 'image',
+                  type: 'file',
+                  data,
+                  filename: part.filename,
                   mimeType: part.mediaType,
-                  image: dataContent,
                 };
               }
               default:
