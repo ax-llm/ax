@@ -9,12 +9,17 @@ on:
         description: Rehearse without uploading anywhere
         type: boolean
         default: true
+      java_release_tag:
+        description: Recover Java only from this existing stable release tag
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   rust-crates-io:
+    if: github.event_name != 'workflow_dispatch' || !inputs.java_release_tag
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,6 +46,7 @@ jobs:
           cargo publish $FLAGS --no-verify --manifest-path packages/rust/Cargo.toml
 
   python-pypi:
+    if: github.event_name != 'workflow_dispatch' || !inputs.java_release_tag
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -72,6 +78,28 @@ jobs:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.java_release_tag || github.ref }}
+      - name: Validate recovery release tag
+        env:
+          RELEASE_TAG: ${{ inputs.java_release_tag }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            [[ "$RELEASE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            test "$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')" = "$RELEASE_TAG"
+          fi
+      # Pin the tested runtime: runner-default Maven can create staging metadata
+      # that the Central publishing plugin does not remove from its bundle.
+      - name: Setup Maven 3.9.16
+        env:
+          MAVEN_VERSION: '3.9.16'
+        run: |
+          archive="$RUNNER_TEMP/apache-maven-$MAVEN_VERSION-bin.tar.gz"
+          curl -fsSL "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$MAVEN_VERSION/apache-maven-$MAVEN_VERSION-bin.tar.gz" -o "$archive"
+          printf '%s  %s\n' '831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6' "$archive" | sha512sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-$MAVEN_VERSION/bin" >> "$GITHUB_PATH"
       # Configures ~/.m2/settings.xml with the `central` server (Portal token) and
       # imports the GPG signing key the `release` profile in packages/java/pom.xml uses.
       - uses: actions/setup-java@v6
@@ -96,4 +124,5 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             GOAL="verify"
           fi
+          mvn --version
           mvn -B -ntp -Prelease -DskipTests "$GOAL"
