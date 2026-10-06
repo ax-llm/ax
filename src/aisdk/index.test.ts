@@ -172,6 +172,99 @@ describe('AxAIProvider', () => {
     });
   });
 
+  describe('user file parts', () => {
+    it.each([
+      {
+        mediaType: 'application/pdf',
+        data: new Uint8Array([1, 2, 3]),
+        expected: {
+          type: 'file',
+          data: 'AQID',
+          mimeType: 'application/pdf',
+          filename: 'attachment',
+        },
+      },
+      {
+        mediaType: 'application/pdf',
+        data: 'AQID',
+        expected: {
+          type: 'file',
+          data: 'AQID',
+          mimeType: 'application/pdf',
+          filename: 'attachment',
+        },
+      },
+      {
+        mediaType: 'application/pdf',
+        data: new URL('https://example.com/report.pdf'),
+        expected: {
+          type: 'file',
+          fileUri: 'https://example.com/report.pdf',
+          mimeType: 'application/pdf',
+          filename: 'attachment',
+        },
+      },
+      {
+        mediaType: 'image/png',
+        data: new Uint8Array([1, 2, 3]),
+        expected: { type: 'image', image: 'AQID', mimeType: 'image/png' },
+      },
+      {
+        mediaType: 'image/jpeg',
+        data: 'AQID',
+        expected: { type: 'image', image: 'AQID', mimeType: 'image/jpeg' },
+      },
+      {
+        mediaType: 'image/png',
+        data: new URL('https://example.com/image.png'),
+        expected: {
+          type: 'file',
+          fileUri: 'https://example.com/image.png',
+          mimeType: 'image/png',
+          filename: 'attachment',
+        },
+      },
+    ])(
+      'preserves $mediaType input ($data) in generate and stream calls',
+      async ({ mediaType, data, expected }) => {
+        const response: AxChatResponse = {
+          results: [{ content: 'ok', finishReason: 'stop' }],
+        };
+        const mockAI = createMockAIService([response, response]);
+        const provider = new AxAIProvider(mockAI);
+        const options: LanguageModelV3CallOptions = {
+          prompt: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'Read this attachment' },
+                { type: 'file', mediaType, data, filename: 'attachment' },
+              ],
+            },
+          ],
+        };
+        await provider.doGenerate(options);
+        await provider.doStream(options);
+        for (const stream of [false, true]) {
+          expect(mockAI.chat).toHaveBeenCalledWith(
+            expect.objectContaining({
+              chatPrompt: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: 'Read this attachment' },
+                    expected,
+                  ],
+                },
+              ],
+            }),
+            { stream }
+          );
+        }
+      }
+    );
+  });
+
   describe('doGenerate', () => {
     it('should generate text response', async () => {
       const mockResponse: AxChatResponse = {
