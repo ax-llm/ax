@@ -120,9 +120,12 @@ export class AxMCPStdioTransport implements AxMCPTransport {
    * Terminate the child process and clean up resources
    */
   async terminate(): Promise<void> {
+    this.closeWithError(new Error('MCP server process terminated'));
     this.rl.close();
-    if (this.closed) return;
-    this.process.kill();
+    // A failed stdin closes the transport without stopping the child.
+    if (this.process.exitCode === null && this.process.signalCode === null) {
+      this.process.kill();
+    }
     await this.closePromise;
   }
 
