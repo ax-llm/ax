@@ -1,5 +1,29 @@
 # Changelog
 
+## [25.0.1](https://github.com/ax-llm/ax/compare/25.0.0...25.0.1) (2026-10-06)
+
+### Features
+
+* **ai:** add Claude Sonnet 5.5 ([6bd317e](https://github.com/ax-llm/ax/commit/6bd317e840328e25c91267da7f92bb80e852f814))
+* **ai:** add TypeScript-only Chrome Built-in AI provider ([#794](https://github.com/ax-llm/ax/issues/794)) ([e0ff075](https://github.com/ax-llm/ax/commit/e0ff075c3ba572bfe94cf277336a00479d51206d))
+* **bedrock:** add Claude Sonnet 5.5 and GPT-6.1 Sol to AxAIBedrock ([#813](https://github.com/ax-llm/ax/issues/813)) ([ab0a8d9](https://github.com/ax-llm/ax/commit/ab0a8d9d9d7b28b19c8333bd23cd7550f341bd41))
+
+### Bug Fixes
+
+* **anthropic:** preserve signed thinking and append-only Sonnet history ([06a1561](https://github.com/ax-llm/ax/commit/06a156189b54a22a4cfbe3b45d6101f0f02396fa))
+* **axir:** port Sonnet 5.5 across generated clients ([#817](https://github.com/ax-llm/ax/issues/817)) ([f1c036c](https://github.com/ax-llm/ax/commit/f1c036c7ede4af99eb3118e8a11bf068c45ed7b9))
+* **axir:** refresh Sonnet 5.5 catalog data and generated packages ([43cae59](https://github.com/ax-llm/ax/commit/43cae59f9c825ceca4662e83da9fd3e69a81ab2d))
+* **event:** recheck dedupe after waiting for inbox capacity ([#811](https://github.com/ax-llm/ax/issues/811)) ([cd27701](https://github.com/ax-llm/ax/commit/cd27701d9bed98422d57a6946200df7c44b8eadb))
+* **memory:** keep opaque replay blocks separate ([5edc31f](https://github.com/ax-llm/ax/commit/5edc31fd54e77e50a162b6c668ca1d125583b9ec))
+
+* **bedrock:** fix Titan embedding batches ([#808](https://github.com/ax-llm/ax/pull/808)).
+* **aisdk:** preserve file parts in the AI SDK adapter ([#809](https://github.com/ax-llm/ax/pull/809)).
+* **mcp:** settle pending stdio calls when the child process exits ([#810](https://github.com/ax-llm/ax/pull/810)).
+
+### Performance Improvements
+
+* **ci:** shorten full CI with parallel conformance and isolated mutations ([#798](https://github.com/ax-llm/ax/issues/798)) ([16514d9](https://github.com/ax-llm/ax/commit/16514d982f49a5448da6d6fdd0b07d642d42bed7))
+
 ## [25.0.0](https://github.com/ax-llm/ax/compare/24.0.24...25.0.0) (2026-09-30)
 
 ### ⚠ BREAKING CHANGES
