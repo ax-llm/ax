@@ -155,11 +155,12 @@ describe('AxAIBedrock Converse capabilities', () => {
     });
   });
 
-  it('advertises GPT-6 Sol, Luna, and Astra tools, images, and reasoning', () => {
+  it('advertises GPT-6 and GPT-6.1 Sol tools, images, and reasoning', () => {
     for (const model of [
       AxAIBedrockModel.Gpt6Sol,
       AxAIBedrockModel.Gpt6Luna,
       AxAIBedrockModel.Gpt6Astra,
+      AxAIBedrockModel.Gpt61Sol,
     ]) {
       expect(createAI(model).getFeatures(model)).toMatchObject({
         functions: true,
@@ -387,9 +388,15 @@ describe('AxAIBedrock Converse request mapping', () => {
       { thinkingTokenBudget: 'minimal' },
       { temperature: 0.3 }
     );
+    await chatWith(
+      AxAIBedrockModel.Gpt61Sol,
+      { thinkingTokenBudget: 'high' },
+      { temperature: 0.3, topP: 0.9 }
+    );
     await chatWith(AxAIBedrockModel.GptOss120B);
 
     expect(sent.map((r) => r.inferenceConfig)).toEqual([
+      { maxTokens: 4096 },
       { maxTokens: 4096 },
       { maxTokens: 4096 },
       { maxTokens: 4096 },
@@ -403,20 +410,26 @@ describe('AxAIBedrock Converse request mapping', () => {
       { reasoning: { effort: 'low' } },
       { reasoning: { effort: 'max' } },
       { reasoning: { effort: 'low' } },
+      { reasoning: { effort: 'high' } },
       undefined,
     ]);
   });
 
-  it('rejects disabling GPT-6 Astra reasoning', async () => {
-    await expect(
-      getImpl(createAI(AxAIBedrockModel.Gpt6Astra)).createChatReq(
-        {
-          model: AxAIBedrockModel.Gpt6Astra,
-          chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
-        },
-        { thinkingTokenBudget: 'none' }
-      )
-    ).rejects.toThrow('Reasoning cannot be disabled');
+  it('rejects disabling GPT-6 Astra and GPT-6.1 Sol reasoning', async () => {
+    for (const model of [
+      AxAIBedrockModel.Gpt6Astra,
+      AxAIBedrockModel.Gpt61Sol,
+    ]) {
+      await expect(
+        getImpl(createAI(model)).createChatReq(
+          {
+            model,
+            chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
+          },
+          { thinkingTokenBudget: 'none' }
+        )
+      ).rejects.toThrow('Reasoning cannot be disabled');
+    }
   });
 
   it('rejects disabling Sonnet 5 adaptive thinking', async () => {
@@ -447,39 +460,49 @@ describe('AxAIBedrock Converse request mapping', () => {
     });
   });
 
-  it('rejects disabling Opus 5.5 adaptive thinking', async () => {
-    await expect(
-      getImpl(createAI(AxAIBedrockModel.ClaudeOpus55)).createChatReq(
-        {
-          model: AxAIBedrockModel.ClaudeOpus55,
-          chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
-        },
-        { thinkingTokenBudget: 'none' }
-      )
-    ).rejects.toThrow('Adaptive thinking cannot be disabled');
+  it('rejects disabling Opus 5.5 and Sonnet 5.5 adaptive thinking', async () => {
+    for (const model of [
+      AxAIBedrockModel.ClaudeOpus55,
+      AxAIBedrockModel.ClaudeSonnet55,
+    ]) {
+      await expect(
+        getImpl(createAI(model)).createChatReq(
+          {
+            model,
+            chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
+          },
+          { thinkingTokenBudget: 'none' }
+        )
+      ).rejects.toThrow('Adaptive thinking cannot be disabled');
+    }
   });
 
-  it('keeps Opus 5.5 structured output off forced tool choice', async () => {
-    const ai = createAI(AxAIBedrockModel.ClaudeOpus55);
-    expect(ai.getFeatures(AxAIBedrockModel.ClaudeOpus55)).toMatchObject({
-      functions: true,
-      structuredOutputs: false,
-      structuredOutputModes: ['json_object'],
-    });
+  it('keeps Opus 5.5 and Sonnet 5.5 structured output off forced tool choice', async () => {
+    for (const model of [
+      AxAIBedrockModel.ClaudeOpus55,
+      AxAIBedrockModel.ClaudeSonnet55,
+    ]) {
+      const ai = createAI(model);
+      expect(ai.getFeatures(model)).toMatchObject({
+        functions: true,
+        structuredOutputs: false,
+        structuredOutputModes: ['json_object'],
+      });
 
-    const [, request] = await getImpl(ai).createChatReq({
-      model: AxAIBedrockModel.ClaudeOpus55,
-      chatPrompt: [{ role: 'user', content: 'Return JSON.' }],
-      responseFormat: { type: 'json_object' },
-      modelConfig: { temperature: 0.2, topP: 0.9 },
-    });
+      const [, request] = await getImpl(ai).createChatReq({
+        model,
+        chatPrompt: [{ role: 'user', content: 'Return JSON.' }],
+        responseFormat: { type: 'json_object' },
+        modelConfig: { temperature: 0.2, topP: 0.9 },
+      });
 
-    expect(request.toolConfig).toBeUndefined();
-    expect(request.outputConfig).toBeUndefined();
-    expect(request.inferenceConfig).toEqual({ maxTokens: 4096 });
-    expect(request.additionalModelRequestFields).toEqual({
-      thinking: { type: 'adaptive' },
-    });
+      expect(request.toolConfig).toBeUndefined();
+      expect(request.outputConfig).toBeUndefined();
+      expect(request.inferenceConfig).toEqual({ maxTokens: 4096 });
+      expect(request.additionalModelRequestFields).toEqual({
+        thinking: { type: 'adaptive' },
+      });
+    }
   });
 
   it('rejects unsupported cache TTLs and service tiers', async () => {
