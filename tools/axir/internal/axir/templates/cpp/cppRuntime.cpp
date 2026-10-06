@@ -5350,6 +5350,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
     return realtime_chat(request, nullptr);
   }
   Value payload = Core::provider_build_chat_request(profile_, request, options);
+  Value response_context = Core::provider_response_context(payload, Core::get(request, "model_config", Value::object()), options);
   bool stream = Core::truthy(Core::get(
       payload,
       "stream",
@@ -5378,7 +5379,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
       Value state = Value::object();
       Value results = Value::array();
       for (const auto& event : events) {
-        Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, model, payload));
+        Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, model, response_context));
       }
       return Value(Object{{"results", results}});
     }
@@ -5387,7 +5388,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : payload);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
@@ -5533,6 +5534,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
         return final;
       }
       Value payload = Core::provider_build_chat_request(profile_, req, merged_options);
+      Value response_context = Core::provider_response_context(payload, Core::get(req, "model_config", Value::object()), merged_options);
       Value retry_cfg = Core::resolve_stream_retry(merged_options);
       int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
       double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
@@ -5568,7 +5570,7 @@ void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler,
           }
           Value normalized;
           try {
-            normalized = Core::provider_normalize_stream_delta(profile_, event, state, name_, model, payload);
+            normalized = Core::provider_normalize_stream_delta(profile_, event, state, name_, model, response_context);
           } catch (const AxError&) {
             provider_error = true;
             throw;

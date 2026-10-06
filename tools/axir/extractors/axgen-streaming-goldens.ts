@@ -110,6 +110,8 @@ function tsResult(result: JsonMap): AxChatResponse['results'][number] {
   const out: Record<string, unknown> = { index: result.index ?? 0 };
   if (result.content !== undefined) out.content = result.content;
   if (result.thought !== undefined) out.thought = result.thought;
+  if (result.thought_blocks !== undefined)
+    out.thoughtBlocks = clone(result.thought_blocks);
   if (result.function_calls !== undefined)
     out.functionCalls = clone(result.function_calls);
   if (result.finish_reason !== undefined)
@@ -502,6 +504,7 @@ type Case = {
   // Pin the tool results the last request sent back, each as a JSON string
   // literal, which every runner's JSON text of the request must contain.
   pin_function_results?: boolean;
+  pin_thought_replay?: boolean;
   call_function_result_formatter?: { text?: string; throws?: string };
 };
 
@@ -730,6 +733,32 @@ async function record(name: string, spec: Case): Promise<void> {
     fixture.expected_request_roles = (prompts() as JsonMap[][]).map((prompt) =>
       prompt.map((message) => message.role as Json)
     );
+  }
+  if (spec.pin_thought_replay) {
+    const assistant = (prompts().at(-1) as any[]).find(
+      (message) => message.role === 'assistant' && message.thoughtBlocks
+    );
+    if (!assistant || assistant.thought !== undefined)
+      throw new Error(`${name}: missing hidden replay`);
+    fixture.expected_memory_history_subset = [
+      {
+        role: 'assistant',
+        response: { thought_blocks: clone(assistant.thoughtBlocks) },
+      },
+    ];
+    fixture.expected_request_contains = [
+      'Plan.',
+      'signed-plan',
+      'opaque-one',
+      'opaque-two',
+      'Next.',
+      'signed-next',
+    ];
+    fixture.expected_request_not_contains = [
+      'opaque-oneopaque-two',
+      'opaque-twoNext.',
+      '"thought":',
+    ];
   }
   if (spec.pin_function_results) {
     const last = (prompts().at(-1) ?? []) as { role?: string; result?: Json }[];
@@ -1390,6 +1419,37 @@ const cases: Record<string, Case> = {
         text(`${'\u{1F600}'.repeat(10)}"}}`),
         done()
       ),
+    ],
+  },
+
+  'forward-stream-hidden-signed-and-opaque-replay': {
+    kind: 'forward',
+    signature: 'question:string -> answer:string',
+    forward_options: { stream: true },
+    tools: [lookupTool],
+    pin_thought_replay: true,
+    responses: [
+      streamed(
+        chunk({ thought_blocks: [{ data: 'Plan', encrypted: false }] }),
+        chunk({ thought_blocks: [{ data: '.', encrypted: false }] }),
+        chunk({
+          thought_blocks: [
+            { data: '', encrypted: false, signature: 'signed-plan' },
+          ],
+        }),
+        chunk({ thought_blocks: [{ data: 'opaque-one', encrypted: true }] }),
+        chunk({ thought_blocks: [{ data: 'opaque-two', encrypted: true }] }),
+        chunk({
+          thought_blocks: [
+            { data: 'Next.', encrypted: false, signature: 'signed-next' },
+          ],
+        }),
+        chunk({
+          function_calls: [call('replay-call', 'lookup', '{"key":"state"}')],
+          finish_reason: 'function_call',
+        })
+      ),
+      streamed(text('Answer: green'), done()),
     ],
   },
 

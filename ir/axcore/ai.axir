@@ -844,13 +844,45 @@ module @ax.ai version "0.1" {
           }
           core.if %found {
           } else {
-            core.append %updated, %item
+            %is_image = core.call intrinsic.eq(%field, "images")
+            %has_encrypted_flag = core.call intrinsic.map.contains(%item, "encrypted")
+            %no_id = core.call intrinsic.not(%has_id)
+            %legacy_thought = core.call intrinsic.and(%has_encrypted_flag, %no_id)
+            %not_image = core.call intrinsic.not(%is_image)
+            %legacy_thought = core.call intrinsic.and(%legacy_thought, %not_image)
+            core.if %legacy_thought {
+              %delta = core.list
+              core.append %delta, %item
+              core.call @ai_append_thought_deltas_impl(%updated, %delta)
+            } else {
+              core.append %updated, %item
+            }
           }
           %merged = core.let %updated
         }
         %has_items = core.call intrinsic.truthy(%merged)
         core.if %has_items {
           core.set %out[%field] = %merged
+        }
+      }
+      %thought = core.get %out["thought"]
+      %show_thought = core.type_is %thought type "string"
+      core.if %show_thought {
+        %snake_blocks = core.get %out["thought_blocks"] default %empty
+        %display_blocks = core.get %out["thoughtBlocks"] default %snake_blocks
+        %has_display_blocks = core.call intrinsic.truthy(%display_blocks)
+        core.if %has_display_blocks {
+          %visible_parts = core.list
+          core.for %block in %display_blocks {
+            %encrypted = core.get %block["encrypted"] default false
+            %visible = core.call intrinsic.not(%encrypted)
+            core.if %visible {
+              %data = core.get %block["data"] default ""
+              core.append %visible_parts, %data
+            }
+          }
+          %visible_text = core.call intrinsic.string.join("", %visible_parts)
+          core.set %out["thought"] = %visible_text
         }
       }
       %results = core.get %incoming["results"]
@@ -1300,6 +1332,59 @@ module @ax.ai version "0.1" {
     }
   }
 
+  op ax.ai.semantic @ai_append_thought_deltas_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/mem/memory.ts"
+    type signature = "(list<json>, list<json>) -> void"
+    body @entry(%existing: list<json>, %incoming: list<json>) {
+      core.for %block in %incoming {
+        %empty = core.map
+        %copy = core.call intrinsic.map.merge(%block, %empty)
+        %encrypted = core.get %block["encrypted"] default false
+        %signature = core.get %block["signature"] default ""
+        %has_signature = core.call intrinsic.truthy(%signature)
+        %without_signature = core.call intrinsic.not(%has_signature)
+        %opaque = core.call intrinsic.and(%encrypted, %without_signature)
+        // Opaque blocks are complete, independent replay payloads.
+        core.if %opaque {
+          core.append %existing, %copy
+          core.continue
+        }
+        %count = core.call intrinsic.len(%existing)
+        %last_index = core.call intrinsic.add(%count, -1)
+        %last = core.call intrinsic.list.get(%existing, %last_index, %empty)
+        %last_signature = core.get %last["signature"] default ""
+        %last_open = core.call intrinsic.not(%last_signature)
+        %last_encrypted = core.get %last["encrypted"] default false
+        %same_kind = core.call intrinsic.eq(%last_encrypted, %encrypted)
+        %has_last = core.call intrinsic.gt(%count, 0)
+        %legacy = core.call intrinsic.map.contains(%block, "encrypted")
+        %id = core.get %block["id"] default ""
+        %phase = core.get %block["phase"] default ""
+        %identified = core.call intrinsic.or(%id, %phase)
+        %unidentified = core.call intrinsic.not(%identified)
+        %merge = core.call intrinsic.and(%has_last, %last_open)
+        %merge = core.call intrinsic.and(%merge, %same_kind)
+        %merge = core.call intrinsic.and(%merge, %legacy)
+        %merge = core.call intrinsic.and(%merge, %unidentified)
+        core.if %merge {
+          %old_data = core.get %last["data"] default ""
+          %data = core.get %block["data"] default ""
+          %joined = core.call intrinsic.add(%old_data, %data)
+          core.set %last["data"] = %joined
+          core.if %has_signature {
+            core.set %last["signature"] = %signature
+          }
+        } else {
+          core.append %existing, %copy
+        }
+      }
+      core.return
+    }
+  }
+
   op ax.ai.semantic @fold_chat_stream_chunk_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -1327,10 +1412,23 @@ module @ax.ai version "0.1" {
       core.if %blocks_list {
         %empty_blocks = core.list
         %target_blocks = core.get %target["thought_blocks"] default %empty_blocks
-        core.for %block in %blocks {
-          core.append %target_blocks, %block
-        }
+        core.call @ai_append_thought_deltas_impl(%target_blocks, %blocks)
         core.set %target["thought_blocks"] = %target_blocks
+        %display = core.get %target["thought"]
+        %display_text = core.type_is %display type "string"
+        core.if %display_text {
+          %visible_parts = core.list
+          core.for %block in %target_blocks {
+            %encrypted = core.get %block["encrypted"] default false
+            %visible = core.call intrinsic.not(%encrypted)
+            core.if %visible {
+              %data = core.get %block["data"] default ""
+              core.append %visible_parts, %data
+            }
+          }
+          %visible_text = core.call intrinsic.string.join("", %visible_parts)
+          core.set %target["thought"] = %visible_text
+        }
       }
       %empty_deltas = core.list
       %deltas_snake = core.get %chunk["function_calls"] default %empty_deltas

@@ -1,0 +1,199 @@
+{
+  "expected_memory_history_subset": [
+    {
+      "response": {
+        "thought_blocks": [
+          {
+            "data": "Plan.",
+            "encrypted": false,
+            "signature": "signed-plan"
+          },
+          {
+            "data": "opaque-one",
+            "encrypted": true
+          },
+          {
+            "data": "opaque-two",
+            "encrypted": true
+          },
+          {
+            "data": "Next.",
+            "encrypted": false,
+            "signature": "signed-next"
+          }
+        ]
+      },
+      "role": "assistant"
+    }
+  ],
+  "expected_output": {
+    "answer": "green"
+  },
+  "expected_request_contains": [
+    "Plan.",
+    "signed-plan",
+    "opaque-one",
+    "opaque-two",
+    "Next.",
+    "signed-next"
+  ],
+  "expected_request_count": 2,
+  "expected_request_not_contains": [
+    "opaque-oneopaque-two",
+    "opaque-twoNext.",
+    "\"thought\":"
+  ],
+  "expected_tool_calls": [
+    {
+      "args": {
+        "key": "state"
+      },
+      "name": "lookup"
+    }
+  ],
+  "forward_options": {
+    "stream": true
+  },
+  "input": {
+    "question": "Status?"
+  },
+  "kind": "forward",
+  "name": "forward-stream-hidden-signed-and-opaque-replay",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought_blocks": [
+                {
+                  "data": "Plan",
+                  "encrypted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought_blocks": [
+                {
+                  "data": ".",
+                  "encrypted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought_blocks": [
+                {
+                  "data": "",
+                  "encrypted": false,
+                  "signature": "signed-plan"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought_blocks": [
+                {
+                  "data": "opaque-one",
+                  "encrypted": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought_blocks": [
+                {
+                  "data": "opaque-two",
+                  "encrypted": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "thought_blocks": [
+                {
+                  "data": "Next.",
+                  "encrypted": false,
+                  "signature": "signed-next"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "function_call",
+              "function_calls": [
+                {
+                  "function": {
+                    "name": "lookup",
+                    "params": "{\"key\":\"state\"}"
+                  },
+                  "id": "replay-call",
+                  "type": "function"
+                }
+              ],
+              "index": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "Answer: green",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "description": "Look up a key",
+      "name": "lookup",
+      "result": "status is green"
+    }
+  ]
+}

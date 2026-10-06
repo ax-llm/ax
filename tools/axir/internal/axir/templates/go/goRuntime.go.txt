@@ -4553,13 +4553,13 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 			c.setLastChat(model, config)
 			transportReq := c.requestJSON(ctx, "chat", req, false, mergedOptions)
 			if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
-                return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
+                return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), config, mergedOptions)))
 			}
 			body, err := c.retriedTransportCall(ctx, transportReq, func() Value { return c.requestJSON(ctx, "chat", req, false, mergedOptions) }, mergedOptions)
 			if err != nil {
 				panic(err)
 			}
-            return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), mergedOptions)))
+            return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model, c.responseContext(coreGet(transportReq, "json", Object()), config, mergedOptions)))
 		})
 	}
 	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
@@ -4587,9 +4587,9 @@ func (c *OpenAICompatibleClient) ValidateChatRequest(request map[string]Value) e
     return err
 }
 
-func (c *OpenAICompatibleClient) responseContext(payload Value, options map[string]Value) Value {
+func (c *OpenAICompatibleClient) responseContext(payload Value, config Value, options map[string]Value) Value {
     if c.Profile == "typesafe" { return mustCore(typesafe_response_context(payload, options)) }
-    return payload
+    return mustCore(provider_response_context(payload, config, options))
 }
 
 func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request map[string]Value, options map[string]Value, model Value, fullCall Value) (Value, bool) {
@@ -5043,7 +5043,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 				}
 				state := Object()
 				first, normalizeErr := safeValue(func() Value {
-                    return mustCore(provider_normalize_stream_delta(c.Profile, firstRaw, state, c.Name, model, coreGet(transportReq, "json", Object())))
+                    return mustCore(provider_normalize_stream_delta(c.Profile, firstRaw, state, c.Name, model, mustCore(provider_response_context(coreGet(transportReq, "json", Object()), coreGet(prepared, "model_config", Object()), realtimeOptions))))
 				})
 				if normalizeErr != nil {
 					_ = raw.Close()
@@ -5064,7 +5064,7 @@ func (c *OpenAICompatibleClient) StreamEvents(ctx context.Context, request map[s
 						}
 						return nil, AxError{Category: "response", Type: "AxAIServiceStreamTerminatedError", Message: eventErr.Error(), Retryable: true}
 					}
-                    value, normalizeErr := safeValue(func() Value { return mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model, coreGet(transportReq, "json", Object()))) })
+                    value, normalizeErr := safeValue(func() Value { return mustCore(provider_normalize_stream_delta(c.Profile, event, state, c.Name, model, mustCore(provider_response_context(coreGet(transportReq, "json", Object()), coreGet(prepared, "model_config", Object()), realtimeOptions)))) })
 					if normalizeErr != nil {
 						return nil, normalizeErr
 					}
