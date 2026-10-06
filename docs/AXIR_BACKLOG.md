@@ -28,7 +28,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Source PR: #814
   - Source commit: `439d654e5bdc75440523aa6d6a0773b16d571776`
   - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.test.ts`, `src/ax/ai/anthropic/info.ts`, `src/ax/ai/anthropic/types.ts`
-  - Impact: Generated languages lack Claude Sonnet 5.5: its catalog/pricing entry and provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), and the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family.
+  - Impact: Claude Sonnet 5.5 catalog/pricing data and catalog conformance fixtures have been refreshed. The remaining generated-language port covers its provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), and the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
