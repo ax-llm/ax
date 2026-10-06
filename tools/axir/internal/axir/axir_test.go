@@ -3343,10 +3343,10 @@ class Scripted(AxBaseAI):
     def _chat(self, request, options):
         self.calls += 1
         if self.calls == 1:
-            return {'results': [{'index': 0, 'content': '', 'function_calls': [{'id': 'c1', 'function': {'name': 'search', 'params': {'query': 'q'}}}]}]}
+            return {'results': [{'index': 0, 'content': '', 'function_calls': [{'id': 'c1', 'type': 'function', 'function': {'name': 'search', 'params': {'query': 'q'}}}]}]}
         if self.calls == 2:
-            return {'results': [{'index': 0, 'content': '{}'}]}
-        return {'results': [{'index': 0, 'content': '{"answer": "done"}'}]}
+            return {'results': [{'index': 0, 'content': 'Answer: '}]}
+        return {'results': [{'index': 0, 'content': 'Answer: done'}]}
     def _embed(self, request, options):
         return {'embeddings': [[0.0]], 'model_usage': {'ai': 'scripted'}}
     def transcribe(self, request, options=None):
@@ -3355,8 +3355,10 @@ class Scripted(AxBaseAI):
         return {'audio': 'scripted-audio'}
 
 gen = ax('query:string -> answer:string', {'functions': [search], 'validation_retries': 2})
-out = gen.forward(Scripted(), {'query': 'q'})
+scripted = Scripted()
+out = gen.forward(scripted, {'query': 'q'})
 assert out == {'answer': 'done'}, out
+assert scripted.calls == 3, scripted.calls
 
 class AgentScripted(AxBaseAI):
     def __init__(self):
@@ -3365,10 +3367,10 @@ class AgentScripted(AxBaseAI):
     def _chat(self, request, options):
         self.calls += 1
         if self.calls == 1:
-            return {'results': [{'index': 0, 'content': '{"completion":{"type":"final","args":["Answer",{}]}}'}]}
+            return {'results': [{'index': 0, 'content': 'Completion: {"type":"final","args":["Answer",{}]}'}]}
         if self.calls == 2:
-            return {'results': [{'index': 0, 'content': '{"completion":{"type":"final","args":["Answer",{"answer":"done"}]}}'}]}
-        return {'results': [{'index': 0, 'content': '{"answer": "done"}'}]}
+            return {'results': [{'index': 0, 'content': 'Completion: {"type":"final","args":["Answer",{"answer":"done"}]}'}]}
+        return {'results': [{'index': 0, 'content': 'Answer: done'}]}
     def _embed(self, request, options):
         return {'embeddings': [[0.0]], 'model_usage': {'ai': 'agent-scripted'}}
     def transcribe(self, request, options=None):
@@ -3376,32 +3378,32 @@ class AgentScripted(AxBaseAI):
     def speak(self, request, options=None):
         return {'audio': 'scripted-audio'}
 
-ag = agent('question:string -> answer:string', {'contextFields': []})
+ag = agent('question:string -> answer:string', {'contextFields': [], 'actorMode': 'completion'})
 agent_out = ag.forward(AgentScripted(), {'question': 'q'})
 assert agent_out == {'answer': 'done'}, agent_out
 assert len(ag.get_chat_log()) == 3
 
-service = ai('openai', api_key='test', transport=lambda req: {
+service = ai('openai', model='gpt-6-luna', api_key='test', transport=lambda req: {
     'status': 200,
     'json': {
         'id': 'chatcmpl_smoke',
-        'model': 'gpt-4.1-mini',
-        'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {'content': 'ok'}}],
+        'model': 'gpt-6-luna',
+        'output': [{'id': 'm1', 'type': 'message', 'content': [{'type': 'output_text', 'text': 'ok'}]}],
     },
 })
 assert isinstance(service, OpenAICompatibleClient)
 chat = service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert chat['results'][0]['content'] == 'ok', chat
-assert service.get_last_used_chat_model() == 'gpt-5-mini'
-responses_service = ai('openai-responses', api_key='test', transport=lambda req: {
+assert service.get_last_used_chat_model() == 'gpt-6-luna'
+responses_service = ai('openai-responses', model='gpt-6-luna', api_key='test', transport=lambda req: {
     'status': 200,
-    'json': {'id': 'resp_smoke', 'model': 'gpt-4o', 'output': [{'id': 'm1', 'type': 'message', 'content': [{'type': 'output_text', 'text': 'ok'}]}]},
+    'json': {'id': 'resp_smoke', 'model': 'gpt-6-luna', 'output': [{'id': 'm1', 'type': 'message', 'content': [{'type': 'output_text', 'text': 'ok'}]}]},
 })
 assert isinstance(responses_service, OpenAIResponsesClient)
 responses_chat = responses_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert responses_chat['results'][0]['content'] == 'ok', responses_chat
 gemini_requests = []
-gemini_service = ai('google-gemini', api_key='test', transport=lambda req: (
+gemini_service = ai('google-gemini', model='gemini-3.8-flash', api_key='test', transport=lambda req: (
     gemini_requests.append(req) or {
         'status': 200,
         'json': {'responseId': 'gem_smoke', 'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': 'ok'}]}}]},
@@ -3410,13 +3412,13 @@ gemini_service = ai('google-gemini', api_key='test', transport=lambda req: (
 assert isinstance(gemini_service, GoogleGeminiClient)
 gemini_chat = gemini_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert gemini_chat['results'][0]['content'] == 'ok', gemini_chat
-assert gemini_requests[0]['url'].endswith('/models/gemini-3.6-flash:generateContent'), gemini_requests[0]
+assert gemini_requests[0]['url'].endswith('/models/gemini-3.8-flash:generateContent'), gemini_requests[0]
 assert gemini_requests[0]['headers']['x-goog-api-key'] == 'test', gemini_requests[0]
 anthropic_requests = []
-anthropic_service = ai('anthropic', api_key='test', transport=lambda req: (
+anthropic_service = ai('anthropic', model='claude-sonnet-5-5', api_key='test', transport=lambda req: (
     anthropic_requests.append(req) or {
         'status': 200,
-        'json': {'id': 'msg_smoke', 'model': 'claude-3-7-sonnet-latest', 'content': [{'type': 'text', 'text': 'ok'}], 'stop_reason': 'end_turn'},
+        'json': {'id': 'msg_smoke', 'model': 'claude-sonnet-5-5', 'content': [{'type': 'text', 'text': 'ok'}], 'stop_reason': 'end_turn'},
     }
 ))
 assert isinstance(anthropic_service, AnthropicClient)
@@ -4421,7 +4423,7 @@ import java.util.*;
 public class Smoke {
   static final class Scripted implements AiClient {
     public Map<String, Object> complete(Map<String, Object> request) {
-      return Map.of("content", "{\"answer\":\"Paris\"}");
+      return Map.of("content", "Answer: Paris");
     }
   }
   public static void main(String[] args) throws Exception {
@@ -4433,12 +4435,12 @@ public class Smoke {
       int calls = 0;
       public Map<String, Object> complete(Map<String, Object> request) {
         calls++;
-        if (calls == 1) return Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}");
-        if (calls == 2) return Map.of("content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}");
-        return Map.of("content", "{\"answer\":\"Paris\"}");
+        if (calls == 1) return Map.of("content", "Completion: {\"type\":\"final\",\"args\":[\"Answer\",{}]}");
+        if (calls == 2) return Map.of("content", "Completion: {\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}");
+        return Map.of("content", "Answer: Paris");
       }
     }
-    AxAgent agent = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of()));
+    AxAgent agent = Ax.agent("question:string -> answer:string", Map.of("contextFields", List.of(), "actorMode", "completion"));
     Map<String, Object> agentOut = agent.forward(new AgentScripted(), Map.of("question", "Capital?"));
     if (!"Paris".equals(agentOut.get("answer"))) throw new RuntimeException("bad agent output: " + agentOut);
     System.out.println("java-ok");
@@ -4667,7 +4669,7 @@ int main() {
   if (!axllm::Core::truthy(messages) || !axllm::Core::truthy(schema)) return 1;
   struct ScriptedClient : axllm::AIClient {
     axllm::Value complete(axllm::Value) override {
-      return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
+      return axllm::object({{"content", "Answer: Paris"}});
     }
   } client;
   auto qa = axllm::ax("question:string -> answer:string");
@@ -4677,15 +4679,15 @@ int main() {
     int calls = 0;
     axllm::Value complete(axllm::Value) override {
       ++calls;
-      if (calls == 1) return axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"}});
-      if (calls == 2) return axllm::object({{"content", "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}}"}});
-      return axllm::object({{"content", "{\"answer\":\"Paris\"}"}});
+      if (calls == 1) return axllm::object({{"content", "Completion: {\"type\":\"final\",\"args\":[\"Answer\",{}]}"}});
+      if (calls == 2) return axllm::object({{"content", "Completion: {\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"Paris\"}]}"}});
+      return axllm::object({{"content", "Answer: Paris"}});
     }
   } agent_client;
-  auto ag = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}}));
+  auto ag = axllm::agent("question:string -> answer:string", axllm::object({{"contextFields", axllm::array({})}, {"actorMode", "completion"}}));
   axllm::Value agent_out = ag.forward(agent_client, axllm::object({{"question", "Capital?"}}));
   if (!axllm::equal(axllm::Core::get(agent_out, "answer"), "Paris")) return 3;
-  auto service = axllm::ai("openai", axllm::object({{"model", "gpt-4.1-mini"}, {"api_key", "test-key"}}));
+  auto service = axllm::ai("openai", axllm::object({{"model", "gpt-6-luna"}, {"api_key", "test-key"}}));
   (void)service;
   std::cout << "cpp-ok\n";
 }
