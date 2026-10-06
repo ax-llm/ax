@@ -174,15 +174,19 @@ import { ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
 const gemini = ai({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY!,
-  config: { model: 'simple' },
+  config: { model: AxAIGoogleGeminiModel.Gemini38Flash },
   models: [
-    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024 } },
+    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', modelConfig: { maxTokens: 1024 } },
     { key: 'simple', model: AxAIGoogleGeminiModel.Gemini38Flash, description: 'Balanced' },
   ],
 });
 
 await gemini.chat({ model: 'tiny', chatPrompt: [{ role: 'user', content: 'Hi' }] });
 ```
+
+`config.model` names the provider's default model. Use preset keys such as
+`'tiny'` or `'simple'` in per-call `model` overrides; preset settings belong in
+`modelConfig`.
 
 ## Model Catalog
 
@@ -326,6 +330,7 @@ const res = await llm.chat({
     { role: 'user', content: 'Write a haiku about the ocean.' },
   ],
 });
+if (!('results' in res)) throw new Error('Expected a non-streaming chat response');
 console.log(res.results[0]?.content);
 ```
 
@@ -463,8 +468,10 @@ Anthropic and Gemini, and `temperature: 0.7` with `topP: 1` for
   shape; `presencePenalty` is never sent to Gemini and is warned about.
 
 ```typescript
-const llm = ai({ name: 'openai', apiKey, config: { model: 'gpt-5.6-luna' } });
-// GPT-5.6 takes temperature with reasoning off, so this one is sent.
+import { ai, AxAIOpenAIModel } from '@ax-llm/ax';
+
+const llm = ai({ name: 'openai', apiKey, config: { model: AxAIOpenAIModel.GPT6Luna } });
+// GPT-6 Luna takes temperature with reasoning off, so this one is sent.
 await gen.forward(llm, values, {
   thinkingTokenBudget: 'none',
   modelConfig: { temperature: 0.2 },
@@ -606,13 +613,14 @@ import { ai, AxAIAnthropicModel } from '@ax-llm/ax';
 const claude = ai({
   name: 'anthropic',
   apiKey: process.env.ANTHROPIC_APIKEY!,
-  config: { model: AxAIAnthropicModel.Claude48Opus },
+  config: { model: AxAIAnthropicModel.Claude55Opus },
 });
 
 const res = await claude.chat(
   { chatPrompt: [{ role: 'user', content: 'Solve step by step...' }] },
   { thinkingTokenBudget: 'medium', showThoughts: true },
 );
+if (!('results' in res)) throw new Error('Expected a non-streaming chat response');
 console.log(res.results[0]?.thought);
 console.log(res.results[0]?.content);
 ```

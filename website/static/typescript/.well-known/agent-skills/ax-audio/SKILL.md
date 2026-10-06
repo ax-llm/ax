@@ -165,6 +165,7 @@ const res = await llm.chat({
   },
 });
 
+if (!('results' in res)) throw new Error('Expected a non-streaming chat response');
 console.log(res.results[0]?.content);
 console.log(res.results[0]?.audio?.data);
 console.log(res.results[0]?.audio?.transcript);
@@ -243,6 +244,7 @@ const res = await openai.chat({
   ],
 });
 
+if (!('results' in res)) throw new Error('Expected a non-streaming chat response');
 console.log(res.results[0]?.content);
 console.log(res.results[0]?.audio?.data);
 ```
@@ -340,6 +342,7 @@ const res = await gemini.chat({
   ],
 });
 
+if (!('results' in res)) throw new Error('Expected a non-streaming chat response');
 console.log(res.results[0]?.content);
 console.log(res.results[0]?.audio?.data);
 ```
@@ -379,6 +382,7 @@ const res = await grok.chat(
   { webSocket: WebSocket }
 );
 
+if (!('results' in res)) throw new Error('Expected a non-streaming chat response');
 console.log(res.results[0]?.content);
 console.log(res.results[0]?.audio?.data);
 ```
