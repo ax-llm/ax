@@ -6061,6 +6061,93 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-sonnet-5-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native"],
+              "structuredOutputs": true,
+              "temperatureOne": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-sonnet-5-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.3,
             "cacheWriteTokenCostPer1M": 3.75,
             "capabilities": {
@@ -8554,7 +8641,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 244,
+    "modelCount": 246,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
     "providerCount": 50,
