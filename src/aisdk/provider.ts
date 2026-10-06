@@ -382,6 +382,13 @@ function convertToAxChatPrompt(
                   typeof part.data === 'string'
                     ? part.data
                     : Buffer.from(part.data).toString('base64');
+                if (part.mediaType.startsWith('image/')) {
+                  return {
+                    type: 'image',
+                    image: data,
+                    mimeType: part.mediaType,
+                  };
+                }
                 return {
                   type: 'file',
                   data,
