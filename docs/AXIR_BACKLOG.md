@@ -6,15 +6,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Non-Portable Exemptions
 
+- `axagent-claim-complete-target-native-surfaces` [axagent]
+  - Reason: The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.
+  - Paths: `src/ax/agent/agentInternal/agentOptimizeTypes.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/agentInternal/agentStateTypes.ts`
+  - Tags: `claim-complete`, `target-native`, `public-inventory`
 - `chrome-ai-browser-only` [axai]
   - Reason: Chrome Built-in AI uses the browser LanguageModel JavaScript host API. The provider is TypeScript/JavaScript only and is excluded from portable AxIR catalogs and Python/Java/C++/Go/Rust packages.
   - Paths: `src/ax/ai/chrome-ai`, `src/examples/chrome-ai-chat.html`
   - Scoped files: `src/ax/ai/wrap.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/catalog.test.ts`, `src/ax/ai/wrap.test.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/skills/ax-ai.md`
   - Tags: `chrome-ai`, `browser-only`, `typescript-only`, `host-engine`
-- `axagent-claim-complete-target-native-surfaces` [axagent]
-  - Reason: The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.
-  - Paths: `src/ax/agent/agentInternal/agentOptimizeTypes.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/agentInternal/agentStateTypes.ts`
-  - Tags: `claim-complete`, `target-native`, `public-inventory`
 - `webllm-browser-only` [axai]
   - Reason: WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.
   - Paths: `src/ax/ai/webllm`, `src/examples/webllm-chat.html`
@@ -23,13 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-10-05-port-claude-sonnet-5-5-to-axir-and-the-generated-packages` [axai] Port Claude Sonnet 5.5 to AxIR and the generated packages
-  - Status: open
-  - Source PR: #814
-  - Source commit: `439d654e5bdc75440523aa6d6a0773b16d571776`
-  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.test.ts`, `src/ax/ai/anthropic/info.ts`, `src/ax/ai/anthropic/types.ts`
-  - Impact: Claude Sonnet 5.5 catalog/pricing data and catalog conformance fixtures have been refreshed. The remaining generated-language port covers its provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family, append-only mid-conversation system messages, and preservation of signed/redacted thinking blocks when display thoughts are hidden in streaming and non-streaming tool turns. The shared memory layer preserves the provider's display choice while retaining replay blocks.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1368,3 +1362,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-09-30
   - Completed by: `334b7dfdd80ec0784db9009545471a38426e8315`
   - Verification: `TypeScript multiservice tests: 13 passed. The lastEmbed fixture fails on 24.0.24 and passes on the branch. Rust public router mapped/default/unknown-key transport regression passes. All five generated-language release verifications, generated examples, real-engine checks, package freshness, workspace tests and documentation checks passed in CI on 334b7dfdd80ec0784db9009545471a38426e8315.`
+- `axir-2026-10-05-port-claude-sonnet-5-5-to-axir-and-the-generated-packages` [axai] Port Claude Sonnet 5.5 to AxIR and the generated packages
+  - Status: done
+  - Source PR: #814
+  - Source commit: `439d654e5bdc75440523aa6d6a0773b16d571776`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/api.test.ts`, `src/ax/ai/anthropic/info.ts`, `src/ax/ai/anthropic/types.ts`, `src/ax/mem/memory.ts`, `src/ax/mem/memory.test.ts`
+  - Impact: Claude Sonnet 5.5 catalog/pricing data and catalog conformance fixtures have been refreshed. The remaining generated-language port covers its provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family, append-only mid-conversation system messages, and preservation of signed/redacted thinking blocks when display thoughts are hidden in streaming and non-streaming tool turns. The shared memory layer preserves the provider's display choice while retaining replay blocks.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-06
+  - Completed by: `1deee895e830310ba6fe96d1bc6cb8e6b18b5887`
+  - Verification: `Five-language release verification: 1753 conformance fixtures per target, native tests, examples, package consumers; 19 TS-derived regression cases fail on base; 217 focused TS tests; live Sonnet 5.5 examples in Python, Java, C++, Go, Rust; package, conformance, profile, website, skill checks`

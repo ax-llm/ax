@@ -261,12 +261,12 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {
       Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
-      return Map.of("results", streamEvents(payload, modelName, cancellation(options), options));
+      return Map.of("results", streamEvents(payload, modelName, cancellation(options), options, Core.asMap(Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options))));
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
     if (raw == null) raw = requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat", activeCancellation(), options);
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : payload));
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
   }
 
   @Override public void validateChatRequest(Map<String, Object> request) {
@@ -398,14 +398,22 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   // errorOptions are the call's merged options; their includeRequestBodyInErrors
   // decides whether a provider error keeps the request body.
   protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions) throws Exception {
+    return streamEvents(payload, modelName, cancellation, errorOptions, Core.asMap(Core.provider_response_context(payload, Map.of(), errorOptions)));
+  }
+
+  protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions, Map<String, Object> responseContext) throws Exception {
     List<Map<String, Object>> out = new ArrayList<>();
-    try (AxChatStream stream = streamEventsIncremental(payload, modelName, cancellation, errorOptions)) {
+    try (AxChatStream stream = streamEventsIncremental(payload, modelName, cancellation, errorOptions, responseContext)) {
       for (Map<String, Object> event : stream) out.add(event);
     }
     return out;
   }
 
   protected AxChatStream streamEventsIncremental(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions) throws Exception {
+    return streamEventsIncremental(payload, modelName, cancellation, errorOptions, Core.asMap(Core.provider_response_context(payload, Map.of(), errorOptions)));
+  }
+
+  protected AxChatStream streamEventsIncremental(Map<String, Object> payload, Object modelName, AxCancellationToken cancellation, Map<String, Object> errorOptions, Map<String, Object> responseContext) throws Exception {
     if(cancellation!=null)cancellation.throwIfCancelled();
     // The call's retry options, else the client's (TS: options.retry ?? this.retry).
     Map<String, Object> retryCfg = Core.asMap(Core.resolve_stream_retry(errorOptions == null ? options : errorOptions));
@@ -442,7 +450,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         }
       }
       Map<String, Object> state = new LinkedHashMap<>();
-      Map<String, Object> firstNormalized = first == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, first, state, name, modelName, payload));
+      Map<String, Object> firstNormalized = first == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, first, state, name, modelName, responseContext));
       boolean[] emitFirst = {firstNormalized != null};
       RawSseStream selectedRaw = raw;
       return new AxChatStream(
@@ -452,7 +460,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
           try {
             Object event = selectedRaw.nextEvent();
             if(cancellation!=null)cancellation.throwIfCancelled();
-            return event == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName, payload));
+            return event == null ? null : Core.asMap(Core.provider_normalize_stream_delta(profile, event, state, name, modelName, responseContext));
           } catch (AxAIServiceError error) {
             throw error;
           } catch (Exception error) {
@@ -515,7 +523,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Throwable failure = null;
     try {
       AxRequestExecutor next = () -> Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, selectedModel, req, streamOptions))
-          ? realtimeStream(req) : streamEventsIncremental(payload, modelName, cancellation, streamOptions);
+          ? realtimeStream(req) : streamEventsIncremental(payload, modelName, cancellation, streamOptions, Core.asMap(Core.provider_response_context(payload, req.getOrDefault("model_config", Map.of()), streamOptions)));
       Object raw = hooks.rateLimiter() == null
           ? next.execute()
           : hooks.rateLimiter().run(next, new AxRateLimitInfo("chat", name, selectedModel, true, lastModelUsage == null ? null : new LinkedHashMap<>(lastModelUsage)));

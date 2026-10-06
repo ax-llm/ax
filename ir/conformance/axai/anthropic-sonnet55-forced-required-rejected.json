@@ -1,0 +1,61 @@
+{
+  "expected_error_contains": "does not support explicitly forced tool choices",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "claude-sonnet-5-5",
+  "name": "anthropic-sonnet55-forced-required-rejected",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "Initial policy.",
+        "role": "system"
+      },
+      {
+        "content": "Start.",
+        "role": "user"
+      },
+      {
+        "content": "Started.",
+        "role": "assistant",
+        "thoughtBlocks": [
+          {
+            "data": "Earlier plan.",
+            "encrypted": false,
+            "signature": "earlier-signature"
+          }
+        ]
+      },
+      {
+        "cache": true,
+        "content": "Append this policy.",
+        "role": "system"
+      },
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "function_call": "required",
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": []
+}

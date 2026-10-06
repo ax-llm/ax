@@ -341,3 +341,15 @@ names, media types, cache metadata, and content order survive routing and later
 conversation turns. For providers without native file support, supply extracted
 text or a file-to-text callback, or choose a degradation, skip, or error policy.
 The router checks the selected model before preprocessing the request.
+
+### Claude Sonnet 5.5
+
+Claude Sonnet 5.5 supports native structured output and preserves later system
+messages in conversation order. Logical `none` thinking sends
+`thinking.type: between_tools`: pre-response thinking is off, while signed and
+redacted updates remain available for tool-turn replay. These updates stay
+hidden under `none` or when thoughts are disabled. Effort `xhigh` and `max` are
+rejected while thinking is off; use `high` or below, or leave thinking on.
+Omitting effort leaves the provider default in control. Explicitly forced tool
+choices are rejected. These rules apply to TypeScript and the generated Python,
+Go, Java, C++, and Rust clients.

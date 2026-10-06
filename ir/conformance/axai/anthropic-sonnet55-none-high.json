@@ -1,0 +1,171 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "tokens": {
+        "completion_tokens": 3,
+        "prompt_tokens": 2,
+        "total_tokens": 5
+      }
+    },
+    "remote_id": "msg_sonnet55",
+    "results": [
+      {
+        "content": "Done.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_sonnet55",
+        "index": 0,
+        "thought_blocks": [
+          {
+            "data": "Plan.",
+            "encrypted": false,
+            "signature": "signed-plan"
+          },
+          {
+            "data": "opaque-one",
+            "encrypted": true
+          },
+          {
+            "data": "opaque-two",
+            "encrypted": true
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["tool_choice"],
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Start.",
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "signature": "earlier-signature",
+              "thinking": "Earlier plan.",
+              "type": "thinking"
+            },
+            {
+              "text": "Started.",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "Append this policy.",
+              "type": "text"
+            }
+          ],
+          "role": "system"
+        },
+        {
+          "content": "Continue.",
+          "role": "user"
+        }
+      ],
+      "output_config": {
+        "effort": "high"
+      },
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Initial policy.",
+          "type": "text"
+        }
+      ],
+      "thinking": {
+        "type": "between_tools"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-sonnet-5-5",
+  "name": "anthropic-sonnet55-none-high",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "Initial policy.",
+        "role": "system"
+      },
+      {
+        "content": "Start.",
+        "role": "user"
+      },
+      {
+        "content": "Started.",
+        "role": "assistant",
+        "thoughtBlocks": [
+          {
+            "data": "Earlier plan.",
+            "encrypted": false,
+            "signature": "earlier-signature"
+          }
+        ]
+      },
+      {
+        "cache": true,
+        "content": "Append this policy.",
+        "role": "system"
+      },
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "effort": "high",
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "signature": "signed-plan",
+            "thinking": "Plan.",
+            "type": "thinking"
+          },
+          {
+            "data": "opaque-one",
+            "type": "redacted_thinking"
+          },
+          {
+            "data": "opaque-two",
+            "type": "redacted_thinking"
+          },
+          {
+            "text": "Done.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_sonnet55",
+        "model": "claude-sonnet-5-5",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

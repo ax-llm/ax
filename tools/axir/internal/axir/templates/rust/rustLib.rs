@@ -2579,7 +2579,7 @@ impl OpenAICompatibleClient {
         let profile = self.profile.clone();
         let response_context = if profile == "typesafe" {
             core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
-        } else { payload.clone() };
+        } else { core_value_to_json(&provider_response_context(&[core_value_from_json(&payload), core_value_from_json(&req["model_config"]), core_value_from_json(&self.options)])?) };
         let response = normalize_openai_response(&profile, &model, raw, &response_context);
         if let Ok(value) = &response {
             emit_usage_event("chat", value, &self.options, false);
@@ -2702,7 +2702,7 @@ impl OpenAICompatibleClient {
                 profile: self.profile.clone(),
                 model: model.clone(),
                 state: CoreValue::new_map(),
-                context: core_value_from_json(&payload),
+                context: provider_response_context(&[core_value_from_json(&payload), core_value_from_json(&req["model_config"]), core_value_from_json(&self.options)])?,
             };
             let first_normalized = match normalized.next() {
                 None => return Ok(AxChatStream::from_values(Vec::new())),

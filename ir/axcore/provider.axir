@@ -5065,6 +5065,9 @@ module @ax.provider version "0.1" {
           }
         }
       }
+      core.if %is_anthropic {
+        core.call @anthropic_apply_thought_visibility_impl(%response, %context)
+      }
       %response = core.call @provider_normalize_image_outputs(%response, %context, %model)
       core.return %response
     }
@@ -5111,6 +5114,9 @@ module @ax.provider version "0.1" {
         %session_events = core.call @openai_responses_session_event(%raw, %session_state, %model)
         core.set %state["session_wire"] = %session_state
         core.set %response["session_events"] = %session_events
+      }
+      core.if %is_anthropic {
+        core.call @anthropic_apply_thought_visibility_impl(%response, %context)
       }
       %response = core.call @provider_normalize_image_outputs(%response, %context, %model)
       core.return %response
@@ -9193,6 +9199,10 @@ module @ax.provider version "0.1" {
       %empty_prompt = core.list
       %prompt = core.get %request["chat_prompt"] default %empty_prompt
       %supports_mid = core.call @anthropic_keeps_mid_conversation_system_impl(%model)
+      %sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
+      %not_vertex = core.call intrinsic.not(%is_vertex)
+      %mid_allowed = core.call intrinsic.or(%not_vertex, %sonnet_55)
+      %supports_mid = core.call intrinsic.and(%supports_mid, %mid_allowed)
       %system = core.list
       %messages = core.list
       %seen_non_system = core.let false
@@ -9319,7 +9329,8 @@ module @ax.provider version "0.1" {
       %effort = core.get %model_config["effort"]
       %has_effort = core.call intrinsic.truthy(%effort)
       core.if %has_effort {
-        %output_config = core.get %payload["output_config"] default %model_config
+        %empty_effort_config = core.map
+        %output_config = core.get %payload["output_config"] default %empty_effort_config
         core.set %output_config["effort"] = %effort
         core.set %payload["output_config"] = %output_config
       }
@@ -9335,7 +9346,11 @@ module @ax.provider version "0.1" {
       %above_high = core.call intrinsic.or(%is_xhigh_effort, %is_max_effort)
       %is_opus_5 = core.regex_match %model pattern "claude-opus-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
       %disabled_opus_5 = core.call intrinsic.and(%thinking_disabled, %is_opus_5)
-      %rejected_effort = core.call intrinsic.and(%disabled_opus_5, %above_high)
+      %between_tools = core.call intrinsic.eq(%final_thinking_type, "between_tools")
+      %sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
+      %disabled_sonnet_55 = core.call intrinsic.and(%between_tools, %sonnet_55)
+      %disabled_model = core.call intrinsic.or(%disabled_opus_5, %disabled_sonnet_55)
+      %rejected_effort = core.call intrinsic.and(%disabled_model, %above_high)
       core.if %rejected_effort {
         %effort_message = core.call intrinsic.string.format("{} cannot disable thinking at effort '{}'; use effort 'high' or below, or keep thinking on", %model, %final_effort)
         %effort_error = core.call intrinsic.ai.error.unsupported(%effort_message)
@@ -9394,7 +9409,9 @@ module @ax.provider version "0.1" {
     body @entry(%model: string) {
       %is_opus_5 = core.regex_match %model pattern "claude-opus-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
       %is_sonnet_5 = core.regex_match %model pattern "claude-sonnet-5(?:$|[^0-9-]|-(?:[0-9]{3,}|[^0-9]))"
+      %is_sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
       %on_by_default = core.call intrinsic.or(%is_opus_5, %is_sonnet_5)
+      %on_by_default = core.call intrinsic.or(%on_by_default, %is_sonnet_55)
       core.return %on_by_default
     }
   }
@@ -9415,7 +9432,71 @@ module @ax.provider version "0.1" {
       %keeps = core.call intrinsic.or(%keeps, %is_opus_55)
       %keeps = core.call intrinsic.or(%keeps, %is_fable_5)
       %keeps = core.call intrinsic.or(%keeps, %is_fable_51)
+      %is_sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
+      %keeps = core.call intrinsic.or(%keeps, %is_sonnet_55)
       core.return %keeps
+    }
+  }
+
+  op ax.provider.semantic @anthropic_between_tools_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %matches = core.regex_match %model pattern "claude-sonnet-5-5(?:$|[^0-9])"
+      core.return %matches
+    }
+  }
+
+  op ax.provider.semantic @provider_response_context {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-response-display-context"
+    type signature = "(payload:json, model_config:json, options:json) -> json"
+    body @entry(%payload: json, %model_config: json, %options: json) {
+      %empty = core.map
+      %context = core.call intrinsic.map.merge(%payload, %empty)
+      %config = core.call intrinsic.map.merge(%model_config, %options)
+      %budget_snake = core.get %config["thinking_token_budget"]
+      %budget = core.get %config["thinkingTokenBudget"] default %budget_snake
+      %show_snake = core.get %config["show_thoughts"] default true
+      %show = core.get %config["showThoughts"] default %show_snake
+      %budget_none = core.call intrinsic.eq(%budget, "none")
+      %show_false = core.call intrinsic.eq(%show, false)
+      %hidden = core.call intrinsic.or(%budget_none, %show_false)
+      core.set %context["ax_hidden_thoughts"] = %hidden
+      core.return %context
+    }
+  }
+
+  op ax.provider.semantic @anthropic_apply_thought_visibility_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(json, json) -> void"
+    body @entry(%response: json, %context: json) {
+      %empty = core.map
+      %thinking = core.get %context["thinking"] default %empty
+      %kind = core.get %thinking["type"] default ""
+      %display = core.get %thinking["display"] default ""
+      %omitted = core.call intrinsic.eq(%display, "omitted")
+      %between_tools = core.call intrinsic.eq(%kind, "between_tools")
+      %disabled = core.call intrinsic.eq(%kind, "disabled")
+      %hidden = core.get %context["ax_hidden_thoughts"] default false
+      %hidden = core.call intrinsic.or(%hidden, %omitted)
+      %hidden = core.call intrinsic.or(%hidden, %between_tools)
+      %hidden = core.call intrinsic.or(%hidden, %disabled)
+      core.if %hidden {
+        %empty_results = core.list
+        %results = core.get %response["results"] default %empty_results
+        core.for %result in %results {
+          core.call intrinsic.map.delete(%result, "thought")
+        }
+      }
+      core.return
     }
   }
 
@@ -9438,6 +9519,13 @@ module @ax.provider version "0.1" {
           %low_effort = core.map
           core.set %low_effort["effort"] = "low"
           core.set %out["output_config"] = %low_effort
+          core.return %out
+        }
+        %between_tools = core.call @anthropic_between_tools_model_impl(%model)
+        core.if %between_tools {
+          %between_thinking = core.map
+          core.set %between_thinking["type"] = "between_tools"
+          core.set %out["thinking"] = %between_thinking
           core.return %out
         }
         %on_by_default = core.call @anthropic_thinking_on_by_default_impl(%model)
@@ -9518,7 +9606,19 @@ module @ax.provider version "0.1" {
       core.if %is_system {
         core.set %out["role"] = "system"
         %system_content = core.get %message["content"] default ""
-        core.set %out["content"] = %system_content
+        %system_cache = core.get %message["cache"] default false
+        core.if %system_cache {
+          %part = core.map
+          core.set %part["type"] = "text"
+          core.set %part["text"] = %system_content
+          %cache_control = core.call intrinsic.json.parse("{\"type\":\"ephemeral\"}")
+          core.set %part["cache_control"] = %cache_control
+          %parts = core.list
+          core.append %parts, %part
+          core.set %out["content"] = %parts
+        } else {
+          core.set %out["content"] = %system_content
+        }
         core.return %out
       }
       %is_function = core.call intrinsic.eq(%role, "function")
@@ -10001,6 +10101,9 @@ module @ax.provider version "0.1" {
       core.if %has_thought {
         %thought = core.call intrinsic.string.join("", %thought_parts)
         core.set %result["thought"] = %thought
+      }
+      %has_blocks = core.call intrinsic.truthy(%thought_blocks)
+      core.if %has_blocks {
         core.set %result["thought_blocks"] = %thought_blocks
       }
       %has_citations = core.call intrinsic.truthy(%citations)
@@ -10265,6 +10368,24 @@ module @ax.provider version "0.1" {
           core.set %out["remote_id"] = %remote_id
           core.return %out
         }
+        %is_redacted = core.call intrinsic.eq(%block_type, "redacted_thinking")
+        core.if %is_redacted {
+          %thought_block = core.map
+          %data = core.get %block["data"] default ""
+          core.set %thought_block["data"] = %data
+          core.set %thought_block["encrypted"] = true
+          %blocks = core.list
+          core.append %blocks, %thought_block
+          %result = core.map
+          core.set %result["index"] = %index
+          core.set %result["thought_blocks"] = %blocks
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        }
         %is_tool = core.call intrinsic.eq(%block_type, "tool_use")
         core.if %is_tool {
           %event_index = core.get %event["index"] default 0
@@ -10322,6 +10443,25 @@ module @ax.provider version "0.1" {
           %result = core.map
           core.set %result["index"] = %index
           core.set %result["thought"] = %thinking
+          core.set %result["thought_blocks"] = %blocks
+          %results = core.list
+          core.append %results, %result
+          %out = core.map
+          core.set %out["results"] = %results
+          core.set %out["remote_id"] = %remote_id
+          core.return %out
+        }
+        %is_signature = core.call intrinsic.eq(%delta_type, "signature_delta")
+        core.if %is_signature {
+          %thought_block = core.map
+          core.set %thought_block["data"] = ""
+          core.set %thought_block["encrypted"] = false
+          %signature = core.get %delta["signature"] default ""
+          core.set %thought_block["signature"] = %signature
+          %blocks = core.list
+          core.append %blocks, %thought_block
+          %result = core.map
+          core.set %result["index"] = %index
           core.set %result["thought_blocks"] = %blocks
           %results = core.list
           core.append %results, %result
@@ -11526,7 +11666,9 @@ module @ax.provider version "0.1" {
       %wire_object = core.call intrinsic.coalesce(%wire, %empty_map)
       %wire_type = core.get %wire_object["type"] default ""
       %wire_disabled = core.call intrinsic.eq(%wire_type, "disabled")
-      %wire_on = core.call intrinsic.not(%wire_disabled)
+      %wire_between = core.call intrinsic.eq(%wire_type, "between_tools")
+      %wire_off = core.call intrinsic.or(%wire_disabled, %wire_between)
+      %wire_on = core.call intrinsic.not(%wire_off)
       %thinking = core.call intrinsic.and(%has_wire, %wire_on)
       %not_thinking = core.call intrinsic.not(%thinking)
       %historical = core.call intrinsic.and(%no_wire, %not_adaptive)
