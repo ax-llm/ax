@@ -66,6 +66,10 @@ type BedrockConverseStreamEvent = {
   showThoughts: boolean;
 };
 
+type BedrockTitanEmbedBatchResponse = {
+  embeddings: number[][];
+};
+
 type CacheTtl = '5m' | '1h';
 
 const IMAGE_FORMATS: Record<string, ImageFormat> = {
@@ -336,7 +340,7 @@ class AxAIBedrockImpl
       BedrockTitanEmbedRequest,
       BedrockConverseResponse,
       BedrockConverseStreamEvent,
-      BedrockTitanEmbedResponse
+      BedrockTitanEmbedBatchResponse
     >
 {
   private clients = new Map<string, BedrockRuntimeClient>();
@@ -1099,10 +1103,11 @@ class AxAIBedrockImpl
   createEmbedReq = async (
     req: Readonly<AxBedrockEmbedRequest>
   ): Promise<[AxAPI, BedrockTitanEmbedRequest]> => {
-    if (!req.texts?.length) throw new Error('No texts provided for embedding');
+    const texts = req.texts;
+    if (!texts?.length) throw new Error('No texts provided for embedding');
 
     const embedRequest: BedrockTitanEmbedRequest = {
-      inputText: req.texts[0],
+      inputText: texts[0],
       dimensions: this.config.dimensions,
       normalize: true,
     };
@@ -1111,28 +1116,35 @@ class AxAIBedrockImpl
       localCall: async <TRequest, TResponse>(data: TRequest) => {
         const request = data as BedrockTitanEmbedRequest;
         const regions = [this.primaryRegion, ...this.fallbackRegions];
-        return (await this.invokeWithFailover(
-          req.embedModel,
-          regions,
-          async (client) => {
-            const response = await client.send(
-              new InvokeModelCommand({
-                modelId: req.embedModel,
-                body: JSON.stringify(request),
-                contentType: 'application/json',
-                accept: 'application/json',
-              })
-            );
-            return JSON.parse(new TextDecoder().decode(response.body));
-          }
-        )) as TResponse;
+        const embeddings: number[][] = [];
+        for (const inputText of texts) {
+          const response = (await this.invokeWithFailover(
+            req.embedModel,
+            regions,
+            async (client) => {
+              const response = await client.send(
+                new InvokeModelCommand({
+                  modelId: req.embedModel,
+                  body: JSON.stringify({ ...request, inputText }),
+                  contentType: 'application/json',
+                  accept: 'application/json',
+                })
+              );
+              return JSON.parse(new TextDecoder().decode(response.body));
+            }
+          )) as BedrockTitanEmbedResponse;
+          embeddings.push(response.embedding);
+        }
+        return { embeddings } as TResponse;
       },
     };
     return [apiConfig, embedRequest];
   };
 
-  createEmbedResp(resp: Readonly<BedrockTitanEmbedResponse>): AxEmbedResponse {
-    return { embeddings: [resp.embedding] };
+  createEmbedResp(
+    resp: Readonly<BedrockTitanEmbedBatchResponse>
+  ): AxEmbedResponse {
+    return { embeddings: resp.embeddings };
   }
 }
 
@@ -1143,7 +1155,7 @@ export class AxAIBedrock extends AxBaseAI<
   BedrockTitanEmbedRequest,
   BedrockConverseResponse,
   BedrockConverseStreamEvent,
-  BedrockTitanEmbedResponse,
+  BedrockTitanEmbedBatchResponse,
   string
 > {
   constructor({
