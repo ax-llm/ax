@@ -3293,7 +3293,7 @@
     },
     {
       "id": "axir-2026-10-05-port-claude-sonnet-5-5-to-axir-and-the-generated-packages",
-      "status": "open",
+      "status": "done",
       "title": "Port Claude Sonnet 5.5 to AxIR and the generated packages",
       "createdAt": "2026-10-05",
       "sourcePR": 814,
@@ -3313,12 +3313,25 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-10-06",
+      "completedByCommit": "1deee895e830310ba6fe96d1bc6cb8e6b18b5887",
+      "verification": "Five-language release verification: 1753 conformance fixtures per target, native tests, examples, package consumers; 19 TS-derived regression cases fail on base; 217 focused TS tests; live Sonnet 5.5 examples in Python, Java, C++, Go, Rust; package, conformance, profile, website, skill checks"
     }
   ],
   "nonPortableExemptions": [
+    {
+      "id": "axagent-claim-complete-target-native-surfaces",
+      "surface": "axagent",
+      "paths": [
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/agentStateTypes.ts"
+      ],
+      "scopedFiles": [],
+      "tags": ["claim-complete", "target-native", "public-inventory"],
+      "reason": "The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.",
+      "createdAt": "2026-07-22"
+    },
     {
       "id": "chrome-ai-browser-only",
       "surface": "axai",
@@ -3334,19 +3347,6 @@
       "tags": ["chrome-ai", "browser-only", "typescript-only", "host-engine"],
       "reason": "Chrome Built-in AI uses the browser LanguageModel JavaScript host API. The provider is TypeScript/JavaScript only and is excluded from portable AxIR catalogs and Python/Java/C++/Go/Rust packages.",
       "createdAt": "2026-10-04"
-    },
-    {
-      "id": "axagent-claim-complete-target-native-surfaces",
-      "surface": "axagent",
-      "paths": [
-        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
-        "src/ax/agent/agentInternal/coordinator.ts",
-        "src/ax/agent/agentInternal/agentStateTypes.ts"
-      ],
-      "scopedFiles": [],
-      "tags": ["claim-complete", "target-native", "public-inventory"],
-      "reason": "The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.",
-      "createdAt": "2026-07-22"
     },
     {
       "id": "webllm-browser-only",
