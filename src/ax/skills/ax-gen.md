@@ -46,7 +46,7 @@ const gen3 = ax('input -> output', {
   description: 'A helpful assistant',
   maxRetries: 3,
   maxSteps: 10,
-  temperature: 0.7,
+  modelConfig: { temperature: 0.7 },
 });
 
 const result = await gen.forward(llm, { input: 'Hello world' });

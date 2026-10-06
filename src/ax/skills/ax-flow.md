@@ -68,12 +68,16 @@ const wf = flow<InputType, OutputType>({ autoParallel: true, batchSize: 5 });
 
 State grows with each executed node. Results are stored as `${nodeName}Result`:
 
+In the excerpts below, `wf` is a flow instance created with `flow()`, with any
+referenced nodes and input fields already defined. The imported `flow` is the
+factory; call methods on its returned instance.
+
 ```typescript
 // Initial state: { userInput: 'Hello' }
-flow.execute('processor', (state) => ({ input: state.userInput }));
+wf.execute('processor', (state) => ({ input: state.userInput }));
 // State: { userInput: 'Hello', processorResult: { output: '...' } }
 
-flow.execute('analyzer', (state) => ({ text: state.processorResult.output }));
+wf.execute('analyzer', (state) => ({ text: state.processorResult.output }));
 // State: { ..., analyzerResult: { sentiment: '...', confidence: 0.8 } }
 ```
 
@@ -87,16 +91,16 @@ for the TypeScript integration and a two-program hybrid example.
 
 ```typescript
 // String signature (creates AxGen automatically)
-flow.node('processor', 'input:string -> output:string');
+wf.node('processor', 'input:string -> output:string');
 
 // Multiple outputs
-flow.node('analyzer', 'text:string -> sentiment:string, confidence:number');
+wf.node('analyzer', 'text:string -> sentiment:string, confidence:number');
 
 // Array outputs
-flow.node('extractor', 'documentText:string -> entities:string[]');
+wf.node('extractor', 'documentText:string -> entities:string[]');
 
 // Short alias
-flow.n('processor', 'input:string -> output:string');
+wf.n('processorAlias', 'input:string -> output:string');
 ```
 
 ### Rich Node Contracts (String Grammar)
@@ -104,7 +108,7 @@ flow.n('processor', 'input:string -> output:string');
 Node signatures accept the full extended string grammar — constraint bags, class decisions, optional fields, and nested objects (full modifier table in the ax-signature skill):
 
 ```typescript
-flow
+wf
   .node('triage', 'ticketText:string -> ticketClass:class "bug, billing, question", severityScore:number(min 1, max 5)')
   .node('draft', 'ticketText:string, ticketClass:string, severityScore:number -> replyText:string(max 400)')
   .node('audit', 'replyText:string -> approved:boolean, flaggedSpans:object{ spanText:string, reasonNote:string }[]');
@@ -121,21 +125,23 @@ Add fields to a base signature without rewriting it:
 ```typescript
 import { f, flow } from '@ax-llm/ax';
 
+const wf = flow();
+
 // Chain-of-thought reasoning
-flow.nx('reasoner', 'question:string -> answer:string', {
+wf.nx('reasoner', 'question:string -> answer:string', {
   prependOutputs: [
-    { name: 'reasoning', type: f.internal(f.string('Step-by-step reasoning')) },
+    { name: 'reasoning', type: f.string('Step-by-step reasoning').internal() },
   ],
 });
 
 // Add confidence scoring
-flow.nx('analyzer', 'input:string -> result:string', {
+wf.nx('analyzer', 'input:string -> result:string', {
   appendOutputs: [{ name: 'confidence', type: f.number('Confidence 0-1') }],
 });
 
 // Add optional context input
-flow.nx('processor', 'query:string -> response:string', {
-  appendInputs: [{ name: 'context', type: f.optional(f.string('Extra context')) }],
+wf.nx('processor', 'query:string -> response:string', {
+  appendInputs: [{ name: 'context', type: f.string('Extra context').optional() }],
 });
 ```
 
@@ -144,10 +150,10 @@ Extension options: `prependInputs`, `appendInputs`, `prependOutputs`, `appendOut
 ## Execute With Input Mapping
 
 ```typescript
-flow.execute('summarizer', (state) => ({ documentText: state.document }));
+wf.execute('summarizer', (state) => ({ documentText: state.document }));
 
 // With AI override (use a different model for this node)
-flow.execute('processor', (state) => ({ input: state.data }), { ai: alternativeAI });
+wf.execute('processor', (state) => ({ input: state.data }), { ai: alternativeAI });
 ```
 
 ## Map (State Transformation)
@@ -156,16 +162,16 @@ Use `map()` for data shaping without AI calls:
 
 ```typescript
 // Sync
-flow.map((state) => ({ ...state, upperText: state.rawText.toUpperCase() }));
+wf.map((state) => ({ ...state, upperText: state.rawText.toUpperCase() }));
 
 // Async
-flow.map(async (state) => {
+wf.map(async (state) => {
   const data = await fetchFromAPI(state.query);
   return { ...state, enrichedData: data };
 });
 
 // Parallel async transforms
-flow.map([
+wf.map([
   async (state) => ({ ...state, result1: await api1(state.data) }),
   async (state) => ({ ...state, result2: await api2(state.data) }),
 ], { parallel: true });
@@ -300,7 +306,7 @@ Rules:
 ## Explicit Parallel Sub-Flows
 
 ```typescript
-flow
+wf
   .parallel([
     (sub) => sub.execute('analyzer1', (state) => ({ text: state.input })),
     (sub) => sub.execute('analyzer2', (state) => ({ text: state.input })),
@@ -327,7 +333,9 @@ const wf = flow<{ items: string[] }, { processed: string[] }>({ batchSize: 3 })
 Route nodes to different AI providers:
 
 ```typescript
-const fast = ai({ name: 'openai', apiKey: '...', config: { model: 'gpt-5.4-mini' } });
+import { ai, flow, AxAIOpenAIModel } from '@ax-llm/ax';
+
+const fast = ai({ name: 'openai', apiKey: '...', config: { model: AxAIOpenAIModel.GPT6Luna } });
 const smart = ai({ name: 'anthropic', apiKey: '...' });
 
 const wf = flow<{ text: string }, { out: string }>()
@@ -476,8 +484,12 @@ Set `mcp`/`ucp` on the flow or a node. Sequential nodes reuse sessions; parallel
 ```typescript
 const wf = flow({ mcp: [inventory], ucp: [merchant] })
   .node('lookup', lookupProgram)
-  .node('checkout', checkoutProgram, { mcpInheritance: ['merchant'] });
+  .node('checkout', checkoutProgram);
 ```
+
+`.node(name, program)` accepts two arguments. Put node-specific `mcp`/`ucp`
+and inheritance options on the program when constructing it, or use the
+`options` property in `.execute(name, mapper, { options: { mcpInheritance } })`.
 
 ## Mermaid Source (Author or Serialize Flows)
 

@@ -329,7 +329,7 @@ const searchDocs = fn('searchDocs')
   .arg('query', z.string().min(1), { cache: true })
   .arg('limit', z.number().int().positive().optional())
   .returnsField('results', z.array(z.string()))
-  .handler(async ({ query }) => [])
+  .handler(async ({ query }) => ({ results: [] }))
   .build();
 ```
 
@@ -379,7 +379,7 @@ f.string('email').email()
 f.string('website').url()
 f.string('birthDate').date()
 f.string('timestamp').datetime()
-f.string('pattern').regex('^[A-Z0-9]')
+f.string('pattern').regex('^[A-Z0-9]', 'Must start with an uppercase letter or digit')
 ```
 
 ### Number Constraints

@@ -163,12 +163,13 @@ Canonical shape:
 const researchAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
+  maxTurns: 3,
   recursionOptions: {
-    model: 'gpt-5.4-mini',
+    model: 'gpt-6-luna',
   },
   maxRuntimeChars: 3000,
   summarizerOptions: {
-    model: 'gpt-5.4-mini',
+    model: 'gpt-6-luna',
     modelConfig: { temperature: 0.1, maxTokens: 180 },
   },
   contextPolicy: {
@@ -176,28 +177,29 @@ const researchAgent = agent('query:string -> answer:string', {
     budget: 'balanced',
   },
   contextOptions: {
-    model: 'gpt-5.4-mini',
-    maxTurns: 3,
+    model: 'gpt-6-luna',
   },
   executorOptions: {
     description: 'Use tools first and keep JS steps small.',
-    model: 'gpt-5.4-mini',
+    model: 'gpt-6-luna',
   },
   executorModelPolicy: [
     {
-      model: 'gpt-5.4',
+      model: 'gpt-6-sol',
       aboveErrorTurns: 2,
       namespaces: ['db', 'kb'],
     },
   ],
   responderOptions: {
-    model: 'gpt-5.4-mini',
+    model: 'gpt-6-luna',
   },
 });
 ```
 
 Semantics:
 
+- Top-level `maxTurns` caps each actor stage's turn loop. Stage option bags
+  contain forward options; they do not declare a `maxTurns` override.
 - `maxRuntimeChars` sets the truncation ceiling and is separate from `contextPolicy.budget`.
 - `summarizerOptions` tunes only the internal checkpoint summarizer. It does not change actor or responder model selection.
 - `executorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.

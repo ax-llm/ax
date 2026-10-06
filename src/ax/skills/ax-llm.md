@@ -24,7 +24,7 @@ const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY });
 const gen = ax('question:string -> answer:string');
 
 // Generator (from fluent signature)
-const gen = ax(
+const fluentGen = ax(
   f()
     .input('question', f.string('User question'))
     .output('answer', f.string('AI response'))
@@ -44,8 +44,10 @@ const sig = s('question:string, context:string[] -> answer:string');
 
 // Agent
 const myAgent = agent('userInput:string -> response:string', {
-  name: 'helper',
-  description: 'A helpful assistant',
+  agentIdentity: {
+    name: 'helper',
+    description: 'A helpful assistant',
+  },
 });
 
 // Flow
@@ -316,31 +318,28 @@ const mcpClient = new AxMCPClient(transport, {
 
 ## Type Reference
 
-```typescript
-class AxGen<IN, OUT> {
-  forward(ai: AxAIService, values: IN, options?: AxProgramForwardOptions): Promise<OUT>;
-  streamingForward(ai: AxAIService, values: IN, options?: AxProgramStreamingForwardOptions): AsyncGenerator<{ delta: Partial<OUT> }>;
-  setExamples(examples: Array<Partial<IN & OUT>>): void;
-  addAssert(fn: (output: OUT) => boolean | string | undefined | Promise<boolean | string | undefined>, message?: string): void;
-  addStreamingAssert(field: keyof OUT, fn: (chunk: string, done?: boolean) => boolean | string | undefined | Promise<boolean | string | undefined>, message?: string): void;
-  addFieldProcessor(field: keyof OUT, fn: (value: any) => any): void;
-  addStreamingFieldProcessor(field: keyof OUT, fn: (chunk: string, ctx: any) => void): void;
-  stop(): void;
-}
+All programs use `forward(ai, values, options?)` and
+`streamingForward(ai, values, options?)`. For an AI service type `T`, use the
+exported option types below instead of constructor options:
 
-class AxAgent<IN, OUT> {
-  forward(ai: AxAIService, values: IN, options?: AxAgentOptions): Promise<OUT>;
-  streamingForward(ai: AxAIService, values: IN, options?: AxAgentOptions): AsyncGenerator<{ delta: Partial<OUT> }>;
-  getFunction(): AxFunction;
-}
+| Program | Forward options | Streaming options |
+| --- | --- | --- |
+| `AxGen` | `AxProgramForwardOptionsWithModels<T>` | `AxProgramStreamingForwardOptionsWithModels<T>` |
+| `AxAgent` | `AxAgentForwardOptions<T>` | `AxAgentStreamingForwardOptions<T>` |
+| `AxFlow` | `AxFlowForwardOptions<T>` | `AxProgramStreamingForwardOptionsWithModels<T>` |
 
-class AxFlow<IN, OUT> {
-  node(name: string, signature: string | AxSignature): AxFlow;
-  execute(name: string, mapper: (state) => any): AxFlow;
-  returns(mapper: (state) => OUT): AxFlow;
-  forward(ai: AxAIService, values: IN): Promise<OUT>;
-}
-```
+`forward()` returns `Promise<OUT>`. `streamingForward()` returns
+`AxGenStreamingOut<OUT>` with `{ version, index, delta }` chunks. Agent input
+values can also include a per-run `memories` array. `AxAgentOptions<IN>` is for
+constructing an agent, not for its forward call.
+
+- `AxGen`: `setExamples(...)`, `addAssert(...)`, `addStreamingAssert(...)`,
+  `addFieldProcessor(...)`, `addStreamingFieldProcessor(...)`, and `stop()`.
+  See `ax-gen` for their callback contracts.
+- `AxAgent`: `getFunction()` exposes a child-agent tool and requires
+  `agentIdentity` at construction. See `ax-agent`.
+- `AxFlow`: define nodes with `.node(...)`, execute them with `.execute(...)`,
+  and select outputs with `.returns(...)`. See `ax-flow`.
 
 ## Event-Driven Programs
 
@@ -354,6 +353,6 @@ never inserted as user messages automatically. See `ax-event-runtime.md`.
 Fetch these for full working code:
 
 - [Standard Schema (zod)](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/standard-schema.ts) — zod with f() and fn()
-- [Chat](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/chat.ts) — multi-turn conversation
+- [Chat Log](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/chat-log.ts) — inspect conversation history and multi-step tool calls
 - [Marketing](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/marketing.ts) — product use case
 - [MCP Integration](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/mcp-client-memory.ts) — MCP integration

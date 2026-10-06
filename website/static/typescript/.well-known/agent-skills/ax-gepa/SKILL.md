@@ -208,7 +208,7 @@ const loaded = JSON.parse(saved);
 program.applyOptimization(loaded);
 ```
 
-- Single-target runs usually populate both `optimizedProgram.instruction` and `optimizedProgram.componentMap`.
+- Single-generator runs store optimized components in `optimizedProgram.componentMap`, with instructions keyed by `${programId}::instruction`. Other components, such as descriptions, have their own keys.
 - Tree-wide runs rely on `componentMap`, keyed by full component key.
 - Pareto points expose candidate configs under `point.configuration.componentMap`.
 
