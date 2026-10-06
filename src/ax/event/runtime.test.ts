@@ -47,6 +47,70 @@ function ingress(
 }
 
 describe('AxEventRuntime', () => {
+  it('observes a concurrently published duplicate only once after backpressure', async () => {
+    const store = new AxInMemoryEventStore({ maxPendingDeliveries: 1 });
+    const source = new AxPushEventSource('application');
+    let signalSeedStarted!: () => void;
+    const seedStarted = new Promise<void>((resolve) => {
+      signalSeedStarted = resolve;
+    });
+    let releaseSeed!: () => void;
+    const seedBarrier = new Promise<void>((resolve) => {
+      releaseSeed = resolve;
+    });
+    let signalPublishersWaiting!: () => void;
+    const publishersWaiting = new Promise<void>((resolve) => {
+      signalPublishersWaiting = resolve;
+    });
+    const enqueue = store.enqueue.bind(store);
+    let publishCount = 0;
+    vi.spyOn(store, 'enqueue').mockImplementation((request, signal) => {
+      const receipt = enqueue(request, signal);
+      if (++publishCount === 3) signalPublishersWaiting();
+      return receipt;
+    });
+    const observed = vi.fn(async (value: Readonly<AxEventIngress>) => {
+      if (value.event.id === 'seed') {
+        signalSeedStarted();
+        await seedBarrier;
+      }
+    });
+    const runtime = new AxEventRuntime({
+      store,
+      sources: [source],
+      workerConcurrency: 1,
+      routes: [
+        eventRoute({
+          id: 'observe',
+          match: { types: ['work'] },
+          action: 'observe',
+          observe: observed,
+        }),
+      ],
+    });
+    await runtime.start();
+    try {
+      await source.publish(ingress('seed', 'work'));
+      await seedStarted;
+      const event = ingress('repeated', 'work');
+      const first = source.publish(event);
+      const repeated = source.publish(event);
+      await publishersWaiting;
+      releaseSeed();
+      const accepted = await first;
+      expect(accepted.duplicate).toBe(false);
+      expect(await repeated).toEqual({ ...accepted, duplicate: true });
+      await runtime.waitForIdle();
+      expect(observed.mock.calls.map(([value]) => value.event.id)).toEqual([
+        'seed',
+        'repeated',
+      ]);
+    } finally {
+      releaseSeed();
+      await runtime.close({ drain: false });
+    }
+  });
+
   it('does not invoke a program for observe or unmatched events', async () => {
     const observed = vi.fn();
     const runtime = new AxEventRuntime({
