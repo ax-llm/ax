@@ -218,3 +218,19 @@ Typesafe/Jev parity includes native System One and model discovery, configurable
 boolean conversion, signature value descriptions, and schema-aware request eligibility
 in Python, Java, C++, Go, and Rust. Verification also exercises MCP WebSocket pending
 cleanup on send failure, cancellation, close, batch requests, and request-ID reuse.
+
+### Recover only Java publication
+
+If Maven Central rejects a Java deployment before publishing it, verify that the
+version is absent from Central before retrying. The publication workflow pins
+Maven 3.9.16 to avoid runner-default changes in repository metadata
+that the Central plugin does not remove. Use the updated workflow on main while checking out the
+original release tag, and skip already-published Python and Rust packages:
+
+```bash
+gh workflow run package-publish.yml --ref main \
+  -f java_release_tag=25.0.1 -f dry_run=false
+```
+
+Use the affected release version for `java_release_tag`. Do not move the release tag
+or create another version to recover an unpublished Java artifact.
