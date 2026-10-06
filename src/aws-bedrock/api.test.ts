@@ -3,12 +3,16 @@ import type {
   ConverseRequest,
   ConverseStreamOutput,
 } from '@aws-sdk/client-bedrock-runtime';
+import {
+  BedrockRuntimeClient,
+  InvokeModelCommand,
+} from '@aws-sdk/client-bedrock-runtime';
 import type {
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
 } from '@ax-llm/ax';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AxAIBedrock } from './api.js';
 import type { BedrockTitanEmbedRequest } from './types.js';
@@ -112,6 +116,126 @@ describe('AxAIBedrock Titan embeddings dimensions', () => {
     expect(JSON.parse(JSON.stringify(embedRequest))).not.toHaveProperty(
       'dimensions'
     );
+  });
+});
+
+describe('AxAIBedrock Titan embedding batches', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function createEmbedAI(fallbackRegions: string[] = []): AxAIBedrock {
+    return new AxAIBedrock({
+      region: 'us-east-1',
+      fallbackRegions,
+      config: {
+        model: AxAIBedrockModel.ClaudeSonnet5,
+        embedModel: AxAIBedrockEmbedModel.TitanEmbedV2,
+        dimensions: 256,
+      },
+    });
+  }
+
+  function embeddingResponse(embedding: number[]) {
+    return {
+      $metadata: {},
+      body: new TextEncoder().encode(JSON.stringify({ embedding })),
+    };
+  }
+
+  it('embeds every text in request order and retains Titan options', async () => {
+    const bodies: BedrockTitanEmbedRequest[] = [];
+    const send = vi
+      .spyOn(BedrockRuntimeClient.prototype, 'send')
+      .mockImplementation(async (command) => {
+        expect(command).toBeInstanceOf(InvokeModelCommand);
+        const input = (command as InvokeModelCommand).input;
+        expect(input).toMatchObject({
+          modelId: AxAIBedrockEmbedModel.TitanEmbedV2,
+          contentType: 'application/json',
+          accept: 'application/json',
+        });
+        const body = JSON.parse(
+          input.body as string
+        ) as BedrockTitanEmbedRequest;
+        bodies.push(body);
+        return embeddingResponse([body.inputText.length]);
+      });
+    const response = await createEmbedAI().embed({ texts: ['a', 'bb', 'ccc'] });
+    expect(response.embeddings).toEqual([[1], [2], [3]]);
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(bodies).toEqual(
+      ['a', 'bb', 'ccc'].map((inputText) => ({
+        inputText,
+        dimensions: 256,
+        normalize: true,
+      }))
+    );
+  });
+
+  it('retains single-text behavior', async () => {
+    const send = vi
+      .spyOn(BedrockRuntimeClient.prototype, 'send')
+      .mockResolvedValue(embeddingResponse([1, 2]));
+    await expect(
+      createEmbedAI().embed({ texts: ['hello'] })
+    ).resolves.toMatchObject({ embeddings: [[1, 2]] });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an empty batch before invoking AWS', async () => {
+    const send = vi.spyOn(BedrockRuntimeClient.prototype, 'send');
+    await expect(createEmbedAI().embed({ texts: [] })).rejects.toThrow(
+      'No texts provided'
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed input in the fallback region without changing order', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const regions: string[] = [];
+    const inputs: string[] = [];
+    vi.spyOn(BedrockRuntimeClient.prototype, 'send').mockImplementation(
+      async function (this: BedrockRuntimeClient, command) {
+        const region = await this.config.region();
+        const body = JSON.parse(
+          (command as InvokeModelCommand).input.body as string
+        ) as BedrockTitanEmbedRequest;
+        regions.push(region);
+        inputs.push(body.inputText);
+        if (body.inputText === 'bb' && region === 'us-east-1')
+          throw new Error('Regional failure');
+        return embeddingResponse([body.inputText.length]);
+      }
+    );
+    const response = await createEmbedAI(['us-west-2']).embed({
+      texts: ['a', 'bb', 'ccc'],
+    });
+    expect(response.embeddings).toEqual([[1], [2], [3]]);
+    expect(inputs).toEqual(['a', 'bb', 'bb', 'ccc']);
+    expect(regions).toEqual([
+      'us-east-1',
+      'us-east-1',
+      'us-west-2',
+      'us-east-1',
+    ]);
+  });
+
+  it('rejects the entire batch when an input fails in every region', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const inputs: string[] = [];
+    vi.spyOn(BedrockRuntimeClient.prototype, 'send').mockImplementation(
+      async (command) => {
+        const body = JSON.parse(
+          (command as InvokeModelCommand).input.body as string
+        ) as BedrockTitanEmbedRequest;
+        inputs.push(body.inputText);
+        if (body.inputText === 'bb') throw new Error('Embedding failed');
+        return embeddingResponse([1]);
+      }
+    );
+    await expect(
+      createEmbedAI(['us-west-2']).embed({ texts: ['a', 'bb', 'ccc'] })
+    ).rejects.toThrow('Embedding failed');
+    expect(inputs).toEqual(['a', 'bb', 'bb']);
   });
 });
 
