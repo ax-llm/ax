@@ -3305,7 +3305,7 @@
         "src/ax/ai/anthropic/types.ts"
       ],
       "portableSurface": "axai",
-      "impact": "Claude Sonnet 5.5 catalog/pricing data and catalog conformance fixtures have been refreshed. The remaining generated-language port covers its provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), and the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family.",
+      "impact": "Claude Sonnet 5.5 catalog/pricing data and catalog conformance fixtures have been refreshed. The remaining generated-language port covers its provider profile (native-only structured output, no forced tool choice), thinkingTokenBudget 'none' sending thinking.type 'between_tools' (rejected at effort xhigh/max), the version pattern that keeps claude-sonnet-5-5 out of Sonnet 5's family, append-only mid-conversation system messages, and preservation of signed/redacted thinking blocks when display thoughts are hidden in streaming and non-streaming tool turns. The shared memory layer preserves the provider's display choice while retaining replay blocks.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",

@@ -660,7 +660,7 @@ Earlier OpenAI models retain their existing mapping.
 
 ### Anthropic Model-Specific Behavior
 
-- Opus 5.5, Fable 5.1, Fable 5, Opus 5, Opus 4.8, 4.7, and 4.6 plus Sonnet 5:
+- Opus 5.5, Fable 5.1, Fable 5, Opus 5, Opus 4.8, 4.7, and 4.6 plus Sonnet 5 and 5.5:
   adaptive thinking, no manual `budget_tokens`, and no `temperature` / `topP` /
   `topK`. When thoughts are requested, Ax asks Anthropic for summarized
   display; when they are hidden, Ax explicitly requests `display: 'omitted'`.
@@ -669,12 +669,18 @@ Earlier OpenAI models retain their existing mapping.
 - Opus 5 and Sonnet 5 think by default, so `'none'` sends
   `thinking: { type: 'disabled' }`. Opus 5 only allows that at effort `'high'`
   or below, so Ax rejects `'none'` combined with `'xhigh'` or `'max'`.
-- Opus 5.5 and Fable 5.1 refuse forced tool choice: Ax throws for
+- Sonnet 5.5 uses `thinking: { type: 'between_tools' }` for `'none'`,
+  allowed at effort `'high'` or below. Its signed between-tool updates are
+  retained in `thoughtBlocks` for replay even when display thoughts are hidden.
+  Streaming and non-streaming responses preserve both thinking and redacted
+  blocks; `showThoughts: false` suppresses the display `thought` field.
+- Opus 5.5, Sonnet 5.5, and Fable 5.1 refuse forced tool choice: Ax throws for
   `functionCall: 'required'` or a named function, and structured output uses
   the native `output_config.format` path.
-- Opus 4.8, Opus 5, Opus 5.5, Fable 5, and Fable 5.1 keep a later system
+- Opus 4.8, Opus 5, Opus 5.5, Sonnet 5.5, Fable 5, and Fable 5.1 keep a later system
   message in place on the first-party API; other models hoist it into the
-  system prompt.
+  system prompt. Sonnet 5.5 also preserves later system messages on Vertex,
+  keeping the prefix before signed thinking unchanged.
 - Opus 4.5: budget_tokens + effort levels (capped at `'high'`)
 - Other thinking models: budget tokens only
 

@@ -390,6 +390,10 @@ export interface AxAIAnthropicContentBlockStartEvent {
     | {
         type: 'thinking';
         thinking: string;
+      }
+    | {
+        type: 'redacted_thinking';
+        data: string;
       };
 }
 

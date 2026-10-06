@@ -1044,3 +1044,40 @@ describe('MemoryImpl Debug Logging', () => {
     ).not.toThrow();
   });
 });
+
+describe('MemoryImpl thinking replay and display', () => {
+  it('accumulates display thoughts without displaying redacted replay data', () => {
+    const memory = new MemoryImpl();
+    memory.updateResult({
+      index: 0,
+      thought: 'Checking ',
+      thoughtBlocks: [{ data: 'Checking ', encrypted: false }],
+    });
+    memory.updateResult({
+      index: 0,
+      thought: 'Paris.',
+      thoughtBlocks: [{ data: 'Paris.', encrypted: false }],
+    });
+    memory.updateResult({
+      index: 0,
+      thoughtBlocks: [
+        { data: '', encrypted: false, signature: 'signed-update' },
+      ],
+    });
+    memory.updateResult({
+      index: 0,
+      thoughtBlocks: [{ data: 'opaque-note', encrypted: true }],
+    });
+    expect(memory.history(0)[0]).toMatchObject({
+      thought: 'Checking Paris.',
+      thoughtBlocks: [
+        {
+          data: 'Checking Paris.',
+          encrypted: false,
+          signature: 'signed-update',
+        },
+        { data: 'opaque-note', encrypted: true },
+      ],
+    });
+  });
+});
