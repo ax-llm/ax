@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { MemoryImpl } from '../../mem/memory.js';
+
 import type { AxAIRefusalError } from '../../util/apicall.js';
 import {
   AxAIServiceAuthenticationError,
   AxAIServiceStatusError,
 } from '../../util/apicall.js';
-import type { AxChatResponse } from '../types.js';
+import type { AxChatResponse, AxChatResponseResult } from '../types.js';
+import { mergeFunctionCalls } from '../util.js';
 import {
   AxAIAnthropic,
   axAIAnthropicDefaultConfig,
@@ -2066,4 +2069,227 @@ describe('AxAIAnthropic Claude 5.x models', () => {
     });
     expect(cost).toBeCloseTo(2 + 10 + 0.2 + 2.5);
   });
+});
+
+describe('Sonnet 5.5 signed thinking replay', () => {
+  const model = AxAIAnthropicModel.Claude55Sonnet;
+  const content = [
+    {
+      type: 'thinking',
+      thinking: 'Checking Paris.',
+      signature: 'signed-update',
+    },
+    { type: 'redacted_thinking', data: 'opaque-note' },
+    {
+      type: 'tool_use',
+      id: 'call_1',
+      name: 'getWeather',
+      input: { city: 'Paris' },
+    },
+  ];
+  const functions = [
+    {
+      name: 'getWeather',
+      description: 'Get weather',
+      parameters: {
+        type: 'object',
+        properties: { city: { type: 'string' } },
+        required: ['city'],
+      },
+    },
+  ];
+  const hiddenOptions = [
+    { thinkingTokenBudget: 'none' as const },
+    { thinkingTokenBudget: 'high' as const, showThoughts: false },
+  ];
+
+  it.each(hiddenOptions)(
+    'preserves hidden blocks and replays the complete tool turn (%o)',
+    async (options) => {
+      const ai = new AxAIAnthropic({ apiKey: 'key', config: { model } });
+      const { fetch } = createCaptureFetch(model, {
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model,
+        content,
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+      ai.setOptions({ fetch });
+      const memory = new MemoryImpl();
+      memory.addRequest([{ role: 'user', content: 'Weather in Paris?' }], 0);
+      const response = (await ai.chat(
+        { chatPrompt: memory.history(0), functions },
+        { stream: false, ...options }
+      )) as AxChatResponse;
+      expect(response.results[0]?.thought).toBeUndefined();
+      memory.addResponse(response.results);
+      memory.addFunctionResults([
+        { index: 0, functionId: 'call_1', result: 'Sunny' },
+      ]);
+      await ai.chat(
+        { chatPrompt: memory.history(0), functions },
+        { stream: false, ...options }
+      );
+      const replay = JSON.parse(fetch.mock.calls[1]?.[1]?.body as string);
+      expect(replay.messages[1].content).toEqual(content);
+    }
+  );
+
+  it.each(hiddenOptions)(
+    'preserves streamed hidden text, signatures and redacted blocks without displaying them (%o)',
+    async (options) => {
+      const ai = new AxAIAnthropic({ apiKey: 'key', config: { model } });
+      ai.setOptions({
+        fetch: createMockStreamFetch([
+          {
+            type: 'message_start',
+            message: {
+              id: 'msg_1',
+              type: 'message',
+              role: 'assistant',
+              model,
+              content: [],
+              stop_reason: null,
+              usage: { input_tokens: 10, output_tokens: 0 },
+            },
+          },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'thinking', thinking: 'Checking ' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: 'Paris.' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'signature_delta', signature: 'signed-update' },
+          },
+          { type: 'content_block_stop', index: 0 },
+          {
+            type: 'content_block_start',
+            index: 1,
+            content_block: { type: 'redacted_thinking', data: 'opaque-note' },
+          },
+          { type: 'content_block_stop', index: 1 },
+          { type: 'content_block_start', index: 2, content_block: content[2] },
+          {
+            type: 'content_block_delta',
+            index: 2,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: '{"city":"Paris"}',
+            },
+          },
+          { type: 'content_block_stop', index: 2 },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+            usage: { output_tokens: 5 },
+          },
+          { type: 'message_stop' },
+        ]),
+      });
+      const memory = new MemoryImpl();
+      memory.addRequest([{ role: 'user', content: 'Weather in Paris?' }], 0);
+      const stream = (await ai.chat(
+        { chatPrompt: memory.history(0), functions },
+        { stream: true, ...options }
+      )) as ReadableStream<AxChatResponse>;
+      const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> =
+        [];
+      for await (const delta of stream) {
+        for (const result of delta.results) {
+          expect(result.thought).toBeUndefined();
+          if (result.functionCalls)
+            mergeFunctionCalls(functionCalls, result.functionCalls);
+          memory.updateResult({ ...result, functionCalls });
+        }
+      }
+      const assistant = memory.history(0)[1];
+      expect(assistant).toMatchObject({
+        role: 'assistant',
+        thoughtBlocks: [
+          {
+            data: 'Checking Paris.',
+            encrypted: false,
+            signature: 'signed-update',
+          },
+          { data: 'opaque-note', encrypted: true },
+        ],
+      });
+      expect(
+        assistant && 'thought' in assistant ? assistant.thought : undefined
+      ).toBeUndefined();
+      memory.addFunctionResults([
+        { index: 0, functionId: 'call_1', result: 'Sunny' },
+      ]);
+      const { capture, fetch } = createCaptureFetch(model);
+      ai.setOptions({ fetch });
+      await ai.chat(
+        { chatPrompt: memory.history(0), functions },
+        { stream: false, ...options }
+      );
+      expect(capture.lastBody.messages[1].content).toEqual(content);
+    }
+  );
+
+  it.each([
+    [model, false],
+    ['publishers/anthropic/models/claude-sonnet-5-5', false],
+    ['claude-sonnet-5-5-20261001', false],
+    [AxAIAnthropicVertexModel.Claude55Sonnet, true],
+  ])(
+    'keeps later system instructions after signed thinking for %s',
+    async (resolvedModel, vertex) => {
+      const ai = new AxAIAnthropic({
+        apiKey: async () => 'key',
+        config: { model: resolvedModel as AxAIAnthropicModel },
+        ...(vertex ? { projectId: 'demo-project', region: 'us' } : {}),
+      });
+      const { capture, fetch } = createCaptureFetch(resolvedModel as string);
+      ai.setOptions({ fetch });
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'Initial instructions.' },
+            { role: 'user', content: 'Start.' },
+            {
+              role: 'assistant',
+              content: 'Started.',
+              thoughtBlocks: [
+                {
+                  data: 'Signed reasoning.',
+                  encrypted: false,
+                  signature: 'signed-prefix',
+                },
+              ],
+            },
+            { role: 'system', content: 'Later instructions.' },
+            { role: 'user', content: 'Continue.' },
+          ],
+        },
+        { stream: false }
+      );
+      expect(capture.lastBody.system).toEqual([
+        { type: 'text', text: 'Initial instructions.' },
+      ]);
+      expect(
+        capture.lastBody.messages.map(
+          (message: { role: string }) => message.role
+        )
+      ).toEqual(['user', 'assistant', 'system', 'user']);
+      expect(capture.lastBody.messages[2].content).toBe('Later instructions.');
+      expect(capture.lastBody.messages[1].content[0]).toEqual({
+        type: 'thinking',
+        thinking: 'Signed reasoning.',
+        signature: 'signed-prefix',
+      });
+    }
+  );
 });

@@ -235,9 +235,13 @@ export class MemoryImpl {
 
       (chat.value as any).thoughtBlocks = existing;
 
-      // Update thought string for display
-      if (existing.length > 0) {
-        (chat.value as any).thought = existing.map((b) => b.data).join('');
+      // Replay blocks alone do not opt into displaying thoughts. Preserve the
+      // provider's display choice and exclude encrypted replay data.
+      if (typeof (chat.value as any).thought === 'string') {
+        (chat.value as any).thought = existing
+          .filter((block) => !block.encrypted)
+          .map((block) => block.data)
+          .join('');
       }
     }
   }

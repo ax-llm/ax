@@ -317,6 +317,7 @@ const keepsMidConversationSystem = (model: string): boolean =>
   model.includes('claude-opus-4-8') ||
   CLAUDE_OPUS_5.test(model) ||
   CLAUDE_OPUS_5_5.test(model) ||
+  CLAUDE_SONNET_5_5.test(model) ||
   CLAUDE_FABLE_5.test(model) ||
   CLAUDE_FABLE_5_1.test(model);
 
@@ -622,7 +623,8 @@ class AxAIAnthropicImpl
       req.functions?.some((fn) => fn.cache);
 
     const supportsMidConversationSystem =
-      !this.isVertex && keepsMidConversationSystem(modelStr);
+      keepsMidConversationSystem(modelStr) &&
+      (!this.isVertex || CLAUDE_SONNET_5_5.test(modelStr));
     const firstNonSystemIndex = req.chatPrompt.findIndex(
       (msg) => msg.role !== 'system'
     );
@@ -1044,7 +1046,7 @@ class AxAIAnthropicImpl
           break;
         case 'thinking':
           // Store each thinking block separately with its signature
-          if (showThoughts) {
+          {
             const thinking = (block as any).thinking ?? '';
             const signature = (block as any).signature;
             thinkingBlocks.push({
@@ -1056,7 +1058,7 @@ class AxAIAnthropicImpl
           break;
         case 'redacted_thinking':
           // Store each redacted thinking block separately with its signature
-          if (showThoughts) {
+          {
             const data = (block as any).data ?? '';
             const signature = (block as any).signature;
             thinkingBlocks.push({
@@ -1089,7 +1091,9 @@ class AxAIAnthropicImpl
       // Store array of all thinking blocks with their signatures
       result.thoughtBlocks = thinkingBlocks;
       // Aggregate thought string for display purposes
-      result.thought = thinkingBlocks.map((b) => b.data).join('');
+      if (showThoughts) {
+        result.thought = thinkingBlocks.map((b) => b.data).join('');
+      }
     }
     if (aggregatedFunctionCalls.length > 0) {
       result.functionCalls = aggregatedFunctionCalls;
@@ -1208,24 +1212,29 @@ class AxAIAnthropicImpl
         const showThoughts =
           this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
           this.currentPromptConfig?.showThoughts !== false;
-        if (showThoughts) {
-          return {
-            results: [
-              {
-                index,
-                thought: contentBlock.thinking,
-                thoughtBlocks: [
-                  {
-                    data: contentBlock.thinking,
-                    encrypted: false,
-                  },
-                ],
-              },
-            ],
-          };
-        }
         return {
-          results: [{ index, content: '' }],
+          results: [
+            {
+              index,
+              ...(showThoughts ? { thought: contentBlock.thinking } : {}),
+              thoughtBlocks: [
+                {
+                  data: contentBlock.thinking,
+                  encrypted: false,
+                },
+              ],
+            },
+          ],
+        };
+      }
+      if (contentBlock.type === 'redacted_thinking') {
+        return {
+          results: [
+            {
+              index,
+              thoughtBlocks: [{ data: contentBlock.data, encrypted: true }],
+            },
+          ],
         };
       }
       if (contentBlock.type === 'tool_use') {
@@ -1316,19 +1325,14 @@ class AxAIAnthropicImpl
         const showThoughts =
           this.currentPromptConfig?.thinkingTokenBudget !== 'none' &&
           this.currentPromptConfig?.showThoughts !== false;
-        if (showThoughts) {
-          return {
-            results: [
-              {
-                index,
-                thought: delta.thinking,
-                thoughtBlocks: [{ data: delta.thinking, encrypted: false }],
-              },
-            ],
-          };
-        }
         return {
-          results: [{ index, content: '' }],
+          results: [
+            {
+              index,
+              ...(showThoughts ? { thought: delta.thinking } : {}),
+              thoughtBlocks: [{ data: delta.thinking, encrypted: false }],
+            },
+          ],
         };
       }
       if (delta.type === 'signature_delta') {
