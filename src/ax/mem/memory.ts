@@ -202,10 +202,20 @@ export class MemoryImpl {
         const lastExisting =
           existing.length > 0 ? existing[existing.length - 1] : undefined;
 
+        // Opaque redacted blocks arrive whole; concatenating them corrupts replay.
+        if (newBlock.encrypted && !newBlock.signature) {
+          existing.push(structuredClone(newBlock));
+          continue;
+        }
+
         // If the new block has no signature yet (streaming partial)
         if (!newBlock.signature && newBlock.data) {
           // Merge with last block ONLY if it doesn't have a signature yet
-          if (lastExisting && !lastExisting.signature) {
+          if (
+            lastExisting &&
+            !lastExisting.signature &&
+            lastExisting.encrypted === newBlock.encrypted
+          ) {
             lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
             if (newBlock.encrypted) {
               lastExisting.encrypted = true;
@@ -216,7 +226,11 @@ export class MemoryImpl {
           }
         } else if (newBlock.signature) {
           // Block has a signature, so it's complete - check if we need to update or append
-          if (lastExisting && !lastExisting.signature) {
+          if (
+            lastExisting &&
+            !lastExisting.signature &&
+            lastExisting.encrypted === newBlock.encrypted
+          ) {
             // Update existing open block with final signature
             lastExisting.data = (lastExisting.data ?? '') + newBlock.data;
             lastExisting.signature = newBlock.signature;

@@ -1081,3 +1081,34 @@ describe('MemoryImpl thinking replay and display', () => {
     });
   });
 });
+
+it('keeps consecutive redacted replay blocks separate from later signed thinking', () => {
+  const memory = new MemoryImpl();
+  memory.updateResult({
+    index: 0,
+    thoughtBlocks: [{ data: 'opaque-one', encrypted: true }],
+  });
+  memory.updateResult({
+    index: 0,
+    thoughtBlocks: [{ data: 'opaque-two', encrypted: true }],
+  });
+  memory.updateResult({
+    index: 0,
+    thoughtBlocks: [{ data: 'Later update.', encrypted: false }],
+  });
+  memory.updateResult({
+    index: 0,
+    thoughtBlocks: [{ data: '', encrypted: false, signature: 'signed-later' }],
+  });
+  expect(memory.history(0)[0]).toMatchObject({
+    thoughtBlocks: [
+      { data: 'opaque-one', encrypted: true },
+      { data: 'opaque-two', encrypted: true },
+      { data: 'Later update.', encrypted: false, signature: 'signed-later' },
+    ],
+  });
+  expect(memory.history(0)[0]).not.toHaveProperty(
+    'thought',
+    expect.any(String)
+  );
+});
