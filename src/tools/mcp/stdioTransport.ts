@@ -20,8 +20,13 @@ export class AxMCPStdioTransport implements AxMCPTransport {
   private rl: readline.Interface;
   private pendingResponses = new Map<
     string | number,
-    (res: AxMCPJSONRPCResponse) => void
+    {
+      resolve: (res: AxMCPJSONRPCResponse) => void;
+      reject: (error: Error) => void;
+    }
   >();
+  private closed = false;
+  private closePromise: Promise<void>;
   private messageHandler?: (
     message: Readonly<AxMCPJSONRPCMessage>
   ) => void | Promise<void>;
@@ -30,6 +35,21 @@ export class AxMCPStdioTransport implements AxMCPTransport {
     this.process = spawn(config.command, config.args ?? [], {
       env: config.env ? { ...process.env, ...config.env } : process.env,
     });
+    this.closePromise = new Promise((resolve) => {
+      this.process.once('close', () => {
+        this.closeWithError(new Error('MCP server process closed'));
+        resolve();
+      });
+    });
+    this.process.once('error', (error) => this.closeWithError(error));
+    this.process.once('exit', (code, signal) => {
+      this.closeWithError(
+        new Error(
+          `MCP server process exited${code === null ? '' : ` with code ${code}`}${signal ? ` (${signal})` : ''}`
+        )
+      );
+    });
+    this.process.stdin.on('error', (error) => this.closeWithError(error));
     this.rl = readline.createInterface({ input: this.process.stdout });
     this.rl.on('line', (line) => {
       try {
@@ -39,12 +59,12 @@ export class AxMCPStdioTransport implements AxMCPTransport {
           return;
         }
         const response = message as AxMCPJSONRPCResponse;
-        const resolver =
+        const pending =
           response.id === null
             ? undefined
             : this.pendingResponses.get(response.id);
-        if (resolver) {
-          resolver(response);
+        if (pending) {
+          pending.resolve(response);
           if (response.id !== null) this.pendingResponses.delete(response.id);
         } else {
           void this.messageHandler?.(message);
@@ -59,22 +79,30 @@ export class AxMCPStdioTransport implements AxMCPTransport {
   async send(
     message: Readonly<AxMCPJSONRPCRequest<unknown>>
   ): Promise<AxMCPJSONRPCResponse<unknown>> {
-    return new Promise<AxMCPJSONRPCResponse<unknown>>((resolve) => {
-      this.pendingResponses.set(message.id, (res: AxMCPJSONRPCResponse) => {
-        resolve(res as AxMCPJSONRPCResponse<unknown>);
+    return new Promise<AxMCPJSONRPCResponse<unknown>>((resolve, reject) => {
+      if (this.closed) {
+        reject(new Error('MCP server process is not running'));
+        return;
+      }
+      this.pendingResponses.set(message.id, {
+        resolve: (res) => resolve(res as AxMCPJSONRPCResponse<unknown>),
+        reject,
       });
-      this.process.stdin.write(`${JSON.stringify(message)}\n`);
+      void this.writeMessage(message).catch((error: Error) => {
+        this.pendingResponses.delete(message.id);
+        reject(error);
+      });
     });
   }
 
   async sendNotification(
     message: Readonly<AxMCPJSONRPCNotification>
   ): Promise<void> {
-    this.process.stdin.write(`${JSON.stringify(message)}\n`);
+    await this.writeMessage(message);
   }
 
   async sendResponse(message: Readonly<AxMCPJSONRPCResponse>): Promise<void> {
-    this.process.stdin.write(`${JSON.stringify(message)}\n`);
+    await this.writeMessage(message);
   }
 
   setMessageHandler(
@@ -92,11 +120,36 @@ export class AxMCPStdioTransport implements AxMCPTransport {
    * Terminate the child process and clean up resources
    */
   async terminate(): Promise<void> {
+    this.closeWithError(new Error('MCP server process terminated'));
     this.rl.close();
-    this.process.kill();
-    return new Promise((resolve) => {
-      this.process.on('exit', () => resolve());
+    // A failed stdin closes the transport without stopping the child.
+    if (this.process.exitCode === null && this.process.signalCode === null) {
+      this.process.kill();
+    }
+    await this.closePromise;
+  }
+
+  private async writeMessage(
+    message: Readonly<AxMCPJSONRPCMessage>
+  ): Promise<void> {
+    if (this.closed || this.process.stdin.destroyed) {
+      throw new Error('MCP server process is not running');
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.process.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
     });
+  }
+
+  private closeWithError(error: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const pending of this.pendingResponses.values()) {
+      pending.reject(error);
+    }
+    this.pendingResponses.clear();
   }
 }
 
