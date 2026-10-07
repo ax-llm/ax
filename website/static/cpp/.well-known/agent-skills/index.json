@@ -6,42 +6,42 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/SKILL.md",
-      "digest": "sha256:9454db27833d1b0e440a3615861a0b6d634a66858e00a1df99a7aa8bb0447161"
+      "digest": "sha256:96f66671571f9fbad301f721632e00c5bb9763bb884fc0601c7cdea460a8cb53"
     },
     {
       "name": "ax-cpp-ai",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:360231ea53c8805304d419425bc9a308d83a37c064e5c63ecc9cd2e30a19a460"
+      "digest": "sha256:ea76f50f4a1aa35aad1263fb2e6bc1ef74a5b78d463df760e0e72455409c989e"
     },
     {
       "name": "ax-cpp-typesafe",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-cpp-typesafe/SKILL.md",
-      "digest": "sha256:48a21376fd58138d862b7b4c56864b827b175f1c68267b1942adc1d125ab7f02"
+      "digest": "sha256:80ab35611bc0268455785982d08b674a850ecc6229314b54743743b42651f168"
     },
     {
       "name": "ax-cpp-audio",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-cpp-audio/SKILL.md",
-      "digest": "sha256:c7a23245b9cf3deae16a5dbd9d21c330a0ed023ce013434c7e0a9f53ddc8fa68"
+      "digest": "sha256:6eda5d67c81195788ad66773132d2f428462a0c3f99056a1bdc54c24330e5705"
     },
     {
       "name": "ax-cpp-signature",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-cpp-signature/SKILL.md",
-      "digest": "sha256:cae7aedebbdef32c03ff3e840d0b63b58be8ec002009ff0f41367f8e59ebda07"
+      "digest": "sha256:f700f7a30ef312aca5c0abdf82efa621291153c016e0b9b96c47034a3b7a238f"
     },
     {
       "name": "ax-cpp-gen",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:186f28d58f8850f18cdc57200a26e19a6f37fdaf96bdeda12c3fc6ddd12edd1d"
+      "digest": "sha256:b6049a3d8f19142267e44336ce1864e0530d22405b3a495a23b2aca71a82a89b"
     },
     {
       "name": "ax-cpp-flow",
@@ -76,7 +76,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-cpp-agent-observability/SKILL.md",
-      "digest": "sha256:9b17f53a73abf692df3dac2755ec10b4477553754c40815da84a4253588dc693"
+      "digest": "sha256:1ce886685907a8819528c2fddbe8d6641f92311185d11ccb5c5bebcb0de2700e"
     },
     {
       "name": "ax-cpp-agent-optimize",

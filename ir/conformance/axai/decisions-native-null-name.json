@@ -1,0 +1,72 @@
+{
+  "expected_output": {
+    "answers": [
+      {
+        "name": null,
+        "probability": 1,
+        "type": "predicate"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "usage": {
+      "input_tokens": 20,
+      "input_tokens_details": {
+        "cache_write_tokens": 2,
+        "cached_tokens": 4
+      },
+      "output_tokens": 3,
+      "output_tokens_details": {
+        "reasoning_tokens": 1
+      },
+      "total_tokens": 23
+    }
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": "",
+      "model": "gpt-6-luna",
+      "questions": [
+        {
+          "instructions": "",
+          "type": "predicate"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_decisions_native",
+  "name": "decisions-native-null-name",
+  "request": {
+    "input": "",
+    "questions": [
+      {
+        "type": "predicate",
+        "instructions": ""
+      }
+    ]
+  },
+  "response": {
+    "answers": [
+      {
+        "name": null,
+        "probability": 1,
+        "type": "predicate"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "usage": {
+      "input_tokens": 20,
+      "input_tokens_details": {
+        "cache_write_tokens": 2,
+        "cached_tokens": 4
+      },
+      "output_tokens": 3,
+      "output_tokens_details": {
+        "reasoning_tokens": 1
+      },
+      "total_tokens": 23
+    }
+  }
+}

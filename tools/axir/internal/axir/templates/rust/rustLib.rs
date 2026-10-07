@@ -2577,7 +2577,9 @@ impl OpenAICompatibleClient {
             None => self.retried_transport_request(call, Some(("chat", &payload, &model)))?,
         };
         let profile = self.profile.clone();
-        let response_context = if profile == "typesafe" {
+        let response_context = if profile == "openai-decisions" {
+            core_value_to_json(&decisions_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
+        } else if profile == "typesafe" {
             core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
         } else { core_value_to_json(&provider_response_context(&[core_value_from_json(&payload), core_value_from_json(&req["model_config"]), core_value_from_json(&self.options)])?) };
         let response = normalize_openai_response(&profile, &model, raw, &response_context);
@@ -2760,6 +2762,9 @@ impl OpenAICompatibleClient {
     }
 
     fn provider_transport_request(&self, operation: &str, payload: &Value, model: &str, stream: bool) -> AxResult<Value> {
+        if self.profile == "openai-decisions" {
+            if let Some(token) = current_cancellation_token() { token.throw_if_cancelled()?; }
+        }
         let operation_descriptor = if self.profile == "typesafe" && operation == "models" { json!({"path":"/v1/models","method":"GET"}) } else { core_value_to_json(&provider_resolve_operation_descriptor(&[
             CoreValue::from(self.profile.as_str()),
             CoreValue::from(operation),
@@ -2822,12 +2827,8 @@ impl OpenAICompatibleClient {
             }
             _ => {}
         }
-        if let Some(extra) = descriptor.get("headers").and_then(Value::as_object) {
-            for (key, value) in extra {
-                let text = value.as_str().map(ToString::to_string).unwrap_or_else(|| value.to_string());
-                headers.insert(key.clone(), json!(text));
-            }
-        }
+        headers = core_value_to_json(&provider_merge_headers(&[core_value_from_json(&Value::Object(headers)), core_value_from_json(descriptor.get("headers").unwrap_or(&json!({})))])?).as_object().cloned().unwrap_or_default();
+        headers = core_value_to_json(&provider_merge_headers(&[core_value_from_json(&Value::Object(headers)), core_value_from_json(self.options.get("headers").unwrap_or(&json!({})))])?).as_object().cloned().unwrap_or_default();
         let body_key = if operation_descriptor.get("body").and_then(Value::as_str) == Some("multipart") {
             "data"
         } else {
@@ -2842,14 +2843,8 @@ impl OpenAICompatibleClient {
             return Err(AxError::new("authentication", message.as_str().unwrap_or_default().to_string()));
         }
         if let Some(provider) = self.credential_provider.as_ref() {
-            for (key, value) in provider.credentials(&AxCredentialRequest {
-                profile: self.profile.clone(),
-                operation: operation.to_string(),
-                method: method.clone(),
-                url: url.clone(),
-            })? {
-                headers.insert(key, json!(value));
-            }
+            let fresh = provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: method.clone(), url: url.clone() })?;
+            headers = core_value_to_json(&provider_merge_headers(&[core_value_from_json(&Value::Object(headers)),core_value_from_json(&json!(fresh))])?).as_object().cloned().unwrap_or_default();
         }
         let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
         if method != "GET" && method != "HEAD" { out[body_key] = payload.clone(); }
@@ -4343,6 +4338,44 @@ impl AxAITypesafeClient {
     }
 }
 
+/// Native Decisions ordered questions, raw probability distributions and full usage.
+pub struct AxAIOpenAIDecisionsClient { client: OpenAICompatibleClient }
+pub fn openai_decisions(options: Value) -> AxResult<AxAIOpenAIDecisionsClient> { Ok(AxAIOpenAIDecisionsClient { client: ai("openai-decisions", options)? }) }
+impl AxAIOpenAIDecisionsClient {
+    pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self { self.client = self.client.with_transport(transport); self }
+    pub fn with_credential_provider(mut self, provider: impl AxCredentialProvider + 'static) -> Self { self.client = self.client.with_credential_provider(provider); self }
+    pub fn create(&mut self, request: Value) -> AxResult<Value> { self.create_with_options(request, json!({}), None) }
+    pub fn create_with_cancellation(&mut self, request: Value, cancellation: Option<&AxCancellationToken>) -> AxResult<Value> { self.create_with_options(request, json!({}), cancellation) }
+    pub fn create_with_options(&mut self, mut payload: Value, options: Value, cancellation: Option<&AxCancellationToken>) -> AxResult<Value> {
+        let parent = current_cancellation_token();
+        let combined = AxCancellationToken::default();
+        let mut subscriptions = Vec::new();
+        let active = if let (Some(parent), Some(per_call)) = (parent.as_ref(), cancellation) {
+            for token in [parent, per_call] {
+                let source = token.clone(); let target = combined.clone();
+                subscriptions.push(token.subscribe(move || { target.cancel(source.reason().unwrap_or_else(|| "cancelled".to_string())); }));
+            }
+            Some(&combined)
+        } else { cancellation.or(parent.as_ref()) };
+        let _scope = match active { Some(token) => Some(AxCancellationScope::enter(token)?), None => None };
+        decisions_require_object(&[core_value_from_json(&payload),CoreValue::from("request")])?;
+        if payload.get("model").is_none_or(Value::is_null) { payload["model"] = json!(self.client.model); }
+        decisions_validate_request(&[core_value_from_json(&payload)])?;
+        let inherited = self.client.options.clone();
+        let options = core_value_to_json(&provider_normalize_call_options(&[core_value_from_json(&options)])?);
+        self.client.options = merge_ai_options(&inherited, &options)?;
+        let result = (|| {
+            let model = payload["model"].as_str().unwrap_or("gpt-6-luna").to_string();
+            let call = self.client.provider_transport_request("chat", &payload, &model, false)?;
+            let raw = self.client.retried_transport_request(call, Some(("chat", &payload, &model)))?;
+            let decoded = decisions_decode_response(&[core_value_from_json(&raw),core_value_from_json(&payload["questions"])])?;
+            Ok(core_value_to_json(&decoded))
+        })();
+        self.client.options = inherited;
+        result
+    }
+}
+
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let defaults = provider_defaults(provider)
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
@@ -4358,6 +4391,10 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
         .or_else(|| if vertex && matches!(profile.as_str(), "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
         .or_else(|| if profile == "typesafe" { std::env::var("TYPESAFE_APIKEY").or_else(|_| std::env::var("TYPESAFE_API_KEY")).ok() } else if reads_openai_env { std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("OPENAI_APIKEY")).ok() } else { None })
         .unwrap_or_default();
+    if profile == "openai-decisions" {
+        let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
+        decisions_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
+    }
     if profile == "typesafe" {
         let threshold = options.get("trueThreshold").or_else(|| options.get("true_threshold")).cloned().unwrap_or(json!(0.5));
         typesafe_require_number(&[core_value_from_json(&threshold), CoreValue::from("trueThreshold"), CoreValue::Num(0.0), CoreValue::Num(1.0)])?;
@@ -11532,6 +11569,15 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
+        "ai_decisions_native" => {
+            let requests=Arc::new(Mutex::new(Vec::new()));
+            let transport=RecordingTransport::new(vec![fixture["response"].clone()],requests.clone());
+            let mut client=openai_decisions(json!({"api_key":"test-key"}))?.with_transport(transport);
+            let result=client.create(fixture["request"].clone());
+            if fixture.get("expected_error_contains").is_some(){expect_validation_result(result.map(|_|()),&fixture)?;}
+            else{expect_json_equal("native Decisions output",&result?,&fixture["expected_output"])?;}
+            expect_transport_request_subset(&fixture,&requests,&Arc::new(Mutex::new(Vec::new())))?;
+        },
         "ai_typesafe_native" => {
             let requests=Arc::new(Mutex::new(Vec::new()));
             let transport=RecordingTransport::new(vec![fixture["response"].clone()],requests.clone());
@@ -28047,6 +28093,47 @@ fn request_retry_wait(config: &Value, attempt: i64, error: &AxError, retry_after
 #[cfg(test)]
 mod typesafe_native_tests {
     use super::*;
+    #[test]
+    fn decisions_native_and_adapter_credentials_retry_cancellation()->AxResult<()> {
+        for native in [true,false] {
+            let calls=Arc::new(Mutex::new(0));let captured=calls.clone();
+            let credentials=Arc::new(Mutex::new(0));let seen=credentials.clone();
+            let provider=move|request:&AxCredentialRequest|{
+                assert_eq!((&*request.profile,&*request.operation),("openai-decisions","chat"));
+                let mut count=seen.lock().unwrap();*count+=1;
+                Ok(BTreeMap::from([("authorization".into(),format!("Bearer fresh-{}",*count))]))
+            };
+            let transport=TestTransport(move|request:Value|{
+                let mut count=captured.lock().unwrap();*count+=1;
+                let headers=request["headers"].as_object().unwrap();
+                assert_eq!(headers.keys().filter(|key|key.eq_ignore_ascii_case("authorization")).count(),1);
+                assert_eq!(headers["authorization"],format!("Bearer fresh-{}",*count));assert_eq!(headers["x-trace"],"kept");
+                assert_eq!(request["url"],"https://api.openai.com/v1/decisions");
+                if *count==1{return Ok(json!({"status":429,"json":{"error":"retry"}}))}
+                Ok(json!({"model":"gpt-6-luna","answers":[{"type":"predicate","name":"flag","probability":0.8}],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}))
+            });
+            let options=json!({"api_key":"static","headers":{"AUTHORIZATION":"Bearer custom","x-trace":"kept"},"retry":{"maxRetries":1,"initialDelayMs":1}});
+            let token=AxCancellationToken::default();
+            if native {
+                let mut client=openai_decisions(options)?.with_credential_provider(provider).with_transport(transport);
+                let input=json!({"input":"red","questions":[{"type":"predicate","name":"flag","instructions":"Is this red?"}]});
+                assert_eq!(client.create(input.clone())?["answers"][0]["probability"],0.8);
+                let _parent_scope=AxCancellationScope::enter(&token)?;
+                token.cancel("stop Decisions");let fresh=AxCancellationToken::default();
+                assert!(client.create_with_cancellation(input,Some(&fresh)).unwrap_err().message.contains("stop Decisions"));
+                assert_eq!(fresh.subscription_count(),0);
+            } else {
+                let mut client=ai("openai-decisions",options)?.with_credential_provider(provider).with_transport(transport);
+                let input=json!({"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}});
+                let result=client.chat(input.clone())?;assert_eq!(serde_json::from_str::<Value>(result["results"][0]["content"].as_str().unwrap())?["flag"],true);
+                let _scope=AxCancellationScope::enter(&token)?;token.cancel("stop Decisions");
+                assert!(client.chat(input).unwrap_err().message.contains("stop Decisions"));
+            }
+            assert_eq!(*calls.lock().unwrap(),2);assert_eq!(*credentials.lock().unwrap(),2);assert_eq!(token.subscription_count(),0);
+        }
+        Ok(())
+    }
+
     struct TestTransport<F>(F);
     impl<F:FnMut(Value)->AxResult<Value>+Send> AxTransport for TestTransport<F>{fn send(&mut self,request:Value)->AxResult<Value>{(self.0)(request)}}
     #[test]
@@ -28071,6 +28158,30 @@ mod typesafe_native_tests {
         assert!(router.get_routing_recommendation(forced).is_err());
         let supported=json!({"provider":"typesafe","chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}});
         assert_eq!(router.get_routing_recommendation(supported)?["provider"],"typesafe");
+        Ok(())
+    }
+    #[test]
+    fn decisions_nested_balancer_validation()->AxResult<()> {
+        let typed=ai("openai-decisions",json!({"api_key":"test","models":[]}))?;
+        let only=AxBalancer::from_clients(vec![Box::new(typed)],AxBalancerOptions::default())?;
+        let prose=json!({"chat_prompt":[{"role":"user","content":"reply"}]});
+        assert!(only.validate_chat_request(&prose).is_err());
+        only.validate_chat_request(&serde_json::from_str(r#"{"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}}"#)?)?;
+        let normal=ai("openai",json!({"api_key":"test","models":[]}))?;
+        let mixed=AxBalancer::from_clients(vec![Box::new(only),Box::new(normal)],AxBalancerOptions{input_order:true,..Default::default()})?;
+        assert_eq!(mixed.candidate_indices(&prose)?,vec![1]);Ok(())
+    }
+    #[test]
+    fn decisions_router_request_eligibility()->AxResult<()> {
+        let typed=ai("openai-decisions",json!({"api_key":"test"}))?;
+        let normal=ai("openai",json!({"api_key":"test"}))?;
+        let router=ProviderRouter::from_providers(vec![("openai-decisions",typed),("generative",normal)]);
+        let prose=json!({"chat_prompt":[{"role":"user","content":"reply"}]});
+        assert_eq!(router.get_routing_recommendation(prose.clone())?["provider"],"generative");
+        let mut forced=prose;forced["provider"]=json!("openai-decisions");
+        assert!(router.get_routing_recommendation(forced).is_err());
+        let supported=json!({"provider":"openai-decisions","chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}});
+        assert_eq!(router.get_routing_recommendation(supported)?["provider"],"openai-decisions");
         Ok(())
     }
     #[test]

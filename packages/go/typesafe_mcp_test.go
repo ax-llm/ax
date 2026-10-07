@@ -306,3 +306,58 @@ func TestTypesafeNestedBalancerValidation(t *testing.T) {
 		t.Fatalf("nested selection: %v %v", candidates, err)
 	}
 }
+func TestDecisionsNestedBalancerValidation(t *testing.T) {
+	typed := NewAI("openai-decisions", map[string]Value{"api_key": "test", "models": []Value{}}).(AxAIService)
+	only, err := NewAxBalancer([]AxAIService{typed}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prose := map[string]Value{"chat_prompt": []Value{map[string]Value{"role": "user", "content": "reply"}}}
+	if only.ValidateChatRequest(prose) == nil {
+		t.Fatal("nested Decisions accepted prose")
+	}
+	var supported map[string]Value
+	if err = json.Unmarshal([]byte(`{"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}}`), &supported); err != nil {
+		t.Fatal(err)
+	}
+	if err = only.ValidateChatRequest(supported); err != nil {
+		t.Fatal(err)
+	}
+	mixed, err := NewAxBalancer([]AxAIService{only, NewAI("openai", map[string]Value{"api_key": "test", "models": []Value{}}).(AxAIService)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := mixed.candidateServices(prose)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("nested selection: %v %v", candidates, err)
+	}
+}
+
+func TestDecisionsNativeAndAdapterCredentialRefresh(t *testing.T) {
+ for _,native:=range []bool{true,false} {
+  var calls,credentials atomic.Int32
+  server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+   count:=calls.Add(1)
+   if r.URL.Path!="/v1/decisions" || r.Method!="POST" { t.Error("wrong Decisions endpoint") }
+   if len(r.Header.Values("Authorization"))!=1 || r.Header.Get("Authorization")!=fmt.Sprintf("Bearer fresh-%d",count) {t.Error("credential precedence duplicated authorization")}
+   if r.Header.Get("x-trace")!="kept" {t.Error("custom header lost")}
+   if count==1 {w.WriteHeader(429);_,_=w.Write([]byte(`{"error":"retry"}`));return}
+   _,_=w.Write([]byte(`{"model":"gpt-6-luna","answers":[{"type":"predicate","name":"flag","probability":0.8}],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`))
+  }))
+  provider:=AxCredentialProviderFunc(func(_ context.Context,request AxCredentialRequest)(map[string]string,error){
+   if request.Profile!="openai-decisions" || request.Operation!="chat" {t.Error("wrong credential operation")}
+   return map[string]string{"authorization":fmt.Sprintf("Bearer fresh-%d",credentials.Add(1))},nil
+  })
+  options:=map[string]Value{"api_key":"static","base_url":server.URL+"/v1","headers":Object("AUTHORIZATION","Bearer custom","x-trace","kept"),"credential_provider":provider,"retry":Object("maxRetries",1,"initialDelayMs",1)}
+  nativeRequest:=asMap(parseJSON(`{"input":"red","questions":[{"type":"predicate","name":"flag","instructions":"Is this red?"}]}`))
+  chatRequest:=asMap(parseJSON(`{"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}}`))
+  var call func(context.Context)(Value,error)
+  if native {client:=OpenAIDecisions(options);call=func(ctx context.Context)(Value,error){return client.Create(ctx,nativeRequest,nil)}} else {client:=NewAI("openai-decisions",options);call=func(ctx context.Context)(Value,error){return client.Chat(ctx,chatRequest,nil)}}
+  result,err:=call(context.Background());if err!=nil{server.Close();t.Fatal(err)}
+  if native {if coreGet(asSlice(coreGet(result,"answers",nil))[0],"probability",nil)!=0.8{t.Error("native probability changed")}} else {content:=coreGet(asSlice(coreGet(result,"results",nil))[0],"content",nil);if coreGet(parseJSON(display(content)),"flag",nil)!=true{t.Error("predicate threshold changed")}}
+  ctx,cancel:=context.WithCancel(context.Background());cancel()
+  if _,err=call(ctx);err==nil{t.Error("pre-aborted Decisions call accepted")}
+  if calls.Load()!=2 || credentials.Load()!=2 {t.Error("retry refresh or cancellation attempt count")}
+  server.Close()
+ }
+}

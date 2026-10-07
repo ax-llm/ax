@@ -17,6 +17,7 @@ module @ax.root version "0.1" {
   import @ax.stream from "stream.axir"
   import @ax.provider from "provider.axir"
   import @ax.typesafe from "typesafe.axir"
+  import @ax.decisions from "decisions.axir"
   import @ax.agent from "agent.axir"
   import @ax.optimize from "optimize.axir"
   import @ax.flow from "flow.axir"

@@ -341,8 +341,8 @@
       },
       "openai-decisions": {
         "aliases": ["openai-decisions"],
-        "catalogStatus": "typescript-only",
-        "generatedClient": null,
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "AxAIOpenAIDecisionsClient",
         "id": "openai-decisions",
         "transport": "openai-decisions"
       },

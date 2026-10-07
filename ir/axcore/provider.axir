@@ -4490,6 +4490,11 @@ module @ax.provider version "0.1" {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
       %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_decisions = core.call intrinsic.eq(%transport, "openai-decisions")
+      core.if %is_decisions {
+        %payload = core.call @decisions_build_chat_request(%request, %options)
+        core.return %payload
+      }
       %is_typesafe = core.call intrinsic.eq(%transport, "typesafe-system-one")
       core.if %is_typesafe {
         %payload = core.call @typesafe_build_chat_request(%request, %options)
@@ -5037,6 +5042,11 @@ module @ax.provider version "0.1" {
       %provider_id = core.call @provider_chat_profile(%profile, %model)
       %descriptor = core.call @provider_descriptor(%provider_id)
       %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_decisions = core.call intrinsic.eq(%transport, "openai-decisions")
+      core.if %is_decisions {
+        %response = core.call @decisions_normalize_chat_response(%raw, %context)
+        core.return %response
+      }
       %is_typesafe = core.call intrinsic.eq(%transport, "typesafe-system-one")
       core.if %is_typesafe {
         %response = core.call @typesafe_normalize_chat_response(%raw, %context)
@@ -11237,6 +11247,10 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string) {
       %config = core.map
       %provider_id = core.call @provider_normalize_profile(%profile)
+      %is_decisions = core.call intrinsic.eq(%provider_id, "openai-decisions")
+      core.if %is_decisions {
+        core.return %config
+      }
       %is_typesafe = core.call intrinsic.eq(%provider_id, "typesafe")
       core.if %is_typesafe {
         core.return %config

@@ -1,0 +1,201 @@
+{
+  "expected_output": {
+    "modelUsage": {
+      "ai": "OpenAI Decisions",
+      "model": "gpt-6-luna",
+      "tokens": {
+        "cacheCreationTokens": 2,
+        "cacheReadTokens": 4,
+        "completionTokens": 3,
+        "promptTokens": 14,
+        "reasoningTokens": 1,
+        "totalTokens": 23
+      }
+    },
+    "providerMetadata": {
+      "openaiDecisions": {
+        "answers": [
+          {
+            "name": "urgent",
+            "probability": 0.5,
+            "type": "predicate"
+          },
+          {
+            "choice": "support",
+            "confidence": 0.8,
+            "name": "team",
+            "probabilities": [
+              {
+                "probability": 0.8,
+                "value": "support"
+              },
+              {
+                "probability": 0.2,
+                "value": "billing"
+              }
+            ],
+            "type": "choice"
+          }
+        ]
+      }
+    },
+    "results": [
+      {
+        "content": "{\"urgent\":false,\"team\":\"support\"}",
+        "finishReason": "stop",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["stream", "temperature", "trueThreshold"],
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "system:",
+              "type": "input_text"
+            },
+            {
+              "text": "Classify the supplied evidence.",
+              "type": "input_text"
+            },
+            {
+              "text": "user:",
+              "type": "input_text"
+            },
+            {
+              "text": "Checkout is broken.",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "gpt-6-luna",
+      "questions": [
+        {
+          "instructions": "urgent: Urgent?\ntrue: Blocked\nfalse: Routine",
+          "name": "urgent",
+          "type": "predicate"
+        },
+        {
+          "choices": [
+            {
+              "value": "support"
+            },
+            {
+              "description": "Invoice issues",
+              "value": "billing"
+            }
+          ],
+          "instructions": "team: Route the issue.",
+          "name": "team",
+          "type": "choice"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "model": "gpt-6-luna",
+  "name": "decisions-adapter-threshold-custom",
+  "provider": "openai-decisions",
+  "request": {
+    "chatPrompt": [
+      {
+        "role": "system",
+        "content": "Classify the supplied evidence."
+      },
+      {
+        "role": "user",
+        "content": "Checkout is broken."
+      }
+    ],
+    "responseFormat": {
+      "type": "json_schema",
+      "schema": {
+        "name": "output",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "urgent": {
+              "type": "boolean",
+              "description": "Urgent?"
+            },
+            "team": {
+              "type": "string",
+              "enum": ["support", "billing"]
+            }
+          },
+          "required": ["urgent", "team"],
+          "additionalProperties": false
+        }
+      },
+      "fieldDescriptions": {
+        "urgent": {
+          "description": "Urgent?",
+          "valueDescriptions": {
+            "true": "Blocked",
+            "false": "Routine"
+          }
+        },
+        "team": {
+          "description": "Route the issue.",
+          "valueDescriptions": {
+            "billing": "Invoice issues"
+          }
+        }
+      }
+    },
+    "modelConfig": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "trueThreshold": 0.6
+  },
+  "transport_responses": [
+    {
+      "answers": [
+        {
+          "name": "urgent",
+          "probability": 0.5,
+          "type": "predicate"
+        },
+        {
+          "choice": "support",
+          "confidence": 0.8,
+          "name": "team",
+          "probabilities": [
+            {
+              "probability": 0.8,
+              "value": "support"
+            },
+            {
+              "probability": 0.2,
+              "value": "billing"
+            }
+          ],
+          "type": "choice"
+        }
+      ],
+      "model": "gpt-6-luna",
+      "usage": {
+        "input_tokens": 20,
+        "input_tokens_details": {
+          "cache_write_tokens": 2,
+          "cached_tokens": 4
+        },
+        "output_tokens": 3,
+        "output_tokens_details": {
+          "reasoning_tokens": 1
+        },
+        "total_tokens": 23
+      }
+    }
+  ]
+}

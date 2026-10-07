@@ -3224,7 +3224,12 @@ impl OpenAICompatibleClient {
                 None => self.retried_transport_request(call, Some(("chat", &payload, &model)))?,
             };
             let profile = self.profile.clone();
-            let response_context = if profile == "typesafe" {
+            let response_context = if profile == "openai-decisions" {
+                core_value_to_json(&decisions_response_context(&[
+                    core_value_from_json(&payload),
+                    core_value_from_json(&self.options),
+                ])?)
+            } else if profile == "typesafe" {
                 core_value_to_json(&typesafe_response_context(&[
                     core_value_from_json(&payload),
                     core_value_from_json(&self.options),
@@ -3549,6 +3554,11 @@ impl OpenAICompatibleClient {
         model: &str,
         stream: bool,
     ) -> AxResult<Value> {
+        if self.profile == "openai-decisions" {
+            if let Some(token) = current_cancellation_token() {
+                token.throw_if_cancelled()?;
+            }
+        }
         let operation_descriptor = if self.profile == "typesafe" && operation == "models" {
             json!({"path":"/v1/models","method":"GET"})
         } else {
@@ -3629,15 +3639,20 @@ impl OpenAICompatibleClient {
             }
             _ => {}
         }
-        if let Some(extra) = descriptor.get("headers").and_then(Value::as_object) {
-            for (key, value) in extra {
-                let text = value
-                    .as_str()
-                    .map(ToString::to_string)
-                    .unwrap_or_else(|| value.to_string());
-                headers.insert(key.clone(), json!(text));
-            }
-        }
+        headers = core_value_to_json(&provider_merge_headers(&[
+            core_value_from_json(&Value::Object(headers)),
+            core_value_from_json(descriptor.get("headers").unwrap_or(&json!({}))),
+        ])?)
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+        headers = core_value_to_json(&provider_merge_headers(&[
+            core_value_from_json(&Value::Object(headers)),
+            core_value_from_json(self.options.get("headers").unwrap_or(&json!({}))),
+        ])?)
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
         let body_key =
             if operation_descriptor.get("body").and_then(Value::as_str) == Some("multipart") {
                 "data"
@@ -3666,14 +3681,19 @@ impl OpenAICompatibleClient {
             ));
         }
         if let Some(provider) = self.credential_provider.as_ref() {
-            for (key, value) in provider.credentials(&AxCredentialRequest {
+            let fresh = provider.credentials(&AxCredentialRequest {
                 profile: self.profile.clone(),
                 operation: operation.to_string(),
                 method: method.clone(),
                 url: url.clone(),
-            })? {
-                headers.insert(key, json!(value));
-            }
+            })?;
+            headers = core_value_to_json(&provider_merge_headers(&[
+                core_value_from_json(&Value::Object(headers)),
+                core_value_from_json(&json!(fresh)),
+            ])?)
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
         }
         let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
         if method != "GET" && method != "HEAD" {
@@ -5974,6 +5994,95 @@ impl AxAITypesafeClient {
     }
 }
 
+/// Native Decisions ordered questions, raw probability distributions and full usage.
+pub struct AxAIOpenAIDecisionsClient {
+    client: OpenAICompatibleClient,
+}
+pub fn openai_decisions(options: Value) -> AxResult<AxAIOpenAIDecisionsClient> {
+    Ok(AxAIOpenAIDecisionsClient {
+        client: ai("openai-decisions", options)?,
+    })
+}
+impl AxAIOpenAIDecisionsClient {
+    pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self {
+        self.client = self.client.with_transport(transport);
+        self
+    }
+    pub fn with_credential_provider(
+        mut self,
+        provider: impl AxCredentialProvider + 'static,
+    ) -> Self {
+        self.client = self.client.with_credential_provider(provider);
+        self
+    }
+    pub fn create(&mut self, request: Value) -> AxResult<Value> {
+        self.create_with_options(request, json!({}), None)
+    }
+    pub fn create_with_cancellation(
+        &mut self,
+        request: Value,
+        cancellation: Option<&AxCancellationToken>,
+    ) -> AxResult<Value> {
+        self.create_with_options(request, json!({}), cancellation)
+    }
+    pub fn create_with_options(
+        &mut self,
+        mut payload: Value,
+        options: Value,
+        cancellation: Option<&AxCancellationToken>,
+    ) -> AxResult<Value> {
+        let parent = current_cancellation_token();
+        let combined = AxCancellationToken::default();
+        let mut subscriptions = Vec::new();
+        let active = if let (Some(parent), Some(per_call)) = (parent.as_ref(), cancellation) {
+            for token in [parent, per_call] {
+                let source = token.clone();
+                let target = combined.clone();
+                subscriptions.push(token.subscribe(move || {
+                    target.cancel(source.reason().unwrap_or_else(|| "cancelled".to_string()));
+                }));
+            }
+            Some(&combined)
+        } else {
+            cancellation.or(parent.as_ref())
+        };
+        let _scope = match active {
+            Some(token) => Some(AxCancellationScope::enter(token)?),
+            None => None,
+        };
+        decisions_require_object(&[core_value_from_json(&payload), CoreValue::from("request")])?;
+        if payload.get("model").is_none_or(Value::is_null) {
+            payload["model"] = json!(self.client.model);
+        }
+        decisions_validate_request(&[core_value_from_json(&payload)])?;
+        let inherited = self.client.options.clone();
+        let options =
+            core_value_to_json(&provider_normalize_call_options(&[core_value_from_json(
+                &options,
+            )])?);
+        self.client.options = merge_ai_options(&inherited, &options)?;
+        let result = (|| {
+            let model = payload["model"]
+                .as_str()
+                .unwrap_or("gpt-6-luna")
+                .to_string();
+            let call = self
+                .client
+                .provider_transport_request("chat", &payload, &model, false)?;
+            let raw = self
+                .client
+                .retried_transport_request(call, Some(("chat", &payload, &model)))?;
+            let decoded = decisions_decode_response(&[
+                core_value_from_json(&raw),
+                core_value_from_json(&payload["questions"]),
+            ])?;
+            Ok(core_value_to_json(&decoded))
+        })();
+        self.client.options = inherited;
+        result
+    }
+}
+
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let defaults = provider_defaults(provider)
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
@@ -6014,6 +6123,19 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
             }
         })
         .unwrap_or_default();
+    if profile == "openai-decisions" {
+        let threshold = options
+            .get("trueThreshold")
+            .or_else(|| options.get("true_threshold"))
+            .cloned()
+            .unwrap_or(json!(0.5));
+        decisions_require_number(&[
+            core_value_from_json(&threshold),
+            CoreValue::from("trueThreshold"),
+            CoreValue::Num(0.0),
+            CoreValue::Num(1.0),
+        ])?;
+    }
     if profile == "typesafe" {
         let threshold = options
             .get("trueThreshold")
@@ -16046,6 +16168,28 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
+        "ai_decisions_native" => {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let transport =
+                RecordingTransport::new(vec![fixture["response"].clone()], requests.clone());
+            let mut client =
+                openai_decisions(json!({"api_key":"test-key"}))?.with_transport(transport);
+            let result = client.create(fixture["request"].clone());
+            if fixture.get("expected_error_contains").is_some() {
+                expect_validation_result(result.map(|_| ()), &fixture)?;
+            } else {
+                expect_json_equal(
+                    "native Decisions output",
+                    &result?,
+                    &fixture["expected_output"],
+                )?;
+            }
+            expect_transport_request_subset(
+                &fixture,
+                &requests,
+                &Arc::new(Mutex::new(Vec::new())),
+            )?;
+        }
         "ai_typesafe_native" => {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let transport =
@@ -42171,6 +42315,34 @@ fn _prompt_messages_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn decisions_require_object(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_require_object");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("object"));
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("OpenAI Decisions: {} must be an object"),
+            v_context.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn typesafe_require_object(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("typesafe_require_object");
     let mut v_value = core_arg(args, 0);
@@ -42184,6 +42356,42 @@ fn typesafe_require_object(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     if core_truthy(&v_invalid) {
         v_message = core_string_format(&[
             CoreValue::from("Typesafe: {} must be an object"),
+            v_context.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_require_string(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_require_string");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_nonempty = core_arg(args, 2);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("string"));
+    if core_truthy(&v_valid) {
+        if core_truthy(&v_nonempty) {
+            v_text = core_string_trim(&v_value);
+            v_valid = core_ne(&[v_text.clone(), CoreValue::from("")])?;
+        }
+    }
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("OpenAI Decisions: {} must be a string (nonempty where required)"),
             v_context.clone(),
         ])?;
         v_error = core_validation_error(&[v_message.clone()])?;
@@ -42560,6 +42768,50 @@ fn _openai_build_chat_request_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn decisions_require_number(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_require_number");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_minimum = core_arg(args, 2);
+    let mut v_maximum = core_arg(args, 3);
+    let mut v_error = CoreValue::Null;
+    let mut v_high = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_low = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_outside = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_within = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("number"));
+    if core_truthy(&v_valid) {
+        v_valid = core_math_is_finite(&[v_value.clone()])?;
+        v_low = core_lt(&[v_value.clone(), v_minimum.clone()])?;
+        v_high = core_gt(&[v_value.clone(), v_maximum.clone()])?;
+        v_outside = core_or(&[v_low.clone(), v_high.clone()])?;
+        v_within = core_not(&[v_outside.clone()])?;
+        v_valid = core_and(&[v_valid.clone(), v_within.clone()])?;
+    }
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("OpenAI Decisions: {} must be a finite number between {} and {}"),
+            v_context.clone(),
+            v_minimum.clone(),
+            v_maximum.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn typesafe_require_number(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("typesafe_require_number");
     let mut v_value = core_arg(args, 0);
@@ -42594,6 +42846,44 @@ fn typesafe_require_number(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_error = core_validation_error(&[v_message.clone()])?;
         return Err(core_as_error(&v_error));
     }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_require_list(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_require_list");
+    let mut v_value = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_minimum = core_arg(args, 2);
+    let mut v_maximum = core_arg(args, 3);
+    let mut v_error = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_valid = core_type_is(&v_value, CoreValue::from("list"));
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        v_message = core_string_format(&[
+            CoreValue::from("OpenAI Decisions: {} must be an array"),
+            v_context.clone(),
+        ])?;
+        v_error = core_validation_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_size = core_len(&[v_value.clone()])?;
+    decisions_require_number(&[
+        v_size.clone(),
+        v_context.clone(),
+        v_minimum.clone(),
+        v_maximum.clone(),
+    ])?;
     return Ok(v_value.clone());
 }
 
@@ -42658,6 +42948,309 @@ fn typesafe_validate_json(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Err(AxError::runtime(
             "Typesafe: entries must contain JSON values",
         ));
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_require_count(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_require_count");
+    let mut v_value = core_arg(args, 0);
+    let mut v_fractional = CoreValue::Null;
+    let mut v_integer = CoreValue::Null;
+    decisions_require_number(&[
+        v_value.clone(),
+        CoreValue::from("token count"),
+        CoreValue::Num(0f64),
+        CoreValue::Num(9.007199254740991e+15f64),
+    ])?;
+    v_integer = core_math_floor(&[v_value.clone()])?;
+    v_fractional = core_ne(&[v_integer.clone(), v_value.clone()])?;
+    if core_truthy(&v_fractional) {
+        return Err(AxError::runtime(
+            "OpenAI Decisions: token counts must be nonnegative safe integers",
+        ));
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_validate_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_validate_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_bad_role = CoreValue::Null;
+    let mut v_bad_type = CoreValue::Null;
+    let mut v_choice = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_detail = CoreValue::Null;
+    let mut v_details = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_detail = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_has_safety = CoreValue::Null;
+    let mut v_has_type = CoreValue::Null;
+    let mut v_images = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_instructions = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_image = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_maximum = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_needs_options = CoreValue::Null;
+    let mut v_not_boolean = CoreValue::Null;
+    let mut v_option = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts_content = CoreValue::Null;
+    let mut v_predicate = CoreValue::Null;
+    let mut v_q = CoreValue::Null;
+    let mut v_questions = CoreValue::Null;
+    let mut v_require_text = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
+    let mut v_safety = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_structured = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_text_content = CoreValue::Null;
+    let mut v_too_many = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    let mut v_url_string = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    decisions_require_object(&[v_request.clone(), CoreValue::from("request")])?;
+    v_model = core_get(&v_request, &CoreValue::from("model"), CoreValue::Null);
+    decisions_require_string(&[
+        v_model.clone(),
+        CoreValue::from("model"),
+        CoreValue::Bool(true),
+    ])?;
+    v_safety = core_get(
+        &v_request,
+        &CoreValue::from("safety_identifier"),
+        CoreValue::Null,
+    );
+    v_has_safety = core_is_not_none(&[v_safety.clone()])?;
+    if core_truthy(&v_has_safety) {
+        decisions_require_string(&[
+            v_safety.clone(),
+            CoreValue::from("safety_identifier"),
+            CoreValue::Bool(false),
+        ])?;
+    }
+    v_input = core_get(&v_request, &CoreValue::from("input"), CoreValue::Null);
+    v_is_text = core_type_is(&v_input, CoreValue::from("string"));
+    v_structured = core_not(&[v_is_text.clone()])?;
+    v_images = CoreValue::Num(0f64);
+    if core_truthy(&v_structured) {
+        decisions_require_list(&[
+            v_input.clone(),
+            CoreValue::from("input"),
+            CoreValue::Num(1f64),
+            CoreValue::Num(9.007199254740991e+15f64),
+        ])?;
+        for v_message in core_iter(&v_input)? {
+            let mut v_message = v_message;
+            decisions_require_object(&[v_message.clone(), CoreValue::from("input message")])?;
+            v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
+            v_bad_role = core_ne(&[v_role.clone(), CoreValue::from("user")])?;
+            v_type = CoreValue::from("message");
+            v_has_type = core_map_contains(&[v_message.clone(), CoreValue::from("type")])?;
+            if core_truthy(&v_has_type) {
+                v_type = core_get(&v_message, &CoreValue::from("type"), CoreValue::Null);
+            }
+            v_bad_type = core_ne(&[v_type.clone(), CoreValue::from("message")])?;
+            v_invalid = core_or(&[v_bad_role.clone(), v_bad_type.clone()])?;
+            if core_truthy(&v_invalid) {
+                return Err(AxError::runtime(
+                    "OpenAI Decisions: only user messages are supported",
+                ));
+            }
+            v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+            v_text_content = core_type_is(&v_content, CoreValue::from("string"));
+            v_parts_content = core_not(&[v_text_content.clone()])?;
+            if core_truthy(&v_parts_content) {
+                decisions_require_list(&[
+                    v_content.clone(),
+                    CoreValue::from("input content"),
+                    CoreValue::Num(1f64),
+                    CoreValue::Num(9.007199254740991e+15f64),
+                ])?;
+                for v_part in core_iter(&v_content)? {
+                    let mut v_part = v_part;
+                    decisions_require_object(&[v_part.clone(), CoreValue::from("input part")])?;
+                    v_kind = core_get(&v_part, &CoreValue::from("type"), CoreValue::Null);
+                    v_is_text = core_eq(&[v_kind.clone(), CoreValue::from("input_text")])?;
+                    if core_truthy(&v_is_text) {
+                        v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::Null);
+                        decisions_require_string(&[
+                            v_text.clone(),
+                            CoreValue::from("input text"),
+                            CoreValue::Bool(false),
+                        ])?;
+                    } else {
+                        v_is_image = core_eq(&[v_kind.clone(), CoreValue::from("input_image")])?;
+                        v_url = core_get(&v_part, &CoreValue::from("image_url"), CoreValue::Null);
+                        v_url_string = core_type_is(&v_url, CoreValue::from("string"));
+                        v_valid = core_and(&[v_is_image.clone(), v_url_string.clone()])?;
+                        if core_truthy(&v_valid) {
+                            v_valid = core_regex_match(
+                                CoreValue::from(
+                                    "^data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$",
+                                ),
+                                &v_url,
+                            )?;
+                        }
+                        v_invalid = core_not(&[v_valid.clone()])?;
+                        if core_truthy(&v_invalid) {
+                            return Err(AxError::runtime("OpenAI Decisions: images require inline base64 data URLs; files, audio, and hosted URLs are unsupported"));
+                        }
+                        v_detail = core_get(&v_part, &CoreValue::from("detail"), CoreValue::Null);
+                        v_has_detail = core_is_not_none(&[v_detail.clone()])?;
+                        if core_truthy(&v_has_detail) {
+                            v_details = CoreValue::new_list();
+                            core_append(&v_details, CoreValue::from("low"))?;
+                            core_append(&v_details, CoreValue::from("high"))?;
+                            core_append(&v_details, CoreValue::from("auto"))?;
+                            core_append(&v_details, CoreValue::from("original"))?;
+                            v_known = core_contains(&[v_details.clone(), v_detail.clone()])?;
+                            v_invalid = core_not(&[v_known.clone()])?;
+                            if core_truthy(&v_invalid) {
+                                return Err(AxError::runtime(
+                                    "OpenAI Decisions: invalid image detail",
+                                ));
+                            }
+                        }
+                        v_images = core_add(&[v_images.clone(), CoreValue::Num(1f64)])?;
+                    }
+                }
+            }
+        }
+    }
+    v_too_many = core_gt(&[v_images.clone(), CoreValue::Num(128f64)])?;
+    if core_truthy(&v_too_many) {
+        return Err(AxError::runtime(
+            "OpenAI Decisions: at most 128 images are supported",
+        ));
+    }
+    v_questions = core_get(&v_request, &CoreValue::from("questions"), CoreValue::Null);
+    decisions_require_list(&[
+        v_questions.clone(),
+        CoreValue::from("questions"),
+        CoreValue::Num(1f64),
+        CoreValue::Num(9.007199254740991e+15f64),
+    ])?;
+    v_names = CoreValue::new_map();
+    for v_q in core_iter(&v_questions)? {
+        let mut v_q = v_q;
+        decisions_require_object(&[v_q.clone(), CoreValue::from("question")])?;
+        v_instructions = core_get(&v_q, &CoreValue::from("instructions"), CoreValue::Null);
+        decisions_require_string(&[
+            v_instructions.clone(),
+            CoreValue::from("question instructions"),
+            CoreValue::Bool(false),
+        ])?;
+        v_has_name = core_map_contains(&[v_q.clone(), CoreValue::from("name")])?;
+        if core_truthy(&v_has_name) {
+            v_name = core_get(&v_q, &CoreValue::from("name"), CoreValue::Null);
+            decisions_require_string(&[
+                v_name.clone(),
+                CoreValue::from("question name"),
+                CoreValue::Bool(false),
+            ])?;
+            v_duplicate = core_map_contains(&[v_names.clone(), v_name.clone()])?;
+            if core_truthy(&v_duplicate) {
+                return Err(AxError::runtime(
+                    "OpenAI Decisions: duplicate question name",
+                ));
+            }
+            core_set(&v_names, v_name.clone(), CoreValue::Bool(true))?;
+        }
+        v_kind = core_get(&v_q, &CoreValue::from("type"), CoreValue::Null);
+        v_predicate = core_eq(&[v_kind.clone(), CoreValue::from("predicate")])?;
+        v_needs_options = core_not(&[v_predicate.clone()])?;
+        if core_truthy(&v_needs_options) {
+            v_choice = core_eq(&[v_kind.clone(), CoreValue::from("choice")])?;
+            v_score = core_eq(&[v_kind.clone(), CoreValue::from("score")])?;
+            v_valid = core_or(&[v_choice.clone(), v_score.clone()])?;
+            v_invalid = core_not(&[v_valid.clone()])?;
+            if core_truthy(&v_invalid) {
+                return Err(AxError::runtime(
+                    "OpenAI Decisions: invalid question type or options",
+                ));
+            }
+            v_options = core_get(&v_q, &CoreValue::from("choices"), CoreValue::Null);
+            v_maximum = CoreValue::Num(255f64);
+            if core_truthy(&v_score) {
+                v_options = core_get(&v_q, &CoreValue::from("levels"), CoreValue::Null);
+                v_maximum = CoreValue::Num(10f64);
+            }
+            decisions_require_list(&[
+                v_options.clone(),
+                v_kind.clone(),
+                CoreValue::Num(2f64),
+                v_maximum.clone(),
+            ])?;
+            v_values = CoreValue::new_map();
+            for v_option in core_iter(&v_options)? {
+                let mut v_option = v_option;
+                decisions_require_object(&[v_option.clone(), CoreValue::from("question option")])?;
+                v_value = core_get(&v_option, &CoreValue::from("value"), CoreValue::Null);
+                if core_truthy(&v_score) {
+                    v_value = core_get(&v_option, &CoreValue::from("label"), CoreValue::Null);
+                }
+                v_is_boolean = core_type_is(&v_value, CoreValue::from("boolean"));
+                v_not_boolean = core_not(&[v_is_boolean.clone()])?;
+                v_require_text = core_or(&[v_score.clone(), v_not_boolean.clone()])?;
+                if core_truthy(&v_require_text) {
+                    decisions_require_string(&[
+                        v_value.clone(),
+                        CoreValue::from("option value"),
+                        CoreValue::Bool(false),
+                    ])?;
+                }
+                v_key = core_json_stringify(&[v_value.clone()])?;
+                v_duplicate = core_map_contains(&[v_values.clone(), v_key.clone()])?;
+                if core_truthy(&v_duplicate) {
+                    return Err(AxError::runtime("OpenAI Decisions: duplicate option value"));
+                }
+                core_set(&v_values, v_key.clone(), CoreValue::Bool(true))?;
+                v_has_description =
+                    core_map_contains(&[v_option.clone(), CoreValue::from("description")])?;
+                if core_truthy(&v_has_description) {
+                    v_description =
+                        core_get(&v_option, &CoreValue::from("description"), CoreValue::Null);
+                    decisions_require_string(&[
+                        v_description.clone(),
+                        CoreValue::from("option description"),
+                        CoreValue::Bool(false),
+                    ])?;
+                }
+            }
+        }
     }
     return Ok(CoreValue::Null);
 }
@@ -43558,6 +44151,280 @@ fn typesafe_decode_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             }
         }
     }
+    return Ok(v_raw.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_decode_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_decode_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_questions = core_arg(args, 1);
+    let mut v_a = CoreValue::Null;
+    let mut v_actual_label = CoreValue::Null;
+    let mut v_answer_kind = CoreValue::Null;
+    let mut v_answer_name = CoreValue::Null;
+    let mut v_answers = CoreValue::Null;
+    let mut v_cached = CoreValue::Null;
+    let mut v_confidence = CoreValue::Null;
+    let mut v_difference = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_epsilon = CoreValue::Null;
+    let mut v_expected = CoreValue::Null;
+    let mut v_expected_key = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_i = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_integer = CoreValue::Null;
+    let mut v_invalid_total = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_missing_name = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_not_refusal = CoreValue::Null;
+    let mut v_option = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_p = CoreValue::Null;
+    let mut v_position = CoreValue::Null;
+    let mut v_predicate = CoreValue::Null;
+    let mut v_probabilities = CoreValue::Null;
+    let mut v_probability = CoreValue::Null;
+    let mut v_q = CoreValue::Null;
+    let mut v_reasoning = CoreValue::Null;
+    let mut v_refusal = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_selected_key = CoreValue::Null;
+    let mut v_size = CoreValue::Null;
+    let mut v_tolerance = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_upper = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_write = CoreValue::Null;
+    let mut v_wrong_label = CoreValue::Null;
+    let mut v_wrong_name = CoreValue::Null;
+    let mut v_wrong_type = CoreValue::Null;
+    decisions_require_object(&[v_raw.clone(), CoreValue::from("response")])?;
+    v_model = core_get(&v_raw, &CoreValue::from("model"), CoreValue::Null);
+    decisions_require_string(&[
+        v_model.clone(),
+        CoreValue::from("response model"),
+        CoreValue::Bool(true),
+    ])?;
+    v_answers = core_get(&v_raw, &CoreValue::from("answers"), CoreValue::Null);
+    v_size = core_len(&[v_questions.clone()])?;
+    decisions_require_list(&[
+        v_answers.clone(),
+        CoreValue::from("answers"),
+        v_size.clone(),
+        v_size.clone(),
+    ])?;
+    v_i = CoreValue::Num(0f64);
+    for v_q in core_iter(&v_questions)? {
+        let mut v_q = v_q;
+        v_a = core_get(&v_answers, &v_i.clone(), CoreValue::Null);
+        v_i = core_add(&[v_i.clone(), CoreValue::Num(1f64)])?;
+        decisions_require_object(&[v_a.clone(), CoreValue::from("answer")])?;
+        v_name = core_get(&v_q, &CoreValue::from("name"), CoreValue::Null);
+        v_answer_name = core_get(&v_a, &CoreValue::from("name"), CoreValue::Null);
+        v_has_name = core_map_contains(&[v_a.clone(), CoreValue::from("name")])?;
+        v_missing_name = core_not(&[v_has_name.clone()])?;
+        v_wrong_name = core_ne(&[v_name.clone(), v_answer_name.clone()])?;
+        v_wrong_name = core_or(&[v_wrong_name.clone(), v_missing_name.clone()])?;
+        if core_truthy(&v_wrong_name) {
+            return Err(AxError::runtime(
+                "OpenAI Decisions: incorrect answer name or order",
+            ));
+        }
+        v_kind = core_get(&v_q, &CoreValue::from("type"), CoreValue::Null);
+        v_answer_kind = core_get(&v_a, &CoreValue::from("type"), CoreValue::Null);
+        v_refusal = core_eq(&[v_answer_kind.clone(), CoreValue::from("refusal")])?;
+        v_not_refusal = core_not(&[v_refusal.clone()])?;
+        if core_truthy(&v_not_refusal) {
+            v_wrong_type = core_ne(&[v_kind.clone(), v_answer_kind.clone()])?;
+            if core_truthy(&v_wrong_type) {
+                return Err(AxError::runtime("OpenAI Decisions: incorrect answer type"));
+            }
+            v_predicate = core_eq(&[v_kind.clone(), CoreValue::from("predicate")])?;
+            if core_truthy(&v_predicate) {
+                v_probability = core_get(&v_a, &CoreValue::from("probability"), CoreValue::Null);
+                decisions_require_number(&[
+                    v_probability.clone(),
+                    CoreValue::from("predicate probability"),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(1f64),
+                ])?;
+            } else {
+                v_confidence = core_get(&v_a, &CoreValue::from("confidence"), CoreValue::Null);
+                decisions_require_number(&[
+                    v_confidence.clone(),
+                    CoreValue::from("confidence"),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(1f64),
+                ])?;
+                v_score = core_eq(&[v_kind.clone(), CoreValue::from("score")])?;
+                v_options = core_get(&v_q, &CoreValue::from("choices"), CoreValue::Null);
+                if core_truthy(&v_score) {
+                    v_options = core_get(&v_q, &CoreValue::from("levels"), CoreValue::Null);
+                }
+                v_size = core_len(&[v_options.clone()])?;
+                v_probabilities =
+                    core_get(&v_a, &CoreValue::from("probabilities"), CoreValue::Null);
+                decisions_require_list(&[
+                    v_probabilities.clone(),
+                    CoreValue::from("probabilities"),
+                    v_size.clone(),
+                    v_size.clone(),
+                ])?;
+                v_seen = CoreValue::new_map();
+                v_total = CoreValue::Num(0f64);
+                for v_p in core_iter(&v_probabilities)? {
+                    let mut v_p = v_p;
+                    decisions_require_object(&[v_p.clone(), CoreValue::from("probability")])?;
+                    v_value = core_get(&v_p, &CoreValue::from("value"), CoreValue::Null);
+                    v_key = core_json_stringify(&[v_value.clone()])?;
+                    v_duplicate = core_map_contains(&[v_seen.clone(), v_key.clone()])?;
+                    if core_truthy(&v_duplicate) {
+                        return Err(AxError::runtime(
+                            "OpenAI Decisions: unknown or duplicate probability value",
+                        ));
+                    }
+                    core_set(&v_seen, v_key.clone(), CoreValue::Bool(true))?;
+                    v_found = CoreValue::Bool(false);
+                    if core_truthy(&v_score) {
+                        v_upper = core_add(&[v_size.clone(), CoreValue::Num(-1f64)])?;
+                        decisions_require_number(&[
+                            v_value.clone(),
+                            CoreValue::from("score index"),
+                            CoreValue::Num(0f64),
+                            v_upper.clone(),
+                        ])?;
+                        v_integer = core_math_floor(&[v_value.clone()])?;
+                        v_found = core_eq(&[v_value.clone(), v_integer.clone()])?;
+                        v_option = core_get(&v_options, &v_integer.clone(), CoreValue::Null);
+                        v_label = core_get(&v_option, &CoreValue::from("label"), CoreValue::Null);
+                        v_actual_label = core_get(&v_p, &CoreValue::from("label"), CoreValue::Null);
+                        v_wrong_label = core_ne(&[v_label.clone(), v_actual_label.clone()])?;
+                        if core_truthy(&v_wrong_label) {
+                            return Err(AxError::runtime(
+                                "OpenAI Decisions: incorrect score label",
+                            ));
+                        }
+                    } else {
+                        for v_option in core_iter(&v_options)? {
+                            let mut v_option = v_option;
+                            v_expected =
+                                core_get(&v_option, &CoreValue::from("value"), CoreValue::Null);
+                            v_expected_key = core_json_stringify(&[v_expected.clone()])?;
+                            v_match = core_eq(&[v_expected_key.clone(), v_key.clone()])?;
+                            v_found = core_or(&[v_found.clone(), v_match.clone()])?;
+                        }
+                    }
+                    v_unknown = core_not(&[v_found.clone()])?;
+                    if core_truthy(&v_unknown) {
+                        return Err(AxError::runtime(
+                            "OpenAI Decisions: unknown or duplicate probability value",
+                        ));
+                    }
+                    v_probability =
+                        core_get(&v_p, &CoreValue::from("probability"), CoreValue::Null);
+                    decisions_require_number(&[
+                        v_probability.clone(),
+                        CoreValue::from("distribution probability"),
+                        CoreValue::Num(0f64),
+                        CoreValue::Num(1f64),
+                    ])?;
+                    v_total = core_add(&[v_total.clone(), v_probability.clone()])?;
+                }
+                v_difference = core_add(&[v_total.clone(), CoreValue::Num(-1f64)])?;
+                v_difference = core_math_abs(&[v_difference.clone()])?;
+                v_epsilon = core_mul(&[CoreValue::Num(2.220446049250313e-16f64), v_size.clone()])?;
+                v_tolerance = core_add(&[CoreValue::Num(0.01f64), v_epsilon.clone()])?;
+                v_invalid_total = core_gt(&[v_difference.clone(), v_tolerance.clone()])?;
+                if core_truthy(&v_invalid_total) {
+                    return Err(AxError::runtime(
+                        "OpenAI Decisions: invalid probability distribution",
+                    ));
+                }
+                if core_truthy(&v_score) {
+                    v_position = core_get(&v_a, &CoreValue::from("score"), CoreValue::Null);
+                    v_upper = core_add(&[v_size.clone(), CoreValue::Num(-1f64)])?;
+                    decisions_require_number(&[
+                        v_position.clone(),
+                        CoreValue::from("score"),
+                        CoreValue::Num(0f64),
+                        v_upper.clone(),
+                    ])?;
+                } else {
+                    v_selected = core_get(&v_a, &CoreValue::from("choice"), CoreValue::Null);
+                    v_selected_key = core_json_stringify(&[v_selected.clone()])?;
+                    v_found = CoreValue::Bool(false);
+                    for v_option in core_iter(&v_options)? {
+                        let mut v_option = v_option;
+                        v_value = core_get(&v_option, &CoreValue::from("value"), CoreValue::Null);
+                        v_key = core_json_stringify(&[v_value.clone()])?;
+                        v_match = core_eq(&[v_key.clone(), v_selected_key.clone()])?;
+                        v_found = core_or(&[v_found.clone(), v_match.clone()])?;
+                    }
+                    v_unknown = core_not(&[v_found.clone()])?;
+                    if core_truthy(&v_unknown) {
+                        return Err(AxError::runtime("OpenAI Decisions: unknown choice"));
+                    }
+                }
+            }
+        }
+    }
+    v_usage = core_get(&v_raw, &CoreValue::from("usage"), CoreValue::Null);
+    decisions_require_object(&[v_usage.clone(), CoreValue::from("usage")])?;
+    v_keys = CoreValue::new_list();
+    core_append(&v_keys, CoreValue::from("input_tokens"))?;
+    core_append(&v_keys, CoreValue::from("output_tokens"))?;
+    core_append(&v_keys, CoreValue::from("total_tokens"))?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_usage, &v_key.clone(), CoreValue::Null);
+        decisions_require_count(&[v_value.clone()])?;
+    }
+    v_input = core_get(
+        &v_usage,
+        &CoreValue::from("input_tokens_details"),
+        CoreValue::Null,
+    );
+    decisions_require_object(&[v_input.clone(), CoreValue::from("input token details")])?;
+    v_cached = core_get(&v_input, &CoreValue::from("cached_tokens"), CoreValue::Null);
+    decisions_require_count(&[v_cached.clone()])?;
+    v_write = core_get(
+        &v_input,
+        &CoreValue::from("cache_write_tokens"),
+        CoreValue::Null,
+    );
+    decisions_require_count(&[v_write.clone()])?;
+    v_output = core_get(
+        &v_usage,
+        &CoreValue::from("output_tokens_details"),
+        CoreValue::Null,
+    );
+    decisions_require_object(&[v_output.clone(), CoreValue::from("output token details")])?;
+    v_reasoning = core_get(
+        &v_output,
+        &CoreValue::from("reasoning_tokens"),
+        CoreValue::Null,
+    );
+    decisions_require_count(&[v_reasoning.clone()])?;
     return Ok(v_raw.clone());
 }
 
@@ -44643,6 +45510,600 @@ fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_build_chat_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_allowed = CoreValue::Null;
+    let mut v_allowed_n = CoreValue::Null;
+    let mut v_annotation = CoreValue::Null;
+    let mut v_annotation_type = CoreValue::Null;
+    let mut v_annotations = CoreValue::Null;
+    let mut v_audio = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_calls_snake = CoreValue::Null;
+    let mut v_class_options = CoreValue::Null;
+    let mut v_config = CoreValue::Null;
+    let mut v_config_snake = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_control = CoreValue::Null;
+    let mut v_controls = CoreValue::Null;
+    let mut v_criteria = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_described = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_description_keys = CoreValue::Null;
+    let mut v_descriptions = CoreValue::Null;
+    let mut v_detail = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_flat = CoreValue::Null;
+    let mut v_forbidden = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_snake = CoreValue::Null;
+    let mut v_format_type = CoreValue::Null;
+    let mut v_function_call = CoreValue::Null;
+    let mut v_function_call_snake = CoreValue::Null;
+    let mut v_functions = CoreValue::Null;
+    let mut v_has_annotation = CoreValue::Null;
+    let mut v_has_call = CoreValue::Null;
+    let mut v_has_call_value = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_detail = CoreValue::Null;
+    let mut v_has_enum = CoreValue::Null;
+    let mut v_has_functions = CoreValue::Null;
+    let mut v_has_key = CoreValue::Null;
+    let mut v_has_safety = CoreValue::Null;
+    let mut v_has_value = CoreValue::Null;
+    let mut v_image = CoreValue::Null;
+    let mut v_images = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_instructions = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_description_string = CoreValue::Null;
+    let mut v_is_enum = CoreValue::Null;
+    let mut v_is_n = CoreValue::Null;
+    let mut v_is_stream = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_mime = CoreValue::Null;
+    let mut v_mime_snake = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_no_enum = CoreValue::Null;
+    let mut v_not_data = CoreValue::Null;
+    let mut v_not_flat = CoreValue::Null;
+    let mut v_numeric = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_option = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_prompt_snake = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_question = CoreValue::Null;
+    let mut v_questions = CoreValue::Null;
+    let mut v_raw_part = CoreValue::Null;
+    let mut v_required = CoreValue::Null;
+    let mut v_required_list = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
+    let mut v_root_type = CoreValue::Null;
+    let mut v_safety = CoreValue::Null;
+    let mut v_safety_snake = CoreValue::Null;
+    let mut v_schema = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_supported = CoreValue::Null;
+    let mut v_supported_type = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_threshold = CoreValue::Null;
+    let mut v_threshold_snake = CoreValue::Null;
+    let mut v_tool = CoreValue::Null;
+    let mut v_tool_alt = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_attrs = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_unsupported = CoreValue::Null;
+    let mut v_use_description = CoreValue::Null;
+    let mut v_user = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_wrapper = CoreValue::Null;
+    let mut v_wrong_format = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_threshold_snake = core_get(
+        &v_options,
+        &CoreValue::from("true_threshold"),
+        CoreValue::Num(0.5f64),
+    );
+    v_threshold = core_get(
+        &v_options,
+        &CoreValue::from("trueThreshold"),
+        v_threshold_snake.clone(),
+    );
+    decisions_require_number(&[
+        v_threshold.clone(),
+        CoreValue::from("trueThreshold"),
+        CoreValue::Num(0f64),
+        CoreValue::Num(1f64),
+    ])?;
+    v_functions = core_get(
+        &v_request,
+        &CoreValue::from("functions"),
+        v_empty_list.clone(),
+    );
+    v_function_call_snake = core_get(
+        &v_request,
+        &CoreValue::from("function_call"),
+        CoreValue::from("none"),
+    );
+    v_function_call = core_get(
+        &v_request,
+        &CoreValue::from("functionCall"),
+        v_function_call_snake.clone(),
+    );
+    v_has_functions = core_truthy_value(&[v_functions.clone()])?;
+    v_has_call = core_ne(&[v_function_call.clone(), CoreValue::from("none")])?;
+    v_has_call_value = core_truthy_value(&[v_function_call.clone()])?;
+    v_has_call = core_and(&[v_has_call.clone(), v_has_call_value.clone()])?;
+    v_tools = core_or(&[v_has_functions.clone(), v_has_call.clone()])?;
+    if core_truthy(&v_tools) {
+        return Err(AxError::runtime(
+            "OpenAI Decisions does not support tools; use a generative provider for tool execution",
+        ));
+    }
+    v_config_snake = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty_map.clone(),
+    );
+    v_config = core_get(
+        &v_request,
+        &CoreValue::from("modelConfig"),
+        v_config_snake.clone(),
+    );
+    v_controls = core_map_keys(&[v_config.clone()])?;
+    for v_control in core_iter(&v_controls)? {
+        let mut v_control = v_control;
+        v_value = core_get(&v_config, &v_control.clone(), CoreValue::Null);
+        v_present = core_is_not_none(&[v_value.clone()])?;
+        if core_truthy(&v_present) {
+            v_is_stream = core_eq(&[v_control.clone(), CoreValue::from("stream")])?;
+            v_is_n = core_eq(&[v_control.clone(), CoreValue::from("n")])?;
+            v_one = core_eq(&[v_value.clone(), CoreValue::Num(1f64)])?;
+            v_numeric = core_type_is(&v_value, CoreValue::from("number"));
+            v_one = core_and(&[v_one.clone(), v_numeric.clone()])?;
+            v_allowed_n = core_and(&[v_is_n.clone(), v_one.clone()])?;
+            v_allowed = core_or(&[v_is_stream.clone(), v_allowed_n.clone()])?;
+            v_unsupported = core_not(&[v_allowed.clone()])?;
+            if core_truthy(&v_unsupported) {
+                v_message = core_string_format(&[
+                    CoreValue::from("OpenAI Decisions does not support generation control {}"),
+                    v_control.clone(),
+                ])?;
+                v_error = core_validation_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+    }
+    v_format_snake = core_get(
+        &v_request,
+        &CoreValue::from("response_format"),
+        CoreValue::Null,
+    );
+    v_format = core_get(
+        &v_request,
+        &CoreValue::from("responseFormat"),
+        v_format_snake.clone(),
+    );
+    v_format_type = core_get(&v_format, &CoreValue::from("type"), CoreValue::Null);
+    v_wrong_format = core_ne(&[v_format_type.clone(), CoreValue::from("json_schema")])?;
+    if core_truthy(&v_wrong_format) {
+        return Err(AxError::runtime("OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs"));
+    }
+    v_wrapper = core_get(&v_format, &CoreValue::from("schema"), CoreValue::Null);
+    decisions_require_object(&[v_wrapper.clone(), CoreValue::from("responseFormat.schema")])?;
+    v_schema = core_get(&v_wrapper, &CoreValue::from("schema"), CoreValue::Null);
+    decisions_require_object(&[v_schema.clone(), CoreValue::from("output schema")])?;
+    v_root_type = core_get(&v_schema, &CoreValue::from("type"), CoreValue::Null);
+    v_flat = core_eq(&[v_root_type.clone(), CoreValue::from("object")])?;
+    v_forbidden = CoreValue::new_list();
+    core_append(&v_forbidden, CoreValue::from("anyOf"))?;
+    core_append(&v_forbidden, CoreValue::from("oneOf"))?;
+    core_append(&v_forbidden, CoreValue::from("allOf"))?;
+    core_append(&v_forbidden, CoreValue::from("$ref"))?;
+    for v_key in core_iter(&v_forbidden)? {
+        let mut v_key = v_key;
+        v_value = core_get(&v_schema, &v_key.clone(), CoreValue::Null);
+        v_has_value = core_truthy_value(&[v_value.clone()])?;
+        if core_truthy(&v_has_value) {
+            v_flat = CoreValue::Bool(false);
+        }
+    }
+    v_not_flat = core_not(&[v_flat.clone()])?;
+    if core_truthy(&v_not_flat) {
+        return Err(AxError::runtime(
+            "OpenAI Decisions requires a flat object output schema",
+        ));
+    }
+    v_properties = core_get(&v_schema, &CoreValue::from("properties"), CoreValue::Null);
+    decisions_require_object(&[v_properties.clone(), CoreValue::from("output properties")])?;
+    v_required = core_get(
+        &v_schema,
+        &CoreValue::from("required"),
+        v_empty_list.clone(),
+    );
+    v_annotations = core_get(
+        &v_format,
+        &CoreValue::from("fieldDescriptions"),
+        v_empty_map.clone(),
+    );
+    v_questions = CoreValue::new_list();
+    v_names = core_map_keys(&[v_properties.clone()])?;
+    core_append(&v_forbidden, CoreValue::from("const"))?;
+    for v_name in core_iter(&v_names)? {
+        let mut v_name = v_name;
+        v_field = core_get(&v_properties, &v_name.clone(), CoreValue::Null);
+        decisions_require_object(&[v_field.clone(), v_name.clone()])?;
+        v_required_list = core_type_is(&v_required, CoreValue::from("list"));
+        v_supported = core_contains(&[v_required.clone(), v_name.clone()])?;
+        v_supported = core_and(&[v_supported.clone(), v_required_list.clone()])?;
+        for v_key in core_iter(&v_forbidden)? {
+            let mut v_key = v_key;
+            v_has_key = core_map_contains(&[v_field.clone(), v_key.clone()])?;
+            if core_truthy(&v_has_key) {
+                v_supported = CoreValue::Bool(false);
+            }
+        }
+        v_type_name = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_class_options = core_get(&v_field, &CoreValue::from("enum"), CoreValue::Null);
+        v_is_boolean = core_eq(&[v_type_name.clone(), CoreValue::from("boolean")])?;
+        v_has_enum = core_is_not_none(&[v_class_options.clone()])?;
+        v_no_enum = core_not(&[v_has_enum.clone()])?;
+        v_is_boolean = core_and(&[v_is_boolean.clone(), v_no_enum.clone()])?;
+        v_is_string = core_eq(&[v_type_name.clone(), CoreValue::from("string")])?;
+        v_is_enum = core_type_is(&v_class_options, CoreValue::from("list"));
+        v_is_class = core_and(&[v_is_string.clone(), v_is_enum.clone()])?;
+        v_supported_type = core_or(&[v_is_boolean.clone(), v_is_class.clone()])?;
+        v_supported = core_and(&[v_supported.clone(), v_supported_type.clone()])?;
+        v_unsupported = core_not(&[v_supported.clone()])?;
+        if core_truthy(&v_unsupported) {
+            v_message = core_string_format(&[CoreValue::from("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs"), v_name.clone()])?;
+            v_error = core_validation_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_annotation = core_get(&v_annotations, &v_name.clone(), CoreValue::Null);
+        v_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+        v_has_annotation = core_is_not_none(&[v_annotation.clone()])?;
+        v_descriptions = CoreValue::new_map();
+        if core_truthy(&v_has_annotation) {
+            decisions_require_object(&[v_annotation.clone(), v_name.clone()])?;
+            v_description = core_get(
+                &v_annotation,
+                &CoreValue::from("description"),
+                CoreValue::Null,
+            );
+            v_has_description = core_is_not_none(&[v_description.clone()])?;
+            if core_truthy(&v_has_description) {
+                decisions_require_string(&[
+                    v_description.clone(),
+                    v_name.clone(),
+                    CoreValue::Bool(false),
+                ])?;
+            }
+            v_descriptions = core_get(
+                &v_annotation,
+                &CoreValue::from("valueDescriptions"),
+                CoreValue::Null,
+            );
+            decisions_require_object(&[v_descriptions.clone(), v_name.clone()])?;
+            v_type_attrs = CoreValue::new_map();
+            v_annotation_type = CoreValue::from("boolean");
+            if core_truthy(&v_is_class) {
+                v_annotation_type = CoreValue::from("class");
+            }
+            core_set(
+                &v_type_attrs,
+                CoreValue::from("name"),
+                v_annotation_type.clone(),
+            )?;
+            core_set(
+                &v_type_attrs,
+                CoreValue::from("options"),
+                v_class_options.clone(),
+            )?;
+            core_set(
+                &v_type_attrs,
+                CoreValue::from("value_descriptions"),
+                v_descriptions.clone(),
+            )?;
+            v_typ = core_record_new(&[CoreValue::from("FieldType"), v_type_attrs.clone()])?;
+            _signature_validate_value_descriptions_impl(&[v_typ.clone(), v_name.clone()])?;
+        }
+        v_instructions = core_string_format(&[
+            CoreValue::from("Evaluate the output field {}."),
+            v_name.clone(),
+        ])?;
+        v_is_description_string = core_type_is(&v_description, CoreValue::from("string"));
+        v_has_description = core_truthy_value(&[v_description.clone()])?;
+        v_use_description =
+            core_and(&[v_is_description_string.clone(), v_has_description.clone()])?;
+        if core_truthy(&v_use_description) {
+            v_instructions = core_string_format(&[
+                CoreValue::from("{}: {}"),
+                v_name.clone(),
+                v_description.clone(),
+            ])?;
+        }
+        v_question = CoreValue::new_map();
+        core_set(
+            &v_question,
+            CoreValue::from("instructions"),
+            v_instructions.clone(),
+        )?;
+        if core_truthy(&v_is_boolean) {
+            core_set(
+                &v_question,
+                CoreValue::from("type"),
+                CoreValue::from("predicate"),
+            )?;
+            if core_truthy(&v_has_annotation) {
+                v_lines = CoreValue::new_list();
+                core_append(&v_lines, v_instructions.clone())?;
+                v_description_keys = core_map_keys(&[v_descriptions.clone()])?;
+                for v_key in core_iter(&v_description_keys)? {
+                    let mut v_key = v_key;
+                    v_value = core_get(&v_descriptions, &v_key.clone(), CoreValue::Null);
+                    v_line = core_string_format(&[
+                        CoreValue::from("{}: {}"),
+                        v_key.clone(),
+                        v_value.clone(),
+                    ])?;
+                    core_append(&v_lines, v_line.clone())?;
+                }
+                v_instructions =
+                    core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+                core_set(
+                    &v_question,
+                    CoreValue::from("instructions"),
+                    v_instructions.clone(),
+                )?;
+            }
+        } else {
+            core_set(
+                &v_question,
+                CoreValue::from("type"),
+                CoreValue::from("choice"),
+            )?;
+            v_criteria = CoreValue::new_list();
+            v_seen = CoreValue::new_map();
+            for v_label in core_iter(&v_class_options)? {
+                let mut v_label = v_label;
+                decisions_require_string(&[
+                    v_label.clone(),
+                    v_name.clone(),
+                    CoreValue::Bool(false),
+                ])?;
+                v_duplicate = core_map_contains(&[v_seen.clone(), v_label.clone()])?;
+                if core_truthy(&v_duplicate) {
+                    return Err(AxError::runtime(
+                        "OpenAI Decisions: Choice labels must be unique",
+                    ));
+                }
+                v_description = core_get(&v_descriptions, &v_label.clone(), CoreValue::Null);
+                v_option = CoreValue::new_map();
+                core_set(&v_option, CoreValue::from("value"), v_label.clone())?;
+                v_described = core_map_contains(&[v_descriptions.clone(), v_label.clone()])?;
+                if core_truthy(&v_described) {
+                    core_set(
+                        &v_option,
+                        CoreValue::from("description"),
+                        v_description.clone(),
+                    )?;
+                }
+                core_set(&v_seen, v_label.clone(), CoreValue::Bool(true))?;
+                core_append(&v_criteria, v_option.clone())?;
+            }
+            core_set(&v_question, CoreValue::from("choices"), v_criteria.clone())?;
+        }
+        core_set(&v_question, CoreValue::from("name"), v_name.clone())?;
+        core_append(&v_questions, v_question.clone())?;
+    }
+    v_prompt_snake = core_get(
+        &v_request,
+        &CoreValue::from("chat_prompt"),
+        v_empty_list.clone(),
+    );
+    v_prompt = core_get(
+        &v_request,
+        &CoreValue::from("chatPrompt"),
+        v_prompt_snake.clone(),
+    );
+    v_parts = CoreValue::new_list();
+    for v_message in core_iter(&v_prompt)? {
+        let mut v_message = v_message;
+        v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
+        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
+        v_tool = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
+        v_tool_alt = core_eq(&[v_role.clone(), CoreValue::from("tool")])?;
+        v_tool = core_or(&[v_tool.clone(), v_tool_alt.clone()])?;
+        v_calls = core_get(
+            &v_message,
+            &CoreValue::from("functionCalls"),
+            CoreValue::Null,
+        );
+        v_calls_snake = core_get(
+            &v_message,
+            &CoreValue::from("function_calls"),
+            CoreValue::Null,
+        );
+        v_calls = core_coalesce(&[v_calls.clone(), v_calls_snake.clone()])?;
+        v_calls = core_truthy_value(&[v_calls.clone()])?;
+        v_audio = core_get(&v_message, &CoreValue::from("audio"), CoreValue::Null);
+        v_audio = core_truthy_value(&[v_audio.clone()])?;
+        v_images = core_get(&v_message, &CoreValue::from("images"), CoreValue::Null);
+        v_images = core_truthy_value(&[v_images.clone()])?;
+        v_invalid = core_or(&[v_tool.clone(), v_calls.clone()])?;
+        v_invalid = core_or(&[v_invalid.clone(), v_audio.clone()])?;
+        v_invalid = core_or(&[v_invalid.clone(), v_images.clone()])?;
+        if core_truthy(&v_invalid) {
+            return Err(AxError::runtime(
+                "OpenAI Decisions does not support tool or media history",
+            ));
+        }
+        v_label = core_string_format(&[CoreValue::from("{}:"), v_role.clone()])?;
+        v_part = CoreValue::new_map();
+        core_set(
+            &v_part,
+            CoreValue::from("type"),
+            CoreValue::from("input_text"),
+        )?;
+        core_set(&v_part, CoreValue::from("text"), v_label.clone())?;
+        core_append(&v_parts, v_part.clone())?;
+        v_text = core_type_is(&v_content, CoreValue::from("string"));
+        if core_truthy(&v_text) {
+            v_part = CoreValue::new_map();
+            core_set(
+                &v_part,
+                CoreValue::from("type"),
+                CoreValue::from("input_text"),
+            )?;
+            core_set(&v_part, CoreValue::from("text"), v_content.clone())?;
+            core_append(&v_parts, v_part.clone())?;
+        } else {
+            decisions_require_list(&[
+                v_content.clone(),
+                CoreValue::from("message content"),
+                CoreValue::Num(0f64),
+                CoreValue::Num(9.007199254740991e+15f64),
+            ])?;
+            v_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
+            if core_truthy(&v_user) {
+                for v_raw_part in core_iter(&v_content)? {
+                    let mut v_raw_part = v_raw_part;
+                    v_kind = core_get(&v_raw_part, &CoreValue::from("type"), CoreValue::Null);
+                    v_text = core_eq(&[v_kind.clone(), CoreValue::from("text")])?;
+                    v_part = CoreValue::new_map();
+                    if core_truthy(&v_text) {
+                        v_value = core_get(&v_raw_part, &CoreValue::from("text"), CoreValue::Null);
+                        core_set(
+                            &v_part,
+                            CoreValue::from("type"),
+                            CoreValue::from("input_text"),
+                        )?;
+                        core_set(&v_part, CoreValue::from("text"), v_value.clone())?;
+                    } else {
+                        v_image = core_eq(&[v_kind.clone(), CoreValue::from("image")])?;
+                        v_invalid = core_not(&[v_image.clone()])?;
+                        if core_truthy(&v_invalid) {
+                            return Err(AxError::runtime(
+                                "OpenAI Decisions supports text and inline images only",
+                            ));
+                        }
+                        v_image = core_get(&v_raw_part, &CoreValue::from("image"), CoreValue::Null);
+                        decisions_require_string(&[
+                            v_image.clone(),
+                            CoreValue::from("image"),
+                            CoreValue::Bool(false),
+                        ])?;
+                        v_data =
+                            core_string_starts_with(&[v_image.clone(), CoreValue::from("data:")])?;
+                        v_not_data = core_not(&[v_data.clone()])?;
+                        if core_truthy(&v_not_data) {
+                            v_mime_snake = core_get(
+                                &v_raw_part,
+                                &CoreValue::from("mime_type"),
+                                CoreValue::Null,
+                            );
+                            v_mime = core_get(
+                                &v_raw_part,
+                                &CoreValue::from("mimeType"),
+                                v_mime_snake.clone(),
+                            );
+                            v_image = core_string_format(&[
+                                CoreValue::from("data:{};base64,{}"),
+                                v_mime.clone(),
+                                v_image.clone(),
+                            ])?;
+                        }
+                        core_set(
+                            &v_part,
+                            CoreValue::from("type"),
+                            CoreValue::from("input_image"),
+                        )?;
+                        core_set(&v_part, CoreValue::from("image_url"), v_image.clone())?;
+                        v_detail =
+                            core_get(&v_raw_part, &CoreValue::from("details"), CoreValue::Null);
+                        v_has_detail = core_truthy_value(&[v_detail.clone()])?;
+                        if core_truthy(&v_has_detail) {
+                            core_set(&v_part, CoreValue::from("detail"), v_detail.clone())?;
+                        }
+                    }
+                    core_append(&v_parts, v_part.clone())?;
+                }
+            }
+        }
+    }
+    v_message = CoreValue::new_map();
+    core_set(&v_message, CoreValue::from("role"), CoreValue::from("user"))?;
+    core_set(&v_message, CoreValue::from("content"), v_parts.clone())?;
+    v_input = CoreValue::new_list();
+    core_append(&v_input, v_message.clone())?;
+    v_payload = CoreValue::new_map();
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("model"),
+        CoreValue::from("gpt-6-luna"),
+    );
+    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_payload, CoreValue::from("input"), v_input.clone())?;
+    core_set(
+        &v_payload,
+        CoreValue::from("questions"),
+        v_questions.clone(),
+    )?;
+    v_safety_snake = core_get(
+        &v_options,
+        &CoreValue::from("safety_identifier"),
+        CoreValue::Null,
+    );
+    v_safety = core_get(
+        &v_options,
+        &CoreValue::from("safetyIdentifier"),
+        v_safety_snake.clone(),
+    );
+    v_has_safety = core_truthy_value(&[v_safety.clone()])?;
+    if core_truthy(&v_has_safety) {
+        core_set(
+            &v_payload,
+            CoreValue::from("safety_identifier"),
+            v_safety.clone(),
+        )?;
+    }
+    decisions_validate_request(&[v_payload.clone()])?;
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -45796,13 +47257,53 @@ fn provider_validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxErr
     let mut v_request = core_arg(args, 1);
     let mut v_options = core_arg(args, 2);
     let mut v_canonical = CoreValue::Null;
+    let mut v_is_decisions = CoreValue::Null;
     let mut v_is_typesafe = CoreValue::Null;
     v_canonical = provider_normalize_profile(&[v_profile.clone()])?;
+    v_is_decisions = core_eq(&[v_canonical.clone(), CoreValue::from("openai-decisions")])?;
+    if core_truthy(&v_is_decisions) {
+        decisions_build_chat_request(&[v_request.clone(), v_options.clone()])?;
+    }
     v_is_typesafe = core_eq(&[v_canonical.clone(), CoreValue::from("typesafe")])?;
     if core_truthy(&v_is_typesafe) {
         typesafe_build_chat_request(&[v_request.clone(), v_options.clone()])?;
     }
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn decisions_response_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_response_context");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_context = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_snake = CoreValue::Null;
+    let mut v_threshold = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_context = core_map_merge(&[v_empty.clone(), v_payload.clone()])?;
+    v_snake = core_get(
+        &v_options,
+        &CoreValue::from("true_threshold"),
+        CoreValue::Num(0.5f64),
+    );
+    v_threshold = core_get(
+        &v_options,
+        &CoreValue::from("trueThreshold"),
+        v_snake.clone(),
+    );
+    core_set(
+        &v_context,
+        CoreValue::from("trueThreshold"),
+        v_threshold.clone(),
+    )?;
+    return Ok(v_context.clone());
 }
 
 #[allow(
@@ -45990,6 +47491,215 @@ fn build_usage_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn decisions_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("decisions_normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_context = core_arg(args, 1);
+    let mut v_answer = CoreValue::Null;
+    let mut v_answers = CoreValue::Null;
+    let mut v_below = CoreValue::Null;
+    let mut v_cached = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_decision_metadata = CoreValue::Null;
+    let mut v_has_cached = CoreValue::Null;
+    let mut v_has_write = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_input_details = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_metadata = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_negative_cached = CoreValue::Null;
+    let mut v_negative_write = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_output_details = CoreValue::Null;
+    let mut v_predicate = CoreValue::Null;
+    let mut v_probability = CoreValue::Null;
+    let mut v_questions = CoreValue::Null;
+    let mut v_reasoning = CoreValue::Null;
+    let mut v_refusal = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_threshold = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_uncached = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    let mut v_write = CoreValue::Null;
+    v_questions = core_get(&v_context, &CoreValue::from("questions"), CoreValue::Null);
+    decisions_require_list(&[
+        v_questions.clone(),
+        CoreValue::from("response request questions"),
+        CoreValue::Num(1f64),
+        CoreValue::Num(9.007199254740991e+15f64),
+    ])?;
+    v_raw = decisions_decode_response(&[v_raw.clone(), v_questions.clone()])?;
+    v_threshold = core_get(
+        &v_context,
+        &CoreValue::from("trueThreshold"),
+        CoreValue::Num(0.5f64),
+    );
+    decisions_require_number(&[
+        v_threshold.clone(),
+        CoreValue::from("trueThreshold"),
+        CoreValue::Num(0f64),
+        CoreValue::Num(1f64),
+    ])?;
+    v_answers = core_get(&v_raw, &CoreValue::from("answers"), CoreValue::Null);
+    v_values = CoreValue::new_map();
+    for v_answer in core_iter(&v_answers)? {
+        let mut v_answer = v_answer;
+        v_kind = core_get(&v_answer, &CoreValue::from("type"), CoreValue::Null);
+        v_refusal = core_eq(&[v_kind.clone(), CoreValue::from("refusal")])?;
+        if core_truthy(&v_refusal) {
+            return Err(AxError::runtime("OpenAI Decisions refused question"));
+        }
+        v_score = core_eq(&[v_kind.clone(), CoreValue::from("score")])?;
+        if core_truthy(&v_score) {
+            return Err(AxError::runtime(
+                "OpenAI Decisions scoring requires the native client",
+            ));
+        }
+        v_name = core_get(&v_answer, &CoreValue::from("name"), CoreValue::Null);
+        v_predicate = core_eq(&[v_kind.clone(), CoreValue::from("predicate")])?;
+        v_value = core_get(&v_answer, &CoreValue::from("choice"), CoreValue::Null);
+        if core_truthy(&v_predicate) {
+            v_probability = core_get(&v_answer, &CoreValue::from("probability"), CoreValue::Null);
+            v_below = core_lt(&[v_probability.clone(), v_threshold.clone()])?;
+            v_value = core_not(&[v_below.clone()])?;
+        }
+        core_set(&v_values, v_name.clone(), v_value.clone())?;
+    }
+    v_content = core_json_stringify(&[v_values.clone()])?;
+    v_result = CoreValue::new_map();
+    core_set(&v_result, CoreValue::from("index"), CoreValue::Num(0f64))?;
+    core_set(&v_result, CoreValue::from("content"), v_content.clone())?;
+    core_set(
+        &v_result,
+        CoreValue::from("finishReason"),
+        CoreValue::from("stop"),
+    )?;
+    v_results = CoreValue::new_list();
+    core_append(&v_results, v_result.clone())?;
+    v_usage = core_get(&v_raw, &CoreValue::from("usage"), CoreValue::Null);
+    v_input = core_get(&v_usage, &CoreValue::from("input_tokens"), CoreValue::Null);
+    v_output = core_get(&v_usage, &CoreValue::from("output_tokens"), CoreValue::Null);
+    v_total = core_get(&v_usage, &CoreValue::from("total_tokens"), CoreValue::Null);
+    v_input_details = core_get(
+        &v_usage,
+        &CoreValue::from("input_tokens_details"),
+        CoreValue::Null,
+    );
+    v_cached = core_get(
+        &v_input_details,
+        &CoreValue::from("cached_tokens"),
+        CoreValue::Null,
+    );
+    v_write = core_get(
+        &v_input_details,
+        &CoreValue::from("cache_write_tokens"),
+        CoreValue::Null,
+    );
+    v_output_details = core_get(
+        &v_usage,
+        &CoreValue::from("output_tokens_details"),
+        CoreValue::Null,
+    );
+    v_reasoning = core_get(
+        &v_output_details,
+        &CoreValue::from("reasoning_tokens"),
+        CoreValue::Null,
+    );
+    v_tokens = CoreValue::new_map();
+    v_negative_cached = core_mul(&[v_cached.clone(), CoreValue::Num(-1f64)])?;
+    v_negative_write = core_mul(&[v_write.clone(), CoreValue::Num(-1f64)])?;
+    v_uncached = core_add(&[v_input.clone(), v_negative_cached.clone()])?;
+    v_uncached = core_add(&[v_uncached.clone(), v_negative_write.clone()])?;
+    v_negative = core_lt(&[v_uncached.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_negative) {
+        v_uncached = CoreValue::Num(0f64);
+    }
+    core_set(
+        &v_tokens,
+        CoreValue::from("promptTokens"),
+        v_uncached.clone(),
+    )?;
+    core_set(
+        &v_tokens,
+        CoreValue::from("completionTokens"),
+        v_output.clone(),
+    )?;
+    core_set(&v_tokens, CoreValue::from("totalTokens"), v_total.clone())?;
+    v_has_cached = core_gt(&[v_cached.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_cached) {
+        core_set(
+            &v_tokens,
+            CoreValue::from("cacheReadTokens"),
+            v_cached.clone(),
+        )?;
+    }
+    v_has_write = core_gt(&[v_write.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_write) {
+        core_set(
+            &v_tokens,
+            CoreValue::from("cacheCreationTokens"),
+            v_write.clone(),
+        )?;
+    }
+    core_set(
+        &v_tokens,
+        CoreValue::from("reasoningTokens"),
+        v_reasoning.clone(),
+    )?;
+    v_model_usage = CoreValue::new_map();
+    v_model = core_get(&v_raw, &CoreValue::from("model"), CoreValue::Null);
+    core_set(
+        &v_model_usage,
+        CoreValue::from("ai"),
+        CoreValue::from("OpenAI Decisions"),
+    )?;
+    core_set(&v_model_usage, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_model_usage, CoreValue::from("tokens"), v_tokens.clone())?;
+    v_decision_metadata = CoreValue::new_map();
+    core_set(
+        &v_decision_metadata,
+        CoreValue::from("answers"),
+        v_answers.clone(),
+    )?;
+    v_metadata = CoreValue::new_map();
+    core_set(
+        &v_metadata,
+        CoreValue::from("openaiDecisions"),
+        v_decision_metadata.clone(),
+    )?;
+    v_response = CoreValue::new_map();
+    core_set(&v_response, CoreValue::from("results"), v_results.clone())?;
+    core_set(
+        &v_response,
+        CoreValue::from("modelUsage"),
+        v_model_usage.clone(),
+    )?;
+    core_set(
+        &v_response,
+        CoreValue::from("providerMetadata"),
+        v_metadata.clone(),
+    )?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_tool_call_to_provider_impl");
     let mut v_call = core_arg(args, 0);
@@ -46090,6 +47800,54 @@ fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
     core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_merge_headers(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_merge_headers");
+    let mut v_base = core_arg(args, 0);
+    let mut v_override = core_arg(args, 1);
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_lower = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_groups = CoreValue::Null;
+    let mut v_headers = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_headers = CoreValue::new_map();
+    v_groups = CoreValue::new_list();
+    core_append(&v_groups, v_base.clone())?;
+    core_append(&v_groups, v_override.clone())?;
+    for v_group in core_iter(&v_groups)? {
+        let mut v_group = v_group;
+        v_keys = core_map_keys(&[v_group.clone()])?;
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_lower = core_string_lower(&[v_key.clone()])?;
+            v_existing = core_map_keys(&[v_headers.clone()])?;
+            for v_name in core_iter(&v_existing)? {
+                let mut v_name = v_name;
+                v_existing_lower = core_string_lower(&[v_name.clone()])?;
+                v_same = core_eq(&[v_lower.clone(), v_existing_lower.clone()])?;
+                if core_truthy(&v_same) {
+                    core_map_delete(&[v_headers.clone(), v_name.clone()])?;
+                }
+            }
+            v_value = core_get(&v_group, &v_key.clone(), CoreValue::Null);
+            core_set(&v_headers, v_key.clone(), v_value.clone())?;
+        }
+    }
+    return Ok(v_headers.clone());
 }
 
 #[allow(
@@ -48084,7 +49842,7 @@ fn provider_normalize_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> 
 fn provider_profile_registry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("provider_profile_registry");
     let mut v_registry = CoreValue::Null;
-    v_registry = core_json_parse(&[CoreValue::from("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"}},\"deferredCatalogProviderIds\":[]}\n")])?;
+    v_registry = core_json_parse(&[CoreValue::from("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":\"AxAIOpenAIDecisionsClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")])?;
     return Ok(v_registry.clone());
 }
 
@@ -48213,7 +49971,7 @@ fn _ai_append_thought_deltas_impl(args: &[CoreValue]) -> Result<CoreValue, AxErr
 fn provider_model_catalog_summary(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("provider_model_catalog_summary");
     let mut v_summary = CoreValue::Null;
-    v_summary = core_json_parse(&[CoreValue::from("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")])?;
+    v_summary = core_json_parse(&[CoreValue::from("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")])?;
     return Ok(v_summary.clone());
 }
 
@@ -55865,6 +57623,7 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_features = CoreValue::Null;
     let mut v_gemini_payload = CoreValue::Null;
     let mut v_is_anthropic = CoreValue::Null;
+    let mut v_is_decisions = CoreValue::Null;
     let mut v_is_gemini = CoreValue::Null;
     let mut v_is_json_object = CoreValue::Null;
     let mut v_is_json_schema = CoreValue::Null;
@@ -55908,6 +57667,11 @@ fn provider_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
         &CoreValue::from("transport"),
         CoreValue::from("openai-chat"),
     );
+    v_is_decisions = core_eq(&[v_transport.clone(), CoreValue::from("openai-decisions")])?;
+    if core_truthy(&v_is_decisions) {
+        v_payload = decisions_build_chat_request(&[v_request.clone(), v_options.clone()])?;
+        return Ok(v_payload.clone());
+    }
     v_is_typesafe = core_eq(&[v_transport.clone(), CoreValue::from("typesafe-system-one")])?;
     if core_truthy(&v_is_typesafe) {
         v_payload = typesafe_build_chat_request(&[v_request.clone(), v_options.clone()])?;
@@ -57167,6 +58931,7 @@ fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_descriptor = CoreValue::Null;
     let mut v_gemini_response = CoreValue::Null;
     let mut v_is_anthropic = CoreValue::Null;
+    let mut v_is_decisions = CoreValue::Null;
     let mut v_is_gemini = CoreValue::Null;
     let mut v_is_responses = CoreValue::Null;
     let mut v_is_typesafe = CoreValue::Null;
@@ -57183,6 +58948,11 @@ fn provider_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxE
         &CoreValue::from("transport"),
         CoreValue::from("openai-chat"),
     );
+    v_is_decisions = core_eq(&[v_transport.clone(), CoreValue::from("openai-decisions")])?;
+    if core_truthy(&v_is_decisions) {
+        v_response = decisions_normalize_chat_response(&[v_raw.clone(), v_context.clone()])?;
+        return Ok(v_response.clone());
+    }
     v_is_typesafe = core_eq(&[v_transport.clone(), CoreValue::from("typesafe-system-one")])?;
     if core_truthy(&v_is_typesafe) {
         v_response = typesafe_normalize_chat_response(&[v_raw.clone(), v_context.clone()])?;
@@ -69370,6 +71140,7 @@ fn provider_default_model_config(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_profile = core_arg(args, 0);
     let mut v_config = CoreValue::Null;
     let mut v_descriptor = CoreValue::Null;
+    let mut v_is_decisions = CoreValue::Null;
     let mut v_is_openai_responses = CoreValue::Null;
     let mut v_is_responses_profile = CoreValue::Null;
     let mut v_is_typesafe = CoreValue::Null;
@@ -69377,6 +71148,10 @@ fn provider_default_model_config(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_transport = CoreValue::Null;
     v_config = CoreValue::new_map();
     v_provider_id = provider_normalize_profile(&[v_profile.clone()])?;
+    v_is_decisions = core_eq(&[v_provider_id.clone(), CoreValue::from("openai-decisions")])?;
+    if core_truthy(&v_is_decisions) {
+        return Ok(v_config.clone());
+    }
     v_is_typesafe = core_eq(&[v_provider_id.clone(), CoreValue::from("typesafe")])?;
     if core_truthy(&v_is_typesafe) {
         return Ok(v_config.clone());
@@ -139049,7 +140824,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (1050 of 1050 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (1061 of 1061 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
@@ -139780,6 +141555,93 @@ fn request_retry_wait(
 #[cfg(test)]
 mod typesafe_native_tests {
     use super::*;
+    #[test]
+    fn decisions_native_and_adapter_credentials_retry_cancellation() -> AxResult<()> {
+        for native in [true, false] {
+            let calls = Arc::new(Mutex::new(0));
+            let captured = calls.clone();
+            let credentials = Arc::new(Mutex::new(0));
+            let seen = credentials.clone();
+            let provider = move |request: &AxCredentialRequest| {
+                assert_eq!(
+                    (&*request.profile, &*request.operation),
+                    ("openai-decisions", "chat")
+                );
+                let mut count = seen.lock().unwrap();
+                *count += 1;
+                Ok(BTreeMap::from([(
+                    "authorization".into(),
+                    format!("Bearer fresh-{}", *count),
+                )]))
+            };
+            let transport = TestTransport(move |request: Value| {
+                let mut count = captured.lock().unwrap();
+                *count += 1;
+                let headers = request["headers"].as_object().unwrap();
+                assert_eq!(
+                    headers
+                        .keys()
+                        .filter(|key| key.eq_ignore_ascii_case("authorization"))
+                        .count(),
+                    1
+                );
+                assert_eq!(headers["authorization"], format!("Bearer fresh-{}", *count));
+                assert_eq!(headers["x-trace"], "kept");
+                assert_eq!(request["url"], "https://api.openai.com/v1/decisions");
+                if *count == 1 {
+                    return Ok(json!({"status":429,"json":{"error":"retry"}}));
+                }
+                Ok(
+                    json!({"model":"gpt-6-luna","answers":[{"type":"predicate","name":"flag","probability":0.8}],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}),
+                )
+            });
+            let options = json!({"api_key":"static","headers":{"AUTHORIZATION":"Bearer custom","x-trace":"kept"},"retry":{"maxRetries":1,"initialDelayMs":1}});
+            let token = AxCancellationToken::default();
+            if native {
+                let mut client = openai_decisions(options)?
+                    .with_credential_provider(provider)
+                    .with_transport(transport);
+                let input = json!({"input":"red","questions":[{"type":"predicate","name":"flag","instructions":"Is this red?"}]});
+                assert_eq!(
+                    client.create(input.clone())?["answers"][0]["probability"],
+                    0.8
+                );
+                let _parent_scope = AxCancellationScope::enter(&token)?;
+                token.cancel("stop Decisions");
+                let fresh = AxCancellationToken::default();
+                assert!(client
+                    .create_with_cancellation(input, Some(&fresh))
+                    .unwrap_err()
+                    .message
+                    .contains("stop Decisions"));
+                assert_eq!(fresh.subscription_count(), 0);
+            } else {
+                let mut client = ai("openai-decisions", options)?
+                    .with_credential_provider(provider)
+                    .with_transport(transport);
+                let input = json!({"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}});
+                let result = client.chat(input.clone())?;
+                assert_eq!(
+                    serde_json::from_str::<Value>(
+                        result["results"][0]["content"].as_str().unwrap()
+                    )?["flag"],
+                    true
+                );
+                let _scope = AxCancellationScope::enter(&token)?;
+                token.cancel("stop Decisions");
+                assert!(client
+                    .chat(input)
+                    .unwrap_err()
+                    .message
+                    .contains("stop Decisions"));
+            }
+            assert_eq!(*calls.lock().unwrap(), 2);
+            assert_eq!(*credentials.lock().unwrap(), 2);
+            assert_eq!(token.subscription_count(), 0);
+        }
+        Ok(())
+    }
+
     struct TestTransport<F>(F);
     impl<F: FnMut(Value) -> AxResult<Value> + Send> AxTransport for TestTransport<F> {
         fn send(&mut self, request: Value) -> AxResult<Value> {
@@ -139822,6 +141684,47 @@ mod typesafe_native_tests {
         assert_eq!(
             router.get_routing_recommendation(supported)?["provider"],
             "typesafe"
+        );
+        Ok(())
+    }
+    #[test]
+    fn decisions_nested_balancer_validation() -> AxResult<()> {
+        let typed = ai("openai-decisions", json!({"api_key":"test","models":[]}))?;
+        let only = AxBalancer::from_clients(vec![Box::new(typed)], AxBalancerOptions::default())?;
+        let prose = json!({"chat_prompt":[{"role":"user","content":"reply"}]});
+        assert!(only.validate_chat_request(&prose).is_err());
+        only.validate_chat_request(&serde_json::from_str(r#"{"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}}"#)?)?;
+        let normal = ai("openai", json!({"api_key":"test","models":[]}))?;
+        let mixed = AxBalancer::from_clients(
+            vec![Box::new(only), Box::new(normal)],
+            AxBalancerOptions {
+                input_order: true,
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(mixed.candidate_indices(&prose)?, vec![1]);
+        Ok(())
+    }
+    #[test]
+    fn decisions_router_request_eligibility() -> AxResult<()> {
+        let typed = ai("openai-decisions", json!({"api_key":"test"}))?;
+        let normal = ai("openai", json!({"api_key":"test"}))?;
+        let router = ProviderRouter::from_providers(vec![
+            ("openai-decisions", typed),
+            ("generative", normal),
+        ]);
+        let prose = json!({"chat_prompt":[{"role":"user","content":"reply"}]});
+        assert_eq!(
+            router.get_routing_recommendation(prose.clone())?["provider"],
+            "generative"
+        );
+        let mut forced = prose;
+        forced["provider"] = json!("openai-decisions");
+        assert!(router.get_routing_recommendation(forced).is_err());
+        let supported = json!({"provider":"openai-decisions","chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}});
+        assert_eq!(
+            router.get_routing_recommendation(supported)?["provider"],
+            "openai-decisions"
         );
         Ok(())
     }

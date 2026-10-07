@@ -287,6 +287,13 @@ configurable runtimes are named deployment profiles resolved from the shared
 manifest rather than provider-specific target templates. See
 [`docs/AI_PROFILES.md`](./AI_PROFILES.md).
 
+Core owns the OpenAI Decisions request and response validation, ordered predicate,
+choice, and score questions, inline images, full usage, and boolean/class signature
+conversion. All five generated languages expose a native JSON client as well as
+the `openai-decisions` provider. Numeric signature fields never imply score rubrics.
+Native probabilities remain unchanged; refusal handling is explicit. Transport
+wrappers refresh credentials per retry and merge header names case-insensitively.
+
 Core also owns Vertex routing for Gemini and Anthropic. Generated clients accept
 project, region, and optional endpoint identifiers; resolve `global`, `us`,
 `eu`, and regional hosts; preserve explicit base-URL precedence; and use the

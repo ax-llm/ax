@@ -17,6 +17,48 @@ class Socket:
     def respond(self, id, value): self.inbound.put(json.dumps({'jsonrpc':'2.0','id':id,'result':value}))
 
 class ParityTests(unittest.TestCase):
+    def test_decisions_credentials_retry_snapshot_and_cancellation(self):
+        from axllm import openai_decisions
+        response = {'model':'gpt-6-luna','answers':[{'type':'predicate','name':'flag','probability':0.8}],
+                    'usage':{'input_tokens':1,'output_tokens':0,'total_tokens':1,
+                             'input_tokens_details':{'cached_tokens':0,'cache_write_tokens':0},
+                             'output_tokens_details':{'reasoning_tokens':0}}}
+        native_request = {'input':'A red package.','questions':[{'type':'predicate','name':'flag','instructions':'Is this red?'}]}
+        chat_request = {'chatPrompt':[{'role':'user','content':'A red package.'}],
+                        'responseFormat':{'type':'json_schema','schema':{'name':'output','schema':{'type':'object','properties':{'flag':{'type':'boolean'}},'required':['flag']}}}}
+        for native in (True,False):
+            calls, credentials = [], []
+            inherited, per_call = AxCancellationToken(), AxCancellationToken()
+            def credential(request):
+                credentials.append(request)
+                self.assertEqual((request['profile'],request['operation']),('openai-decisions','chat'))
+                return {'authorization':f'Bearer fresh-{len(credentials)}'}
+            def transport(request):
+                calls.append(request)
+                auth = [(key,value) for key,value in request['headers'].items() if key.lower()=='authorization']
+                self.assertEqual(auth,[('authorization',f'Bearer fresh-{len(calls)}')])
+                self.assertEqual(request['headers']['x-trace'],'kept')
+                self.assertEqual(request['url'],'https://api.openai.com/v1/decisions')
+                if native:
+                    self.assertEqual(request['json']['questions'][0]['name'],'flag')
+                    native_request['questions'][0]['name']='caller-mutated'
+                return {'status':429,'json':{'error':'retry'}} if len(calls)==1 else response
+            options = dict(api_key='static',headers={'AUTHORIZATION':'Bearer custom','x-trace':'kept'},
+                           credential_provider=credential,transport=transport,cancellation=inherited,
+                           retry={'maxRetries':1,'initialDelayMs':1})
+            client = openai_decisions(**options) if native else ai('openai-decisions',**options)
+            call = lambda opts: client.create(native_request,opts) if native else client.chat(chat_request,opts)
+            native_request['questions'][0]['name']='flag'
+            result = call({'cancellation':per_call})
+            self.assertEqual(len(calls),2)
+            self.assertEqual((inherited.subscription_count,per_call.subscription_count),(0,0))
+            if native: self.assertEqual(result,response)
+            else: self.assertEqual(json.loads(result['results'][0]['content']),{'flag':True})
+            inherited.cancel('stop Decisions')
+            with self.assertRaisesRegex(Exception,'stop Decisions'):call({'cancellation':per_call})
+            self.assertEqual(len(calls),2)
+            self.assertEqual(len(credentials),2)
+
     def test_native_noul_accepts_null_criteria_type(self):
         from typing import get_args, get_type_hints
         from axllm import TypesafeQuestion
@@ -155,6 +197,32 @@ class ParityTests(unittest.TestCase):
             return {'model':'gpt-5.4-mini','choices':[{'index':0,'message':{'role':'assistant','content':'Answer: hello'},'finish_reason':'stop'}],'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}}
         decision=ai('typesafe',api_key='test',transport=typed,models=None)
         generative=ai('openai',api_key='test',model='gpt-5.4-mini',transport=normal,models=None)
+        only=AxBalancer([decision]); mixed=AxBalancer([decision,generative])
+        self.assertTrue(only.get_features().get('requiresStructuredOutput'))
+        self.assertFalse(mixed.get_features().get('requiresStructuredOutput',False))
+        nested=AxBalancer([only, generative])
+        only.validate_chat_request({"chat_prompt":[{"role":"user","content":"outage"}], "response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}})
+        with self.assertRaises(ValueError): only.validate_chat_request({"chat_prompt":[{"role":"user","content":"reply"}]})
+        self.assertEqual(typed_calls, [])
+        for model in [mixed, nested, ProviderRouter({'providers':{'primary':decision,'alternatives':[generative]},'routing':{'capability':{'allowDegradation':True}}})]:
+            self.assertEqual(ax('question:string -> answer:string').forward(model,{'question':'hi'})['answer'],'hello')
+        self.assertEqual(typed_calls,[])
+        self.assertTrue(ax('ticket:string -> urgent:boolean').forward(only,{'ticket':'outage'})['urgent'])
+        schema={'type':'json_schema','schema':{'name':'decision','schema':{'type':'object','properties':{'urgent':{'type':'boolean'}},'required':['urgent']}}}
+        chunks=list(decision.stream({'chat_prompt':[{'role':'user','content':'outage'}],'response_format':schema}))
+        self.assertEqual(len(chunks),1)
+        self.assertEqual(json.loads(chunks[0]['results'][0]['content']),{'urgent':True})
+
+    def test_decisions_routing_and_nonstreaming(self):
+        typed_calls=[]; normal_calls=[]
+        def typed(request):
+            typed_calls.append(request)
+            return {'model':'gpt-6-luna','answers':[{'type':'predicate','name':'urgent','probability':0.9}],'usage':{'input_tokens':1,'output_tokens':0,'total_tokens':1,'input_tokens_details':{'cached_tokens':0,'cache_write_tokens':0},'output_tokens_details':{'reasoning_tokens':0}}}
+        def normal(request):
+            normal_calls.append(request)
+            return {'model':'gpt-6-luna','choices':[{'index':0,'message':{'role':'assistant','content':'Answer: hello'},'finish_reason':'stop'}],'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}}
+        decision=ai('openai-decisions',api_key='test',transport=typed,models=None)
+        generative=ai('openai-compatible',apiURL='https://api.openai.com/v1',api_key='test',model='gpt-6-luna',transport=normal,models=None)
         only=AxBalancer([decision]); mixed=AxBalancer([decision,generative])
         self.assertTrue(only.get_features().get('requiresStructuredOutput'))
         self.assertFalse(mixed.get_features().get('requiresStructuredOutput',False))

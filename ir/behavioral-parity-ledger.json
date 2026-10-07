@@ -909,6 +909,46 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE ENGINES against two TypeScript goldens recorded with TS's own AxJSRuntime (tools/axir/extractors/agent-streaming-goldens.ts real_runtime): in one the distiller makes variables of four types and logs, the executor reads them; in the other the distiller makes no variable ('(no user variables)') and keeps empty evidence the executor still sees. Every distiller and executor request is pinned (usage instructions, action log output, live state with provenance, evidence summary); the Go runner now checks the pinned requests, request roles and transcript for agent_runtime_real as the other runners do. Before: Go, Rust, Java and C++ lost the distiller's variables in the executor (a replacing patch), no port gave the executor inputs.distilledContext in the shared session, Python showed Python type names and repr, Go showed its captured console output as '- __ax_stdout', and the C++ and Rust QuickJS sessions reported engine globals as user bindings ('- Atomics: {}', '- performance: {...}'); both now leave out the engine's own globals, captured after bootstrap, from the bindings snapshot, from a replacing patch's clear and from a restored snapshot. scripts/axir-runtime-support.test.js checks the support script against the TS sources."
+    },
+    {
+      "capability": "ai.openai_decisions.native",
+      "summary": "Ordered native predicate, choice and score requests preserve strict validation, names, refusals, fractional scores, raw distributions, inline images and full usage.",
+      "ir_ops": ["@decisions_validate_request", "@decisions_decode_response"],
+      "fixtures": [
+        "axai/decisions-native-rich-questions.json",
+        "axai/decisions-native-refusal.json",
+        "axai/decisions-native-null-name.json",
+        "axai/decisions-native-inline-image.json",
+        "axai/decisions-native-129-images.json",
+        "axai/decisions-native-distribution-0-99.json",
+        "axai/decisions-native-distribution-1-011.json"
+      ],
+      "gate": "TypeScript-derived Decisions conformance and native transport regression tests",
+      "verified_targets": ["python", "java", "cpp", "go", "rust"],
+      "pending_targets": [],
+      "state": "Verified in all five generated languages against 64 source-derived Decisions fixtures, within the full 1817-fixture suites. Signature and native public examples also passed against OpenAI in all five languages."
+    },
+    {
+      "capability": "ai.openai_decisions.signatures",
+      "summary": "Required boolean/class signatures preserve descriptions, role-labelled text evidence, inline images, local inclusive thresholds, native answer metadata and cache-aware usage; unsupported outputs and refused questions fail explicitly.",
+      "ir_ops": [
+        "@decisions_build_chat_request",
+        "@decisions_response_context",
+        "@decisions_normalize_chat_response",
+        "@provider_validate_chat_request"
+      ],
+      "fixtures": [
+        "axai/decisions-adapter-descriptions.json",
+        "axai/decisions-adapter-image.json",
+        "axai/decisions-adapter-threshold-inclusive.json",
+        "axai/decisions-adapter-threshold-custom.json",
+        "axai/decisions-adapter-refusal.json",
+        "axai/decisions-adapter-unsupported-number.json"
+      ],
+      "gate": "TypeScript-derived Decisions conformance and native transport regression tests",
+      "verified_targets": ["python", "java", "cpp", "go", "rust"],
+      "pending_targets": [],
+      "state": "Verified in all five generated languages against 64 source-derived Decisions fixtures, within the full 1817-fixture suites. Signature and native public examples also passed against OpenAI in all five languages."
     }
   ]
 }

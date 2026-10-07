@@ -4,6 +4,8 @@ from .tool import Tool, fn
 from .ai import (
     AIClient,
     AxAITypesafeClient,
+    AxAIOpenAIDecisionsClient,
+    openai_decisions,
     TypesafeEntry, TypesafeQuestion, TypesafeRequest, TypesafeAnswer, TypesafeNoul, TypesafeChoice, TypesafeScore, TypesafeUsage, TypesafeResponse, TypesafeModelCard,
     typesafe,
     AxCancellationToken,
@@ -70,6 +72,8 @@ from .runtime import ProcessCodeRuntime, ProcessCodeSession, RuntimeCapabilities
 from .runtime_quickjs import AxQuickJsCodeRuntime, AxQuickJsCodeSession
 
 __all__ = [
+    "AxAIOpenAIDecisionsClient",
+    "openai_decisions",
     "AIClient",
     "AxCancellationToken",
     "AxAIRefusalError",

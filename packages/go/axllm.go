@@ -8288,6 +8288,34 @@ func _prompt_messages_impl(args ...Value) (Value, error) {
 	return v_messages, nil
 }
 
+func decisions_require_object(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_require_object")
+	var v_value Value
+	var v_context Value
+	var v_error Value
+	var v_invalid Value
+	var v_message Value
+	var v_valid Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_context = args[1] }
+	_ = v_context
+	_ = v_error
+	_ = v_invalid
+	_ = v_message
+	_ = v_valid
+	v_valid = coreTypeIs(v_value, "object")
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_message = _core_string_format("OpenAI Decisions: {} must be an object", v_context)
+		v_error = _core_validation_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_value, nil
+}
+
 func typesafe_require_object(args ...Value) (Value, error) {
 	axirCoverageMark("typesafe_require_object")
 	var v_value Value
@@ -8308,6 +8336,49 @@ func typesafe_require_object(args ...Value) (Value, error) {
 	v_invalid = _core_not(v_valid)
 	if coreTruthy(v_invalid) {
 		v_message = _core_string_format("Typesafe: {} must be an object", v_context)
+		v_error = _core_validation_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_value, nil
+}
+
+func decisions_require_string(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_require_string")
+	var v_value Value
+	var v_context Value
+	var v_nonempty Value
+	var v_error Value
+	var v_invalid Value
+	var v_message Value
+	var v_text Value
+	var v_valid Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_context = args[1] }
+	_ = v_context
+	if len(args) > 2 { v_nonempty = args[2] }
+	_ = v_nonempty
+	_ = v_error
+	_ = v_invalid
+	_ = v_message
+	_ = v_text
+	_ = v_valid
+	v_valid = coreTypeIs(v_value, "string")
+	if coreTruthy(v_valid) {
+		if coreTruthy(v_nonempty) {
+			v_text = coreStringTrim(v_value)
+			v_valid = _core_ne(v_text, "")
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_message = _core_string_format("OpenAI Decisions: {} must be a string (nonempty where required)", v_context)
 		v_error = _core_validation_error(v_message)
 		return nil, asError(v_error)
 	} else {
@@ -8629,6 +8700,58 @@ func _openai_build_chat_request_impl(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
+func decisions_require_number(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_require_number")
+	var v_value Value
+	var v_context Value
+	var v_minimum Value
+	var v_maximum Value
+	var v_error Value
+	var v_high Value
+	var v_invalid Value
+	var v_low Value
+	var v_message Value
+	var v_outside Value
+	var v_valid Value
+	var v_within Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_context = args[1] }
+	_ = v_context
+	if len(args) > 2 { v_minimum = args[2] }
+	_ = v_minimum
+	if len(args) > 3 { v_maximum = args[3] }
+	_ = v_maximum
+	_ = v_error
+	_ = v_high
+	_ = v_invalid
+	_ = v_low
+	_ = v_message
+	_ = v_outside
+	_ = v_valid
+	_ = v_within
+	v_valid = coreTypeIs(v_value, "number")
+	if coreTruthy(v_valid) {
+		v_valid = _core_math_is_finite(v_value)
+		v_low = _core_lt(v_value, v_minimum)
+		v_high = _core_gt(v_value, v_maximum)
+		v_outside = _core_or(v_low, v_high)
+		v_within = _core_not(v_outside)
+		v_valid = _core_and(v_valid, v_within)
+	} else {
+	// empty
+	}
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_message = _core_string_format("OpenAI Decisions: {} must be a finite number between {} and {}", v_context, v_minimum, v_maximum)
+		v_error = _core_validation_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_value, nil
+}
+
 func typesafe_require_number(args ...Value) (Value, error) {
 	axirCoverageMark("typesafe_require_number")
 	var v_value Value
@@ -8678,6 +8801,44 @@ func typesafe_require_number(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	return v_value, nil
+}
+
+func decisions_require_list(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_require_list")
+	var v_value Value
+	var v_context Value
+	var v_minimum Value
+	var v_maximum Value
+	var v_error Value
+	var v_invalid Value
+	var v_message Value
+	var v_size Value
+	var v_valid Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_context = args[1] }
+	_ = v_context
+	if len(args) > 2 { v_minimum = args[2] }
+	_ = v_minimum
+	if len(args) > 3 { v_maximum = args[3] }
+	_ = v_maximum
+	_ = v_error
+	_ = v_invalid
+	_ = v_message
+	_ = v_size
+	_ = v_valid
+	v_valid = coreTypeIs(v_value, "list")
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_message = _core_string_format("OpenAI Decisions: {} must be an array", v_context)
+		v_error = _core_validation_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_size = _core_len(v_value)
+	if _, err := decisions_require_number(v_size, v_context, v_minimum, v_maximum); err != nil { return nil, err }
 	return v_value, nil
 }
 
@@ -8753,6 +8914,312 @@ func typesafe_validate_json(args ...Value) (Value, error) {
 		return nil, AxError{Category: "runtime", Message: "Typesafe: entries must contain JSON values"}
 	} else {
 	// empty
+	}
+	return nil, nil
+}
+
+func decisions_require_count(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_require_count")
+	var v_value Value
+	var v_fractional Value
+	var v_integer Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_fractional
+	_ = v_integer
+	if _, err := decisions_require_number(v_value, "token count", 0, 9007199254740991); err != nil { return nil, err }
+	v_integer = _core_math_floor(v_value)
+	v_fractional = _core_ne(v_integer, v_value)
+	if coreTruthy(v_fractional) {
+		return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: token counts must be nonnegative safe integers"}
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func decisions_validate_request(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_validate_request")
+	var v_request Value
+	var v_bad_role Value
+	var v_bad_type Value
+	var v_choice Value
+	var v_content Value
+	var v_description Value
+	var v_detail Value
+	var v_details Value
+	var v_duplicate Value
+	var v_has_description Value
+	var v_has_detail Value
+	var v_has_name Value
+	var v_has_safety Value
+	var v_has_type Value
+	var v_images Value
+	var v_input Value
+	var v_instructions Value
+	var v_invalid Value
+	var v_is_boolean Value
+	var v_is_image Value
+	var v_is_text Value
+	var v_key Value
+	var v_kind Value
+	var v_known Value
+	var v_maximum Value
+	var v_message Value
+	var v_model Value
+	var v_name Value
+	var v_names Value
+	var v_needs_options Value
+	var v_not_boolean Value
+	var v_option Value
+	var v_options Value
+	var v_part Value
+	var v_parts_content Value
+	var v_predicate Value
+	var v_q Value
+	var v_questions Value
+	var v_require_text Value
+	var v_role Value
+	var v_safety Value
+	var v_score Value
+	var v_structured Value
+	var v_text Value
+	var v_text_content Value
+	var v_too_many Value
+	var v_type Value
+	var v_url Value
+	var v_url_string Value
+	var v_valid Value
+	var v_value Value
+	var v_values Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_bad_role
+	_ = v_bad_type
+	_ = v_choice
+	_ = v_content
+	_ = v_description
+	_ = v_detail
+	_ = v_details
+	_ = v_duplicate
+	_ = v_has_description
+	_ = v_has_detail
+	_ = v_has_name
+	_ = v_has_safety
+	_ = v_has_type
+	_ = v_images
+	_ = v_input
+	_ = v_instructions
+	_ = v_invalid
+	_ = v_is_boolean
+	_ = v_is_image
+	_ = v_is_text
+	_ = v_key
+	_ = v_kind
+	_ = v_known
+	_ = v_maximum
+	_ = v_message
+	_ = v_model
+	_ = v_name
+	_ = v_names
+	_ = v_needs_options
+	_ = v_not_boolean
+	_ = v_option
+	_ = v_options
+	_ = v_part
+	_ = v_parts_content
+	_ = v_predicate
+	_ = v_q
+	_ = v_questions
+	_ = v_require_text
+	_ = v_role
+	_ = v_safety
+	_ = v_score
+	_ = v_structured
+	_ = v_text
+	_ = v_text_content
+	_ = v_too_many
+	_ = v_type
+	_ = v_url
+	_ = v_url_string
+	_ = v_valid
+	_ = v_value
+	_ = v_values
+	if _, err := decisions_require_object(v_request, "request"); err != nil { return nil, err }
+	v_model = coreGet(v_request, "model", nil)
+	if _, err := decisions_require_string(v_model, "model", true); err != nil { return nil, err }
+	v_safety = coreGet(v_request, "safety_identifier", nil)
+	v_has_safety = _core_is_not_none(v_safety)
+	if coreTruthy(v_has_safety) {
+		if _, err := decisions_require_string(v_safety, "safety_identifier", false); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_input = coreGet(v_request, "input", nil)
+	v_is_text = coreTypeIs(v_input, "string")
+	v_structured = _core_not(v_is_text)
+	v_images = 0
+	if coreTruthy(v_structured) {
+		if _, err := decisions_require_list(v_input, "input", 1, 9007199254740991); err != nil { return nil, err }
+		for _, v_message = range coreIter(v_input) {
+			if _, err := decisions_require_object(v_message, "input message"); err != nil { return nil, err }
+			v_role = coreGet(v_message, "role", nil)
+			v_bad_role = _core_ne(v_role, "user")
+			v_type = "message"
+			v_has_type = _core_map_contains(v_message, "type")
+			if coreTruthy(v_has_type) {
+				v_type = coreGet(v_message, "type", nil)
+			} else {
+			// empty
+			}
+			v_bad_type = _core_ne(v_type, "message")
+			v_invalid = _core_or(v_bad_role, v_bad_type)
+			if coreTruthy(v_invalid) {
+				return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: only user messages are supported"}
+			} else {
+			// empty
+			}
+			v_content = coreGet(v_message, "content", nil)
+			v_text_content = coreTypeIs(v_content, "string")
+			v_parts_content = _core_not(v_text_content)
+			if coreTruthy(v_parts_content) {
+				if _, err := decisions_require_list(v_content, "input content", 1, 9007199254740991); err != nil { return nil, err }
+				for _, v_part = range coreIter(v_content) {
+					if _, err := decisions_require_object(v_part, "input part"); err != nil { return nil, err }
+					v_kind = coreGet(v_part, "type", nil)
+					v_is_text = _core_eq(v_kind, "input_text")
+					if coreTruthy(v_is_text) {
+						v_text = coreGet(v_part, "text", nil)
+						if _, err := decisions_require_string(v_text, "input text", false); err != nil { return nil, err }
+					} else {
+						v_is_image = _core_eq(v_kind, "input_image")
+						v_url = coreGet(v_part, "image_url", nil)
+						v_url_string = coreTypeIs(v_url, "string")
+						v_valid = _core_and(v_is_image, v_url_string)
+						if coreTruthy(v_valid) {
+							v_valid = coreRegexMatch("^data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$", v_url)
+						} else {
+						// empty
+						}
+						v_invalid = _core_not(v_valid)
+						if coreTruthy(v_invalid) {
+							return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: images require inline base64 data URLs; files, audio, and hosted URLs are unsupported"}
+						} else {
+						// empty
+						}
+						v_detail = coreGet(v_part, "detail", nil)
+						v_has_detail = _core_is_not_none(v_detail)
+						if coreTruthy(v_has_detail) {
+							v_details = MutableArray()
+							v_details = coreAppend(v_details, "low")
+							v_details = coreAppend(v_details, "high")
+							v_details = coreAppend(v_details, "auto")
+							v_details = coreAppend(v_details, "original")
+							v_known = _core_contains(v_details, v_detail)
+							v_invalid = _core_not(v_known)
+							if coreTruthy(v_invalid) {
+								return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: invalid image detail"}
+							} else {
+							// empty
+							}
+						} else {
+						// empty
+						}
+						v_images = _core_add(v_images, 1)
+					}
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_too_many = _core_gt(v_images, 128)
+	if coreTruthy(v_too_many) {
+		return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: at most 128 images are supported"}
+	} else {
+	// empty
+	}
+	v_questions = coreGet(v_request, "questions", nil)
+	if _, err := decisions_require_list(v_questions, "questions", 1, 9007199254740991); err != nil { return nil, err }
+	v_names = Object()
+	for _, v_q = range coreIter(v_questions) {
+		if _, err := decisions_require_object(v_q, "question"); err != nil { return nil, err }
+		v_instructions = coreGet(v_q, "instructions", nil)
+		if _, err := decisions_require_string(v_instructions, "question instructions", false); err != nil { return nil, err }
+		v_has_name = _core_map_contains(v_q, "name")
+		if coreTruthy(v_has_name) {
+			v_name = coreGet(v_q, "name", nil)
+			if _, err := decisions_require_string(v_name, "question name", false); err != nil { return nil, err }
+			v_duplicate = _core_map_contains(v_names, v_name)
+			if coreTruthy(v_duplicate) {
+				return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: duplicate question name"}
+			} else {
+			// empty
+			}
+			if err := coreSet(v_names, v_name, true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_kind = coreGet(v_q, "type", nil)
+		v_predicate = _core_eq(v_kind, "predicate")
+		v_needs_options = _core_not(v_predicate)
+		if coreTruthy(v_needs_options) {
+			v_choice = _core_eq(v_kind, "choice")
+			v_score = _core_eq(v_kind, "score")
+			v_valid = _core_or(v_choice, v_score)
+			v_invalid = _core_not(v_valid)
+			if coreTruthy(v_invalid) {
+				return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: invalid question type or options"}
+			} else {
+			// empty
+			}
+			v_options = coreGet(v_q, "choices", nil)
+			v_maximum = 255
+			if coreTruthy(v_score) {
+				v_options = coreGet(v_q, "levels", nil)
+				v_maximum = 10
+			} else {
+			// empty
+			}
+			if _, err := decisions_require_list(v_options, v_kind, 2, v_maximum); err != nil { return nil, err }
+			v_values = Object()
+			for _, v_option = range coreIter(v_options) {
+				if _, err := decisions_require_object(v_option, "question option"); err != nil { return nil, err }
+				v_value = coreGet(v_option, "value", nil)
+				if coreTruthy(v_score) {
+					v_value = coreGet(v_option, "label", nil)
+				} else {
+				// empty
+				}
+				v_is_boolean = coreTypeIs(v_value, "boolean")
+				v_not_boolean = _core_not(v_is_boolean)
+				v_require_text = _core_or(v_score, v_not_boolean)
+				if coreTruthy(v_require_text) {
+					if _, err := decisions_require_string(v_value, "option value", false); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				v_key = _core_json_stringify(v_value)
+				v_duplicate = _core_map_contains(v_values, v_key)
+				if coreTruthy(v_duplicate) {
+					return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: duplicate option value"}
+				} else {
+				// empty
+				}
+				if err := coreSet(v_values, v_key, true); err != nil { return nil, err }
+				v_has_description = _core_map_contains(v_option, "description")
+				if coreTruthy(v_has_description) {
+					v_description = coreGet(v_option, "description", nil)
+					if _, err := decisions_require_string(v_description, "option description", false); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
 	}
 	return nil, nil
 }
@@ -9600,6 +10067,275 @@ func typesafe_decode_response(args ...Value) (Value, error) {
 			}
 		}
 	}
+	return v_raw, nil
+}
+
+func decisions_decode_response(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_decode_response")
+	var v_raw Value
+	var v_questions Value
+	var v_a Value
+	var v_actual_label Value
+	var v_answer_kind Value
+	var v_answer_name Value
+	var v_answers Value
+	var v_cached Value
+	var v_confidence Value
+	var v_difference Value
+	var v_duplicate Value
+	var v_epsilon Value
+	var v_expected Value
+	var v_expected_key Value
+	var v_found Value
+	var v_has_name Value
+	var v_i Value
+	var v_input Value
+	var v_integer Value
+	var v_invalid_total Value
+	var v_key Value
+	var v_keys Value
+	var v_kind Value
+	var v_label Value
+	var v_match Value
+	var v_missing_name Value
+	var v_model Value
+	var v_name Value
+	var v_not_refusal Value
+	var v_option Value
+	var v_options Value
+	var v_output Value
+	var v_p Value
+	var v_position Value
+	var v_predicate Value
+	var v_probabilities Value
+	var v_probability Value
+	var v_q Value
+	var v_reasoning Value
+	var v_refusal Value
+	var v_score Value
+	var v_seen Value
+	var v_selected Value
+	var v_selected_key Value
+	var v_size Value
+	var v_tolerance Value
+	var v_total Value
+	var v_unknown Value
+	var v_upper Value
+	var v_usage Value
+	var v_value Value
+	var v_write Value
+	var v_wrong_label Value
+	var v_wrong_name Value
+	var v_wrong_type Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_questions = args[1] }
+	_ = v_questions
+	_ = v_a
+	_ = v_actual_label
+	_ = v_answer_kind
+	_ = v_answer_name
+	_ = v_answers
+	_ = v_cached
+	_ = v_confidence
+	_ = v_difference
+	_ = v_duplicate
+	_ = v_epsilon
+	_ = v_expected
+	_ = v_expected_key
+	_ = v_found
+	_ = v_has_name
+	_ = v_i
+	_ = v_input
+	_ = v_integer
+	_ = v_invalid_total
+	_ = v_key
+	_ = v_keys
+	_ = v_kind
+	_ = v_label
+	_ = v_match
+	_ = v_missing_name
+	_ = v_model
+	_ = v_name
+	_ = v_not_refusal
+	_ = v_option
+	_ = v_options
+	_ = v_output
+	_ = v_p
+	_ = v_position
+	_ = v_predicate
+	_ = v_probabilities
+	_ = v_probability
+	_ = v_q
+	_ = v_reasoning
+	_ = v_refusal
+	_ = v_score
+	_ = v_seen
+	_ = v_selected
+	_ = v_selected_key
+	_ = v_size
+	_ = v_tolerance
+	_ = v_total
+	_ = v_unknown
+	_ = v_upper
+	_ = v_usage
+	_ = v_value
+	_ = v_write
+	_ = v_wrong_label
+	_ = v_wrong_name
+	_ = v_wrong_type
+	if _, err := decisions_require_object(v_raw, "response"); err != nil { return nil, err }
+	v_model = coreGet(v_raw, "model", nil)
+	if _, err := decisions_require_string(v_model, "response model", true); err != nil { return nil, err }
+	v_answers = coreGet(v_raw, "answers", nil)
+	v_size = _core_len(v_questions)
+	if _, err := decisions_require_list(v_answers, "answers", v_size, v_size); err != nil { return nil, err }
+	v_i = 0
+	for _, v_q = range coreIter(v_questions) {
+		v_a = coreGet(v_answers, v_i, nil)
+		v_i = _core_add(v_i, 1)
+		if _, err := decisions_require_object(v_a, "answer"); err != nil { return nil, err }
+		v_name = coreGet(v_q, "name", nil)
+		v_answer_name = coreGet(v_a, "name", nil)
+		v_has_name = _core_map_contains(v_a, "name")
+		v_missing_name = _core_not(v_has_name)
+		v_wrong_name = _core_ne(v_name, v_answer_name)
+		v_wrong_name = _core_or(v_wrong_name, v_missing_name)
+		if coreTruthy(v_wrong_name) {
+			return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: incorrect answer name or order"}
+		} else {
+		// empty
+		}
+		v_kind = coreGet(v_q, "type", nil)
+		v_answer_kind = coreGet(v_a, "type", nil)
+		v_refusal = _core_eq(v_answer_kind, "refusal")
+		v_not_refusal = _core_not(v_refusal)
+		if coreTruthy(v_not_refusal) {
+			v_wrong_type = _core_ne(v_kind, v_answer_kind)
+			if coreTruthy(v_wrong_type) {
+				return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: incorrect answer type"}
+			} else {
+			// empty
+			}
+			v_predicate = _core_eq(v_kind, "predicate")
+			if coreTruthy(v_predicate) {
+				v_probability = coreGet(v_a, "probability", nil)
+				if _, err := decisions_require_number(v_probability, "predicate probability", 0, 1); err != nil { return nil, err }
+			} else {
+				v_confidence = coreGet(v_a, "confidence", nil)
+				if _, err := decisions_require_number(v_confidence, "confidence", 0, 1); err != nil { return nil, err }
+				v_score = _core_eq(v_kind, "score")
+				v_options = coreGet(v_q, "choices", nil)
+				if coreTruthy(v_score) {
+					v_options = coreGet(v_q, "levels", nil)
+				} else {
+				// empty
+				}
+				v_size = _core_len(v_options)
+				v_probabilities = coreGet(v_a, "probabilities", nil)
+				if _, err := decisions_require_list(v_probabilities, "probabilities", v_size, v_size); err != nil { return nil, err }
+				v_seen = Object()
+				v_total = 0
+				for _, v_p = range coreIter(v_probabilities) {
+					if _, err := decisions_require_object(v_p, "probability"); err != nil { return nil, err }
+					v_value = coreGet(v_p, "value", nil)
+					v_key = _core_json_stringify(v_value)
+					v_duplicate = _core_map_contains(v_seen, v_key)
+					if coreTruthy(v_duplicate) {
+						return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: unknown or duplicate probability value"}
+					} else {
+					// empty
+					}
+					if err := coreSet(v_seen, v_key, true); err != nil { return nil, err }
+					v_found = false
+					if coreTruthy(v_score) {
+						v_upper = _core_add(v_size, -1)
+						if _, err := decisions_require_number(v_value, "score index", 0, v_upper); err != nil { return nil, err }
+						v_integer = _core_math_floor(v_value)
+						v_found = _core_eq(v_value, v_integer)
+						v_option = coreGet(v_options, v_integer, nil)
+						v_label = coreGet(v_option, "label", nil)
+						v_actual_label = coreGet(v_p, "label", nil)
+						v_wrong_label = _core_ne(v_label, v_actual_label)
+						if coreTruthy(v_wrong_label) {
+							return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: incorrect score label"}
+						} else {
+						// empty
+						}
+					} else {
+						for _, v_option = range coreIter(v_options) {
+							v_expected = coreGet(v_option, "value", nil)
+							v_expected_key = _core_json_stringify(v_expected)
+							v_match = _core_eq(v_expected_key, v_key)
+							v_found = _core_or(v_found, v_match)
+						}
+					}
+					v_unknown = _core_not(v_found)
+					if coreTruthy(v_unknown) {
+						return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: unknown or duplicate probability value"}
+					} else {
+					// empty
+					}
+					v_probability = coreGet(v_p, "probability", nil)
+					if _, err := decisions_require_number(v_probability, "distribution probability", 0, 1); err != nil { return nil, err }
+					v_total = _core_add(v_total, v_probability)
+				}
+				v_difference = _core_add(v_total, -1)
+				v_difference = _core_math_abs(v_difference)
+				v_epsilon = _core_mul(0.0000000000000002220446049250313, v_size)
+				v_tolerance = _core_add(0.01, v_epsilon)
+				v_invalid_total = _core_gt(v_difference, v_tolerance)
+				if coreTruthy(v_invalid_total) {
+					return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: invalid probability distribution"}
+				} else {
+				// empty
+				}
+				if coreTruthy(v_score) {
+					v_position = coreGet(v_a, "score", nil)
+					v_upper = _core_add(v_size, -1)
+					if _, err := decisions_require_number(v_position, "score", 0, v_upper); err != nil { return nil, err }
+				} else {
+					v_selected = coreGet(v_a, "choice", nil)
+					v_selected_key = _core_json_stringify(v_selected)
+					v_found = false
+					for _, v_option = range coreIter(v_options) {
+						v_value = coreGet(v_option, "value", nil)
+						v_key = _core_json_stringify(v_value)
+						v_match = _core_eq(v_key, v_selected_key)
+						v_found = _core_or(v_found, v_match)
+					}
+					v_unknown = _core_not(v_found)
+					if coreTruthy(v_unknown) {
+						return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: unknown choice"}
+					} else {
+					// empty
+					}
+				}
+			}
+		} else {
+		// empty
+		}
+	}
+	v_usage = coreGet(v_raw, "usage", nil)
+	if _, err := decisions_require_object(v_usage, "usage"); err != nil { return nil, err }
+	v_keys = MutableArray()
+	v_keys = coreAppend(v_keys, "input_tokens")
+	v_keys = coreAppend(v_keys, "output_tokens")
+	v_keys = coreAppend(v_keys, "total_tokens")
+	for _, v_key = range coreIter(v_keys) {
+		v_value = coreGet(v_usage, v_key, nil)
+		if _, err := decisions_require_count(v_value); err != nil { return nil, err }
+	}
+	v_input = coreGet(v_usage, "input_tokens_details", nil)
+	if _, err := decisions_require_object(v_input, "input token details"); err != nil { return nil, err }
+	v_cached = coreGet(v_input, "cached_tokens", nil)
+	if _, err := decisions_require_count(v_cached); err != nil { return nil, err }
+	v_write = coreGet(v_input, "cache_write_tokens", nil)
+	if _, err := decisions_require_count(v_write); err != nil { return nil, err }
+	v_output = coreGet(v_usage, "output_tokens_details", nil)
+	if _, err := decisions_require_object(v_output, "output token details"); err != nil { return nil, err }
+	v_reasoning = coreGet(v_output, "reasoning_tokens", nil)
+	if _, err := decisions_require_count(v_reasoning); err != nil { return nil, err }
 	return v_raw, nil
 }
 
@@ -10686,6 +11422,541 @@ func validate_chat_request(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func decisions_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_build_chat_request")
+	var v_request Value
+	var v_options Value
+	var v_allowed Value
+	var v_allowed_n Value
+	var v_annotation Value
+	var v_annotation_type Value
+	var v_annotations Value
+	var v_audio Value
+	var v_calls Value
+	var v_calls_snake Value
+	var v_class_options Value
+	var v_config Value
+	var v_config_snake Value
+	var v_content Value
+	var v_control Value
+	var v_controls Value
+	var v_criteria Value
+	var v_data Value
+	var v_described Value
+	var v_description Value
+	var v_description_keys Value
+	var v_descriptions Value
+	var v_detail Value
+	var v_duplicate Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_error Value
+	var v_field Value
+	var v_flat Value
+	var v_forbidden Value
+	var v_format Value
+	var v_format_snake Value
+	var v_format_type Value
+	var v_function_call Value
+	var v_function_call_snake Value
+	var v_functions Value
+	var v_has_annotation Value
+	var v_has_call Value
+	var v_has_call_value Value
+	var v_has_description Value
+	var v_has_detail Value
+	var v_has_enum Value
+	var v_has_functions Value
+	var v_has_key Value
+	var v_has_safety Value
+	var v_has_value Value
+	var v_image Value
+	var v_images Value
+	var v_input Value
+	var v_instructions Value
+	var v_invalid Value
+	var v_is_boolean Value
+	var v_is_class Value
+	var v_is_description_string Value
+	var v_is_enum Value
+	var v_is_n Value
+	var v_is_stream Value
+	var v_is_string Value
+	var v_key Value
+	var v_kind Value
+	var v_label Value
+	var v_line Value
+	var v_lines Value
+	var v_message Value
+	var v_mime Value
+	var v_mime_snake Value
+	var v_model Value
+	var v_name Value
+	var v_names Value
+	var v_no_enum Value
+	var v_not_data Value
+	var v_not_flat Value
+	var v_numeric Value
+	var v_one Value
+	var v_option Value
+	var v_part Value
+	var v_parts Value
+	var v_payload Value
+	var v_present Value
+	var v_prompt Value
+	var v_prompt_snake Value
+	var v_properties Value
+	var v_question Value
+	var v_questions Value
+	var v_raw_part Value
+	var v_required Value
+	var v_required_list Value
+	var v_role Value
+	var v_root_type Value
+	var v_safety Value
+	var v_safety_snake Value
+	var v_schema Value
+	var v_seen Value
+	var v_supported Value
+	var v_supported_type Value
+	var v_text Value
+	var v_threshold Value
+	var v_threshold_snake Value
+	var v_tool Value
+	var v_tool_alt Value
+	var v_tools Value
+	var v_typ Value
+	var v_type_attrs Value
+	var v_type_name Value
+	var v_unsupported Value
+	var v_use_description Value
+	var v_user Value
+	var v_value Value
+	var v_wrapper Value
+	var v_wrong_format Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_allowed
+	_ = v_allowed_n
+	_ = v_annotation
+	_ = v_annotation_type
+	_ = v_annotations
+	_ = v_audio
+	_ = v_calls
+	_ = v_calls_snake
+	_ = v_class_options
+	_ = v_config
+	_ = v_config_snake
+	_ = v_content
+	_ = v_control
+	_ = v_controls
+	_ = v_criteria
+	_ = v_data
+	_ = v_described
+	_ = v_description
+	_ = v_description_keys
+	_ = v_descriptions
+	_ = v_detail
+	_ = v_duplicate
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_error
+	_ = v_field
+	_ = v_flat
+	_ = v_forbidden
+	_ = v_format
+	_ = v_format_snake
+	_ = v_format_type
+	_ = v_function_call
+	_ = v_function_call_snake
+	_ = v_functions
+	_ = v_has_annotation
+	_ = v_has_call
+	_ = v_has_call_value
+	_ = v_has_description
+	_ = v_has_detail
+	_ = v_has_enum
+	_ = v_has_functions
+	_ = v_has_key
+	_ = v_has_safety
+	_ = v_has_value
+	_ = v_image
+	_ = v_images
+	_ = v_input
+	_ = v_instructions
+	_ = v_invalid
+	_ = v_is_boolean
+	_ = v_is_class
+	_ = v_is_description_string
+	_ = v_is_enum
+	_ = v_is_n
+	_ = v_is_stream
+	_ = v_is_string
+	_ = v_key
+	_ = v_kind
+	_ = v_label
+	_ = v_line
+	_ = v_lines
+	_ = v_message
+	_ = v_mime
+	_ = v_mime_snake
+	_ = v_model
+	_ = v_name
+	_ = v_names
+	_ = v_no_enum
+	_ = v_not_data
+	_ = v_not_flat
+	_ = v_numeric
+	_ = v_one
+	_ = v_option
+	_ = v_part
+	_ = v_parts
+	_ = v_payload
+	_ = v_present
+	_ = v_prompt
+	_ = v_prompt_snake
+	_ = v_properties
+	_ = v_question
+	_ = v_questions
+	_ = v_raw_part
+	_ = v_required
+	_ = v_required_list
+	_ = v_role
+	_ = v_root_type
+	_ = v_safety
+	_ = v_safety_snake
+	_ = v_schema
+	_ = v_seen
+	_ = v_supported
+	_ = v_supported_type
+	_ = v_text
+	_ = v_threshold
+	_ = v_threshold_snake
+	_ = v_tool
+	_ = v_tool_alt
+	_ = v_tools
+	_ = v_typ
+	_ = v_type_attrs
+	_ = v_type_name
+	_ = v_unsupported
+	_ = v_use_description
+	_ = v_user
+	_ = v_value
+	_ = v_wrapper
+	_ = v_wrong_format
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
+	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
+	if _, err := decisions_require_number(v_threshold, "trueThreshold", 0, 1); err != nil { return nil, err }
+	v_functions = coreGet(v_request, "functions", v_empty_list)
+	v_function_call_snake = coreGet(v_request, "function_call", "none")
+	v_function_call = coreGet(v_request, "functionCall", v_function_call_snake)
+	v_has_functions = _core_truthy(v_functions)
+	v_has_call = _core_ne(v_function_call, "none")
+	v_has_call_value = _core_truthy(v_function_call)
+	v_has_call = _core_and(v_has_call, v_has_call_value)
+	v_tools = _core_or(v_has_functions, v_has_call)
+	if coreTruthy(v_tools) {
+		return nil, AxError{Category: "runtime", Message: "OpenAI Decisions does not support tools; use a generative provider for tool execution"}
+	} else {
+	// empty
+	}
+	v_config_snake = coreGet(v_request, "model_config", v_empty_map)
+	v_config = coreGet(v_request, "modelConfig", v_config_snake)
+	v_controls = _core_map_keys(v_config)
+	for _, v_control = range coreIter(v_controls) {
+		v_value = coreGet(v_config, v_control, nil)
+		v_present = _core_is_not_none(v_value)
+		if coreTruthy(v_present) {
+			v_is_stream = _core_eq(v_control, "stream")
+			v_is_n = _core_eq(v_control, "n")
+			v_one = _core_eq(v_value, 1)
+			v_numeric = coreTypeIs(v_value, "number")
+			v_one = _core_and(v_one, v_numeric)
+			v_allowed_n = _core_and(v_is_n, v_one)
+			v_allowed = _core_or(v_is_stream, v_allowed_n)
+			v_unsupported = _core_not(v_allowed)
+			if coreTruthy(v_unsupported) {
+				v_message = _core_string_format("OpenAI Decisions does not support generation control {}", v_control)
+				v_error = _core_validation_error(v_message)
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_format_snake = coreGet(v_request, "response_format", nil)
+	v_format = coreGet(v_request, "responseFormat", v_format_snake)
+	v_format_type = coreGet(v_format, "type", nil)
+	v_wrong_format = _core_ne(v_format_type, "json_schema")
+	if coreTruthy(v_wrong_format) {
+		return nil, AxError{Category: "runtime", Message: "OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs"}
+	} else {
+	// empty
+	}
+	v_wrapper = coreGet(v_format, "schema", nil)
+	if _, err := decisions_require_object(v_wrapper, "responseFormat.schema"); err != nil { return nil, err }
+	v_schema = coreGet(v_wrapper, "schema", nil)
+	if _, err := decisions_require_object(v_schema, "output schema"); err != nil { return nil, err }
+	v_root_type = coreGet(v_schema, "type", nil)
+	v_flat = _core_eq(v_root_type, "object")
+	v_forbidden = MutableArray()
+	v_forbidden = coreAppend(v_forbidden, "anyOf")
+	v_forbidden = coreAppend(v_forbidden, "oneOf")
+	v_forbidden = coreAppend(v_forbidden, "allOf")
+	v_forbidden = coreAppend(v_forbidden, "$ref")
+	for _, v_key = range coreIter(v_forbidden) {
+		v_value = coreGet(v_schema, v_key, nil)
+		v_has_value = _core_truthy(v_value)
+		if coreTruthy(v_has_value) {
+			v_flat = false
+		} else {
+		// empty
+		}
+	}
+	v_not_flat = _core_not(v_flat)
+	if coreTruthy(v_not_flat) {
+		return nil, AxError{Category: "runtime", Message: "OpenAI Decisions requires a flat object output schema"}
+	} else {
+	// empty
+	}
+	v_properties = coreGet(v_schema, "properties", nil)
+	if _, err := decisions_require_object(v_properties, "output properties"); err != nil { return nil, err }
+	v_required = coreGet(v_schema, "required", v_empty_list)
+	v_annotations = coreGet(v_format, "fieldDescriptions", v_empty_map)
+	v_questions = MutableArray()
+	v_names = _core_map_keys(v_properties)
+	v_forbidden = coreAppend(v_forbidden, "const")
+	for _, v_name = range coreIter(v_names) {
+		v_field = coreGet(v_properties, v_name, nil)
+		if _, err := decisions_require_object(v_field, v_name); err != nil { return nil, err }
+		v_required_list = coreTypeIs(v_required, "list")
+		v_supported = _core_contains(v_required, v_name)
+		v_supported = _core_and(v_supported, v_required_list)
+		for _, v_key = range coreIter(v_forbidden) {
+			v_has_key = _core_map_contains(v_field, v_key)
+			if coreTruthy(v_has_key) {
+				v_supported = false
+			} else {
+			// empty
+			}
+		}
+		v_type_name = coreGet(v_field, "type", nil)
+		v_class_options = coreGet(v_field, "enum", nil)
+		v_is_boolean = _core_eq(v_type_name, "boolean")
+		v_has_enum = _core_is_not_none(v_class_options)
+		v_no_enum = _core_not(v_has_enum)
+		v_is_boolean = _core_and(v_is_boolean, v_no_enum)
+		v_is_string = _core_eq(v_type_name, "string")
+		v_is_enum = coreTypeIs(v_class_options, "list")
+		v_is_class = _core_and(v_is_string, v_is_enum)
+		v_supported_type = _core_or(v_is_boolean, v_is_class)
+		v_supported = _core_and(v_supported, v_supported_type)
+		v_unsupported = _core_not(v_supported)
+		if coreTruthy(v_unsupported) {
+			v_message = _core_string_format("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs", v_name)
+			v_error = _core_validation_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_annotation = coreGet(v_annotations, v_name, nil)
+		v_description = coreGet(v_field, "description", nil)
+		v_has_annotation = _core_is_not_none(v_annotation)
+		v_descriptions = Object()
+		if coreTruthy(v_has_annotation) {
+			if _, err := decisions_require_object(v_annotation, v_name); err != nil { return nil, err }
+			v_description = coreGet(v_annotation, "description", nil)
+			v_has_description = _core_is_not_none(v_description)
+			if coreTruthy(v_has_description) {
+				if _, err := decisions_require_string(v_description, v_name, false); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_descriptions = coreGet(v_annotation, "valueDescriptions", nil)
+			if _, err := decisions_require_object(v_descriptions, v_name); err != nil { return nil, err }
+			v_type_attrs = Object()
+			v_annotation_type = "boolean"
+			if coreTruthy(v_is_class) {
+				v_annotation_type = "class"
+			} else {
+			// empty
+			}
+			if err := coreSet(v_type_attrs, "name", v_annotation_type); err != nil { return nil, err }
+			if err := coreSet(v_type_attrs, "options", v_class_options); err != nil { return nil, err }
+			if err := coreSet(v_type_attrs, "value_descriptions", v_descriptions); err != nil { return nil, err }
+			v_typ = _core_record_new("FieldType", v_type_attrs)
+			if _, err := _signature_validate_value_descriptions_impl(v_typ, v_name); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_instructions = _core_string_format("Evaluate the output field {}.", v_name)
+		v_is_description_string = coreTypeIs(v_description, "string")
+		v_has_description = _core_truthy(v_description)
+		v_use_description = _core_and(v_is_description_string, v_has_description)
+		if coreTruthy(v_use_description) {
+			v_instructions = _core_string_format("{}: {}", v_name, v_description)
+		} else {
+		// empty
+		}
+		v_question = Object()
+		if err := coreSet(v_question, "instructions", v_instructions); err != nil { return nil, err }
+		if coreTruthy(v_is_boolean) {
+			if err := coreSet(v_question, "type", "predicate"); err != nil { return nil, err }
+			if coreTruthy(v_has_annotation) {
+				v_lines = MutableArray()
+				v_lines = coreAppend(v_lines, v_instructions)
+				v_description_keys = _core_map_keys(v_descriptions)
+				for _, v_key = range coreIter(v_description_keys) {
+					v_value = coreGet(v_descriptions, v_key, nil)
+					v_line = _core_string_format("{}: {}", v_key, v_value)
+					v_lines = coreAppend(v_lines, v_line)
+				}
+				v_instructions = _core_string_join("\n", v_lines)
+				if err := coreSet(v_question, "instructions", v_instructions); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+			if err := coreSet(v_question, "type", "choice"); err != nil { return nil, err }
+			v_criteria = MutableArray()
+			v_seen = Object()
+			for _, v_label = range coreIter(v_class_options) {
+				if _, err := decisions_require_string(v_label, v_name, false); err != nil { return nil, err }
+				v_duplicate = _core_map_contains(v_seen, v_label)
+				if coreTruthy(v_duplicate) {
+					return nil, AxError{Category: "runtime", Message: "OpenAI Decisions: Choice labels must be unique"}
+				} else {
+				// empty
+				}
+				v_description = coreGet(v_descriptions, v_label, nil)
+				v_option = Object()
+				if err := coreSet(v_option, "value", v_label); err != nil { return nil, err }
+				v_described = _core_map_contains(v_descriptions, v_label)
+				if coreTruthy(v_described) {
+					if err := coreSet(v_option, "description", v_description); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				if err := coreSet(v_seen, v_label, true); err != nil { return nil, err }
+				v_criteria = coreAppend(v_criteria, v_option)
+			}
+			if err := coreSet(v_question, "choices", v_criteria); err != nil { return nil, err }
+		}
+		if err := coreSet(v_question, "name", v_name); err != nil { return nil, err }
+		v_questions = coreAppend(v_questions, v_question)
+	}
+	v_prompt_snake = coreGet(v_request, "chat_prompt", v_empty_list)
+	v_prompt = coreGet(v_request, "chatPrompt", v_prompt_snake)
+	v_parts = MutableArray()
+	for _, v_message = range coreIter(v_prompt) {
+		v_role = coreGet(v_message, "role", nil)
+		v_content = coreGet(v_message, "content", "")
+		v_tool = _core_eq(v_role, "function")
+		v_tool_alt = _core_eq(v_role, "tool")
+		v_tool = _core_or(v_tool, v_tool_alt)
+		v_calls = coreGet(v_message, "functionCalls", nil)
+		v_calls_snake = coreGet(v_message, "function_calls", nil)
+		v_calls = _core_coalesce(v_calls, v_calls_snake)
+		v_calls = _core_truthy(v_calls)
+		v_audio = coreGet(v_message, "audio", nil)
+		v_audio = _core_truthy(v_audio)
+		v_images = coreGet(v_message, "images", nil)
+		v_images = _core_truthy(v_images)
+		v_invalid = _core_or(v_tool, v_calls)
+		v_invalid = _core_or(v_invalid, v_audio)
+		v_invalid = _core_or(v_invalid, v_images)
+		if coreTruthy(v_invalid) {
+			return nil, AxError{Category: "runtime", Message: "OpenAI Decisions does not support tool or media history"}
+		} else {
+		// empty
+		}
+		v_label = _core_string_format("{}:", v_role)
+		v_part = Object()
+		if err := coreSet(v_part, "type", "input_text"); err != nil { return nil, err }
+		if err := coreSet(v_part, "text", v_label); err != nil { return nil, err }
+		v_parts = coreAppend(v_parts, v_part)
+		v_text = coreTypeIs(v_content, "string")
+		if coreTruthy(v_text) {
+			v_part = Object()
+			if err := coreSet(v_part, "type", "input_text"); err != nil { return nil, err }
+			if err := coreSet(v_part, "text", v_content); err != nil { return nil, err }
+			v_parts = coreAppend(v_parts, v_part)
+		} else {
+			if _, err := decisions_require_list(v_content, "message content", 0, 9007199254740991); err != nil { return nil, err }
+			v_user = _core_eq(v_role, "user")
+			if coreTruthy(v_user) {
+				for _, v_raw_part = range coreIter(v_content) {
+					v_kind = coreGet(v_raw_part, "type", nil)
+					v_text = _core_eq(v_kind, "text")
+					v_part = Object()
+					if coreTruthy(v_text) {
+						v_value = coreGet(v_raw_part, "text", nil)
+						if err := coreSet(v_part, "type", "input_text"); err != nil { return nil, err }
+						if err := coreSet(v_part, "text", v_value); err != nil { return nil, err }
+					} else {
+						v_image = _core_eq(v_kind, "image")
+						v_invalid = _core_not(v_image)
+						if coreTruthy(v_invalid) {
+							return nil, AxError{Category: "runtime", Message: "OpenAI Decisions supports text and inline images only"}
+						} else {
+						// empty
+						}
+						v_image = coreGet(v_raw_part, "image", nil)
+						if _, err := decisions_require_string(v_image, "image", false); err != nil { return nil, err }
+						v_data = _core_string_starts_with(v_image, "data:")
+						v_not_data = _core_not(v_data)
+						if coreTruthy(v_not_data) {
+							v_mime_snake = coreGet(v_raw_part, "mime_type", nil)
+							v_mime = coreGet(v_raw_part, "mimeType", v_mime_snake)
+							v_image = _core_string_format("data:{};base64,{}", v_mime, v_image)
+						} else {
+						// empty
+						}
+						if err := coreSet(v_part, "type", "input_image"); err != nil { return nil, err }
+						if err := coreSet(v_part, "image_url", v_image); err != nil { return nil, err }
+						v_detail = coreGet(v_raw_part, "details", nil)
+						v_has_detail = _core_truthy(v_detail)
+						if coreTruthy(v_has_detail) {
+							if err := coreSet(v_part, "detail", v_detail); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+					}
+					v_parts = coreAppend(v_parts, v_part)
+				}
+			} else {
+			// empty
+			}
+		}
+	}
+	v_message = Object()
+	if err := coreSet(v_message, "role", "user"); err != nil { return nil, err }
+	if err := coreSet(v_message, "content", v_parts); err != nil { return nil, err }
+	v_input = MutableArray()
+	v_input = coreAppend(v_input, v_message)
+	v_payload = Object()
+	v_model = coreGet(v_request, "model", "gpt-6-luna")
+	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_payload, "input", v_input); err != nil { return nil, err }
+	if err := coreSet(v_payload, "questions", v_questions); err != nil { return nil, err }
+	v_safety_snake = coreGet(v_options, "safety_identifier", nil)
+	v_safety = coreGet(v_options, "safetyIdentifier", v_safety_snake)
+	v_has_safety = _core_truthy(v_safety)
+	if coreTruthy(v_has_safety) {
+		if err := coreSet(v_payload, "safety_identifier", v_safety); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if _, err := decisions_validate_request(v_payload); err != nil { return nil, err }
+	return v_payload, nil
+}
+
 func openai_chat_reasoning_effort(args ...Value) (Value, error) {
 	axirCoverageMark("openai_chat_reasoning_effort")
 	var v_model Value
@@ -11761,6 +13032,7 @@ func provider_validate_chat_request(args ...Value) (Value, error) {
 	var v_request Value
 	var v_options Value
 	var v_canonical Value
+	var v_is_decisions Value
 	var v_is_typesafe Value
 	if len(args) > 0 { v_profile = args[0] }
 	_ = v_profile
@@ -11769,8 +13041,15 @@ func provider_validate_chat_request(args ...Value) (Value, error) {
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
 	_ = v_canonical
+	_ = v_is_decisions
 	_ = v_is_typesafe
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
+	v_is_decisions = _core_eq(v_canonical, "openai-decisions")
+	if coreTruthy(v_is_decisions) {
+		if _, err := decisions_build_chat_request(v_request, v_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	v_is_typesafe = _core_eq(v_canonical, "typesafe")
 	if coreTruthy(v_is_typesafe) {
 		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
@@ -11778,6 +13057,30 @@ func provider_validate_chat_request(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func decisions_response_context(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_response_context")
+	var v_payload Value
+	var v_options Value
+	var v_context Value
+	var v_empty Value
+	var v_snake Value
+	var v_threshold Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_context
+	_ = v_empty
+	_ = v_snake
+	_ = v_threshold
+	v_empty = Object()
+	v_context = _core_map_merge(v_empty, v_payload)
+	v_snake = coreGet(v_options, "true_threshold", 0.5)
+	v_threshold = coreGet(v_options, "trueThreshold", v_snake)
+	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
+	return v_context, nil
 }
 
 func build_usage_event(args ...Value) (Value, error) {
@@ -11940,6 +13243,180 @@ func build_usage_event(args ...Value) (Value, error) {
 	return v_event, nil
 }
 
+func decisions_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("decisions_normalize_chat_response")
+	var v_raw Value
+	var v_context Value
+	var v_answer Value
+	var v_answers Value
+	var v_below Value
+	var v_cached Value
+	var v_content Value
+	var v_decision_metadata Value
+	var v_has_cached Value
+	var v_has_write Value
+	var v_input Value
+	var v_input_details Value
+	var v_kind Value
+	var v_metadata Value
+	var v_model Value
+	var v_model_usage Value
+	var v_name Value
+	var v_negative Value
+	var v_negative_cached Value
+	var v_negative_write Value
+	var v_output Value
+	var v_output_details Value
+	var v_predicate Value
+	var v_probability Value
+	var v_questions Value
+	var v_reasoning Value
+	var v_refusal Value
+	var v_response Value
+	var v_result Value
+	var v_results Value
+	var v_score Value
+	var v_threshold Value
+	var v_tokens Value
+	var v_total Value
+	var v_uncached Value
+	var v_usage Value
+	var v_value Value
+	var v_values Value
+	var v_write Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_context = args[1] }
+	_ = v_context
+	_ = v_answer
+	_ = v_answers
+	_ = v_below
+	_ = v_cached
+	_ = v_content
+	_ = v_decision_metadata
+	_ = v_has_cached
+	_ = v_has_write
+	_ = v_input
+	_ = v_input_details
+	_ = v_kind
+	_ = v_metadata
+	_ = v_model
+	_ = v_model_usage
+	_ = v_name
+	_ = v_negative
+	_ = v_negative_cached
+	_ = v_negative_write
+	_ = v_output
+	_ = v_output_details
+	_ = v_predicate
+	_ = v_probability
+	_ = v_questions
+	_ = v_reasoning
+	_ = v_refusal
+	_ = v_response
+	_ = v_result
+	_ = v_results
+	_ = v_score
+	_ = v_threshold
+	_ = v_tokens
+	_ = v_total
+	_ = v_uncached
+	_ = v_usage
+	_ = v_value
+	_ = v_values
+	_ = v_write
+	v_questions = coreGet(v_context, "questions", nil)
+	if _, err := decisions_require_list(v_questions, "response request questions", 1, 9007199254740991); err != nil { return nil, err }
+	{ v, err := decisions_decode_response(v_raw, v_questions); if err != nil { return nil, err }; v_raw = v }
+	v_threshold = coreGet(v_context, "trueThreshold", 0.5)
+	if _, err := decisions_require_number(v_threshold, "trueThreshold", 0, 1); err != nil { return nil, err }
+	v_answers = coreGet(v_raw, "answers", nil)
+	v_values = Object()
+	for _, v_answer = range coreIter(v_answers) {
+		v_kind = coreGet(v_answer, "type", nil)
+		v_refusal = _core_eq(v_kind, "refusal")
+		if coreTruthy(v_refusal) {
+			return nil, AxError{Category: "runtime", Message: "OpenAI Decisions refused question"}
+		} else {
+		// empty
+		}
+		v_score = _core_eq(v_kind, "score")
+		if coreTruthy(v_score) {
+			return nil, AxError{Category: "runtime", Message: "OpenAI Decisions scoring requires the native client"}
+		} else {
+		// empty
+		}
+		v_name = coreGet(v_answer, "name", nil)
+		v_predicate = _core_eq(v_kind, "predicate")
+		v_value = coreGet(v_answer, "choice", nil)
+		if coreTruthy(v_predicate) {
+			v_probability = coreGet(v_answer, "probability", nil)
+			v_below = _core_lt(v_probability, v_threshold)
+			v_value = _core_not(v_below)
+		} else {
+		// empty
+		}
+		if err := coreSet(v_values, v_name, v_value); err != nil { return nil, err }
+	}
+	v_content = _core_json_stringify(v_values)
+	v_result = Object()
+	if err := coreSet(v_result, "index", 0); err != nil { return nil, err }
+	if err := coreSet(v_result, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_result, "finishReason", "stop"); err != nil { return nil, err }
+	v_results = MutableArray()
+	v_results = coreAppend(v_results, v_result)
+	v_usage = coreGet(v_raw, "usage", nil)
+	v_input = coreGet(v_usage, "input_tokens", nil)
+	v_output = coreGet(v_usage, "output_tokens", nil)
+	v_total = coreGet(v_usage, "total_tokens", nil)
+	v_input_details = coreGet(v_usage, "input_tokens_details", nil)
+	v_cached = coreGet(v_input_details, "cached_tokens", nil)
+	v_write = coreGet(v_input_details, "cache_write_tokens", nil)
+	v_output_details = coreGet(v_usage, "output_tokens_details", nil)
+	v_reasoning = coreGet(v_output_details, "reasoning_tokens", nil)
+	v_tokens = Object()
+	v_negative_cached = _core_mul(v_cached, -1)
+	v_negative_write = _core_mul(v_write, -1)
+	v_uncached = _core_add(v_input, v_negative_cached)
+	v_uncached = _core_add(v_uncached, v_negative_write)
+	v_negative = _core_lt(v_uncached, 0)
+	if coreTruthy(v_negative) {
+		v_uncached = 0
+	} else {
+	// empty
+	}
+	if err := coreSet(v_tokens, "promptTokens", v_uncached); err != nil { return nil, err }
+	if err := coreSet(v_tokens, "completionTokens", v_output); err != nil { return nil, err }
+	if err := coreSet(v_tokens, "totalTokens", v_total); err != nil { return nil, err }
+	v_has_cached = _core_gt(v_cached, 0)
+	if coreTruthy(v_has_cached) {
+		if err := coreSet(v_tokens, "cacheReadTokens", v_cached); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_has_write = _core_gt(v_write, 0)
+	if coreTruthy(v_has_write) {
+		if err := coreSet(v_tokens, "cacheCreationTokens", v_write); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_tokens, "reasoningTokens", v_reasoning); err != nil { return nil, err }
+	v_model_usage = Object()
+	v_model = coreGet(v_raw, "model", nil)
+	if err := coreSet(v_model_usage, "ai", "OpenAI Decisions"); err != nil { return nil, err }
+	if err := coreSet(v_model_usage, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_model_usage, "tokens", v_tokens); err != nil { return nil, err }
+	v_decision_metadata = Object()
+	if err := coreSet(v_decision_metadata, "answers", v_answers); err != nil { return nil, err }
+	v_metadata = Object()
+	if err := coreSet(v_metadata, "openaiDecisions", v_decision_metadata); err != nil { return nil, err }
+	v_response = Object()
+	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
+	if err := coreSet(v_response, "modelUsage", v_model_usage); err != nil { return nil, err }
+	if err := coreSet(v_response, "providerMetadata", v_metadata); err != nil { return nil, err }
+	return v_response, nil
+}
+
 func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_tool_call_to_provider_impl")
 	var v_call Value
@@ -12052,6 +13529,61 @@ func _openai_tool_spec_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
 	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func provider_merge_headers(args ...Value) (Value, error) {
+	axirCoverageMark("provider_merge_headers")
+	var v_base Value
+	var v_override Value
+	var v_existing Value
+	var v_existing_lower Value
+	var v_group Value
+	var v_groups Value
+	var v_headers Value
+	var v_key Value
+	var v_keys Value
+	var v_lower Value
+	var v_name Value
+	var v_same Value
+	var v_value Value
+	if len(args) > 0 { v_base = args[0] }
+	_ = v_base
+	if len(args) > 1 { v_override = args[1] }
+	_ = v_override
+	_ = v_existing
+	_ = v_existing_lower
+	_ = v_group
+	_ = v_groups
+	_ = v_headers
+	_ = v_key
+	_ = v_keys
+	_ = v_lower
+	_ = v_name
+	_ = v_same
+	_ = v_value
+	v_headers = Object()
+	v_groups = MutableArray()
+	v_groups = coreAppend(v_groups, v_base)
+	v_groups = coreAppend(v_groups, v_override)
+	for _, v_group = range coreIter(v_groups) {
+		v_keys = _core_map_keys(v_group)
+		for _, v_key = range coreIter(v_keys) {
+			v_lower = _core_string_lower(v_key)
+			v_existing = _core_map_keys(v_headers)
+			for _, v_name = range coreIter(v_existing) {
+				v_existing_lower = _core_string_lower(v_name)
+				v_same = _core_eq(v_lower, v_existing_lower)
+				if coreTruthy(v_same) {
+					_core_map_delete(v_headers, v_name)
+				} else {
+				// empty
+				}
+			}
+			v_value = coreGet(v_group, v_key, nil)
+			if err := coreSet(v_headers, v_key, v_value); err != nil { return nil, err }
+		}
+	}
+	return v_headers, nil
 }
 
 func ai_merge_replay_metadata(args ...Value) (Value, error) {
@@ -14082,7 +15614,7 @@ func provider_profile_registry(args ...Value) (Value, error) {
 	axirCoverageMark("provider_profile_registry")
 	var v_registry Value
 	_ = v_registry
-	{ v, err := _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"}},\"deferredCatalogProviderIds\":[]}\n"); if err != nil { return nil, err }; v_registry = v }
+	{ v, err := _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":\"AxAIOpenAIDecisionsClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n"); if err != nil { return nil, err }; v_registry = v }
 	return v_registry, nil
 }
 
@@ -14222,7 +15754,7 @@ func provider_model_catalog_summary(args ...Value) (Value, error) {
 	axirCoverageMark("provider_model_catalog_summary")
 	var v_summary Value
 	_ = v_summary
-	{ v, err := _core_json_parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"); if err != nil { return nil, err }; v_summary = v }
+	{ v, err := _core_json_parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"); if err != nil { return nil, err }; v_summary = v }
 	return v_summary, nil
 }
 
@@ -21392,6 +22924,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 	var v_features Value
 	var v_gemini_payload Value
 	var v_is_anthropic Value
+	var v_is_decisions Value
 	var v_is_gemini Value
 	var v_is_json_object Value
 	var v_is_json_schema Value
@@ -21441,6 +22974,7 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 	_ = v_features
 	_ = v_gemini_payload
 	_ = v_is_anthropic
+	_ = v_is_decisions
 	_ = v_is_gemini
 	_ = v_is_json_object
 	_ = v_is_json_schema
@@ -21480,6 +23014,13 @@ func provider_build_chat_request(args ...Value) (Value, error) {
 	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_resolve_descriptor(v_provider_id, v_options); if err != nil { return nil, err }; v_descriptor = v }
 	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
+	v_is_decisions = _core_eq(v_transport, "openai-decisions")
+	if coreTruthy(v_is_decisions) {
+		{ v, err := decisions_build_chat_request(v_request, v_options); if err != nil { return nil, err }; v_payload = v }
+		return v_payload, nil
+	} else {
+	// empty
+	}
 	v_is_typesafe = _core_eq(v_transport, "typesafe-system-one")
 	if coreTruthy(v_is_typesafe) {
 		{ v, err := typesafe_build_chat_request(v_request, v_options); if err != nil { return nil, err }; v_payload = v }
@@ -22479,6 +24020,7 @@ func provider_normalize_chat_response(args ...Value) (Value, error) {
 	var v_descriptor Value
 	var v_gemini_response Value
 	var v_is_anthropic Value
+	var v_is_decisions Value
 	var v_is_gemini Value
 	var v_is_responses Value
 	var v_is_typesafe Value
@@ -22503,6 +24045,7 @@ func provider_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_descriptor
 	_ = v_gemini_response
 	_ = v_is_anthropic
+	_ = v_is_decisions
 	_ = v_is_gemini
 	_ = v_is_responses
 	_ = v_is_typesafe
@@ -22515,6 +24058,13 @@ func provider_normalize_chat_response(args ...Value) (Value, error) {
 	{ v, err := provider_chat_profile(v_profile, v_model); if err != nil { return nil, err }; v_provider_id = v }
 	{ v, err := provider_descriptor(v_provider_id); if err != nil { return nil, err }; v_descriptor = v }
 	v_transport = coreGet(v_descriptor, "transport", "openai-chat")
+	v_is_decisions = _core_eq(v_transport, "openai-decisions")
+	if coreTruthy(v_is_decisions) {
+		{ v, err := decisions_normalize_chat_response(v_raw, v_context); if err != nil { return nil, err }; v_response = v }
+		return v_response, nil
+	} else {
+	// empty
+	}
 	v_is_typesafe = _core_eq(v_transport, "typesafe-system-one")
 	if coreTruthy(v_is_typesafe) {
 		{ v, err := typesafe_normalize_chat_response(v_raw, v_context); if err != nil { return nil, err }; v_response = v }
@@ -33803,6 +35353,7 @@ func provider_default_model_config(args ...Value) (Value, error) {
 	var v_profile Value
 	var v_config Value
 	var v_descriptor Value
+	var v_is_decisions Value
 	var v_is_openai_responses Value
 	var v_is_responses_profile Value
 	var v_is_typesafe Value
@@ -33812,6 +35363,7 @@ func provider_default_model_config(args ...Value) (Value, error) {
 	_ = v_profile
 	_ = v_config
 	_ = v_descriptor
+	_ = v_is_decisions
 	_ = v_is_openai_responses
 	_ = v_is_responses_profile
 	_ = v_is_typesafe
@@ -33819,6 +35371,12 @@ func provider_default_model_config(args ...Value) (Value, error) {
 	_ = v_transport
 	v_config = Object()
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
+	v_is_decisions = _core_eq(v_provider_id, "openai-decisions")
+	if coreTruthy(v_is_decisions) {
+		return v_config, nil
+	} else {
+	// empty
+	}
 	v_is_typesafe = _core_eq(v_provider_id, "typesafe")
 	if coreTruthy(v_is_typesafe) {
 		return v_config, nil
@@ -103433,6 +104991,66 @@ func (c *AxAITypesafeClient) requestOnce(ctx context.Context, operation string, 
     return body, "", nil
 }
 
+// AxAIOpenAIDecisionsClient exposes native ordered questions and complete raw responses.
+type AxAIOpenAIDecisionsClient struct { client *OpenAICompatibleClient }
+func OpenAIDecisions(options map[string]Value) *AxAIOpenAIDecisionsClient {
+    return &AxAIOpenAIDecisionsClient{client: NewAI("openai-decisions", options).(*OpenAICompatibleClient)}
+}
+func (c *AxAIOpenAIDecisionsClient) Create(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+    encoded,err:=json.Marshal(runtimeJSONValue(request));if err!=nil{return nil,err}
+    var payload map[string]Value
+    if err=json.Unmarshal(encoded,&payload);err!=nil{return nil,err}
+    if _,err=decisions_require_object(payload,"request");err!=nil{return nil,err}
+    if payload["model"]==nil { payload["model"]=coreGet(c.client.optionsSnapshot(),"model","gpt-6-luna") }
+    if _,err=decisions_validate_request(payload);err!=nil{return nil,err}
+    raw,err:=c.request(ctx,"chat",payload,options);if err!=nil{return nil,err}
+    return decisions_decode_response(raw,payload["questions"])
+}
+func (c *AxAIOpenAIDecisionsClient) request(ctx context.Context, operation string, payload map[string]Value, options map[string]Value) (Value, error) {
+    opts := mergeAIOptions(c.client.optionsSnapshot(), asMap(mustCore(provider_normalize_call_options(options))))
+    timeout := num(coreGet(opts, "timeout", 0))
+    config := mustCore(resolve_stream_retry(Value(opts)))
+    for attempt := 0; ; attempt++ {
+        if err := ctx.Err(); err != nil { return nil, normalizeContextError(ctx, err) }
+        result, retryAfter, err := c.requestOnce(ctx, operation, payload, opts, timeout)
+        if err == nil { return result, nil }
+        if ctx.Err() != nil { return nil, normalizeContextError(ctx, err) }
+        // TS apiCall's request-layer retry: a listed status or a network
+        // failure, never a timeout the request ran out of.
+        retry, waitErr := c.client.retryWait(ctx, config, attempt, err, retryAfter)
+        if waitErr != nil { return nil, waitErr }
+        if !retry { return nil, err }
+    }
+}
+
+// requestOnce sends one request under the client's timeout (seconds), which
+// TS arms for each attempt, and returns the body, or the error and the status
+// response's Retry-After.
+func (c *AxAIOpenAIDecisionsClient) requestOnce(ctx context.Context, operation string, payload map[string]Value, opts map[string]Value, timeout float64) (Value, string, error) {
+    attemptCtx := ctx
+    if timeout > 0 {
+        var cancel context.CancelFunc
+        attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeout*float64(time.Second)))
+        defer cancel()
+    }
+    var call Value
+    if _, buildErr := safeValue(func() Value { call = c.client.requestJSON(attemptCtx, operation, Object(), false, opts, payload); return nil }); buildErr != nil {
+        return nil, "", buildErr
+    }
+    raw, err := c.client.Transport.Call(attemptCtx, call)
+    if err != nil {
+        // The client's own timeout, not the caller's deadline, ended it.
+        if timeout > 0 && ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+            return nil, "", clientTimeoutError(timeout, err, call, opts)
+        }
+        return nil, "", chatTransportError(ctx, err, call, opts)
+    }
+    body, statusErr := safeValue(func() Value { return normalizeTransportPayload(raw, call, opts) })
+    if statusErr != nil { return nil, transportRetryAfter(raw), statusErr }
+    return body, "", nil
+}
+
+
 type OpenAICompatibleClient struct {
 	mu                  sync.RWMutex
 	Profile             string
@@ -103474,6 +105092,7 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 		options = map[string]Value{}
 	}
     options = cloneMap(options)
+    if profile == "openai-decisions" { mustCore(decisions_require_number(coreGet(options, "trueThreshold", coreGet(options, "true_threshold", 0.5)), "trueThreshold", 0, 1)) }
     if profile == "typesafe" { mustCore(typesafe_require_number(coreGet(options, "trueThreshold", coreGet(options, "true_threshold", 0.5)), "trueThreshold", 0, 1)) }
 	hooks := runtimeHooksFromOptions(options)
 	options = stripRuntimeHooks(options)
@@ -103551,7 +105170,7 @@ func NewAI(provider string, options map[string]Value) AIClient {
 		return newGoogleGeminiClient(profile, options)
 	case "anthropic-messages":
 		return newAnthropicClient(profile, options)
-	case "openai-chat", "typesafe-system-one":
+	case "openai-chat", "typesafe-system-one", "openai-decisions":
 		return newProviderClient(profile, profile, options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
 	}
 	panic(AxError{Category: "provider", Message: "unsupported transport for AxAI profile: " + profile})
@@ -103796,6 +105415,7 @@ func (c *OpenAICompatibleClient) ValidateChatRequest(request map[string]Value) e
 }
 
 func (c *OpenAICompatibleClient) responseContext(payload Value, config Value, options map[string]Value) Value {
+    if c.Profile == "openai-decisions" { return mustCore(decisions_response_context(payload, options)) }
     if c.Profile == "typesafe" { return mustCore(typesafe_response_context(payload, options)) }
     return mustCore(provider_response_context(payload, config, options))
 }
@@ -104410,9 +106030,8 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	case "api_key_header":
 		coreSet(headers, display(coreGet(descriptor, "apiKeyHeader", "api-key")), apiKey)
 	}
-	for _, key := range orderedKeys(asMap(coreGet(descriptor, "headers", Object()))) {
-		coreSet(headers, key, display(coreGet(coreGet(descriptor, "headers", Object()), key, nil)))
-	}
+	headers = asMap(mustCore(provider_merge_headers(headers,coreGet(descriptor,"headers",Object()))))
+	headers = asMap(mustCore(provider_merge_headers(headers,coreGet(opts,"headers",Object()))))
 	if c.Profile == "meta" && operation == "transcribe" && (coreGet(request, "partialMode", coreGet(request, "partial_mode", nil)) != nil || coreTruthy(coreGet(request, "emitAudioProgress", coreGet(request, "emit_audio_progress", false)))) {
 		coreSet(headers, "Accept", "text/event-stream")
 	}
@@ -104453,9 +106072,9 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 		if err != nil {
 			panic(AxError{Category: "authentication", Message: err.Error()})
 		}
-		for key, value := range fresh {
-			coreSet(headers, key, value)
-		}
+		freshValues := Object()
+        for key,value := range fresh { coreSet(freshValues,key,value) }
+        headers = asMap(mustCore(provider_merge_headers(headers, freshValues)))
 	}
 	out := Object("method", method, "url", requestURL, "headers", headers, "stream", stream)
 	bodyKey := "json"
@@ -112487,6 +114106,16 @@ func runConformanceFixtureKind(fixture map[string]Value) {
                 if expected, ok := item["expected_"+key]; ok { assertEqual(coreGet(events[0], key, nil), expected, "session "+key) }
             }
         }
+    case "ai_decisions_native":
+        transport:=NewScriptedTransport([]Value{coreGet(fixture,"response",nil)})
+        client:=OpenAIDecisions(map[string]Value{"api_key":"test-key","transport":transport})
+        result:=expectMaybeFixtureError(func() Value {
+            result,err:=client.Create(context.Background(),asMap(coreGet(fixture,"request",nil)),nil)
+            if err!=nil{panic(err)}
+            return result
+        },fixture,nil)
+        if _,expectedError:=fixture["expected_error_contains"];!expectedError{assertEqual(result,coreGet(fixture,"expected_output",nil),"native Decisions output")}
+        assertTransportRequest(fixture,transport)
     case "ai_typesafe_native":
         transport:=NewScriptedTransport([]Value{coreGet(fixture,"response",nil)})
         client:=Typesafe(map[string]Value{"api_key":"test-key","transport":transport})

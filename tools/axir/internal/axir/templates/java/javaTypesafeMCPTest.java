@@ -93,6 +93,15 @@ public final class TypesafeMCPTest {
     var mixed=new AxBalancer(List.of(only,Ax.ai("openai",Map.of("api_key","test","models",List.of()))));
     mixed.validateChatRequest(request);
   }
+  @SuppressWarnings("unchecked") static void decisionsNestedValidation() {
+    var typed=Ax.ai("openai-decisions",Map.of("api_key","test","models",List.of()));
+    var only=new AxBalancer(List.of(typed));
+    var request=Map.<String,Object>of("chat_prompt",List.of(Map.of("role","user","content","reply")));
+    try {only.validateChatRequest(request);throw new AssertionError("nested Decisions accepted prose");} catch(IllegalArgumentException expected) {}
+    only.validateChatRequest((Map<String,Object>)Json.parse("{\"chat_prompt\":[{\"role\":\"user\",\"content\":\"outage\"}],\"response_format\":{\"type\":\"json_schema\",\"schema\":{\"name\":\"decision\",\"schema\":{\"type\":\"object\",\"properties\":{\"urgent\":{\"type\":\"boolean\"}},\"required\":[\"urgent\"]}}}}"));
+    var mixed=new AxBalancer(List.of(only,Ax.ai("openai",Map.of("api_key","test","models",List.of()))));
+    mixed.validateChatRequest(request);
+  }
   static void combinedCancellation() throws Exception {
     var parent = new AxCancellationToken(); var perCall = new AxCancellationToken();
     var calls = new AtomicInteger();
@@ -138,5 +147,34 @@ public final class TypesafeMCPTest {
       check(sockets.size()==1 && sockets.get(0).sent.isEmpty(),"late server reply reopened the closed transport");
     } finally {release.countDown();transport.close();}
   }
-  public static void main(String[] args)throws Exception{websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+
+  static void decisionsClient()throws Exception {
+    for(boolean nativeClient:new boolean[]{true,false}) {
+      var calls=new AtomicInteger();var credentials=new AtomicInteger();
+      OpenAICompatibleClient.CredentialProvider credential=request->{
+        check(request.profile().equals("openai-decisions")&&request.operation().equals("chat"),"wrong Decisions credential operation");
+        return Map.of("authorization","Bearer fresh-"+credentials.incrementAndGet());
+      };
+      OpenAICompatibleClient.Transport transport=request->{
+        int count=calls.incrementAndGet();var headers=(Map<?,?>)request.get("headers");
+        check(headers.keySet().stream().filter(key->key.toString().equalsIgnoreCase("authorization")).count()==1,"duplicate credential headers");
+        check(headers.get("authorization").equals("Bearer fresh-"+count)&&headers.get("x-trace").equals("kept"),"credential precedence");
+        check(request.get("url").equals("https://api.openai.com/v1/decisions"),"wrong Decisions endpoint");
+        if(count==1)return Map.of("status",429,"json",Map.of("error","retry"));
+        return Json.parse("{\"model\":\"gpt-6-luna\",\"answers\":[{\"type\":\"predicate\",\"name\":\"flag\",\"probability\":0.8}],\"usage\":{\"input_tokens\":1,\"output_tokens\":0,\"total_tokens\":1,\"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0},\"output_tokens_details\":{\"reasoning_tokens\":0}}}");
+      };
+      var inherited=new AxCancellationToken();var perCall=new AxCancellationToken();
+      var options=Map.<String,Object>of("api_key","static","headers",Map.of("AUTHORIZATION","Bearer custom","x-trace","kept"),"credential_provider",credential,"transport",transport,"cancellation",inherited,"retry",Map.of("maxRetries",1,"initialDelayMs",1));
+      var nativeRequest=Map.<String,Object>of("input","red","questions",List.of(Map.of("type","predicate","name","flag","instructions","Is this red?")));
+      var chatRequest=Map.<String,Object>of("chatPrompt",List.of(Map.of("role","user","content","red")),"responseFormat",Map.of("type","json_schema","schema",Map.of("name","output","schema",Map.of("type","object","properties",Map.of("flag",Map.of("type","boolean")),"required",List.of("flag")))));
+      var nativeApi=Ax.openaiDecisions(options);var adapter=Ax.ai("openai-decisions",options);
+      java.util.concurrent.Callable<Map<String,Object>> call=()->nativeClient?nativeApi.create(nativeRequest,Map.of("cancellation",perCall)):adapter.chat(chatRequest,Map.of("cancellation",perCall));
+      var result=call.call();check(result.containsKey(nativeClient?"answers":"results"),"Decisions response missing");
+      inherited.cancel("stop Decisions");
+      try{call.call();throw new AssertionError("pre-aborted Decisions call accepted");}catch(AxAIServiceAbortedError expected){}
+      check(calls.get()==2&&credentials.get()==2,"Decisions retry refresh/cancellation count");
+      check(inherited.subscriptionCount()==0&&perCall.subscriptionCount()==0,"Decisions cancellation subscription leak");
+    }
+  }
+  public static void main(String[] args)throws Exception{decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

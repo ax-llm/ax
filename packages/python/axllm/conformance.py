@@ -794,6 +794,18 @@ def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_session_state(fixture)
         elif kind == "ai_session_events":
             _run_ai_session_events(fixture)
+        elif kind == "ai_decisions_native":
+            from .ai import openai_decisions
+            transport = ScriptedTransport([fixture.get("response")])
+            client = openai_decisions(api_key="test-key", transport=transport)
+            try:
+                result = client.create(fixture["request"])
+            except Exception as exc:
+                if not fixture.get("expected_error_contains") or fixture["expected_error_contains"] not in str(exc): raise
+            else:
+                if fixture.get("expected_error_contains"): raise FixtureError("expected native Decisions validation failure")
+                _assert_equal(result, fixture["expected_output"], "native Decisions output")
+            _assert_transport_request(fixture, transport)
         elif kind == "ai_typesafe_native":
             from .ai import typesafe
             transport = ScriptedTransport([fixture.get("response")])

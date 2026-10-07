@@ -72,6 +72,8 @@ const STABLE_ORDER_PRESERVING_KEYS = new Set(['sections']);
 // schemas and arguments as written, and string-format cases write objects as
 // JSON in their key order.
 const ORDER_PRESERVING_SUBTREES = new Set([
+  // Decisions question order and description instruction order follow the input schema.
+  'request',
   'validation_cases',
   'format_cases',
   'str_cases',
@@ -466,6 +468,12 @@ async function runSync({ repoRoot, write }) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'axir-conformance-'));
   try {
     runConformanceExtractor(repoRoot, tempRoot, 'axai-goldens.ts', 'AxAI');
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
+      'decisions-goldens.ts',
+      'OpenAI Decisions'
+    );
     runConformanceExtractor(
       repoRoot,
       tempRoot,

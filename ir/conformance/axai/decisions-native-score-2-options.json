@@ -1,0 +1,116 @@
+{
+  "expected_output": {
+    "answers": [
+      {
+        "confidence": 1,
+        "name": "result",
+        "probabilities": [
+          {
+            "label": "0",
+            "probability": 1,
+            "value": 0
+          },
+          {
+            "label": "1",
+            "probability": 0,
+            "value": 1
+          }
+        ],
+        "score": 0,
+        "type": "score"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "usage": {
+      "input_tokens": 20,
+      "input_tokens_details": {
+        "cache_write_tokens": 2,
+        "cached_tokens": 4
+      },
+      "output_tokens": 3,
+      "output_tokens_details": {
+        "reasoning_tokens": 1
+      },
+      "total_tokens": 23
+    }
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": "",
+      "model": "gpt-6-luna",
+      "questions": [
+        {
+          "instructions": "Choose.",
+          "levels": [
+            {
+              "label": "0"
+            },
+            {
+              "label": "1"
+            }
+          ],
+          "name": "result",
+          "type": "score"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_decisions_native",
+  "name": "decisions-native-score-2-options",
+  "request": {
+    "input": "",
+    "questions": [
+      {
+        "type": "score",
+        "name": "result",
+        "instructions": "Choose.",
+        "levels": [
+          {
+            "label": "0"
+          },
+          {
+            "label": "1"
+          }
+        ]
+      }
+    ]
+  },
+  "response": {
+    "answers": [
+      {
+        "confidence": 1,
+        "name": "result",
+        "probabilities": [
+          {
+            "label": "0",
+            "probability": 1,
+            "value": 0
+          },
+          {
+            "label": "1",
+            "probability": 0,
+            "value": 1
+          }
+        ],
+        "score": 0,
+        "type": "score"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "usage": {
+      "input_tokens": 20,
+      "input_tokens_details": {
+        "cache_write_tokens": 2,
+        "cached_tokens": 4
+      },
+      "output_tokens": 3,
+      "output_tokens_details": {
+        "reasoning_tokens": 1
+      },
+      "total_tokens": 23
+    }
+  }
+}

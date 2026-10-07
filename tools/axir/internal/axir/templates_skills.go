@@ -556,7 +556,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+skillTypesafeGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+audioGuide+agentStreamingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+skillTypesafeGuide(target, spec.ID)+skillDecisionsGuide(target, spec.ID)+profileGuide+routingGuide+sessionGuide+genForwardGuide+audioGuide+agentStreamingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -640,9 +640,11 @@ func skillStreamingForwardText(target string) string {
 }
 
 func skillCallTimeoutText(target string) string {
-    text := "A per-call `timeout` is milliseconds. `timeoutMs` remains an alias and wins when both are supplied. Model-call timeouts are not forwarded to the agent runtime; configure execution deadlines on the runtime itself. "
-    if target == "go" { return text + "Go's HTTP transport sets no timeout of its own; give HTTPTransport an http.Client for a client-wide bound." }
-    return text + "The client's constructor timeout stays in seconds."
+	text := "A per-call `timeout` is milliseconds. `timeoutMs` remains an alias and wins when both are supplied. Model-call timeouts are not forwarded to the agent runtime; configure execution deadlines on the runtime itself. "
+	if target == "go" {
+		return text + "Go's HTTP transport sets no timeout of its own; give HTTPTransport an http.Client for a client-wide bound."
+	}
+	return text + "The client's constructor timeout stays in seconds."
 }
 
 func skillTransportErrorsText(target string) string {
@@ -668,7 +670,7 @@ func skillErrorsText(target string) string {
 }
 
 func skillTextContractText(target string) string {
-    return "Text-contract answers follow TypeScript extractValues: Label: value lines, a single-field answer without a label, JavaScript Number() coercion, JSON arrays or markdown lists, fenced code and JSON blocks, and null for an optional field. A bare JSON object is text, not a substitute for labeled output fields. Use a structured-output rung when an object response is required."
+	return "Text-contract answers follow TypeScript extractValues: Label: value lines, a single-field answer without a label, JavaScript Number() coercion, JSON arrays or markdown lists, fenced code and JSON blocks, and null for an optional field. A bare JSON object is text, not a substitute for labeled output fields. Use a structured-output rung when an object response is required."
 }
 
 func skillNumberFormatText(target string) string {
@@ -1308,4 +1310,17 @@ func skillTypesafeSnippet(target string) string {
 		return "let mut model = ai(\"typesafe\", json!({\"api_key\": api_key, \"trueThreshold\": 0.9}))?;\nlet decision = ax(" + fmt.Sprintf("%q", signature) + ")?.forward(&mut model, json!({\"ticket\": ticket}))?;"
 	}
 	return ""
+}
+
+func skillDecisionsGuide(target, specID string) string {
+	if specID != "ai" && specID != "signature" && specID != "gen" {
+		return ""
+	}
+	return readmeLines(
+		"## OpenAI Decisions", "",
+		"The openai-decisions provider uses /v1/decisions with gpt-6-luna by default. Required boolean fields become predicates; required class fields become choices. trueThreshold (or true_threshold) defaults to 0.5, is finite in [0,1], and uses an inclusive comparison. Field value descriptions become criteria instructions or choice descriptions. Raw answers remain in providerMetadata.openaiDecisions.answers; usage uses existing program APIs.", "",
+		"Use `"+apiReferencePublicName(target, "openai_decisions")+"` for native JSON requests and responses. Its create operation (Go: Create) accepts input and an ordered questions array. Each question has string instructions and an optional unique string name; unnamed answers retain name: null. Predicate returns probability. Choice requires 2-255 string or boolean choices and returns choice, confidence, and probabilities. Score requires 2-10 explicitly labelled levels and returns a fractional zero-based score, confidence, and probabilities. Handle type: refusal before accessing answer values. Preserve full model, answer order, and usage.", "",
+		"Core validates response names, kinds, rubric membership, finite bounds, and distributions summing to one within an inclusive 0.01 tolerance. Probabilities are never normalized. Native input is text or user messages containing input_text and inline input_image data URLs (up to 128 images). Hosted image URLs, audio, non-user roles, and tool items are rejected. Signature prompt/history becomes role-labelled text evidence in one user message. Numeric bounds never define a score rubric; optional, numeric, nested, array, freeform, tool, and sampling requests are rejected before transport.", "",
+		"Use api_key/apiKey or renewable credential providers with shared timeout, retry, and cancellation. Fresh credential headers override static/custom headers case-insensitively on every attempt. Inherited and per-call cancellation both apply. The endpoint returns a completed result without token streaming. Public signature and native examples are under src/examples/"+target+"/generation/.", "",
+	) + "\n"
 }

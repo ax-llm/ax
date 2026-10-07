@@ -771,6 +771,10 @@ def ai(provider: str = "openai", **options):
         return GoogleGeminiClient(_profile=canonical, **options)
     if transport == "anthropic-messages":
         return AnthropicClient(_profile=canonical, **options)
+    if transport == "openai-decisions":
+        options.setdefault("model", descriptor["defaultModel"])
+        options.setdefault("base_url", descriptor["baseUrl"])
+        return ProviderOperationClient(canonical, descriptor["name"], **options)
     if transport == "typesafe-system-one":
         options.setdefault("model", descriptor["defaultModel"])
         options.setdefault("api_key", options.pop("apiKey", None) or os.environ.get("TYPESAFE_APIKEY") or os.environ.get("TYPESAFE_API_KEY"))
@@ -1307,6 +1311,8 @@ class ProviderOperationClient(AxBaseAI):
         # provider's sampling defaults (as its TS class starts from) under them,
         # after dropping the explicit ones the model rejects.
         self.model_config = copy.deepcopy(model_config or {})
+        if profile == "openai-decisions":
+            decisions_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         if profile == "typesafe":
             typesafe_require_number(self.options.get("trueThreshold", self.options.get("true_threshold", 0.5)), "trueThreshold", 0, 1)
         self.descriptor = descriptor
@@ -1352,7 +1358,24 @@ class ProviderOperationClient(AxBaseAI):
         )
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        return super().chat(request, options)
+        if self.profile != "openai-decisions":
+            return super().chat(request, options)
+        inherited = _check_cancelled(self.options)
+        per_call = _check_cancelled(options)
+        cancellation = inherited or per_call
+        subscriptions = []
+        try:
+            if inherited is not None and per_call is not None and inherited is not per_call:
+                cancellation = AxCancellationToken()
+                subscriptions.append(inherited.subscribe(lambda: cancellation.cancel(inherited.reason or "cancelled")))
+                subscriptions.append(per_call.subscribe(lambda: cancellation.cancel(per_call.reason or "cancelled")))
+            resolved = dict(options or {})
+            if cancellation is not None:
+                resolved["cancellation"] = cancellation
+            return super().chat(request, resolved)
+        finally:
+            for unsubscribe in subscriptions:
+                unsubscribe()
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         return super().embed(request, options)
@@ -1384,7 +1407,7 @@ class ProviderOperationClient(AxBaseAI):
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
             raw = self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, retry_options=options, timeout_ms=self._call_timeout_ms(options))
-        return provider_normalize_chat_response(self.profile, raw, self.name, model, typesafe_response_context(payload, options) if self.profile == "typesafe" else provider_response_context(payload, request.get("model_config") or {}, options))
+        return provider_normalize_chat_response(self.profile, raw, self.name, model, decisions_response_context(payload, options) if self.profile == "openai-decisions" else typesafe_response_context(payload, options) if self.profile == "typesafe" else provider_response_context(payload, request.get("model_config") or {}, options))
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
         cancellation = _check_cancelled(options)
@@ -1912,7 +1935,7 @@ class ProviderOperationClient(AxBaseAI):
                 raise AxAIServiceAuthenticationError(
                     "credential_provider must return a header dictionary"
                 )
-            headers.update({str(key): str(value) for key, value in fresh.items()})
+            headers = provider_merge_headers(headers, {str(key): str(value) for key, value in fresh.items()})
         call = {
             "method": method,
             "url": request_url,
@@ -2106,9 +2129,8 @@ class ProviderOperationClient(AxBaseAI):
         if self.descriptor.get("auth") == "api_key_header":
             key_name = self.descriptor.get("apiKeyHeader") or "api-key"
             headers[str(key_name)] = self.api_key or ""
-        for key, value in (self.descriptor.get("headers") or {}).items():
-            headers[str(key)] = str(value)
-        return headers
+        headers = provider_merge_headers(headers, {str(key): str(value) for key, value in (self.descriptor.get("headers") or {}).items()})
+        return provider_merge_headers(headers, {str(key): str(value) for key, value in (self.options.get("headers") or {}).items()})
 
 
 TypesafeEntry = str | dict[str, Any] | list[Any] | None
@@ -2203,6 +2225,47 @@ class AxAITypesafeClient:
 def typesafe(**options) -> AxAITypesafeClient:
     """Create a native Typesafe client for Noul, Choice, Score, and model discovery."""
     return AxAITypesafeClient(**options)
+
+
+class AxAIOpenAIDecisionsClient:
+    """Native ordered predicate/choice/score questions and complete raw answers."""
+    def __init__(self, **options):
+        model = options.pop("model", "gpt-6-luna")
+        self._client = ai("openai-decisions", model=model, **options)
+
+    def create(self, request: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = json.loads(json.dumps(request, allow_nan=False))
+        decisions_require_object(payload, "request")
+        if payload.get("model") is None:
+            payload["model"] = self._client.model
+        decisions_validate_request(payload)
+        raw = self._request("POST", "/decisions", payload, "chat", options)
+        return decisions_decode_response(raw, payload["questions"])
+
+    def _request(self, method, path, payload, operation, options):
+        opts = {**self._client.options, **provider_normalize_call_options(options)}
+        inherited = _check_cancelled(self._client.options)
+        per_call = _check_cancelled(options)
+        cancellation = inherited or per_call
+        subscriptions = []
+        try:
+            if inherited is not None and per_call is not None and inherited is not per_call:
+                cancellation = AxCancellationToken()
+                subscriptions.append(inherited.subscribe(lambda: cancellation.cancel(inherited.reason or "cancelled")))
+                subscriptions.append(per_call.subscribe(lambda: cancellation.cancel(per_call.reason or "cancelled")))
+            return self._request_with_cancellation(method, path, payload, operation, opts, cancellation)
+        finally:
+            for unsubscribe in subscriptions:
+                unsubscribe()
+
+    def _request_with_cancellation(self, method, path, payload, operation, opts, cancellation):
+        client = copy.copy(self._client)
+        return client._request_json_retried(path, payload, stream=False, method=method, operation=operation, cancellation=cancellation, error_options=opts, retry_options=opts, timeout_ms=provider_call_timeout_ms(opts))
+
+
+def openai_decisions(**options) -> AxAIOpenAIDecisionsClient:
+    """Create a native Decisions client; predicate policies belong to the caller."""
+    return AxAIOpenAIDecisionsClient(**options)
 
 
 class OpenAICompatibleClient(ProviderOperationClient):
@@ -3584,12 +3647,46 @@ def _core_ai_capture_warnings(sink):
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def decisions_require_object(value: Any, context: str) -> Any:
+    _core_coverage_mark("decisions_require_object")
+    valid = _core_type_is(value, "object")
+    invalid = _core_not(valid)
+    if invalid:
+        message = _core_string_format("OpenAI Decisions: {} must be an object", context)
+        error = _core_validation_error(message)
+        raise error
+    else:
+        pass
+    return value
+
+
 def typesafe_require_object(value: Any, context: str) -> Any:
     _core_coverage_mark("typesafe_require_object")
     valid = _core_type_is(value, "object")
     invalid = _core_not(valid)
     if invalid:
         message = _core_string_format("Typesafe: {} must be an object", context)
+        error = _core_validation_error(message)
+        raise error
+    else:
+        pass
+    return value
+
+
+def decisions_require_string(value: Any, context: str, nonempty: bool) -> str:
+    _core_coverage_mark("decisions_require_string")
+    valid = _core_type_is(value, "string")
+    if valid:
+        if nonempty:
+            text = str(value).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            valid = _core_ne(text, "")
+        else:
+            pass
+    else:
+        pass
+    invalid = _core_not(valid)
+    if invalid:
+        message = _core_string_format("OpenAI Decisions: {} must be a string (nonempty where required)", context)
         error = _core_validation_error(message)
         raise error
     else:
@@ -3739,6 +3836,28 @@ def _openai_build_chat_request_impl(request: AxChatRequest, options: Any, prompt
     return payload
 
 
+def decisions_require_number(value: Any, context: str, minimum: float, maximum: float) -> f64:
+    _core_coverage_mark("decisions_require_number")
+    valid = _core_type_is(value, "number")
+    if valid:
+        valid = _core_math_is_finite(value)
+        low = _core_lt(value, minimum)
+        high = _core_gt(value, maximum)
+        outside = _core_or(low, high)
+        within = _core_not(outside)
+        valid = _core_and(valid, within)
+    else:
+        pass
+    invalid = _core_not(valid)
+    if invalid:
+        message = _core_string_format("OpenAI Decisions: {} must be a finite number between {} and {}", context, minimum, maximum)
+        error = _core_validation_error(message)
+        raise error
+    else:
+        pass
+    return value
+
+
 def typesafe_require_number(value: Any, context: str, minimum: float, maximum: float) -> f64:
     _core_coverage_mark("typesafe_require_number")
     valid = _core_type_is(value, "number")
@@ -3758,6 +3877,21 @@ def typesafe_require_number(value: Any, context: str, minimum: float, maximum: f
         raise error
     else:
         pass
+    return value
+
+
+def decisions_require_list(value: Any, context: str, minimum: float, maximum: float) -> Any:
+    _core_coverage_mark("decisions_require_list")
+    valid = _core_type_is(value, "list")
+    invalid = _core_not(valid)
+    if invalid:
+        message = _core_string_format("OpenAI Decisions: {} must be an array", context)
+        error = _core_validation_error(message)
+        raise error
+    else:
+        pass
+    size = _core_len(value)
+    decisions_require_number(size, context, minimum, maximum)
     return value
 
 
@@ -3800,6 +3934,175 @@ def typesafe_validate_json(value: Any) -> None:
         raise RuntimeError("Typesafe: entries must contain JSON values")
     else:
         pass
+    return None
+
+
+def decisions_require_count(value: Any) -> None:
+    _core_coverage_mark("decisions_require_count")
+    decisions_require_number(value, "token count", 0, 9007199254740991)
+    integer = _core_math_floor(value)
+    fractional = _core_ne(integer, value)
+    if fractional:
+        raise RuntimeError("OpenAI Decisions: token counts must be nonnegative safe integers")
+    else:
+        pass
+    return None
+
+
+def decisions_validate_request(request: Any) -> None:
+    _core_coverage_mark("decisions_validate_request")
+    decisions_require_object(request, "request")
+    model = _core_get(request, "model", None)
+    decisions_require_string(model, "model", True)
+    safety = _core_get(request, "safety_identifier", None)
+    has_safety = _core_is_not_none(safety)
+    if has_safety:
+        decisions_require_string(safety, "safety_identifier", False)
+    else:
+        pass
+    input = _core_get(request, "input", None)
+    is_text = _core_type_is(input, "string")
+    structured = _core_not(is_text)
+    images = 0
+    if structured:
+        decisions_require_list(input, "input", 1, 9007199254740991)
+        for message in input:
+            decisions_require_object(message, "input message")
+            role = _core_get(message, "role", None)
+            bad_role = _core_ne(role, "user")
+            type = "message"
+            has_type = _core_map_contains(message, "type")
+            if has_type:
+                type = _core_get(message, "type", None)
+            else:
+                pass
+            bad_type = _core_ne(type, "message")
+            invalid = _core_or(bad_role, bad_type)
+            if invalid:
+                raise RuntimeError("OpenAI Decisions: only user messages are supported")
+            else:
+                pass
+            content = _core_get(message, "content", None)
+            text_content = _core_type_is(content, "string")
+            parts_content = _core_not(text_content)
+            if parts_content:
+                decisions_require_list(content, "input content", 1, 9007199254740991)
+                for part in content:
+                    decisions_require_object(part, "input part")
+                    kind = _core_get(part, "type", None)
+                    is_text = _core_eq(kind, "input_text")
+                    if is_text:
+                        text = _core_get(part, "text", None)
+                        decisions_require_string(text, "input text", False)
+                    else:
+                        is_image = _core_eq(kind, "input_image")
+                        url = _core_get(part, "image_url", None)
+                        url_string = _core_type_is(url, "string")
+                        valid = _core_and(is_image, url_string)
+                        if valid:
+                            valid = _core_regex_match("^data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$", url)
+                        else:
+                            pass
+                        invalid = _core_not(valid)
+                        if invalid:
+                            raise RuntimeError("OpenAI Decisions: images require inline base64 data URLs; files, audio, and hosted URLs are unsupported")
+                        else:
+                            pass
+                        detail = _core_get(part, "detail", None)
+                        has_detail = _core_is_not_none(detail)
+                        if has_detail:
+                            details = []
+                            details.append("low")
+                            details.append("high")
+                            details.append("auto")
+                            details.append("original")
+                            known = _core_contains(details, detail)
+                            invalid = _core_not(known)
+                            if invalid:
+                                raise RuntimeError("OpenAI Decisions: invalid image detail")
+                            else:
+                                pass
+                        else:
+                            pass
+                        images = _core_add(images, 1)
+            else:
+                pass
+    else:
+        pass
+    too_many = _core_gt(images, 128)
+    if too_many:
+        raise RuntimeError("OpenAI Decisions: at most 128 images are supported")
+    else:
+        pass
+    questions = _core_get(request, "questions", None)
+    decisions_require_list(questions, "questions", 1, 9007199254740991)
+    names = {}
+    for q in questions:
+        decisions_require_object(q, "question")
+        instructions = _core_get(q, "instructions", None)
+        decisions_require_string(instructions, "question instructions", False)
+        has_name = _core_map_contains(q, "name")
+        if has_name:
+            name = _core_get(q, "name", None)
+            decisions_require_string(name, "question name", False)
+            duplicate = _core_map_contains(names, name)
+            if duplicate:
+                raise RuntimeError("OpenAI Decisions: duplicate question name")
+            else:
+                pass
+            names[name] = True
+        else:
+            pass
+        kind = _core_get(q, "type", None)
+        predicate = _core_eq(kind, "predicate")
+        needs_options = _core_not(predicate)
+        if needs_options:
+            choice = _core_eq(kind, "choice")
+            score = _core_eq(kind, "score")
+            valid = _core_or(choice, score)
+            invalid = _core_not(valid)
+            if invalid:
+                raise RuntimeError("OpenAI Decisions: invalid question type or options")
+            else:
+                pass
+            options = _core_get(q, "choices", None)
+            maximum = 255
+            if score:
+                options = _core_get(q, "levels", None)
+                maximum = 10
+            else:
+                pass
+            decisions_require_list(options, kind, 2, maximum)
+            values = {}
+            for option in options:
+                decisions_require_object(option, "question option")
+                value = _core_get(option, "value", None)
+                if score:
+                    value = _core_get(option, "label", None)
+                else:
+                    pass
+                is_boolean = _core_type_is(value, "boolean")
+                not_boolean = _core_not(is_boolean)
+                require_text = _core_or(score, not_boolean)
+                if require_text:
+                    decisions_require_string(value, "option value", False)
+                else:
+                    pass
+                key = _core_json_stringify(value)
+                duplicate = _core_map_contains(values, key)
+                if duplicate:
+                    raise RuntimeError("OpenAI Decisions: duplicate option value")
+                else:
+                    pass
+                values[key] = True
+                has_description = _core_map_contains(option, "description")
+                if has_description:
+                    description = _core_get(option, "description", None)
+                    decisions_require_string(description, "option description", False)
+                else:
+                    pass
+        else:
+            pass
     return None
 
 
@@ -4241,6 +4544,146 @@ def typesafe_decode_response(raw: Any, questions: Any) -> Any:
                 raise RuntimeError("Typesafe: probabilities must sum to one")
             else:
                 pass
+    return raw
+
+
+def decisions_decode_response(raw: Any, questions: Any) -> Any:
+    _core_coverage_mark("decisions_decode_response")
+    decisions_require_object(raw, "response")
+    model = _core_get(raw, "model", None)
+    decisions_require_string(model, "response model", True)
+    answers = _core_get(raw, "answers", None)
+    size = _core_len(questions)
+    decisions_require_list(answers, "answers", size, size)
+    i = 0
+    for q in questions:
+        a = _core_get(answers, i, None)
+        i = _core_add(i, 1)
+        decisions_require_object(a, "answer")
+        name = _core_get(q, "name", None)
+        answer_name = _core_get(a, "name", None)
+        has_name = _core_map_contains(a, "name")
+        missing_name = _core_not(has_name)
+        wrong_name = _core_ne(name, answer_name)
+        wrong_name = _core_or(wrong_name, missing_name)
+        if wrong_name:
+            raise RuntimeError("OpenAI Decisions: incorrect answer name or order")
+        else:
+            pass
+        kind = _core_get(q, "type", None)
+        answer_kind = _core_get(a, "type", None)
+        refusal = _core_eq(answer_kind, "refusal")
+        not_refusal = _core_not(refusal)
+        if not_refusal:
+            wrong_type = _core_ne(kind, answer_kind)
+            if wrong_type:
+                raise RuntimeError("OpenAI Decisions: incorrect answer type")
+            else:
+                pass
+            predicate = _core_eq(kind, "predicate")
+            if predicate:
+                probability = _core_get(a, "probability", None)
+                decisions_require_number(probability, "predicate probability", 0, 1)
+            else:
+                confidence = _core_get(a, "confidence", None)
+                decisions_require_number(confidence, "confidence", 0, 1)
+                score = _core_eq(kind, "score")
+                options = _core_get(q, "choices", None)
+                if score:
+                    options = _core_get(q, "levels", None)
+                else:
+                    pass
+                size = _core_len(options)
+                probabilities = _core_get(a, "probabilities", None)
+                decisions_require_list(probabilities, "probabilities", size, size)
+                seen = {}
+                total = 0
+                for p in probabilities:
+                    decisions_require_object(p, "probability")
+                    value = _core_get(p, "value", None)
+                    key = _core_json_stringify(value)
+                    duplicate = _core_map_contains(seen, key)
+                    if duplicate:
+                        raise RuntimeError("OpenAI Decisions: unknown or duplicate probability value")
+                    else:
+                        pass
+                    seen[key] = True
+                    found = False
+                    if score:
+                        upper = _core_add(size, -1)
+                        decisions_require_number(value, "score index", 0, upper)
+                        integer = _core_math_floor(value)
+                        found = _core_eq(value, integer)
+                        option = _core_get(options, integer, None)
+                        label = _core_get(option, "label", None)
+                        actual_label = _core_get(p, "label", None)
+                        wrong_label = _core_ne(label, actual_label)
+                        if wrong_label:
+                            raise RuntimeError("OpenAI Decisions: incorrect score label")
+                        else:
+                            pass
+                    else:
+                        for option in options:
+                            expected = _core_get(option, "value", None)
+                            expected_key = _core_json_stringify(expected)
+                            match = _core_eq(expected_key, key)
+                            found = _core_or(found, match)
+                    unknown = _core_not(found)
+                    if unknown:
+                        raise RuntimeError("OpenAI Decisions: unknown or duplicate probability value")
+                    else:
+                        pass
+                    probability = _core_get(p, "probability", None)
+                    decisions_require_number(probability, "distribution probability", 0, 1)
+                    total = _core_add(total, probability)
+                difference = _core_add(total, -1)
+                difference = _core_math_abs(difference)
+                epsilon = _core_mul(0.0000000000000002220446049250313, size)
+                tolerance = _core_add(0.01, epsilon)
+                invalid_total = _core_gt(difference, tolerance)
+                if invalid_total:
+                    raise RuntimeError("OpenAI Decisions: invalid probability distribution")
+                else:
+                    pass
+                if score:
+                    position = _core_get(a, "score", None)
+                    upper = _core_add(size, -1)
+                    decisions_require_number(position, "score", 0, upper)
+                else:
+                    selected = _core_get(a, "choice", None)
+                    selected_key = _core_json_stringify(selected)
+                    found = False
+                    for option in options:
+                        value = _core_get(option, "value", None)
+                        key = _core_json_stringify(value)
+                        match = _core_eq(key, selected_key)
+                        found = _core_or(found, match)
+                    unknown = _core_not(found)
+                    if unknown:
+                        raise RuntimeError("OpenAI Decisions: unknown choice")
+                    else:
+                        pass
+        else:
+            pass
+    usage = _core_get(raw, "usage", None)
+    decisions_require_object(usage, "usage")
+    keys = []
+    keys.append("input_tokens")
+    keys.append("output_tokens")
+    keys.append("total_tokens")
+    for key in keys:
+        value = _core_get(usage, key, None)
+        decisions_require_count(value)
+    input = _core_get(usage, "input_tokens_details", None)
+    decisions_require_object(input, "input token details")
+    cached = _core_get(input, "cached_tokens", None)
+    decisions_require_count(cached)
+    write = _core_get(input, "cache_write_tokens", None)
+    decisions_require_count(write)
+    output = _core_get(usage, "output_tokens_details", None)
+    decisions_require_object(output, "output token details")
+    reasoning = _core_get(output, "reasoning_tokens", None)
+    decisions_require_count(reasoning)
     return raw
 
 
@@ -4776,6 +5219,287 @@ def validate_chat_request(request: AxChatRequest) -> None:
     return None
 
 
+def decisions_build_chat_request(request: Any, options: Any) -> Any:
+    _core_coverage_mark("decisions_build_chat_request")
+    empty_map = {}
+    empty_list = []
+    threshold_snake = _core_get(options, "true_threshold", 0.5)
+    threshold = _core_get(options, "trueThreshold", threshold_snake)
+    decisions_require_number(threshold, "trueThreshold", 0, 1)
+    functions = _core_get(request, "functions", empty_list)
+    function_call_snake = _core_get(request, "function_call", "none")
+    function_call = _core_get(request, "functionCall", function_call_snake)
+    has_functions = _core_truthy(functions)
+    has_call = _core_ne(function_call, "none")
+    has_call_value = _core_truthy(function_call)
+    has_call = _core_and(has_call, has_call_value)
+    tools = _core_or(has_functions, has_call)
+    if tools:
+        raise RuntimeError("OpenAI Decisions does not support tools; use a generative provider for tool execution")
+    else:
+        pass
+    config_snake = _core_get(request, "model_config", empty_map)
+    config = _core_get(request, "modelConfig", config_snake)
+    controls = _core_map_keys(config)
+    for control in controls:
+        value = _core_get(config, control, None)
+        present = _core_is_not_none(value)
+        if present:
+            is_stream = _core_eq(control, "stream")
+            is_n = _core_eq(control, "n")
+            one = _core_eq(value, 1)
+            numeric = _core_type_is(value, "number")
+            one = _core_and(one, numeric)
+            allowed_n = _core_and(is_n, one)
+            allowed = _core_or(is_stream, allowed_n)
+            unsupported = _core_not(allowed)
+            if unsupported:
+                message = _core_string_format("OpenAI Decisions does not support generation control {}", control)
+                error = _core_validation_error(message)
+                raise error
+            else:
+                pass
+        else:
+            pass
+    format_snake = _core_get(request, "response_format", None)
+    format = _core_get(request, "responseFormat", format_snake)
+    format_type = _core_get(format, "type", None)
+    wrong_format = _core_ne(format_type, "json_schema")
+    if wrong_format:
+        raise RuntimeError("OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs")
+    else:
+        pass
+    wrapper = _core_get(format, "schema", None)
+    decisions_require_object(wrapper, "responseFormat.schema")
+    schema = _core_get(wrapper, "schema", None)
+    decisions_require_object(schema, "output schema")
+    root_type = _core_get(schema, "type", None)
+    flat = _core_eq(root_type, "object")
+    forbidden = []
+    forbidden.append("anyOf")
+    forbidden.append("oneOf")
+    forbidden.append("allOf")
+    forbidden.append("$ref")
+    for key in forbidden:
+        value = _core_get(schema, key, None)
+        has_value = _core_truthy(value)
+        if has_value:
+            flat = False
+        else:
+            pass
+    not_flat = _core_not(flat)
+    if not_flat:
+        raise RuntimeError("OpenAI Decisions requires a flat object output schema")
+    else:
+        pass
+    properties = _core_get(schema, "properties", None)
+    decisions_require_object(properties, "output properties")
+    required = _core_get(schema, "required", empty_list)
+    annotations = _core_get(format, "fieldDescriptions", empty_map)
+    questions = []
+    names = _core_map_keys(properties)
+    forbidden.append("const")
+    for name in names:
+        field = _core_get(properties, name, None)
+        decisions_require_object(field, name)
+        required_list = _core_type_is(required, "list")
+        supported = _core_contains(required, name)
+        supported = _core_and(supported, required_list)
+        for key in forbidden:
+            has_key = _core_map_contains(field, key)
+            if has_key:
+                supported = False
+            else:
+                pass
+        type_name = _core_get(field, "type", None)
+        class_options = _core_get(field, "enum", None)
+        is_boolean = _core_eq(type_name, "boolean")
+        has_enum = _core_is_not_none(class_options)
+        no_enum = _core_not(has_enum)
+        is_boolean = _core_and(is_boolean, no_enum)
+        is_string = _core_eq(type_name, "string")
+        is_enum = _core_type_is(class_options, "list")
+        is_class = _core_and(is_string, is_enum)
+        supported_type = _core_or(is_boolean, is_class)
+        supported = _core_and(supported, supported_type)
+        unsupported = _core_not(supported)
+        if unsupported:
+            message = _core_string_format("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs", name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        annotation = _core_get(annotations, name, None)
+        description = _core_get(field, "description", None)
+        has_annotation = _core_is_not_none(annotation)
+        descriptions = {}
+        if has_annotation:
+            decisions_require_object(annotation, name)
+            description = _core_get(annotation, "description", None)
+            has_description = _core_is_not_none(description)
+            if has_description:
+                decisions_require_string(description, name, False)
+            else:
+                pass
+            descriptions = _core_get(annotation, "valueDescriptions", None)
+            decisions_require_object(descriptions, name)
+            type_attrs = {}
+            annotation_type = "boolean"
+            if is_class:
+                annotation_type = "class"
+            else:
+                pass
+            type_attrs["name"] = annotation_type
+            type_attrs["options"] = class_options
+            type_attrs["value_descriptions"] = descriptions
+            typ = _core_record_new("FieldType", type_attrs)
+            _signature_validate_value_descriptions_impl(typ, name)
+        else:
+            pass
+        instructions = _core_string_format("Evaluate the output field {}.", name)
+        is_description_string = _core_type_is(description, "string")
+        has_description = _core_truthy(description)
+        use_description = _core_and(is_description_string, has_description)
+        if use_description:
+            instructions = _core_string_format("{}: {}", name, description)
+        else:
+            pass
+        question = {}
+        question["instructions"] = instructions
+        if is_boolean:
+            question["type"] = "predicate"
+            if has_annotation:
+                lines = []
+                lines.append(instructions)
+                description_keys = _core_map_keys(descriptions)
+                for key in description_keys:
+                    value = _core_get(descriptions, key, None)
+                    line = _core_string_format("{}: {}", key, value)
+                    lines.append(line)
+                instructions = _core_string_join("\n", lines)
+                question["instructions"] = instructions
+            else:
+                pass
+        else:
+            question["type"] = "choice"
+            criteria = []
+            seen = {}
+            for label in class_options:
+                decisions_require_string(label, name, False)
+                duplicate = _core_map_contains(seen, label)
+                if duplicate:
+                    raise RuntimeError("OpenAI Decisions: Choice labels must be unique")
+                else:
+                    pass
+                description = _core_get(descriptions, label, None)
+                option = {}
+                option["value"] = label
+                described = _core_map_contains(descriptions, label)
+                if described:
+                    option["description"] = description
+                else:
+                    pass
+                seen[label] = True
+                criteria.append(option)
+            question["choices"] = criteria
+        question["name"] = name
+        questions.append(question)
+    prompt_snake = _core_get(request, "chat_prompt", empty_list)
+    prompt = _core_get(request, "chatPrompt", prompt_snake)
+    parts = []
+    for message in prompt:
+        role = _core_get(message, "role", None)
+        content = _core_get(message, "content", "")
+        tool = _core_eq(role, "function")
+        tool_alt = _core_eq(role, "tool")
+        tool = _core_or(tool, tool_alt)
+        calls = _core_get(message, "functionCalls", None)
+        calls_snake = _core_get(message, "function_calls", None)
+        calls = _core_coalesce(calls, calls_snake)
+        calls = _core_truthy(calls)
+        audio = _core_get(message, "audio", None)
+        audio = _core_truthy(audio)
+        images = _core_get(message, "images", None)
+        images = _core_truthy(images)
+        invalid = _core_or(tool, calls)
+        invalid = _core_or(invalid, audio)
+        invalid = _core_or(invalid, images)
+        if invalid:
+            raise RuntimeError("OpenAI Decisions does not support tool or media history")
+        else:
+            pass
+        label = _core_string_format("{}:", role)
+        part = {}
+        part["type"] = "input_text"
+        part["text"] = label
+        parts.append(part)
+        text = _core_type_is(content, "string")
+        if text:
+            part = {}
+            part["type"] = "input_text"
+            part["text"] = content
+            parts.append(part)
+        else:
+            decisions_require_list(content, "message content", 0, 9007199254740991)
+            user = _core_eq(role, "user")
+            if user:
+                for raw_part in content:
+                    kind = _core_get(raw_part, "type", None)
+                    text = _core_eq(kind, "text")
+                    part = {}
+                    if text:
+                        value = _core_get(raw_part, "text", None)
+                        part["type"] = "input_text"
+                        part["text"] = value
+                    else:
+                        image = _core_eq(kind, "image")
+                        invalid = _core_not(image)
+                        if invalid:
+                            raise RuntimeError("OpenAI Decisions supports text and inline images only")
+                        else:
+                            pass
+                        image = _core_get(raw_part, "image", None)
+                        decisions_require_string(image, "image", False)
+                        data = _core_string_starts_with(image, "data:")
+                        not_data = _core_not(data)
+                        if not_data:
+                            mime_snake = _core_get(raw_part, "mime_type", None)
+                            mime = _core_get(raw_part, "mimeType", mime_snake)
+                            image = _core_string_format("data:{};base64,{}", mime, image)
+                        else:
+                            pass
+                        part["type"] = "input_image"
+                        part["image_url"] = image
+                        detail = _core_get(raw_part, "details", None)
+                        has_detail = _core_truthy(detail)
+                        if has_detail:
+                            part["detail"] = detail
+                        else:
+                            pass
+                    parts.append(part)
+            else:
+                pass
+    message = {}
+    message["role"] = "user"
+    message["content"] = parts
+    input = []
+    input.append(message)
+    payload = {}
+    model = _core_get(request, "model", "gpt-6-luna")
+    payload["model"] = model
+    payload["input"] = input
+    payload["questions"] = questions
+    safety_snake = _core_get(options, "safety_identifier", None)
+    safety = _core_get(options, "safetyIdentifier", safety_snake)
+    has_safety = _core_truthy(safety)
+    if has_safety:
+        payload["safety_identifier"] = safety
+    else:
+        pass
+    decisions_validate_request(payload)
+    return payload
+
+
 def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     _core_coverage_mark("openai_chat_reasoning_effort")
     effort = openai_reasoning_effort(model, budget)
@@ -5294,12 +6018,27 @@ def merge_usage_context(defaults: Any, overrides: Any) -> Any:
 def provider_validate_chat_request(profile: str, request: Any, options: Any) -> None:
     _core_coverage_mark("provider_validate_chat_request")
     canonical = provider_normalize_profile(profile)
+    is_decisions = _core_eq(canonical, "openai-decisions")
+    if is_decisions:
+        decisions_build_chat_request(request, options)
+    else:
+        pass
     is_typesafe = _core_eq(canonical, "typesafe")
     if is_typesafe:
         typesafe_build_chat_request(request, options)
     else:
         pass
     return None
+
+
+def decisions_response_context(payload: Any, options: Any) -> Any:
+    _core_coverage_mark("decisions_response_context")
+    empty = {}
+    context = _core_map_merge(empty, payload)
+    snake = _core_get(options, "true_threshold", 0.5)
+    threshold = _core_get(options, "trueThreshold", snake)
+    context["trueThreshold"] = threshold
+    return context
 
 
 def build_usage_event(operation: str, response: Any, options: Any, streaming: bool) -> Any:
@@ -5374,6 +6113,93 @@ def build_usage_event(operation: str, response: Any, options: Any, streaming: bo
     return event
 
 
+def decisions_normalize_chat_response(raw: Any, context: Any) -> Any:
+    _core_coverage_mark("decisions_normalize_chat_response")
+    questions = _core_get(context, "questions", None)
+    decisions_require_list(questions, "response request questions", 1, 9007199254740991)
+    raw = decisions_decode_response(raw, questions)
+    threshold = _core_get(context, "trueThreshold", 0.5)
+    decisions_require_number(threshold, "trueThreshold", 0, 1)
+    answers = _core_get(raw, "answers", None)
+    values = {}
+    for answer in answers:
+        kind = _core_get(answer, "type", None)
+        refusal = _core_eq(kind, "refusal")
+        if refusal:
+            raise RuntimeError("OpenAI Decisions refused question")
+        else:
+            pass
+        score = _core_eq(kind, "score")
+        if score:
+            raise RuntimeError("OpenAI Decisions scoring requires the native client")
+        else:
+            pass
+        name = _core_get(answer, "name", None)
+        predicate = _core_eq(kind, "predicate")
+        value = _core_get(answer, "choice", None)
+        if predicate:
+            probability = _core_get(answer, "probability", None)
+            below = _core_lt(probability, threshold)
+            value = _core_not(below)
+        else:
+            pass
+        values[name] = value
+    content = _core_json_stringify(values)
+    result = {}
+    result["index"] = 0
+    result["content"] = content
+    result["finishReason"] = "stop"
+    results = []
+    results.append(result)
+    usage = _core_get(raw, "usage", None)
+    input = _core_get(usage, "input_tokens", None)
+    output = _core_get(usage, "output_tokens", None)
+    total = _core_get(usage, "total_tokens", None)
+    input_details = _core_get(usage, "input_tokens_details", None)
+    cached = _core_get(input_details, "cached_tokens", None)
+    write = _core_get(input_details, "cache_write_tokens", None)
+    output_details = _core_get(usage, "output_tokens_details", None)
+    reasoning = _core_get(output_details, "reasoning_tokens", None)
+    tokens = {}
+    negative_cached = _core_mul(cached, -1)
+    negative_write = _core_mul(write, -1)
+    uncached = _core_add(input, negative_cached)
+    uncached = _core_add(uncached, negative_write)
+    negative = _core_lt(uncached, 0)
+    if negative:
+        uncached = 0
+    else:
+        pass
+    tokens["promptTokens"] = uncached
+    tokens["completionTokens"] = output
+    tokens["totalTokens"] = total
+    has_cached = _core_gt(cached, 0)
+    if has_cached:
+        tokens["cacheReadTokens"] = cached
+    else:
+        pass
+    has_write = _core_gt(write, 0)
+    if has_write:
+        tokens["cacheCreationTokens"] = write
+    else:
+        pass
+    tokens["reasoningTokens"] = reasoning
+    model_usage = {}
+    model = _core_get(raw, "model", None)
+    model_usage["ai"] = "OpenAI Decisions"
+    model_usage["model"] = model
+    model_usage["tokens"] = tokens
+    decision_metadata = {}
+    decision_metadata["answers"] = answers
+    metadata = {}
+    metadata["openaiDecisions"] = decision_metadata
+    response = {}
+    response["results"] = results
+    response["modelUsage"] = model_usage
+    response["providerMetadata"] = metadata
+    return response
+
+
 def _openai_tool_call_to_provider_impl(call: Any) -> Any:
     _core_coverage_mark("_openai_tool_call_to_provider_impl")
     fn = _core_get(call, "function", None)
@@ -5430,6 +6256,29 @@ def _openai_tool_spec_impl(fn: Any) -> Any:
     out["type"] = "function"
     out["function"] = function
     return out
+
+
+def provider_merge_headers(base: Any, override: Any) -> Any:
+    _core_coverage_mark("provider_merge_headers")
+    headers = {}
+    groups = []
+    groups.append(base)
+    groups.append(override)
+    for group in groups:
+        keys = _core_map_keys(group)
+        for key in keys:
+            lower = _core_string_lower(key)
+            existing = _core_map_keys(headers)
+            for name in existing:
+                existing_lower = _core_string_lower(name)
+                same = _core_eq(lower, existing_lower)
+                if same:
+                    _core_map_delete(headers, name)
+                else:
+                    pass
+            value = _core_get(group, key, None)
+            headers[key] = value
+    return headers
 
 
 def ai_merge_replay_metadata(previous: Any, incoming: Any) -> Any:
@@ -6367,7 +7216,7 @@ def provider_normalize_profile(profile: str) -> str:
 
 def provider_profile_registry() -> Any:
     _core_coverage_mark("provider_profile_registry")
-    registry = _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"}},\"deferredCatalogProviderIds\":[]}\n")
+    registry = _core_json_parse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":\"AxAIOpenAIDecisionsClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n")
     return registry
 
 
@@ -6432,7 +7281,7 @@ def _ai_append_thought_deltas_impl(existing: list[Any], incoming: list[Any]) -> 
 
 def provider_model_catalog_summary() -> Any:
     _core_coverage_mark("provider_model_catalog_summary")
-    summary = _core_json_parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")
+    summary = _core_json_parse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}")
     return summary
 
 
@@ -9895,6 +10744,12 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
     provider_id = provider_chat_profile(profile, model)
     descriptor = provider_resolve_descriptor(provider_id, options)
     transport = _core_get(descriptor, "transport", "openai-chat")
+    is_decisions = _core_eq(transport, "openai-decisions")
+    if is_decisions:
+        payload = decisions_build_chat_request(request, options)
+        return payload
+    else:
+        pass
     is_typesafe = _core_eq(transport, "typesafe-system-one")
     if is_typesafe:
         payload = typesafe_build_chat_request(request, options)
@@ -10418,6 +11273,12 @@ def provider_normalize_chat_response(profile: str, raw: Any, ai_name: str, model
     provider_id = provider_chat_profile(profile, model)
     descriptor = provider_descriptor(provider_id)
     transport = _core_get(descriptor, "transport", "openai-chat")
+    is_decisions = _core_eq(transport, "openai-decisions")
+    if is_decisions:
+        response = decisions_normalize_chat_response(raw, context)
+        return response
+    else:
+        pass
     is_typesafe = _core_eq(transport, "typesafe-system-one")
     if is_typesafe:
         response = typesafe_normalize_chat_response(raw, context)
@@ -16175,6 +17036,11 @@ def provider_default_model_config(profile: str) -> Any:
     _core_coverage_mark("provider_default_model_config")
     config = {}
     provider_id = provider_normalize_profile(profile)
+    is_decisions = _core_eq(provider_id, "openai-decisions")
+    if is_decisions:
+        return config
+    else:
+        pass
     is_typesafe = _core_eq(provider_id, "typesafe")
     if is_typesafe:
         return config
