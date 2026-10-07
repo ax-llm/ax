@@ -3319,7 +3319,7 @@
     },
     {
       "id": "axir-2026-10-07-port-openai-decisions-adapter-and-native-client",
-      "status": "open",
+      "status": "done",
       "title": "Port OpenAI Decisions adapter and native client",
       "createdAt": "2026-10-07",
       "sourcePR": null,
@@ -3340,9 +3340,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-10-07",
+      "completedByCommit": "63721bbecacbbdfec0b52117b647272cf38b709b",
+      "verification": "All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass."
     }
   ],
   "nonPortableExemptions": [

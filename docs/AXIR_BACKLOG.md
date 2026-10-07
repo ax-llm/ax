@@ -23,12 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-10-07-port-openai-decisions-adapter-and-native-client` [axai] Port OpenAI Decisions adapter and native client
-  - Status: open
-  - Source commit: `5edc31fd54e77e50a162b6c668ca1d125583b9ec`
-  - TS paths: `src/ax/ai/openai-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/base.ts`, `src/ax/util/headers.ts`
-  - Impact: TypeScript adds required boolean/class signature decisions and native predicate/choice/score requests with inline images, refusals, usage, retries and cancellation. Generated language transport parity remains pending; its profile is marked typescript-only. TypeScript also merges static, custom and refreshed credential headers case-insensitively in the shared provider base and native Decisions client; preserve this precedence across retries in the generated transports.
-  - Suggested AxIR work: Port and test case-insensitive credential header precedence for shared adapters and native Decisions requests, including mixed capitalization and retry refresh.; Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1377,3 +1372,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-06
   - Completed by: `1deee895e830310ba6fe96d1bc6cb8e6b18b5887`
   - Verification: `Five-language release verification: 1753 conformance fixtures per target, native tests, examples, package consumers; 19 TS-derived regression cases fail on base; 217 focused TS tests; live Sonnet 5.5 examples in Python, Java, C++, Go, Rust; package, conformance, profile, website, skill checks`
+- `axir-2026-10-07-port-openai-decisions-adapter-and-native-client` [axai] Port OpenAI Decisions adapter and native client
+  - Status: done
+  - Source commit: `5edc31fd54e77e50a162b6c668ca1d125583b9ec`
+  - TS paths: `src/ax/ai/openai-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/base.ts`, `src/ax/util/headers.ts`
+  - Impact: TypeScript adds required boolean/class signature decisions and native predicate/choice/score requests with inline images, refusals, usage, retries and cancellation. Generated language transport parity remains pending; its profile is marked typescript-only. TypeScript also merges static, custom and refreshed credential headers case-insensitively in the shared provider base and native Decisions client; preserve this precedence across retries in the generated transports.
+  - Suggested AxIR work: Port and test case-insensitive credential header precedence for shared adapters and native Decisions requests, including mixed capitalization and retry refresh.; Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-07
+  - Completed by: `63721bbecacbbdfec0b52117b647272cf38b709b`
+  - Verification: `All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass.`
