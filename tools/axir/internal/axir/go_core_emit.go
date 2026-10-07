@@ -2,6 +2,7 @@ package axir
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -523,7 +524,14 @@ func goLiteral(value interface{}) string {
 	case int:
 		return strconv.Itoa(v)
 	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
+		text := strconv.FormatFloat(v, 'f', -1, 64)
+		// A whole number prints without a decimal point and becomes an untyped
+		// integer constant, which Go types as int. Outside the 32-bit range that
+		// overflows on 32-bit targets, so keep the float form there.
+		if v == math.Trunc(v) && (v > math.MaxInt32 || v < math.MinInt32) {
+			text += ".0"
+		}
+		return text
 	default:
 		return strconv.Quote(fmt.Sprint(v))
 	}

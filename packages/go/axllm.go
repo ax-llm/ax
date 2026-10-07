@@ -9490,7 +9490,7 @@ func typesafe_decode_response(args ...Value) (Value, error) {
 	v_token_keys = coreAppend(v_token_keys, "output_tokens")
 	for _, v_key = range coreIter(v_token_keys) {
 		v_count = coreGet(v_usage, v_key, nil)
-		if _, err := typesafe_require_number(v_count, v_key, 0, 9007199254740991); err != nil { return nil, err }
+		if _, err := typesafe_require_number(v_count, v_key, 0, 9007199254740991.0); err != nil { return nil, err }
 		v_integer = _core_math_floor(v_count)
 		v_invalid = _core_ne(v_count, v_integer)
 		if coreTruthy(v_invalid) {
