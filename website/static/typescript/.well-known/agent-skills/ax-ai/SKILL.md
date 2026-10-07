@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.
-version: "25.0.1"
+version: "25.1.0"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)

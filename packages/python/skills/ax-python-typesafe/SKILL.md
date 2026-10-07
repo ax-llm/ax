@@ -1,7 +1,7 @@
 ---
 name: "ax-python-typesafe"
 description: "Use when writing Python code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
-version: "25.0.1"
+version: "25.1.0"
 ---
 # Typesafe / Jev For Python
 

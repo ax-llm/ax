@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-agent-context"
 description: "Use when writing Rust code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents."
-version: "25.0.1"
+version: "25.1.0"
 ---
 # AxAgent Context Selection For Rust
 
