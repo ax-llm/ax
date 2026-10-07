@@ -1,5 +1,6 @@
 import { mergeAbortSignals } from '../../util/abort.js';
 import { apiCall } from '../../util/apicall.js';
+import { mergeHeaders } from '../../util/headers.js';
 import type { AxAICredentialProvider, AxAIServiceOptions } from '../types.js';
 import type {
   AxAIOpenAIDecisionQuestion,
@@ -88,18 +89,19 @@ export class AxAIOpenAIDecisionsClient {
         name: path,
         url: this.args.apiURL ?? 'https://api.openai.com/v1',
         method,
-        resolveHeaders: async ({ method, url }) => ({
-          ...(this.args.apiKey
-            ? { Authorization: `Bearer ${this.args.apiKey}` }
-            : {}),
-          ...this.args.headers,
-          ...(await this.args.credentialProvider?.({
-            profile: 'openai-decisions',
-            operation: 'chat',
-            method,
-            url,
-          })),
-        }),
+        resolveHeaders: async ({ method, url }) =>
+          mergeHeaders(
+            this.args.apiKey
+              ? { Authorization: `Bearer ${this.args.apiKey}` }
+              : undefined,
+            this.args.headers,
+            await this.args.credentialProvider?.({
+              profile: 'openai-decisions',
+              operation: 'chat',
+              method,
+              url,
+            })
+          ),
       },
       body
     );

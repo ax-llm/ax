@@ -657,3 +657,63 @@ describe('native OpenAI Decisions client', () => {
     }
   );
 });
+
+describe('OpenAI Decisions credential header precedence', () => {
+  it.each([
+    ['native', 'Authorization'],
+    ['native', 'authorization'],
+    ['native', 'AUTHORIZATION'],
+    ['adapter', 'Authorization'],
+    ['adapter', 'authorization'],
+    ['adapter', 'AUTHORIZATION'],
+  ] as const)(
+    '%s replaces static credentials with refreshed %s on every retry',
+    async (kind, name) => {
+      let refreshes = 0;
+      const sent: string[] = [];
+      const credentialProvider = async () => ({
+        [name]: `Bearer fresh-${++refreshes}`,
+      });
+      const fetch = vi.fn(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          sent.push(new Headers(init?.headers).get('authorization')!);
+          return sent.length === 1
+            ? json({ error: 'busy' }, 503)
+            : json(result([pAnswer]));
+        }
+      );
+      const args = {
+        apiKey: 'static',
+        credentialProvider,
+        options: { fetch, retry: { maxRetries: 1, initialDelayMs: 1 } },
+      };
+      if (kind === 'native') {
+        await openaiDecisions(args).create({
+          input: 'Help',
+          questions: [predicate],
+        });
+      } else {
+        await ai({ name: 'openai-decisions', ...args }).chat(request());
+      }
+      expect(sent).toEqual(['Bearer fresh-1', 'Bearer fresh-2']);
+    }
+  );
+
+  it('lets renewable credentials override custom headers of another casing', async () => {
+    let sent: Headers | undefined;
+    const client = openaiDecisions({
+      apiKey: 'static',
+      headers: { authorization: 'Bearer custom', 'x-trace': 'kept' },
+      credentialProvider: async () => ({ Authorization: 'Bearer refreshed' }),
+      options: {
+        fetch: async (_url, init) => {
+          sent = new Headers(init?.headers);
+          return json(result([pAnswer]));
+        },
+      },
+    });
+    await client.create({ input: 'Help', questions: [predicate] });
+    expect(sent?.get('authorization')).toBe('Bearer refreshed');
+    expect(sent?.get('x-trace')).toBe('kept');
+  });
+});

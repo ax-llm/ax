@@ -1161,7 +1161,9 @@ inline images through. It does not give those labels native role authority.
 Both interfaces accept `apiURL` including `/v1` (default
 `https://api.openai.com/v1`) and renewable credentials. Native and adapter
 transport options support fetch, timeout, retry, and cancellation. Both instance
-and per-call cancellation apply to native requests. Native requests can include
+and per-call cancellation apply to native requests. Credential-provider headers
+override static credentials and native custom headers regardless of header-name
+capitalization. Native requests can include
 `safety_identifier`; adapter instances accept `safetyIdentifier`. Unsupported
 requests are excluded from router/balancer selection and fallbacks.
 
