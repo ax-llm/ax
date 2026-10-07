@@ -810,12 +810,24 @@
         "isDynamic": true,
         "models": [],
         "name": "typesafe"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "defaultModel": "gpt-6-luna",
+        "displayName": "OpenAI Decisions",
+        "isDynamic": false,
+        "models": [],
+        "name": "openai-decisions"
       }
     ],
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["embeddings"],
-    "providerCount": 50,
+    "providerCount": 51,
     "providerNames": [
       "openai",
       "google-gemini",
@@ -866,7 +878,8 @@
       "llama-cpp",
       "localai",
       "baseten-engine",
-      "typesafe"
+      "typesafe",
+      "openai-decisions"
     ]
   },
   "kind": "ai_model_catalog_runtime",

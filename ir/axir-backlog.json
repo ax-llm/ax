@@ -3316,6 +3316,30 @@
       "completedAt": "2026-10-06",
       "completedByCommit": "1deee895e830310ba6fe96d1bc6cb8e6b18b5887",
       "verification": "Five-language release verification: 1753 conformance fixtures per target, native tests, examples, package consumers; 19 TS-derived regression cases fail on base; 217 focused TS tests; live Sonnet 5.5 examples in Python, Java, C++, Go, Rust; package, conformance, profile, website, skill checks"
+    },
+    {
+      "id": "axir-2026-10-07-port-openai-decisions-adapter-and-native-client",
+      "status": "open",
+      "title": "Port OpenAI Decisions adapter and native client",
+      "createdAt": "2026-10-07",
+      "sourcePR": null,
+      "sourceCommit": "5edc31fd54e77e50a162b6c668ca1d125583b9ec",
+      "tsPaths": [
+        "src/ax/ai/openai-decisions",
+        "src/ax/ai/wrap.ts",
+        "src/ax/ai/provider_profiles.ts",
+        "src/ax/ai/catalog.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript adds required boolean/class signature decisions and native predicate/choice/score requests with inline images, refusals, usage, retries and cancellation. Generated language transport parity remains pending; its profile is marked typescript-only.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

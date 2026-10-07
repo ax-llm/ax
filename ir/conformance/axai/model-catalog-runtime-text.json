@@ -1177,6 +1177,41 @@
       },
       {
         "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "defaultModel": "gpt-6-luna",
+        "displayName": "OpenAI Decisions",
+        "isDynamic": false,
+        "models": [
+          {
+            "cacheReadTokenCostPer1M": 0,
+            "cacheWriteTokenCostPer1M": 0,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "isDefault": true,
+            "name": "gpt-6-luna",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "openai-decisions",
+            "type": "text"
+          }
+        ],
+        "name": "openai-decisions"
+      },
+      {
+        "capabilities": {
           "serviceTiers": ["standard", "priority"],
           "thinking": false,
           "thinkingLevels": []
@@ -7740,13 +7775,14 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 212,
+    "modelCount": 213,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
-    "providerCount": 50,
+    "providerCount": 51,
     "providerNames": [
       "google-gemini",
       "webllm",
+      "openai-decisions",
       "mistral",
       "deepseek",
       "deepseek-responses",

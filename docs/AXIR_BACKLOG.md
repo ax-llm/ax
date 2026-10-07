@@ -23,7 +23,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-10-07-port-openai-decisions-adapter-and-native-client` [axai] Port OpenAI Decisions adapter and native client
+  - Status: open
+  - Source commit: `5edc31fd54e77e50a162b6c668ca1d125583b9ec`
+  - TS paths: `src/ax/ai/openai-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/catalog.ts`
+  - Impact: TypeScript adds required boolean/class signature decisions and native predicate/choice/score requests with inline images, refusals, usage, retries and cancellation. Generated language transport parity remains pending; its profile is marked typescript-only.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

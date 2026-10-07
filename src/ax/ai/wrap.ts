@@ -5,6 +5,10 @@ import {
 } from './openai/model_family.js';
 import { axAIOpenAIResponsesDefaultConfig } from './openai/responses_api_base.js';
 import { AxAIOpenAIResponsesClient } from './openai/responses_client.js';
+import {
+  AxAIOpenAIDecisions,
+  type AxAIOpenAIDecisionsArgs,
+} from './openai-decisions/api.js';
 import type { AxChatSession } from './session.js';
 import { AxAITypesafe, type AxAITypesafeArgs } from './typesafe/api.js';
 // ReadableStream is available globally in modern browsers and Node.js 16+
@@ -83,6 +87,7 @@ export type AxAIArgs<TModelKey> =
   | AxAIGoogleGeminiArgs<TModelKey>
   | AxAIMetaArgs<TModelKey>
   | AxAITypesafeArgs<TModelKey>
+  | AxAIOpenAIDecisionsArgs<TModelKey>
   | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
   | AxAIWebLLMArgs<TModelKey>
@@ -301,6 +306,11 @@ export class AxAI<TModelKey = string>
           profile.id === 'anthropic'
             ? new AxAIAnthropic<TModelKey>(options as any)
             : new AxAIAnthropicProfile<TModelKey>(options as any);
+        break;
+      case 'openai-decisions':
+        this.ai = new AxAIOpenAIDecisions<TModelKey>(
+          options as AxAIOpenAIDecisionsArgs<TModelKey>
+        );
         break;
       case 'typesafe-system-one':
         this.ai = new AxAITypesafe<TModelKey>(

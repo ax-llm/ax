@@ -3195,6 +3195,41 @@
           "thinking": false,
           "thinkingLevels": []
         },
+        "defaultModel": "gpt-6-luna",
+        "displayName": "OpenAI Decisions",
+        "isDynamic": false,
+        "models": [
+          {
+            "cacheReadTokenCostPer1M": 0,
+            "cacheWriteTokenCostPer1M": 0,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0,
+            "isDefault": true,
+            "name": "gpt-6-luna",
+            "promptTokenCostPer1M": 0.1,
+            "provider": "openai-decisions",
+            "type": "text"
+          }
+        ],
+        "name": "openai-decisions"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
         "defaultModel": "command-r-plus",
         "displayName": "Cohere",
         "isDynamic": false,
@@ -8641,14 +8676,15 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 246,
+    "modelCount": 247,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
-    "providerCount": 50,
+    "providerCount": 51,
     "providerNames": [
       "google-gemini",
       "webllm",
       "openai",
+      "openai-decisions",
       "cohere",
       "mistral",
       "deepseek",

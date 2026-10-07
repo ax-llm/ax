@@ -571,6 +571,27 @@ import {
 } from './ai/openai/responses_types.js';
 import { axNormalizeOpenAIUsage } from './ai/openai/usage.js';
 import {
+  AxAIOpenAIDecisions,
+  type AxAIOpenAIDecisionsArgs,
+} from './ai/openai-decisions/api.js';
+import {
+  AxAIOpenAIDecisionsClient,
+  type AxAIOpenAIDecisionsClientArgs,
+  type AxAIOpenAIDecisionsClientOptions,
+  openaiDecisions,
+} from './ai/openai-decisions/client.js';
+import { axModelInfoOpenAIDecisions } from './ai/openai-decisions/info.js';
+import {
+  type AxAIOpenAIDecisionAnswer,
+  type AxAIOpenAIDecisionInput,
+  type AxAIOpenAIDecisionInputPart,
+  type AxAIOpenAIDecisionQuestion,
+  type AxAIOpenAIDecisionRefusal,
+  AxAIOpenAIDecisionsModel,
+  type AxAIOpenAIDecisionsRequest,
+  type AxAIOpenAIDecisionsResponse,
+} from './ai/openai-decisions/types.js';
+import {
   axAnalyzeChatPromptRequirements,
   axProcessContentForProvider,
 } from './ai/processor.js';
@@ -1630,6 +1651,16 @@ export type {
   AxAIOpenAIChatResponse,
   AxAIOpenAIChatResponseDelta,
   AxAIOpenAIConfig,
+  AxAIOpenAIDecisionAnswer,
+  AxAIOpenAIDecisionInput,
+  AxAIOpenAIDecisionInputPart,
+  AxAIOpenAIDecisionQuestion,
+  AxAIOpenAIDecisionRefusal,
+  AxAIOpenAIDecisionsArgs,
+  AxAIOpenAIDecisionsClientArgs,
+  AxAIOpenAIDecisionsClientOptions,
+  AxAIOpenAIDecisionsRequest,
+  AxAIOpenAIDecisionsResponse,
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIEmbedResponse,
   AxAIOpenAILogprob,
@@ -2299,6 +2330,9 @@ export {
   AxAIMistralModel,
   AxAIOpenAI,
   AxAIOpenAIBase,
+  AxAIOpenAIDecisions,
+  AxAIOpenAIDecisionsClient,
+  AxAIOpenAIDecisionsModel,
   AxAIOpenAIEmbedModel,
   AxAIOpenAIModel,
   AxAIOpenAIProfile,
@@ -2521,6 +2555,7 @@ export {
   axModelInfoMetaSpark,
   axModelInfoMistral,
   axModelInfoOpenAI,
+  axModelInfoOpenAIDecisions,
   axModelInfoOpenAIResponses,
   axModelInfoReka,
   axModelInfoWebLLM,
@@ -2571,6 +2606,7 @@ export {
   f,
   flow,
   fn,
+  openaiDecisions,
   optimize,
   playbook,
   refine,

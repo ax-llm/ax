@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:39bb663a81e75e7a7786ae2836cab3b840bd170a7e78a6272d4d3a79bf428a2c"
+      "digest": "sha256:3e608825b45a21a9e539915fd38ae122b273aaac3a5a14ba2fc7ed3a64440f6e"
     },
     {
       "name": "ax-typesafe",

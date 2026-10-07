@@ -38,7 +38,7 @@ const createMockFetch = (capture: Capture) =>
 describe('named AI deployment profiles', () => {
   it('publishes the fixed profile catalog with unique aliases and sources', () => {
     const profiles = axAIProfiles();
-    expect(profiles).toHaveLength(50);
+    expect(profiles).toHaveLength(51);
     expect(new Set(profiles.map((profile) => profile.id)).size).toBe(
       profiles.length
     );

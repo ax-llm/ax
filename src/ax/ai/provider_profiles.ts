@@ -70,7 +70,8 @@ export type AxAIProfileTransport =
   // axir-nonportable:start chrome-ai
   | 'chrome-ai'
   // axir-nonportable:end chrome-ai
-  | 'typesafe-system-one';
+  | 'typesafe-system-one'
+  | 'openai-decisions';
 
 export type AxAIProfileCapabilities = {
   functions: boolean;
@@ -891,6 +892,7 @@ export type AxAIDeploymentProfileId = Exclude<
   | 'chrome-ai'
   // axir-nonportable:end chrome-ai
   | 'typesafe'
+  | 'openai-decisions'
   | 'meta'
   | 'meta-chat'
   | 'meta-messages'

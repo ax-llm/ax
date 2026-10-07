@@ -57,6 +57,7 @@ const allowedTransports = new Set([
   'gemini-generate-content',
   'webllm',
   'typesafe-system-one',
+  'openai-decisions',
 ]);
 const allowedDialects = new Set([
   ...allowedTransports,
@@ -354,6 +355,7 @@ const transportClient = {
   'gemini-generate-content': 'GoogleGeminiClient',
   webllm: null,
   'typesafe-system-one': 'AxAITypesafeClient',
+  'openai-decisions': null,
 };
 const registry = {
   registryVersion: source.schemaVersion,

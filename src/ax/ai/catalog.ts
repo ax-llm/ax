@@ -29,6 +29,8 @@ import {
 } from './openai/info.js';
 import { axIsOpenAIRealtimeModel } from './openai/realtime.js';
 import { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
+import { axModelInfoOpenAIDecisions } from './openai-decisions/info.js';
+import { AxAIOpenAIDecisionsModel } from './openai-decisions/types.js';
 import {
   type AxAIProfileSummary,
   axAIProfiles,
@@ -142,6 +144,12 @@ const axKnownModelCatalogProviderDefinitions = {
     defaultEmbedModel: AxAIOpenAIEmbedModel.TextEmbedding3Small,
     isDynamic: false,
     modelInfo: axModelInfoOpenAI,
+  },
+  'openai-decisions': {
+    displayName: 'OpenAI Decisions',
+    defaultModel: AxAIOpenAIDecisionsModel.GPT6Luna,
+    isDynamic: false,
+    modelInfo: axModelInfoOpenAIDecisions,
   },
   'openai-responses': {
     displayName: 'OpenAI Responses',
