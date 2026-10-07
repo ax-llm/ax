@@ -61,6 +61,7 @@
     "openai_compatible": "openai-compatible",
     "openai_responses": "openai-responses",
     "openai-compatible": "openai-compatible",
+    "openai-decisions": "openai-decisions",
     "openai-responses": "openai-responses",
     "openrouter": "openrouter",
     "orcarouter": "orcarouter",
@@ -338,6 +339,13 @@
         "id": "openai-compatible",
         "transport": "openai-chat"
       },
+      "openai-decisions": {
+        "aliases": ["openai-decisions"],
+        "catalogStatus": "typescript-only",
+        "generatedClient": null,
+        "id": "openai-decisions",
+        "transport": "openai-decisions"
+      },
       "openai-responses": {
         "aliases": ["openai-responses", "openai_responses", "responses"],
         "catalogStatus": "descriptor-covered",
@@ -495,7 +503,8 @@
       "llama-cpp",
       "localai",
       "baseten-engine",
-      "typesafe"
+      "typesafe",
+      "openai-decisions"
     ]
   },
   "kind": "ai_provider_registry",

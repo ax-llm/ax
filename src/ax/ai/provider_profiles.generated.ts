@@ -3282,6 +3282,49 @@ export const axAIProviderProfiles = {
       "https://docs.typesafe.ai/sdk/javascript"
     ],
     "reviewedAt": "2026-09-15"
+  },
+  "openai-decisions": {
+    "id": "openai-decisions",
+    "name": "OpenAI Decisions",
+    "aliases": [
+      "openai-decisions"
+    ],
+    "transport": "openai-decisions",
+    "baseURL": "https://api.openai.com/v1",
+    "requiresApiURL": false,
+    "auth": {
+      "type": "bearer",
+      "required": true
+    },
+    "defaults": {
+      "model": "gpt-6-luna"
+    },
+    "capabilities": {
+      "functions": false,
+      "functionEmulation": false,
+      "streaming": false,
+      "structuredOutputs": true,
+      "structuredOutputModes": [
+        "native"
+      ],
+      "requiresStructuredOutput": true,
+      "thinking": false,
+      "multiTurn": false,
+      "images": true,
+      "serviceTiers": []
+    },
+    "operations": {
+      "chat": {
+        "path": "/decisions",
+        "dialect": "openai-decisions"
+      }
+    },
+    "modelRules": [],
+    "sources": [
+      "https://developers.openai.com/api/docs/guides/decisions",
+      "https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts"
+    ],
+    "reviewedAt": "2026-10-07"
   }
 } as const;
 
@@ -3375,7 +3418,8 @@ export const axAIProviderAliases = {
   "local-ai": "localai",
   "baseten-engine": "baseten-engine",
   "truss": "baseten-engine",
-  "typesafe": "typesafe"
+  "typesafe": "typesafe",
+  "openai-decisions": "openai-decisions"
 } as const;
 
 // biome-ignore format: generated file
@@ -3429,5 +3473,6 @@ export const axAIProviderProfileIds = [
   "llama-cpp",
   "localai",
   "baseten-engine",
-  "typesafe"
+  "typesafe",
+  "openai-decisions"
 ] as const;

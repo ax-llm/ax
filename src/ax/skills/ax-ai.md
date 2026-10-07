@@ -1098,3 +1098,82 @@ natively. For unsupported providers, extracted text or a configured file-to-text
 callback supplies text; fallback policy can degrade, skip, or reject the file.
 The original conversation retains the file for later turns. Generated Python, Go,
 Java, C++, and Rust routers apply this policy in shared Core after selection.
+
+## OpenAI Decisions (TypeScript)
+
+Use `ai({ name: 'openai-decisions', apiKey })` for required boolean and class
+outputs through the dedicated `/v1/decisions` endpoint. The default model is
+`gpt-6-luna`. This is a separate provider profile from OpenAI Chat and Responses.
+
+```typescript
+import { ai, ax, openaiDecisions } from '@ax-llm/ax';
+const model = ai({ name: 'openai-decisions', apiKey, trueThreshold: 0.9 });
+const triage = ax('ticket:string -> urgent:boolean, team:class "support, billing"');
+const values = await triage.forward(model, { ticket: 'I was charged twice.' });
+
+const native = await openaiDecisions({ apiKey }).create({
+  input: 'I was charged twice.',
+  questions: [{ type: 'predicate', name: 'duplicate_charge', instructions: 'Was the customer charged twice?' }],
+});
+const answer = native.answers[0];
+if (answer.type === 'predicate') console.log(answer.probability);
+else console.log('Refused', answer.name);
+```
+
+The signature adapter maps booleans to predicates and classes to choices.
+Boolean value descriptions become question instruction lines; class value
+descriptions become each choice's `description`. `trueThreshold` defaults to
+`0.5`, must be finite in `[0, 1]`, and converts probabilities with an inclusive
+comparison. It is local conversion policy. Raw native answers remain in
+`program.getChatLog().at(-1)?.providerMetadata?.openaiDecisions?.answers`.
+Usage uses existing `getUsage()` APIs. Refused adapter questions throw instead
+of producing a value. Optional, numeric, array, nested, and freeform outputs,
+tools, and generation controls are rejected before transport. A completed result
+can be delivered through `streamingForward()`; the endpoint has no token stream.
+
+For native probabilities, scoring, and explicit refusal handling, use
+`openaiDecisions({ apiKey, model?, apiURL?, credentialProvider?, headers?, options? }).create(request, options?)`.
+Questions are an ordered array of `predicate`, `choice`, and `score` objects.
+Each has string `instructions` and an optional unique `name`. Choices use
+`choices: [{ value: string | boolean, description?: string }]`; boolean values
+and strings with the same spelling stay distinct. Choice requires 2–255 options.
+Scores require 2–10 levels and use
+`levels: [{ label, description? }, ...]`. The score is a fractional expected
+level index starting at zero. Ax does not infer rubrics from numeric bounds.
+
+The response preserves answer order, model, full usage, and per-question
+`{ type: 'refusal', name }` outcomes. Narrow refusals before accessing values.
+Predicates return `probability`; choices return `choice`, `confidence`, and
+`probabilities: [{ value, probability }]`; scores return `score`, `confidence`,
+and `probabilities: [{ value, label, probability }]`. Ax validates the response
+against the questions and preserves probabilities without normalization (an
+inclusive `0.01` sum tolerance accommodates rounding). Question dependencies
+require separate requests.
+
+Native `input` is text or an array of user messages with text and inline image
+parts: `{ role: 'user', content: [{ type: 'input_text', text },
+{ type: 'input_image', image_url: 'data:image/png;base64,...', detail?: 'auto' }] }`.
+There are at most 128 images per request; hosted image URLs, file IDs, audio,
+non-user roles, and tool items are unsupported. The signature adapter preserves
+Ax's text prompt/history as role-labelled evidence in a user message and passes
+inline images through. It does not give those labels native role authority.
+
+Both interfaces accept `apiURL` including `/v1` (default
+`https://api.openai.com/v1`) and renewable credentials. Native and adapter
+transport options support fetch, timeout, retry, and cancellation. Both instance
+and per-call cancellation apply to native requests. Native requests can include
+`safety_identifier`; adapter instances accept `safetyIdentifier`. Unsupported
+requests are excluded from router/balancer selection and fallbacks.
+
+Run the public examples from the repository root:
+
+```bash
+npm run tsx src/examples/typescript/generation/openai-decisions.ts
+npm run tsx src/examples/typescript/generation/openai-decisions-native.ts
+npm run tsx src/examples/typescript/generation/openai-decisions-image.ts
+```
+
+They use `OPENAI_API_KEY` or `OPENAI_APIKEY`. This integration currently ships
+in TypeScript; generated-language transport parity is tracked in the AxIR
+backlog. See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
+for the current provider contract and availability.

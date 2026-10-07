@@ -71,6 +71,28 @@ remains the compatibility alias for native JSON Schema support, not for every
 JSON response format. The selected rung is recorded with the chat log so runs
 remain comparable and debuggable.
 
+### OpenAI Decisions (TypeScript) {#openai-decisions}
+
+TypeScript supports `ai({ name: 'openai-decisions', apiKey })` with ordinary
+required boolean/class signatures, using the dedicated Decisions endpoint and
+`gpt-6-luna` by default. Predicates become booleans at or above `trueThreshold`
+(default `0.5`); class descriptions become choice descriptions. Inline images
+are supported. Refused questions fail explicitly.
+
+Use `openaiDecisions({ apiKey }).create({ input, questions })` for native ordered
+predicate, choice, and score questions, probabilities, confidence, usage, and
+per-question refusals. Scoring stays explicit in native rubrics. Numeric bounds
+never become scoring levels. Freeform outputs and tools require a generative
+provider. This transport currently ships in TypeScript; generated-language
+parity is tracked in the AxIR backlog.
+
+The runnable examples are
+[`openai-decisions.ts`](https://github.com/ax-llm/ax/blob/main/src/examples/typescript/generation/openai-decisions.ts)
+[`openai-decisions-native.ts`](https://github.com/ax-llm/ax/blob/main/src/examples/typescript/generation/openai-decisions-native.ts),
+and [`openai-decisions-image.ts`](https://github.com/ax-llm/ax/blob/main/src/examples/typescript/generation/openai-decisions-image.ts).
+See the [provider guide](https://developers.openai.com/api/docs/guides/decisions)
+for native question and image formats.
+
 ### Typesafe / Jev typed inference {#typesafe-jev}
 
 The `typesafe` profile supports ordinary Ax signatures with required boolean
