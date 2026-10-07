@@ -1,7 +1,7 @@
 ---
 name: "ax-python-flow"
 description: "Use when writing Python code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components."
-version: "25.0.1"
+version: "25.1.0"
 ---
 # AxFlow For Python
 

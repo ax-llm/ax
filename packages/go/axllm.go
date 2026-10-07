@@ -119164,4 +119164,4 @@ func extractQuotedSuffix(s string) (Value, error) {
 
 func _core_type_is_json(value Value) Value { return true }
 
-func Version() string { return "25.0.1" }
+func Version() string { return "25.1.0" }

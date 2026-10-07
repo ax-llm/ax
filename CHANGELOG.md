@@ -1,5 +1,15 @@
 # Changelog
 
+## [25.1.0](https://github.com/ax-llm/ax/compare/25.0.1...25.1.0) (2026-10-07)
+
+### Features
+
+* **ai:** add OpenAI Decisions provider and native client ([#820](https://github.com/ax-llm/ax/pull/820)) ([c34653a](https://github.com/ax-llm/ax/commit/c34653ab97c5f06e35a7f26e8d1612e3dcdbd832))
+
+### Bug Fixes
+
+* **release:** pin Maven and recover Java from release tags ([#819](https://github.com/ax-llm/ax/pull/819)) ([458f273](https://github.com/ax-llm/ax/commit/458f27373c72edf7505410bc40b7f925826f9af1))
+
 ## [25.0.1](https://github.com/ax-llm/ax/compare/25.0.0...25.0.1) (2026-10-06)
 
 ### Features
