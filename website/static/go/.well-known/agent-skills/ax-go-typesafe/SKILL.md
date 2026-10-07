@@ -1,7 +1,7 @@
 ---
 name: "ax-go-typesafe"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
-version: "25.1.1"
+version: "25.2.0"
 ---
 # Typesafe / Jev For Go
 
