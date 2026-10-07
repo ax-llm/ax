@@ -6,112 +6,112 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/SKILL.md",
-      "digest": "sha256:836a0764568eb4926a919effd54d886d0178deb729e225f76200f98d8b7d51db"
+      "digest": "sha256:85736dd2b62dbb7ba30e38dc5ffcefcbde32ddbb08d82f39c8be819e07266653"
     },
     {
       "name": "ax-python-ai",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:d0817253bbca0750cfd36c00a6e511f3817154e5f2c90eb28c823bf19871c043"
+      "digest": "sha256:7157568ebe7620bb30fb7d442d6dd15a631100f9d21a5d34a42e9adef8e38077"
     },
     {
       "name": "ax-python-typesafe",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:c8054ce3916028b64ef77eccac523842ca2165e82d98723332751b0d6849551b"
+      "digest": "sha256:a46be94b7b767b09f521d023a4d5757fcc42acee9a50935fe6bdd636af2d33b6"
     },
     {
       "name": "ax-python-audio",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-python-audio/SKILL.md",
-      "digest": "sha256:774e428078d5d0b0cc4ffa9fa24bea71825bca37dfb502415179bfb9e1c85552"
+      "digest": "sha256:dfc1d19c98e72658fc25ada08beef066a45449df11ec00574bd2ba9a21ba990d"
     },
     {
       "name": "ax-python-signature",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-python-signature/SKILL.md",
-      "digest": "sha256:9bd8de8fcd0fd998eee49b43f835ca850d4fdb2e403af9c2df9c1ae323688061"
+      "digest": "sha256:f2a43cb6208d9bcef71fcc629c7ec827cd0d3daa85395f86c6928d63f02cf635"
     },
     {
       "name": "ax-python-gen",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:7370f1c80137d8a26a297fec80b233e0785eb1e44cfb8c739d9ea0a2b8013510"
+      "digest": "sha256:c44a97b16a2d876ebfdde7ae5eba13c9c54140e644fd80448274cf459b7a159d"
     },
     {
       "name": "ax-python-flow",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-python-flow/SKILL.md",
-      "digest": "sha256:3ffeb2e2608111680a0f1a82fe048fd7d2006a9ffe0cfd94323bd428cd5ee42a"
+      "digest": "sha256:720a44aaf2e7ebc32ca826b0e3a5ba160473f6925db4fb22ea957972b236c99b"
     },
     {
       "name": "ax-python-agent",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-python-agent/SKILL.md",
-      "digest": "sha256:9d07f6c0350b4f756a1915d23c5fa8ab9abdf214c02d6661589d50ea3a196ff6"
+      "digest": "sha256:1ca4f7102d82da4e4ef730fca4977a3b7918d00fcde720de781b167abaa1d595"
     },
     {
       "name": "ax-python-agent-rlm",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles.",
       "url": "ax-python-agent-rlm/SKILL.md",
-      "digest": "sha256:930671e4967e3875abf61e74ce44110ecec5cf0a7b05c8ca83d295a8adbec14e"
+      "digest": "sha256:0cc948632afdcac3ea5647b6815dbb2de15650945057e53a3424e5eb327137de"
     },
     {
       "name": "ax-python-agent-memory-skills",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-python-agent-memory-skills/SKILL.md",
-      "digest": "sha256:1831b13332c248c8d0f53ac37bd6ade3e2a1e1eda861bfb4fef697fcc4ea2f61"
+      "digest": "sha256:95184d538732a6c8831987f5bb7ba0e1cef57b38330ca5f2b722694aa69d97be"
     },
     {
       "name": "ax-python-agent-observability",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-python-agent-observability/SKILL.md",
-      "digest": "sha256:3cd7e782909255349ffe00fa7e6207982cee933664e8d17877727a8d13aab8a0"
+      "digest": "sha256:a6549e3c5ac6b9c69e3f0eabdb92bad8c6357bb159aa5e5253a40099d4428f02"
     },
     {
       "name": "ax-python-agent-optimize",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-python-agent-optimize/SKILL.md",
-      "digest": "sha256:9743f319cf7bb6d4ead5fa47662a6b1fb28d2da2d815c92df2b171312d2a6524"
+      "digest": "sha256:18fe3f678479b62f4c37b5275b483027d3bb0aedea9783490c1dcb07469387e4"
     },
     {
       "name": "ax-python-agent-context",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-python-agent-context/SKILL.md",
-      "digest": "sha256:3600fb62e93e7ba4413b16110102001617de7206e23a416d9e66a89a09a06d6d"
+      "digest": "sha256:8c761f61839b30d660553d3526c9444572c8f02f5ddfbe71da95a38a26c96051"
     },
     {
       "name": "ax-python-gepa",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-python-gepa/SKILL.md",
-      "digest": "sha256:62a08b5a5a94159a82cc90384f2811f89d7386814855b62b3430a21be31291b4"
+      "digest": "sha256:779390c05f8f7ed34c8a20c41eebd1ca402e52ef5deef15efe9deb410298ea29"
     },
     {
       "name": "ax-python-refine",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-python-refine/SKILL.md",
-      "digest": "sha256:1cd4dbc75cb7a9574f4ea95fb25cd3c9be84dc1b77c745fb86c16fbc5f1d229f"
+      "digest": "sha256:33884c06ebd84b8db8f6e5471940e1d2fb0d28580e1b5264946d413bbc6c1879"
     },
     {
       "name": "ax-python-playbook",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-python-playbook/SKILL.md",
-      "digest": "sha256:cac2e7549934d72a31e575d65e59163673aea0bbad713dec711de140c33bdf4f"
+      "digest": "sha256:fbbe19bb185193332e2f7659a77d4a0dd19aa14cd1224b388c1f44bc9359c8f4"
     }
   ]
 }
