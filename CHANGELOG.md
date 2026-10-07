@@ -1,16 +1,10 @@
 # Changelog
 
-## [25.2.0](https://github.com/ax-llm/ax/compare/25.1.0...25.1.1) (2026-10-07)
+## [25.2.0](https://github.com/ax-llm/ax/compare/25.1.1...25.2.0) (2026-10-07)
 
 ### Features
 
-* **axir:** support OpenAI Decisions in all five generated languages ([#825](https://github.com/ax-llm/ax/issues/825)) ([b32f50f](https://github.com/ax-llm/ax/commit/b32f50f5ed7df4e6e92047e74813d88bf58b0f6e))
-
-## [25.1.1](https://github.com/ax-llm/ax/compare/25.1.0...25.1.1) (2026-10-07)
-
-### Bug Fixes
-
-* **ai:** merge refreshed credential headers case-insensitively ([#823](https://github.com/ax-llm/ax/issues/823)) ([d08f1b9](https://github.com/ax-llm/ax/commit/d08f1b9ccb0859f4f3952da083ea0dc1a9edecbb))
+* **axir:** support OpenAI Decisions in all five generated languages ([#825](https://github.com/ax-llm/ax/pull/825)) ([b32f50f](https://github.com/ax-llm/ax/commit/b32f50f5ed7df4e6e92047e74813d88bf58b0f6e))
 
 ## [25.1.1](https://github.com/ax-llm/ax/compare/25.1.0...25.1.1) (2026-10-07)
 
