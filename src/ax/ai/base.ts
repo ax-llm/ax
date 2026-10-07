@@ -17,6 +17,7 @@ import {
   defaultRetryConfig,
 } from '../util/apicall.js';
 import { createHash, randomUUID } from '../util/crypto.js';
+import { mergeHeaders } from '../util/headers.js';
 import {
   axGetRuntimeHookFrame,
   axStartActiveSpanFailOpen,
@@ -2576,8 +2577,6 @@ export class AxBaseAI<
               } catch {}
               try {
                 // DOMException is available in browsers; fallback to Error if unavailable
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-ignore
                 controller.error(new DOMException('Aborted', 'AbortError'));
               } catch {
                 controller.error(new Error('Aborted'));
@@ -2992,15 +2991,15 @@ export class AxBaseAI<
     headers: Record<string, string> = {},
     request?: Omit<import('./types.js').AxAICredentialRequest, 'profile'>
   ): Promise<Record<string, string>> {
-    const staticHeaders = { ...(await this.headers()), ...headers };
+    const staticHeaders = mergeHeaders(await this.headers(), headers);
     if (!this.credentialProvider || !request) return staticHeaders;
-    return {
-      ...staticHeaders,
-      ...(await this.credentialProvider({
+    return mergeHeaders(
+      staticHeaders,
+      await this.credentialProvider({
         profile: this.credentialProfile,
         ...request,
-      })),
-    };
+      })
+    );
   }
 
   protected setChatCredentialOperation(operation: 'chat' | 'responses'): void {
