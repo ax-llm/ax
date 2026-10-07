@@ -4313,12 +4313,42 @@ final class Core {
     return messages;
   }
 
+  static Object decisions_require_object(Object value, Object context) {
+    axirCoverageMark("decisions_require_object");
+    Object valid = Core.typeIs(value, "object");
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object message = Core.stringFormat("OpenAI Decisions: {} must be an object", context);
+      Object error = Core.validationError(message);
+      throw Core.asRuntime(error);
+    }
+    return value;
+  }
+
   static Object typesafe_require_object(Object value, Object context) {
     axirCoverageMark("typesafe_require_object");
     Object valid = Core.typeIs(value, "object");
     Object invalid = Core.not(valid);
     if (Core.truthy(invalid)) {
       Object message = Core.stringFormat("Typesafe: {} must be an object", context);
+      Object error = Core.validationError(message);
+      throw Core.asRuntime(error);
+    }
+    return value;
+  }
+
+  static Object decisions_require_string(Object value, Object context, Object nonempty) {
+    axirCoverageMark("decisions_require_string");
+    Object valid = Core.typeIs(value, "string");
+    if (Core.truthy(valid)) {
+      if (Core.truthy(nonempty)) {
+        Object text = Core.stringTrim(value);
+        valid = Core.ne(text, "");
+      }
+    }
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object message = Core.stringFormat("OpenAI Decisions: {} must be a string (nonempty where required)", context);
       Object error = Core.validationError(message);
       throw Core.asRuntime(error);
     }
@@ -4460,6 +4490,26 @@ final class Core {
     return payload;
   }
 
+  static Object decisions_require_number(Object value, Object context, Object minimum, Object maximum) {
+    axirCoverageMark("decisions_require_number");
+    Object valid = Core.typeIs(value, "number");
+    if (Core.truthy(valid)) {
+      valid = Core.mathIsFinite(value);
+      Object low = Core.lt(value, minimum);
+      Object high = Core.gt(value, maximum);
+      Object outside = Core.or(low, high);
+      Object within = Core.not(outside);
+      valid = Core.and(valid, within);
+    }
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object message = Core.stringFormat("OpenAI Decisions: {} must be a finite number between {} and {}", context, minimum, maximum);
+      Object error = Core.validationError(message);
+      throw Core.asRuntime(error);
+    }
+    return value;
+  }
+
   static Object typesafe_require_number(Object value, Object context, Object minimum, Object maximum) {
     axirCoverageMark("typesafe_require_number");
     Object valid = Core.typeIs(value, "number");
@@ -4477,6 +4527,20 @@ final class Core {
       Object error = Core.validationError(message);
       throw Core.asRuntime(error);
     }
+    return value;
+  }
+
+  static Object decisions_require_list(Object value, Object context, Object minimum, Object maximum) {
+    axirCoverageMark("decisions_require_list");
+    Object valid = Core.typeIs(value, "list");
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object message = Core.stringFormat("OpenAI Decisions: {} must be an array", context);
+      Object error = Core.validationError(message);
+      throw Core.asRuntime(error);
+    }
+    Object size = Core.len(value);
+    Core.decisions_require_number(size, context, minimum, maximum);
     return value;
   }
 
@@ -4515,6 +4579,161 @@ final class Core {
     Object invalid = Core.not(valid);
     if (Core.truthy(invalid)) {
       throw new RuntimeException("Typesafe: entries must contain JSON values");
+    }
+    return null;
+  }
+
+  static Object decisions_require_count(Object value) {
+    axirCoverageMark("decisions_require_count");
+    Core.decisions_require_number(value, "token count", 0, 9007199254740991.0);
+    Object integer = Core.mathFloor(value);
+    Object fractional = Core.ne(integer, value);
+    if (Core.truthy(fractional)) {
+      throw new RuntimeException("OpenAI Decisions: token counts must be nonnegative safe integers");
+    }
+    return null;
+  }
+
+  static Object decisions_validate_request(Object request) {
+    axirCoverageMark("decisions_validate_request");
+    Core.decisions_require_object(request, "request");
+    Object model = Core.get(request, "model", null);
+    Core.decisions_require_string(model, "model", Boolean.TRUE);
+    Object safety = Core.get(request, "safety_identifier", null);
+    Object has_safety = Core.isNotNone(safety);
+    if (Core.truthy(has_safety)) {
+      Core.decisions_require_string(safety, "safety_identifier", Boolean.FALSE);
+    }
+    Object input = Core.get(request, "input", null);
+    Object is_text = Core.typeIs(input, "string");
+    Object structured = Core.not(is_text);
+    Object images = 0;
+    if (Core.truthy(structured)) {
+      Core.decisions_require_list(input, "input", 1, 9007199254740991.0);
+      for (Object message : Core.iter(input)) {
+        Core.decisions_require_object(message, "input message");
+        Object role = Core.get(message, "role", null);
+        Object bad_role = Core.ne(role, "user");
+        Object type = "message";
+        Object has_type = Core.mapContains(message, "type");
+        if (Core.truthy(has_type)) {
+          type = Core.get(message, "type", null);
+        }
+        Object bad_type = Core.ne(type, "message");
+        Object invalid = Core.or(bad_role, bad_type);
+        if (Core.truthy(invalid)) {
+          throw new RuntimeException("OpenAI Decisions: only user messages are supported");
+        }
+        Object content = Core.get(message, "content", null);
+        Object text_content = Core.typeIs(content, "string");
+        Object parts_content = Core.not(text_content);
+        if (Core.truthy(parts_content)) {
+          Core.decisions_require_list(content, "input content", 1, 9007199254740991.0);
+          for (Object part : Core.iter(content)) {
+            Core.decisions_require_object(part, "input part");
+            Object kind = Core.get(part, "type", null);
+            is_text = Core.eq(kind, "input_text");
+            if (Core.truthy(is_text)) {
+              Object text = Core.get(part, "text", null);
+              Core.decisions_require_string(text, "input text", Boolean.FALSE);
+            }
+            if (!Core.truthy(is_text)) {
+              Object is_image = Core.eq(kind, "input_image");
+              Object url = Core.get(part, "image_url", null);
+              Object url_string = Core.typeIs(url, "string");
+              Object valid = Core.and(is_image, url_string);
+              if (Core.truthy(valid)) {
+                valid = Core.regexMatch("^data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$", url);
+              }
+              invalid = Core.not(valid);
+              if (Core.truthy(invalid)) {
+                throw new RuntimeException("OpenAI Decisions: images require inline base64 data URLs; files, audio, and hosted URLs are unsupported");
+              }
+              Object detail = Core.get(part, "detail", null);
+              Object has_detail = Core.isNotNone(detail);
+              if (Core.truthy(has_detail)) {
+                Object details = new java.util.ArrayList<Object>();
+                Core.append(details, "low");
+                Core.append(details, "high");
+                Core.append(details, "auto");
+                Core.append(details, "original");
+                Object known = Core.contains(details, detail);
+                invalid = Core.not(known);
+                if (Core.truthy(invalid)) {
+                  throw new RuntimeException("OpenAI Decisions: invalid image detail");
+                }
+              }
+              images = Core.add(images, 1);
+            }
+          }
+        }
+      }
+    }
+    Object too_many = Core.gt(images, 128);
+    if (Core.truthy(too_many)) {
+      throw new RuntimeException("OpenAI Decisions: at most 128 images are supported");
+    }
+    Object questions = Core.get(request, "questions", null);
+    Core.decisions_require_list(questions, "questions", 1, 9007199254740991.0);
+    Object names = new java.util.LinkedHashMap<String, Object>();
+    for (Object q : Core.iter(questions)) {
+      Core.decisions_require_object(q, "question");
+      Object instructions = Core.get(q, "instructions", null);
+      Core.decisions_require_string(instructions, "question instructions", Boolean.FALSE);
+      Object has_name = Core.mapContains(q, "name");
+      if (Core.truthy(has_name)) {
+        Object name = Core.get(q, "name", null);
+        Core.decisions_require_string(name, "question name", Boolean.FALSE);
+        Object duplicate = Core.mapContains(names, name);
+        if (Core.truthy(duplicate)) {
+          throw new RuntimeException("OpenAI Decisions: duplicate question name");
+        }
+        Core.set(names, name, Boolean.TRUE);
+      }
+      Object kind = Core.get(q, "type", null);
+      Object predicate = Core.eq(kind, "predicate");
+      Object needs_options = Core.not(predicate);
+      if (Core.truthy(needs_options)) {
+        Object choice = Core.eq(kind, "choice");
+        Object score = Core.eq(kind, "score");
+        Object valid = Core.or(choice, score);
+        Object invalid = Core.not(valid);
+        if (Core.truthy(invalid)) {
+          throw new RuntimeException("OpenAI Decisions: invalid question type or options");
+        }
+        Object options = Core.get(q, "choices", null);
+        Object maximum = 255;
+        if (Core.truthy(score)) {
+          options = Core.get(q, "levels", null);
+          maximum = 10;
+        }
+        Core.decisions_require_list(options, kind, 2, maximum);
+        Object values = new java.util.LinkedHashMap<String, Object>();
+        for (Object option : Core.iter(options)) {
+          Core.decisions_require_object(option, "question option");
+          Object value = Core.get(option, "value", null);
+          if (Core.truthy(score)) {
+            value = Core.get(option, "label", null);
+          }
+          Object is_boolean = Core.typeIs(value, "boolean");
+          Object not_boolean = Core.not(is_boolean);
+          Object require_text = Core.or(score, not_boolean);
+          if (Core.truthy(require_text)) {
+            Core.decisions_require_string(value, "option value", Boolean.FALSE);
+          }
+          Object key = Core.jsonStringify(value);
+          Object duplicate = Core.mapContains(values, key);
+          if (Core.truthy(duplicate)) {
+            throw new RuntimeException("OpenAI Decisions: duplicate option value");
+          }
+          Core.set(values, key, Boolean.TRUE);
+          Object has_description = Core.mapContains(option, "description");
+          if (Core.truthy(has_description)) {
+            Object description = Core.get(option, "description", null);
+            Core.decisions_require_string(description, "option description", Boolean.FALSE);
+          }
+        }
+      }
     }
     return null;
   }
@@ -4949,6 +5168,148 @@ final class Core {
         }
       }
     }
+    return raw;
+  }
+
+  static Object decisions_decode_response(Object raw, Object questions) {
+    axirCoverageMark("decisions_decode_response");
+    Core.decisions_require_object(raw, "response");
+    Object model = Core.get(raw, "model", null);
+    Core.decisions_require_string(model, "response model", Boolean.TRUE);
+    Object answers = Core.get(raw, "answers", null);
+    Object size = Core.len(questions);
+    Core.decisions_require_list(answers, "answers", size, size);
+    Object i = 0;
+    for (Object q : Core.iter(questions)) {
+      Object a = Core.get(answers, i, null);
+      i = Core.add(i, 1);
+      Core.decisions_require_object(a, "answer");
+      Object name = Core.get(q, "name", null);
+      Object answer_name = Core.get(a, "name", null);
+      Object has_name = Core.mapContains(a, "name");
+      Object missing_name = Core.not(has_name);
+      Object wrong_name = Core.ne(name, answer_name);
+      wrong_name = Core.or(wrong_name, missing_name);
+      if (Core.truthy(wrong_name)) {
+        throw new RuntimeException("OpenAI Decisions: incorrect answer name or order");
+      }
+      Object kind = Core.get(q, "type", null);
+      Object answer_kind = Core.get(a, "type", null);
+      Object refusal = Core.eq(answer_kind, "refusal");
+      Object not_refusal = Core.not(refusal);
+      if (Core.truthy(not_refusal)) {
+        Object wrong_type = Core.ne(kind, answer_kind);
+        if (Core.truthy(wrong_type)) {
+          throw new RuntimeException("OpenAI Decisions: incorrect answer type");
+        }
+        Object predicate = Core.eq(kind, "predicate");
+        if (Core.truthy(predicate)) {
+          Object probability = Core.get(a, "probability", null);
+          Core.decisions_require_number(probability, "predicate probability", 0, 1);
+        }
+        if (!Core.truthy(predicate)) {
+          Object confidence = Core.get(a, "confidence", null);
+          Core.decisions_require_number(confidence, "confidence", 0, 1);
+          Object score = Core.eq(kind, "score");
+          Object options = Core.get(q, "choices", null);
+          if (Core.truthy(score)) {
+            options = Core.get(q, "levels", null);
+          }
+          size = Core.len(options);
+          Object probabilities = Core.get(a, "probabilities", null);
+          Core.decisions_require_list(probabilities, "probabilities", size, size);
+          Object seen = new java.util.LinkedHashMap<String, Object>();
+          Object total = 0;
+          for (Object p : Core.iter(probabilities)) {
+            Core.decisions_require_object(p, "probability");
+            Object value = Core.get(p, "value", null);
+            Object key = Core.jsonStringify(value);
+            Object duplicate = Core.mapContains(seen, key);
+            if (Core.truthy(duplicate)) {
+              throw new RuntimeException("OpenAI Decisions: unknown or duplicate probability value");
+            }
+            Core.set(seen, key, Boolean.TRUE);
+            Object found = Boolean.FALSE;
+            if (Core.truthy(score)) {
+              Object upper = Core.add(size, -1);
+              Core.decisions_require_number(value, "score index", 0, upper);
+              Object integer = Core.mathFloor(value);
+              found = Core.eq(value, integer);
+              Object option = Core.get(options, integer, null);
+              Object label = Core.get(option, "label", null);
+              Object actual_label = Core.get(p, "label", null);
+              Object wrong_label = Core.ne(label, actual_label);
+              if (Core.truthy(wrong_label)) {
+                throw new RuntimeException("OpenAI Decisions: incorrect score label");
+              }
+            }
+            if (!Core.truthy(score)) {
+              for (Object option : Core.iter(options)) {
+                Object expected = Core.get(option, "value", null);
+                Object expected_key = Core.jsonStringify(expected);
+                Object match = Core.eq(expected_key, key);
+                found = Core.or(found, match);
+              }
+            }
+            Object unknown = Core.not(found);
+            if (Core.truthy(unknown)) {
+              throw new RuntimeException("OpenAI Decisions: unknown or duplicate probability value");
+            }
+            Object probability = Core.get(p, "probability", null);
+            Core.decisions_require_number(probability, "distribution probability", 0, 1);
+            total = Core.add(total, probability);
+          }
+          Object difference = Core.add(total, -1);
+          difference = Core.mathAbs(difference);
+          Object epsilon = Core.mul(0.0000000000000002220446049250313, size);
+          Object tolerance = Core.add(0.01, epsilon);
+          Object invalid_total = Core.gt(difference, tolerance);
+          if (Core.truthy(invalid_total)) {
+            throw new RuntimeException("OpenAI Decisions: invalid probability distribution");
+          }
+          if (Core.truthy(score)) {
+            Object position = Core.get(a, "score", null);
+            Object upper = Core.add(size, -1);
+            Core.decisions_require_number(position, "score", 0, upper);
+          }
+          if (!Core.truthy(score)) {
+            Object selected = Core.get(a, "choice", null);
+            Object selected_key = Core.jsonStringify(selected);
+            Object found = Boolean.FALSE;
+            for (Object option : Core.iter(options)) {
+              Object value = Core.get(option, "value", null);
+              Object key = Core.jsonStringify(value);
+              Object match = Core.eq(key, selected_key);
+              found = Core.or(found, match);
+            }
+            Object unknown = Core.not(found);
+            if (Core.truthy(unknown)) {
+              throw new RuntimeException("OpenAI Decisions: unknown choice");
+            }
+          }
+        }
+      }
+    }
+    Object usage = Core.get(raw, "usage", null);
+    Core.decisions_require_object(usage, "usage");
+    Object keys = new java.util.ArrayList<Object>();
+    Core.append(keys, "input_tokens");
+    Core.append(keys, "output_tokens");
+    Core.append(keys, "total_tokens");
+    for (Object key : Core.iter(keys)) {
+      Object value = Core.get(usage, key, null);
+      Core.decisions_require_count(value);
+    }
+    Object input = Core.get(usage, "input_tokens_details", null);
+    Core.decisions_require_object(input, "input token details");
+    Object cached = Core.get(input, "cached_tokens", null);
+    Core.decisions_require_count(cached);
+    Object write = Core.get(input, "cache_write_tokens", null);
+    Core.decisions_require_count(write);
+    Object output = Core.get(usage, "output_tokens_details", null);
+    Core.decisions_require_object(output, "output token details");
+    Object reasoning = Core.get(output, "reasoning_tokens", null);
+    Core.decisions_require_count(reasoning);
     return raw;
   }
 
@@ -5447,6 +5808,280 @@ final class Core {
       }
     }
     return null;
+  }
+
+  static Object decisions_build_chat_request(Object request, Object options) {
+    axirCoverageMark("decisions_build_chat_request");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
+    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
+    Core.decisions_require_number(threshold, "trueThreshold", 0, 1);
+    Object functions = Core.get(request, "functions", empty_list);
+    Object function_call_snake = Core.get(request, "function_call", "none");
+    Object function_call = Core.get(request, "functionCall", function_call_snake);
+    Object has_functions = Core.truthyValue(functions);
+    Object has_call = Core.ne(function_call, "none");
+    Object has_call_value = Core.truthyValue(function_call);
+    has_call = Core.and(has_call, has_call_value);
+    Object tools = Core.or(has_functions, has_call);
+    if (Core.truthy(tools)) {
+      throw new RuntimeException("OpenAI Decisions does not support tools; use a generative provider for tool execution");
+    }
+    Object config_snake = Core.get(request, "model_config", empty_map);
+    Object config = Core.get(request, "modelConfig", config_snake);
+    Object controls = Core.mapKeys(config);
+    for (Object control : Core.iter(controls)) {
+      Object value = Core.get(config, control, null);
+      Object present = Core.isNotNone(value);
+      if (Core.truthy(present)) {
+        Object is_stream = Core.eq(control, "stream");
+        Object is_n = Core.eq(control, "n");
+        Object one = Core.eq(value, 1);
+        Object numeric = Core.typeIs(value, "number");
+        one = Core.and(one, numeric);
+        Object allowed_n = Core.and(is_n, one);
+        Object allowed = Core.or(is_stream, allowed_n);
+        Object unsupported = Core.not(allowed);
+        if (Core.truthy(unsupported)) {
+          Object message = Core.stringFormat("OpenAI Decisions does not support generation control {}", control);
+          Object error = Core.validationError(message);
+          throw Core.asRuntime(error);
+        }
+      }
+    }
+    Object format_snake = Core.get(request, "response_format", null);
+    Object format = Core.get(request, "responseFormat", format_snake);
+    Object format_type = Core.get(format, "type", null);
+    Object wrong_format = Core.ne(format_type, "json_schema");
+    if (Core.truthy(wrong_format)) {
+      throw new RuntimeException("OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs");
+    }
+    Object wrapper = Core.get(format, "schema", null);
+    Core.decisions_require_object(wrapper, "responseFormat.schema");
+    Object schema = Core.get(wrapper, "schema", null);
+    Core.decisions_require_object(schema, "output schema");
+    Object root_type = Core.get(schema, "type", null);
+    Object flat = Core.eq(root_type, "object");
+    Object forbidden = new java.util.ArrayList<Object>();
+    Core.append(forbidden, "anyOf");
+    Core.append(forbidden, "oneOf");
+    Core.append(forbidden, "allOf");
+    Core.append(forbidden, "$ref");
+    for (Object key : Core.iter(forbidden)) {
+      Object value = Core.get(schema, key, null);
+      Object has_value = Core.truthyValue(value);
+      if (Core.truthy(has_value)) {
+        flat = Boolean.FALSE;
+      }
+    }
+    Object not_flat = Core.not(flat);
+    if (Core.truthy(not_flat)) {
+      throw new RuntimeException("OpenAI Decisions requires a flat object output schema");
+    }
+    Object properties = Core.get(schema, "properties", null);
+    Core.decisions_require_object(properties, "output properties");
+    Object required = Core.get(schema, "required", empty_list);
+    Object annotations = Core.get(format, "fieldDescriptions", empty_map);
+    Object questions = new java.util.ArrayList<Object>();
+    Object names = Core.mapKeys(properties);
+    Core.append(forbidden, "const");
+    for (Object name : Core.iter(names)) {
+      Object field = Core.get(properties, name, null);
+      Core.decisions_require_object(field, name);
+      Object required_list = Core.typeIs(required, "list");
+      Object supported = Core.contains(required, name);
+      supported = Core.and(supported, required_list);
+      for (Object key : Core.iter(forbidden)) {
+        Object has_key = Core.mapContains(field, key);
+        if (Core.truthy(has_key)) {
+          supported = Boolean.FALSE;
+        }
+      }
+      Object type_name = Core.get(field, "type", null);
+      Object class_options = Core.get(field, "enum", null);
+      Object is_boolean = Core.eq(type_name, "boolean");
+      Object has_enum = Core.isNotNone(class_options);
+      Object no_enum = Core.not(has_enum);
+      is_boolean = Core.and(is_boolean, no_enum);
+      Object is_string = Core.eq(type_name, "string");
+      Object is_enum = Core.typeIs(class_options, "list");
+      Object is_class = Core.and(is_string, is_enum);
+      Object supported_type = Core.or(is_boolean, is_class);
+      supported = Core.and(supported, supported_type);
+      Object unsupported = Core.not(supported);
+      if (Core.truthy(unsupported)) {
+        Object message = Core.stringFormat("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs", name);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+      Object annotation = Core.get(annotations, name, null);
+      Object description = Core.get(field, "description", null);
+      Object has_annotation = Core.isNotNone(annotation);
+      Object descriptions = new java.util.LinkedHashMap<String, Object>();
+      if (Core.truthy(has_annotation)) {
+        Core.decisions_require_object(annotation, name);
+        description = Core.get(annotation, "description", null);
+        Object has_description = Core.isNotNone(description);
+        if (Core.truthy(has_description)) {
+          Core.decisions_require_string(description, name, Boolean.FALSE);
+        }
+        descriptions = Core.get(annotation, "valueDescriptions", null);
+        Core.decisions_require_object(descriptions, name);
+        Object type_attrs = new java.util.LinkedHashMap<String, Object>();
+        Object annotation_type = "boolean";
+        if (Core.truthy(is_class)) {
+          annotation_type = "class";
+        }
+        Core.set(type_attrs, "name", annotation_type);
+        Core.set(type_attrs, "options", class_options);
+        Core.set(type_attrs, "value_descriptions", descriptions);
+        Object typ = Core.recordNew("FieldType", type_attrs);
+        Core._signature_validate_value_descriptions_impl(typ, name);
+      }
+      Object instructions = Core.stringFormat("Evaluate the output field {}.", name);
+      Object is_description_string = Core.typeIs(description, "string");
+      Object has_description = Core.truthyValue(description);
+      Object use_description = Core.and(is_description_string, has_description);
+      if (Core.truthy(use_description)) {
+        instructions = Core.stringFormat("{}: {}", name, description);
+      }
+      Object question = new java.util.LinkedHashMap<String, Object>();
+      Core.set(question, "instructions", instructions);
+      if (Core.truthy(is_boolean)) {
+        Core.set(question, "type", "predicate");
+        if (Core.truthy(has_annotation)) {
+          Object lines = new java.util.ArrayList<Object>();
+          Core.append(lines, instructions);
+          Object description_keys = Core.mapKeys(descriptions);
+          for (Object key : Core.iter(description_keys)) {
+            Object value = Core.get(descriptions, key, null);
+            Object line = Core.stringFormat("{}: {}", key, value);
+            Core.append(lines, line);
+          }
+          instructions = Core.stringJoin("\n", lines);
+          Core.set(question, "instructions", instructions);
+        }
+      }
+      if (!Core.truthy(is_boolean)) {
+        Core.set(question, "type", "choice");
+        Object criteria = new java.util.ArrayList<Object>();
+        Object seen = new java.util.LinkedHashMap<String, Object>();
+        for (Object label : Core.iter(class_options)) {
+          Core.decisions_require_string(label, name, Boolean.FALSE);
+          Object duplicate = Core.mapContains(seen, label);
+          if (Core.truthy(duplicate)) {
+            throw new RuntimeException("OpenAI Decisions: Choice labels must be unique");
+          }
+          description = Core.get(descriptions, label, null);
+          Object option = new java.util.LinkedHashMap<String, Object>();
+          Core.set(option, "value", label);
+          Object described = Core.mapContains(descriptions, label);
+          if (Core.truthy(described)) {
+            Core.set(option, "description", description);
+          }
+          Core.set(seen, label, Boolean.TRUE);
+          Core.append(criteria, option);
+        }
+        Core.set(question, "choices", criteria);
+      }
+      Core.set(question, "name", name);
+      Core.append(questions, question);
+    }
+    Object prompt_snake = Core.get(request, "chat_prompt", empty_list);
+    Object prompt = Core.get(request, "chatPrompt", prompt_snake);
+    Object parts = new java.util.ArrayList<Object>();
+    for (Object message : Core.iter(prompt)) {
+      Object role = Core.get(message, "role", null);
+      Object content = Core.get(message, "content", "");
+      Object tool = Core.eq(role, "function");
+      Object tool_alt = Core.eq(role, "tool");
+      tool = Core.or(tool, tool_alt);
+      Object calls = Core.get(message, "functionCalls", null);
+      Object calls_snake = Core.get(message, "function_calls", null);
+      calls = Core.coalesce(calls, calls_snake);
+      calls = Core.truthyValue(calls);
+      Object audio = Core.get(message, "audio", null);
+      audio = Core.truthyValue(audio);
+      Object images = Core.get(message, "images", null);
+      images = Core.truthyValue(images);
+      Object invalid = Core.or(tool, calls);
+      invalid = Core.or(invalid, audio);
+      invalid = Core.or(invalid, images);
+      if (Core.truthy(invalid)) {
+        throw new RuntimeException("OpenAI Decisions does not support tool or media history");
+      }
+      Object label = Core.stringFormat("{}:", role);
+      Object part = new java.util.LinkedHashMap<String, Object>();
+      Core.set(part, "type", "input_text");
+      Core.set(part, "text", label);
+      Core.append(parts, part);
+      Object text = Core.typeIs(content, "string");
+      if (Core.truthy(text)) {
+        part = new java.util.LinkedHashMap<String, Object>();
+        Core.set(part, "type", "input_text");
+        Core.set(part, "text", content);
+        Core.append(parts, part);
+      }
+      if (!Core.truthy(text)) {
+        Core.decisions_require_list(content, "message content", 0, 9007199254740991.0);
+        Object user = Core.eq(role, "user");
+        if (Core.truthy(user)) {
+          for (Object raw_part : Core.iter(content)) {
+            Object kind = Core.get(raw_part, "type", null);
+            text = Core.eq(kind, "text");
+            part = new java.util.LinkedHashMap<String, Object>();
+            if (Core.truthy(text)) {
+              Object value = Core.get(raw_part, "text", null);
+              Core.set(part, "type", "input_text");
+              Core.set(part, "text", value);
+            }
+            if (!Core.truthy(text)) {
+              Object image = Core.eq(kind, "image");
+              invalid = Core.not(image);
+              if (Core.truthy(invalid)) {
+                throw new RuntimeException("OpenAI Decisions supports text and inline images only");
+              }
+              image = Core.get(raw_part, "image", null);
+              Core.decisions_require_string(image, "image", Boolean.FALSE);
+              Object data = Core.stringStartsWith(image, "data:");
+              Object not_data = Core.not(data);
+              if (Core.truthy(not_data)) {
+                Object mime_snake = Core.get(raw_part, "mime_type", null);
+                Object mime = Core.get(raw_part, "mimeType", mime_snake);
+                image = Core.stringFormat("data:{};base64,{}", mime, image);
+              }
+              Core.set(part, "type", "input_image");
+              Core.set(part, "image_url", image);
+              Object detail = Core.get(raw_part, "details", null);
+              Object has_detail = Core.truthyValue(detail);
+              if (Core.truthy(has_detail)) {
+                Core.set(part, "detail", detail);
+              }
+            }
+            Core.append(parts, part);
+          }
+        }
+      }
+    }
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "user");
+    Core.set(message, "content", parts);
+    Object input = new java.util.ArrayList<Object>();
+    Core.append(input, message);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Object model = Core.get(request, "model", "gpt-6-luna");
+    Core.set(payload, "model", model);
+    Core.set(payload, "input", input);
+    Core.set(payload, "questions", questions);
+    Object safety_snake = Core.get(options, "safety_identifier", null);
+    Object safety = Core.get(options, "safetyIdentifier", safety_snake);
+    Object has_safety = Core.truthyValue(safety);
+    if (Core.truthy(has_safety)) {
+      Core.set(payload, "safety_identifier", safety);
+    }
+    Core.decisions_validate_request(payload);
+    return payload;
   }
 
   static Object openai_chat_reasoning_effort(Object model, Object budget) {
@@ -5950,11 +6585,25 @@ final class Core {
   static Object provider_validate_chat_request(Object profile, Object request, Object options) {
     axirCoverageMark("provider_validate_chat_request");
     Object canonical = Core.provider_normalize_profile(profile);
+    Object is_decisions = Core.eq(canonical, "openai-decisions");
+    if (Core.truthy(is_decisions)) {
+      Core.decisions_build_chat_request(request, options);
+    }
     Object is_typesafe = Core.eq(canonical, "typesafe");
     if (Core.truthy(is_typesafe)) {
       Core.typesafe_build_chat_request(request, options);
     }
     return null;
+  }
+
+  static Object decisions_response_context(Object payload, Object options) {
+    axirCoverageMark("decisions_response_context");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object context = Core.mapMerge(empty, payload);
+    Object snake = Core.get(options, "true_threshold", 0.5);
+    Object threshold = Core.get(options, "trueThreshold", snake);
+    Core.set(context, "trueThreshold", threshold);
+    return context;
   }
 
   static Object build_usage_event(Object operation, Object response, Object options, Object streaming) {
@@ -6023,6 +6672,88 @@ final class Core {
     return event;
   }
 
+  static Object decisions_normalize_chat_response(Object raw, Object context) {
+    axirCoverageMark("decisions_normalize_chat_response");
+    Object questions = Core.get(context, "questions", null);
+    Core.decisions_require_list(questions, "response request questions", 1, 9007199254740991.0);
+    raw = Core.decisions_decode_response(raw, questions);
+    Object threshold = Core.get(context, "trueThreshold", 0.5);
+    Core.decisions_require_number(threshold, "trueThreshold", 0, 1);
+    Object answers = Core.get(raw, "answers", null);
+    Object values = new java.util.LinkedHashMap<String, Object>();
+    for (Object answer : Core.iter(answers)) {
+      Object kind = Core.get(answer, "type", null);
+      Object refusal = Core.eq(kind, "refusal");
+      if (Core.truthy(refusal)) {
+        throw new RuntimeException("OpenAI Decisions refused question");
+      }
+      Object score = Core.eq(kind, "score");
+      if (Core.truthy(score)) {
+        throw new RuntimeException("OpenAI Decisions scoring requires the native client");
+      }
+      Object name = Core.get(answer, "name", null);
+      Object predicate = Core.eq(kind, "predicate");
+      Object value = Core.get(answer, "choice", null);
+      if (Core.truthy(predicate)) {
+        Object probability = Core.get(answer, "probability", null);
+        Object below = Core.lt(probability, threshold);
+        value = Core.not(below);
+      }
+      Core.set(values, name, value);
+    }
+    Object content = Core.jsonStringify(values);
+    Object result = new java.util.LinkedHashMap<String, Object>();
+    Core.set(result, "index", 0);
+    Core.set(result, "content", content);
+    Core.set(result, "finishReason", "stop");
+    Object results = new java.util.ArrayList<Object>();
+    Core.append(results, result);
+    Object usage = Core.get(raw, "usage", null);
+    Object input = Core.get(usage, "input_tokens", null);
+    Object output = Core.get(usage, "output_tokens", null);
+    Object total = Core.get(usage, "total_tokens", null);
+    Object input_details = Core.get(usage, "input_tokens_details", null);
+    Object cached = Core.get(input_details, "cached_tokens", null);
+    Object write = Core.get(input_details, "cache_write_tokens", null);
+    Object output_details = Core.get(usage, "output_tokens_details", null);
+    Object reasoning = Core.get(output_details, "reasoning_tokens", null);
+    Object tokens = new java.util.LinkedHashMap<String, Object>();
+    Object negative_cached = Core.mul(cached, -1);
+    Object negative_write = Core.mul(write, -1);
+    Object uncached = Core.add(input, negative_cached);
+    uncached = Core.add(uncached, negative_write);
+    Object negative = Core.lt(uncached, 0);
+    if (Core.truthy(negative)) {
+      uncached = 0;
+    }
+    Core.set(tokens, "promptTokens", uncached);
+    Core.set(tokens, "completionTokens", output);
+    Core.set(tokens, "totalTokens", total);
+    Object has_cached = Core.gt(cached, 0);
+    if (Core.truthy(has_cached)) {
+      Core.set(tokens, "cacheReadTokens", cached);
+    }
+    Object has_write = Core.gt(write, 0);
+    if (Core.truthy(has_write)) {
+      Core.set(tokens, "cacheCreationTokens", write);
+    }
+    Core.set(tokens, "reasoningTokens", reasoning);
+    Object model_usage = new java.util.LinkedHashMap<String, Object>();
+    Object model = Core.get(raw, "model", null);
+    Core.set(model_usage, "ai", "OpenAI Decisions");
+    Core.set(model_usage, "model", model);
+    Core.set(model_usage, "tokens", tokens);
+    Object decision_metadata = new java.util.LinkedHashMap<String, Object>();
+    Core.set(decision_metadata, "answers", answers);
+    Object metadata = new java.util.LinkedHashMap<String, Object>();
+    Core.set(metadata, "openaiDecisions", decision_metadata);
+    Object response = new java.util.LinkedHashMap<String, Object>();
+    Core.set(response, "results", results);
+    Core.set(response, "modelUsage", model_usage);
+    Core.set(response, "providerMetadata", metadata);
+    return response;
+  }
+
   static Object _openai_tool_call_to_provider_impl(Object call) {
     axirCoverageMark("_openai_tool_call_to_provider_impl");
     Object fn = Core.get(call, "function", null);
@@ -6079,6 +6810,31 @@ final class Core {
     Core.set(out, "type", "function");
     Core.set(out, "function", function);
     return out;
+  }
+
+  static Object provider_merge_headers(Object base, Object override) {
+    axirCoverageMark("provider_merge_headers");
+    Object headers = new java.util.LinkedHashMap<String, Object>();
+    Object groups = new java.util.ArrayList<Object>();
+    Core.append(groups, base);
+    Core.append(groups, override);
+    for (Object group : Core.iter(groups)) {
+      Object keys = Core.mapKeys(group);
+      for (Object key : Core.iter(keys)) {
+        Object lower = Core.stringLower(key);
+        Object existing = Core.mapKeys(headers);
+        for (Object name : Core.iter(existing)) {
+          Object existing_lower = Core.stringLower(name);
+          Object same = Core.eq(lower, existing_lower);
+          if (Core.truthy(same)) {
+            Core.mapDelete(headers, name);
+          }
+        }
+        Object value = Core.get(group, key, null);
+        Core.set(headers, key, value);
+      }
+    }
+    return headers;
   }
 
   static Object ai_merge_replay_metadata(Object previous, Object incoming) {
@@ -6985,7 +7741,7 @@ final class Core {
 
   static Object provider_profile_registry() {
     axirCoverageMark("provider_profile_registry");
-    Object registry = Core.jsonParse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"}},\"deferredCatalogProviderIds\":[]}\n");
+    Object registry = Core.jsonParse("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":\"AxAIOpenAIDecisionsClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n");
     return registry;
   }
 
@@ -7051,7 +7807,7 @@ final class Core {
 
   static Object provider_model_catalog_summary() {
     axirCoverageMark("provider_model_catalog_summary");
-    Object summary = Core.jsonParse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}");
+    Object summary = Core.jsonParse("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}");
     return summary;
   }
 
@@ -10433,6 +11189,11 @@ final class Core {
     Object provider_id = Core.provider_chat_profile(profile, model);
     Object descriptor = Core.provider_resolve_descriptor(provider_id, options);
     Object transport = Core.get(descriptor, "transport", "openai-chat");
+    Object is_decisions = Core.eq(transport, "openai-decisions");
+    if (Core.truthy(is_decisions)) {
+      Object payload = Core.decisions_build_chat_request(request, options);
+      return payload;
+    }
     Object is_typesafe = Core.eq(transport, "typesafe-system-one");
     if (Core.truthy(is_typesafe)) {
       Object payload = Core.typesafe_build_chat_request(request, options);
@@ -10942,6 +11703,11 @@ final class Core {
     Object provider_id = Core.provider_chat_profile(profile, model);
     Object descriptor = Core.provider_descriptor(provider_id);
     Object transport = Core.get(descriptor, "transport", "openai-chat");
+    Object is_decisions = Core.eq(transport, "openai-decisions");
+    if (Core.truthy(is_decisions)) {
+      Object response = Core.decisions_normalize_chat_response(raw, context);
+      return response;
+    }
     Object is_typesafe = Core.eq(transport, "typesafe-system-one");
     if (Core.truthy(is_typesafe)) {
       Object response = Core.typesafe_normalize_chat_response(raw, context);
@@ -16490,6 +17256,10 @@ final class Core {
     axirCoverageMark("provider_default_model_config");
     Object config = new java.util.LinkedHashMap<String, Object>();
     Object provider_id = Core.provider_normalize_profile(profile);
+    Object is_decisions = Core.eq(provider_id, "openai-decisions");
+    if (Core.truthy(is_decisions)) {
+      return config;
+    }
     Object is_typesafe = Core.eq(provider_id, "typesafe");
     if (Core.truthy(is_typesafe)) {
       return config;

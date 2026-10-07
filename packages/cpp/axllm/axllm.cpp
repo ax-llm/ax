@@ -6107,12 +6107,42 @@ Value Core::_prompt_messages_impl(Value system, Value user) {
   return messages;
 }
 
+Value Core::decisions_require_object(Value value, Value context) {
+  axir_coverage_mark("decisions_require_object");
+  Value valid = Core::type_is(value, Value("object"));
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("OpenAI Decisions: {} must be an object"), context);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  return value;
+}
+
 Value Core::typesafe_require_object(Value value, Value context) {
   axir_coverage_mark("typesafe_require_object");
   Value valid = Core::type_is(value, Value("object"));
   Value invalid = Core::not_(valid);
   if (Core::truthy(invalid)) {
     Value message = Core::string_format(Value("Typesafe: {} must be an object"), context);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  return value;
+}
+
+Value Core::decisions_require_string(Value value, Value context, Value nonempty) {
+  axir_coverage_mark("decisions_require_string");
+  Value valid = Core::type_is(value, Value("string"));
+  if (Core::truthy(valid)) {
+    if (Core::truthy(nonempty)) {
+      Value text = Core::string_trim(value);
+      valid = Core::ne(text, Value(""));
+    }
+  }
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("OpenAI Decisions: {} must be a string (nonempty where required)"), context);
     Value error = Core::validation_error(message);
     Core::raise_error(error);
   }
@@ -6254,6 +6284,26 @@ Value Core::_openai_build_chat_request_impl(Value request, Value options, Value 
   return payload;
 }
 
+Value Core::decisions_require_number(Value value, Value context, Value minimum, Value maximum) {
+  axir_coverage_mark("decisions_require_number");
+  Value valid = Core::type_is(value, Value("number"));
+  if (Core::truthy(valid)) {
+    valid = Core::math_is_finite(value);
+    Value low = Core::lt(value, minimum);
+    Value high = Core::gt(value, maximum);
+    Value outside = Core::or_(low, high);
+    Value within = Core::not_(outside);
+    valid = Core::and_(valid, within);
+  }
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("OpenAI Decisions: {} must be a finite number between {} and {}"), context, minimum, maximum);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  return value;
+}
+
 Value Core::typesafe_require_number(Value value, Value context, Value minimum, Value maximum) {
   axir_coverage_mark("typesafe_require_number");
   Value valid = Core::type_is(value, Value("number"));
@@ -6271,6 +6321,20 @@ Value Core::typesafe_require_number(Value value, Value context, Value minimum, V
     Value error = Core::validation_error(message);
     Core::raise_error(error);
   }
+  return value;
+}
+
+Value Core::decisions_require_list(Value value, Value context, Value minimum, Value maximum) {
+  axir_coverage_mark("decisions_require_list");
+  Value valid = Core::type_is(value, Value("list"));
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("OpenAI Decisions: {} must be an array"), context);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  Value size = Core::len(value);
+  Core::decisions_require_number(size, context, minimum, maximum);
   return value;
 }
 
@@ -6309,6 +6373,161 @@ Value Core::typesafe_validate_json(Value value) {
   Value invalid = Core::not_(valid);
   if (Core::truthy(invalid)) {
     throw AxError("runtime", "Typesafe: entries must contain JSON values");
+  }
+  return Value();
+}
+
+Value Core::decisions_require_count(Value value) {
+  axir_coverage_mark("decisions_require_count");
+  Core::decisions_require_number(value, Value("token count"), Value(0), Value(9007199254740991));
+  Value integer = Core::math_floor(value);
+  Value fractional = Core::ne(integer, value);
+  if (Core::truthy(fractional)) {
+    throw AxError("runtime", "OpenAI Decisions: token counts must be nonnegative safe integers");
+  }
+  return Value();
+}
+
+Value Core::decisions_validate_request(Value request) {
+  axir_coverage_mark("decisions_validate_request");
+  Core::decisions_require_object(request, Value("request"));
+  Value model = Core::get(request, Value("model"), Value());
+  Core::decisions_require_string(model, Value("model"), Value(true));
+  Value safety = Core::get(request, Value("safety_identifier"), Value());
+  Value has_safety = Core::is_not_none(safety);
+  if (Core::truthy(has_safety)) {
+    Core::decisions_require_string(safety, Value("safety_identifier"), Value(false));
+  }
+  Value input = Core::get(request, Value("input"), Value());
+  Value is_text = Core::type_is(input, Value("string"));
+  Value structured = Core::not_(is_text);
+  Value images = Value(0);
+  if (Core::truthy(structured)) {
+    Core::decisions_require_list(input, Value("input"), Value(1), Value(9007199254740991));
+    for (auto message : Core::iter(input)) {
+      Core::decisions_require_object(message, Value("input message"));
+      Value role = Core::get(message, Value("role"), Value());
+      Value bad_role = Core::ne(role, Value("user"));
+      Value type = Value("message");
+      Value has_type = Core::map_contains(message, Value("type"));
+      if (Core::truthy(has_type)) {
+        type = Core::get(message, Value("type"), Value());
+      }
+      Value bad_type = Core::ne(type, Value("message"));
+      Value invalid = Core::or_(bad_role, bad_type);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "OpenAI Decisions: only user messages are supported");
+      }
+      Value content = Core::get(message, Value("content"), Value());
+      Value text_content = Core::type_is(content, Value("string"));
+      Value parts_content = Core::not_(text_content);
+      if (Core::truthy(parts_content)) {
+        Core::decisions_require_list(content, Value("input content"), Value(1), Value(9007199254740991));
+        for (auto part : Core::iter(content)) {
+          Core::decisions_require_object(part, Value("input part"));
+          Value kind = Core::get(part, Value("type"), Value());
+          is_text = Core::eq(kind, Value("input_text"));
+          if (Core::truthy(is_text)) {
+            Value text = Core::get(part, Value("text"), Value());
+            Core::decisions_require_string(text, Value("input text"), Value(false));
+          }
+          if (!Core::truthy(is_text)) {
+            Value is_image = Core::eq(kind, Value("input_image"));
+            Value url = Core::get(part, Value("image_url"), Value());
+            Value url_string = Core::type_is(url, Value("string"));
+            Value valid = Core::and_(is_image, url_string);
+            if (Core::truthy(valid)) {
+              valid = Core::regex_match(Value("^data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$"), url);
+            }
+            invalid = Core::not_(valid);
+            if (Core::truthy(invalid)) {
+              throw AxError("runtime", "OpenAI Decisions: images require inline base64 data URLs; files, audio, and hosted URLs are unsupported");
+            }
+            Value detail = Core::get(part, Value("detail"), Value());
+            Value has_detail = Core::is_not_none(detail);
+            if (Core::truthy(has_detail)) {
+              Value details = Value::array();
+              Core::append(details, Value("low"));
+              Core::append(details, Value("high"));
+              Core::append(details, Value("auto"));
+              Core::append(details, Value("original"));
+              Value known = Core::contains(details, detail);
+              invalid = Core::not_(known);
+              if (Core::truthy(invalid)) {
+                throw AxError("runtime", "OpenAI Decisions: invalid image detail");
+              }
+            }
+            images = Core::add(images, Value(1));
+          }
+        }
+      }
+    }
+  }
+  Value too_many = Core::gt(images, Value(128));
+  if (Core::truthy(too_many)) {
+    throw AxError("runtime", "OpenAI Decisions: at most 128 images are supported");
+  }
+  Value questions = Core::get(request, Value("questions"), Value());
+  Core::decisions_require_list(questions, Value("questions"), Value(1), Value(9007199254740991));
+  Value names = Value::object();
+  for (auto q : Core::iter(questions)) {
+    Core::decisions_require_object(q, Value("question"));
+    Value instructions = Core::get(q, Value("instructions"), Value());
+    Core::decisions_require_string(instructions, Value("question instructions"), Value(false));
+    Value has_name = Core::map_contains(q, Value("name"));
+    if (Core::truthy(has_name)) {
+      Value name = Core::get(q, Value("name"), Value());
+      Core::decisions_require_string(name, Value("question name"), Value(false));
+      Value duplicate = Core::map_contains(names, name);
+      if (Core::truthy(duplicate)) {
+        throw AxError("runtime", "OpenAI Decisions: duplicate question name");
+      }
+      Core::set(names, name, Value(true));
+    }
+    Value kind = Core::get(q, Value("type"), Value());
+    Value predicate = Core::eq(kind, Value("predicate"));
+    Value needs_options = Core::not_(predicate);
+    if (Core::truthy(needs_options)) {
+      Value choice = Core::eq(kind, Value("choice"));
+      Value score = Core::eq(kind, Value("score"));
+      Value valid = Core::or_(choice, score);
+      Value invalid = Core::not_(valid);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "OpenAI Decisions: invalid question type or options");
+      }
+      Value options = Core::get(q, Value("choices"), Value());
+      Value maximum = Value(255);
+      if (Core::truthy(score)) {
+        options = Core::get(q, Value("levels"), Value());
+        maximum = Value(10);
+      }
+      Core::decisions_require_list(options, kind, Value(2), maximum);
+      Value values = Value::object();
+      for (auto option : Core::iter(options)) {
+        Core::decisions_require_object(option, Value("question option"));
+        Value value = Core::get(option, Value("value"), Value());
+        if (Core::truthy(score)) {
+          value = Core::get(option, Value("label"), Value());
+        }
+        Value is_boolean = Core::type_is(value, Value("boolean"));
+        Value not_boolean = Core::not_(is_boolean);
+        Value require_text = Core::or_(score, not_boolean);
+        if (Core::truthy(require_text)) {
+          Core::decisions_require_string(value, Value("option value"), Value(false));
+        }
+        Value key = Core::json_stringify(value);
+        Value duplicate = Core::map_contains(values, key);
+        if (Core::truthy(duplicate)) {
+          throw AxError("runtime", "OpenAI Decisions: duplicate option value");
+        }
+        Core::set(values, key, Value(true));
+        Value has_description = Core::map_contains(option, Value("description"));
+        if (Core::truthy(has_description)) {
+          Value description = Core::get(option, Value("description"), Value());
+          Core::decisions_require_string(description, Value("option description"), Value(false));
+        }
+      }
+    }
   }
   return Value();
 }
@@ -6743,6 +6962,148 @@ Value Core::typesafe_decode_response(Value raw, Value questions) {
       }
     }
   }
+  return raw;
+}
+
+Value Core::decisions_decode_response(Value raw, Value questions) {
+  axir_coverage_mark("decisions_decode_response");
+  Core::decisions_require_object(raw, Value("response"));
+  Value model = Core::get(raw, Value("model"), Value());
+  Core::decisions_require_string(model, Value("response model"), Value(true));
+  Value answers = Core::get(raw, Value("answers"), Value());
+  Value size = Core::len(questions);
+  Core::decisions_require_list(answers, Value("answers"), size, size);
+  Value i = Value(0);
+  for (auto q : Core::iter(questions)) {
+    Value a = Core::get(answers, i, Value());
+    i = Core::add(i, Value(1));
+    Core::decisions_require_object(a, Value("answer"));
+    Value name = Core::get(q, Value("name"), Value());
+    Value answer_name = Core::get(a, Value("name"), Value());
+    Value has_name = Core::map_contains(a, Value("name"));
+    Value missing_name = Core::not_(has_name);
+    Value wrong_name = Core::ne(name, answer_name);
+    wrong_name = Core::or_(wrong_name, missing_name);
+    if (Core::truthy(wrong_name)) {
+      throw AxError("runtime", "OpenAI Decisions: incorrect answer name or order");
+    }
+    Value kind = Core::get(q, Value("type"), Value());
+    Value answer_kind = Core::get(a, Value("type"), Value());
+    Value refusal = Core::eq(answer_kind, Value("refusal"));
+    Value not_refusal = Core::not_(refusal);
+    if (Core::truthy(not_refusal)) {
+      Value wrong_type = Core::ne(kind, answer_kind);
+      if (Core::truthy(wrong_type)) {
+        throw AxError("runtime", "OpenAI Decisions: incorrect answer type");
+      }
+      Value predicate = Core::eq(kind, Value("predicate"));
+      if (Core::truthy(predicate)) {
+        Value probability = Core::get(a, Value("probability"), Value());
+        Core::decisions_require_number(probability, Value("predicate probability"), Value(0), Value(1));
+      }
+      if (!Core::truthy(predicate)) {
+        Value confidence = Core::get(a, Value("confidence"), Value());
+        Core::decisions_require_number(confidence, Value("confidence"), Value(0), Value(1));
+        Value score = Core::eq(kind, Value("score"));
+        Value options = Core::get(q, Value("choices"), Value());
+        if (Core::truthy(score)) {
+          options = Core::get(q, Value("levels"), Value());
+        }
+        size = Core::len(options);
+        Value probabilities = Core::get(a, Value("probabilities"), Value());
+        Core::decisions_require_list(probabilities, Value("probabilities"), size, size);
+        Value seen = Value::object();
+        Value total = Value(0);
+        for (auto p : Core::iter(probabilities)) {
+          Core::decisions_require_object(p, Value("probability"));
+          Value value = Core::get(p, Value("value"), Value());
+          Value key = Core::json_stringify(value);
+          Value duplicate = Core::map_contains(seen, key);
+          if (Core::truthy(duplicate)) {
+            throw AxError("runtime", "OpenAI Decisions: unknown or duplicate probability value");
+          }
+          Core::set(seen, key, Value(true));
+          Value found = Value(false);
+          if (Core::truthy(score)) {
+            Value upper = Core::add(size, Value(-1));
+            Core::decisions_require_number(value, Value("score index"), Value(0), upper);
+            Value integer = Core::math_floor(value);
+            found = Core::eq(value, integer);
+            Value option = Core::get(options, integer, Value());
+            Value label = Core::get(option, Value("label"), Value());
+            Value actual_label = Core::get(p, Value("label"), Value());
+            Value wrong_label = Core::ne(label, actual_label);
+            if (Core::truthy(wrong_label)) {
+              throw AxError("runtime", "OpenAI Decisions: incorrect score label");
+            }
+          }
+          if (!Core::truthy(score)) {
+            for (auto option : Core::iter(options)) {
+              Value expected = Core::get(option, Value("value"), Value());
+              Value expected_key = Core::json_stringify(expected);
+              Value match = Core::eq(expected_key, key);
+              found = Core::or_(found, match);
+            }
+          }
+          Value unknown = Core::not_(found);
+          if (Core::truthy(unknown)) {
+            throw AxError("runtime", "OpenAI Decisions: unknown or duplicate probability value");
+          }
+          Value probability = Core::get(p, Value("probability"), Value());
+          Core::decisions_require_number(probability, Value("distribution probability"), Value(0), Value(1));
+          total = Core::add(total, probability);
+        }
+        Value difference = Core::add(total, Value(-1));
+        difference = Core::math_abs(difference);
+        Value epsilon = Core::mul(Value(0.0000000000000002220446049250313), size);
+        Value tolerance = Core::add(Value(0.01), epsilon);
+        Value invalid_total = Core::gt(difference, tolerance);
+        if (Core::truthy(invalid_total)) {
+          throw AxError("runtime", "OpenAI Decisions: invalid probability distribution");
+        }
+        if (Core::truthy(score)) {
+          Value position = Core::get(a, Value("score"), Value());
+          Value upper = Core::add(size, Value(-1));
+          Core::decisions_require_number(position, Value("score"), Value(0), upper);
+        }
+        if (!Core::truthy(score)) {
+          Value selected = Core::get(a, Value("choice"), Value());
+          Value selected_key = Core::json_stringify(selected);
+          Value found = Value(false);
+          for (auto option : Core::iter(options)) {
+            Value value = Core::get(option, Value("value"), Value());
+            Value key = Core::json_stringify(value);
+            Value match = Core::eq(key, selected_key);
+            found = Core::or_(found, match);
+          }
+          Value unknown = Core::not_(found);
+          if (Core::truthy(unknown)) {
+            throw AxError("runtime", "OpenAI Decisions: unknown choice");
+          }
+        }
+      }
+    }
+  }
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Core::decisions_require_object(usage, Value("usage"));
+  Value keys = Value::array();
+  Core::append(keys, Value("input_tokens"));
+  Core::append(keys, Value("output_tokens"));
+  Core::append(keys, Value("total_tokens"));
+  for (auto key : Core::iter(keys)) {
+    Value value = Core::get(usage, key, Value());
+    Core::decisions_require_count(value);
+  }
+  Value input = Core::get(usage, Value("input_tokens_details"), Value());
+  Core::decisions_require_object(input, Value("input token details"));
+  Value cached = Core::get(input, Value("cached_tokens"), Value());
+  Core::decisions_require_count(cached);
+  Value write = Core::get(input, Value("cache_write_tokens"), Value());
+  Core::decisions_require_count(write);
+  Value output = Core::get(usage, Value("output_tokens_details"), Value());
+  Core::decisions_require_object(output, Value("output token details"));
+  Value reasoning = Core::get(output, Value("reasoning_tokens"), Value());
+  Core::decisions_require_count(reasoning);
   return raw;
 }
 
@@ -7241,6 +7602,280 @@ Value Core::validate_chat_request(Value request) {
     }
   }
   return Value();
+}
+
+Value Core::decisions_build_chat_request(Value request, Value options) {
+  axir_coverage_mark("decisions_build_chat_request");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
+  Core::decisions_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
+  Value functions = Core::get(request, Value("functions"), empty_list);
+  Value function_call_snake = Core::get(request, Value("function_call"), Value("none"));
+  Value function_call = Core::get(request, Value("functionCall"), function_call_snake);
+  Value has_functions = Core::truthy_value(functions);
+  Value has_call = Core::ne(function_call, Value("none"));
+  Value has_call_value = Core::truthy_value(function_call);
+  has_call = Core::and_(has_call, has_call_value);
+  Value tools = Core::or_(has_functions, has_call);
+  if (Core::truthy(tools)) {
+    throw AxError("runtime", "OpenAI Decisions does not support tools; use a generative provider for tool execution");
+  }
+  Value config_snake = Core::get(request, Value("model_config"), empty_map);
+  Value config = Core::get(request, Value("modelConfig"), config_snake);
+  Value controls = Core::map_keys(config);
+  for (auto control : Core::iter(controls)) {
+    Value value = Core::get(config, control, Value());
+    Value present = Core::is_not_none(value);
+    if (Core::truthy(present)) {
+      Value is_stream = Core::eq(control, Value("stream"));
+      Value is_n = Core::eq(control, Value("n"));
+      Value one = Core::eq(value, Value(1));
+      Value numeric = Core::type_is(value, Value("number"));
+      one = Core::and_(one, numeric);
+      Value allowed_n = Core::and_(is_n, one);
+      Value allowed = Core::or_(is_stream, allowed_n);
+      Value unsupported = Core::not_(allowed);
+      if (Core::truthy(unsupported)) {
+        Value message = Core::string_format(Value("OpenAI Decisions does not support generation control {}"), control);
+        Value error = Core::validation_error(message);
+        Core::raise_error(error);
+      }
+    }
+  }
+  Value format_snake = Core::get(request, Value("response_format"), Value());
+  Value format = Core::get(request, Value("responseFormat"), format_snake);
+  Value format_type = Core::get(format, Value("type"), Value());
+  Value wrong_format = Core::ne(format_type, Value("json_schema"));
+  if (Core::truthy(wrong_format)) {
+    throw AxError("runtime", "OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs");
+  }
+  Value wrapper = Core::get(format, Value("schema"), Value());
+  Core::decisions_require_object(wrapper, Value("responseFormat.schema"));
+  Value schema = Core::get(wrapper, Value("schema"), Value());
+  Core::decisions_require_object(schema, Value("output schema"));
+  Value root_type = Core::get(schema, Value("type"), Value());
+  Value flat = Core::eq(root_type, Value("object"));
+  Value forbidden = Value::array();
+  Core::append(forbidden, Value("anyOf"));
+  Core::append(forbidden, Value("oneOf"));
+  Core::append(forbidden, Value("allOf"));
+  Core::append(forbidden, Value("$ref"));
+  for (auto key : Core::iter(forbidden)) {
+    Value value = Core::get(schema, key, Value());
+    Value has_value = Core::truthy_value(value);
+    if (Core::truthy(has_value)) {
+      flat = Value(false);
+    }
+  }
+  Value not_flat = Core::not_(flat);
+  if (Core::truthy(not_flat)) {
+    throw AxError("runtime", "OpenAI Decisions requires a flat object output schema");
+  }
+  Value properties = Core::get(schema, Value("properties"), Value());
+  Core::decisions_require_object(properties, Value("output properties"));
+  Value required = Core::get(schema, Value("required"), empty_list);
+  Value annotations = Core::get(format, Value("fieldDescriptions"), empty_map);
+  Value questions = Value::array();
+  Value names = Core::map_keys(properties);
+  Core::append(forbidden, Value("const"));
+  for (auto name : Core::iter(names)) {
+    Value field = Core::get(properties, name, Value());
+    Core::decisions_require_object(field, name);
+    Value required_list = Core::type_is(required, Value("list"));
+    Value supported = Core::contains(required, name);
+    supported = Core::and_(supported, required_list);
+    for (auto key : Core::iter(forbidden)) {
+      Value has_key = Core::map_contains(field, key);
+      if (Core::truthy(has_key)) {
+        supported = Value(false);
+      }
+    }
+    Value type_name = Core::get(field, Value("type"), Value());
+    Value class_options = Core::get(field, Value("enum"), Value());
+    Value is_boolean = Core::eq(type_name, Value("boolean"));
+    Value has_enum = Core::is_not_none(class_options);
+    Value no_enum = Core::not_(has_enum);
+    is_boolean = Core::and_(is_boolean, no_enum);
+    Value is_string = Core::eq(type_name, Value("string"));
+    Value is_enum = Core::type_is(class_options, Value("list"));
+    Value is_class = Core::and_(is_string, is_enum);
+    Value supported_type = Core::or_(is_boolean, is_class);
+    supported = Core::and_(supported, supported_type);
+    Value unsupported = Core::not_(supported);
+    if (Core::truthy(unsupported)) {
+      Value message = Core::string_format(Value("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs"), name);
+      Value error = Core::validation_error(message);
+      Core::raise_error(error);
+    }
+    Value annotation = Core::get(annotations, name, Value());
+    Value description = Core::get(field, Value("description"), Value());
+    Value has_annotation = Core::is_not_none(annotation);
+    Value descriptions = Value::object();
+    if (Core::truthy(has_annotation)) {
+      Core::decisions_require_object(annotation, name);
+      description = Core::get(annotation, Value("description"), Value());
+      Value has_description = Core::is_not_none(description);
+      if (Core::truthy(has_description)) {
+        Core::decisions_require_string(description, name, Value(false));
+      }
+      descriptions = Core::get(annotation, Value("valueDescriptions"), Value());
+      Core::decisions_require_object(descriptions, name);
+      Value type_attrs = Value::object();
+      Value annotation_type = Value("boolean");
+      if (Core::truthy(is_class)) {
+        annotation_type = Value("class");
+      }
+      Core::set(type_attrs, Value("name"), annotation_type);
+      Core::set(type_attrs, Value("options"), class_options);
+      Core::set(type_attrs, Value("value_descriptions"), descriptions);
+      Value typ = Core::record_new(Value("FieldType"), type_attrs);
+      Core::_signature_validate_value_descriptions_impl(typ, name);
+    }
+    Value instructions = Core::string_format(Value("Evaluate the output field {}."), name);
+    Value is_description_string = Core::type_is(description, Value("string"));
+    Value has_description = Core::truthy_value(description);
+    Value use_description = Core::and_(is_description_string, has_description);
+    if (Core::truthy(use_description)) {
+      instructions = Core::string_format(Value("{}: {}"), name, description);
+    }
+    Value question = Value::object();
+    Core::set(question, Value("instructions"), instructions);
+    if (Core::truthy(is_boolean)) {
+      Core::set(question, Value("type"), Value("predicate"));
+      if (Core::truthy(has_annotation)) {
+        Value lines = Value::array();
+        Core::append(lines, instructions);
+        Value description_keys = Core::map_keys(descriptions);
+        for (auto key : Core::iter(description_keys)) {
+          Value value = Core::get(descriptions, key, Value());
+          Value line = Core::string_format(Value("{}: {}"), key, value);
+          Core::append(lines, line);
+        }
+        instructions = Core::string_join(Value("\n"), lines);
+        Core::set(question, Value("instructions"), instructions);
+      }
+    }
+    if (!Core::truthy(is_boolean)) {
+      Core::set(question, Value("type"), Value("choice"));
+      Value criteria = Value::array();
+      Value seen = Value::object();
+      for (auto label : Core::iter(class_options)) {
+        Core::decisions_require_string(label, name, Value(false));
+        Value duplicate = Core::map_contains(seen, label);
+        if (Core::truthy(duplicate)) {
+          throw AxError("runtime", "OpenAI Decisions: Choice labels must be unique");
+        }
+        description = Core::get(descriptions, label, Value());
+        Value option = Value::object();
+        Core::set(option, Value("value"), label);
+        Value described = Core::map_contains(descriptions, label);
+        if (Core::truthy(described)) {
+          Core::set(option, Value("description"), description);
+        }
+        Core::set(seen, label, Value(true));
+        Core::append(criteria, option);
+      }
+      Core::set(question, Value("choices"), criteria);
+    }
+    Core::set(question, Value("name"), name);
+    Core::append(questions, question);
+  }
+  Value prompt_snake = Core::get(request, Value("chat_prompt"), empty_list);
+  Value prompt = Core::get(request, Value("chatPrompt"), prompt_snake);
+  Value parts = Value::array();
+  for (auto message : Core::iter(prompt)) {
+    Value role = Core::get(message, Value("role"), Value());
+    Value content = Core::get(message, Value("content"), Value(""));
+    Value tool = Core::eq(role, Value("function"));
+    Value tool_alt = Core::eq(role, Value("tool"));
+    tool = Core::or_(tool, tool_alt);
+    Value calls = Core::get(message, Value("functionCalls"), Value());
+    Value calls_snake = Core::get(message, Value("function_calls"), Value());
+    calls = Core::coalesce(calls, calls_snake);
+    calls = Core::truthy_value(calls);
+    Value audio = Core::get(message, Value("audio"), Value());
+    audio = Core::truthy_value(audio);
+    Value images = Core::get(message, Value("images"), Value());
+    images = Core::truthy_value(images);
+    Value invalid = Core::or_(tool, calls);
+    invalid = Core::or_(invalid, audio);
+    invalid = Core::or_(invalid, images);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "OpenAI Decisions does not support tool or media history");
+    }
+    Value label = Core::string_format(Value("{}:"), role);
+    Value part = Value::object();
+    Core::set(part, Value("type"), Value("input_text"));
+    Core::set(part, Value("text"), label);
+    Core::append(parts, part);
+    Value text = Core::type_is(content, Value("string"));
+    if (Core::truthy(text)) {
+      part = Value::object();
+      Core::set(part, Value("type"), Value("input_text"));
+      Core::set(part, Value("text"), content);
+      Core::append(parts, part);
+    }
+    if (!Core::truthy(text)) {
+      Core::decisions_require_list(content, Value("message content"), Value(0), Value(9007199254740991));
+      Value user = Core::eq(role, Value("user"));
+      if (Core::truthy(user)) {
+        for (auto raw_part : Core::iter(content)) {
+          Value kind = Core::get(raw_part, Value("type"), Value());
+          text = Core::eq(kind, Value("text"));
+          part = Value::object();
+          if (Core::truthy(text)) {
+            Value value = Core::get(raw_part, Value("text"), Value());
+            Core::set(part, Value("type"), Value("input_text"));
+            Core::set(part, Value("text"), value);
+          }
+          if (!Core::truthy(text)) {
+            Value image = Core::eq(kind, Value("image"));
+            invalid = Core::not_(image);
+            if (Core::truthy(invalid)) {
+              throw AxError("runtime", "OpenAI Decisions supports text and inline images only");
+            }
+            image = Core::get(raw_part, Value("image"), Value());
+            Core::decisions_require_string(image, Value("image"), Value(false));
+            Value data = Core::string_starts_with(image, Value("data:"));
+            Value not_data = Core::not_(data);
+            if (Core::truthy(not_data)) {
+              Value mime_snake = Core::get(raw_part, Value("mime_type"), Value());
+              Value mime = Core::get(raw_part, Value("mimeType"), mime_snake);
+              image = Core::string_format(Value("data:{};base64,{}"), mime, image);
+            }
+            Core::set(part, Value("type"), Value("input_image"));
+            Core::set(part, Value("image_url"), image);
+            Value detail = Core::get(raw_part, Value("details"), Value());
+            Value has_detail = Core::truthy_value(detail);
+            if (Core::truthy(has_detail)) {
+              Core::set(part, Value("detail"), detail);
+            }
+          }
+          Core::append(parts, part);
+        }
+      }
+    }
+  }
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("user"));
+  Core::set(message, Value("content"), parts);
+  Value input = Value::array();
+  Core::append(input, message);
+  Value payload = Value::object();
+  Value model = Core::get(request, Value("model"), Value("gpt-6-luna"));
+  Core::set(payload, Value("model"), model);
+  Core::set(payload, Value("input"), input);
+  Core::set(payload, Value("questions"), questions);
+  Value safety_snake = Core::get(options, Value("safety_identifier"), Value());
+  Value safety = Core::get(options, Value("safetyIdentifier"), safety_snake);
+  Value has_safety = Core::truthy_value(safety);
+  if (Core::truthy(has_safety)) {
+    Core::set(payload, Value("safety_identifier"), safety);
+  }
+  Core::decisions_validate_request(payload);
+  return payload;
 }
 
 Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
@@ -7745,11 +8380,25 @@ Value Core::merge_usage_context(Value defaults, Value overrides) {
 Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
   axir_coverage_mark("provider_validate_chat_request");
   Value canonical = Core::provider_normalize_profile(profile);
+  Value is_decisions = Core::eq(canonical, Value("openai-decisions"));
+  if (Core::truthy(is_decisions)) {
+    Core::decisions_build_chat_request(request, options);
+  }
   Value is_typesafe = Core::eq(canonical, Value("typesafe"));
   if (Core::truthy(is_typesafe)) {
     Core::typesafe_build_chat_request(request, options);
   }
   return Value();
+}
+
+Value Core::decisions_response_context(Value payload, Value options) {
+  axir_coverage_mark("decisions_response_context");
+  Value empty = Value::object();
+  Value context = Core::map_merge(empty, payload);
+  Value snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), snake);
+  Core::set(context, Value("trueThreshold"), threshold);
+  return context;
 }
 
 Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
@@ -7818,6 +8467,88 @@ Value Core::build_usage_event(Value operation, Value response, Value options, Va
   return event;
 }
 
+Value Core::decisions_normalize_chat_response(Value raw, Value context) {
+  axir_coverage_mark("decisions_normalize_chat_response");
+  Value questions = Core::get(context, Value("questions"), Value());
+  Core::decisions_require_list(questions, Value("response request questions"), Value(1), Value(9007199254740991));
+  raw = Core::decisions_decode_response(raw, questions);
+  Value threshold = Core::get(context, Value("trueThreshold"), Value(0.5));
+  Core::decisions_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
+  Value answers = Core::get(raw, Value("answers"), Value());
+  Value values = Value::object();
+  for (auto answer : Core::iter(answers)) {
+    Value kind = Core::get(answer, Value("type"), Value());
+    Value refusal = Core::eq(kind, Value("refusal"));
+    if (Core::truthy(refusal)) {
+      throw AxError("runtime", "OpenAI Decisions refused question");
+    }
+    Value score = Core::eq(kind, Value("score"));
+    if (Core::truthy(score)) {
+      throw AxError("runtime", "OpenAI Decisions scoring requires the native client");
+    }
+    Value name = Core::get(answer, Value("name"), Value());
+    Value predicate = Core::eq(kind, Value("predicate"));
+    Value value = Core::get(answer, Value("choice"), Value());
+    if (Core::truthy(predicate)) {
+      Value probability = Core::get(answer, Value("probability"), Value());
+      Value below = Core::lt(probability, threshold);
+      value = Core::not_(below);
+    }
+    Core::set(values, name, value);
+  }
+  Value content = Core::json_stringify(values);
+  Value result = Value::object();
+  Core::set(result, Value("index"), Value(0));
+  Core::set(result, Value("content"), content);
+  Core::set(result, Value("finishReason"), Value("stop"));
+  Value results = Value::array();
+  Core::append(results, result);
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Value input = Core::get(usage, Value("input_tokens"), Value());
+  Value output = Core::get(usage, Value("output_tokens"), Value());
+  Value total = Core::get(usage, Value("total_tokens"), Value());
+  Value input_details = Core::get(usage, Value("input_tokens_details"), Value());
+  Value cached = Core::get(input_details, Value("cached_tokens"), Value());
+  Value write = Core::get(input_details, Value("cache_write_tokens"), Value());
+  Value output_details = Core::get(usage, Value("output_tokens_details"), Value());
+  Value reasoning = Core::get(output_details, Value("reasoning_tokens"), Value());
+  Value tokens = Value::object();
+  Value negative_cached = Core::mul(cached, Value(-1));
+  Value negative_write = Core::mul(write, Value(-1));
+  Value uncached = Core::add(input, negative_cached);
+  uncached = Core::add(uncached, negative_write);
+  Value negative = Core::lt(uncached, Value(0));
+  if (Core::truthy(negative)) {
+    uncached = Value(0);
+  }
+  Core::set(tokens, Value("promptTokens"), uncached);
+  Core::set(tokens, Value("completionTokens"), output);
+  Core::set(tokens, Value("totalTokens"), total);
+  Value has_cached = Core::gt(cached, Value(0));
+  if (Core::truthy(has_cached)) {
+    Core::set(tokens, Value("cacheReadTokens"), cached);
+  }
+  Value has_write = Core::gt(write, Value(0));
+  if (Core::truthy(has_write)) {
+    Core::set(tokens, Value("cacheCreationTokens"), write);
+  }
+  Core::set(tokens, Value("reasoningTokens"), reasoning);
+  Value model_usage = Value::object();
+  Value model = Core::get(raw, Value("model"), Value());
+  Core::set(model_usage, Value("ai"), Value("OpenAI Decisions"));
+  Core::set(model_usage, Value("model"), model);
+  Core::set(model_usage, Value("tokens"), tokens);
+  Value decision_metadata = Value::object();
+  Core::set(decision_metadata, Value("answers"), answers);
+  Value metadata = Value::object();
+  Core::set(metadata, Value("openaiDecisions"), decision_metadata);
+  Value response = Value::object();
+  Core::set(response, Value("results"), results);
+  Core::set(response, Value("modelUsage"), model_usage);
+  Core::set(response, Value("providerMetadata"), metadata);
+  return response;
+}
+
 Value Core::_openai_tool_call_to_provider_impl(Value call) {
   axir_coverage_mark("_openai_tool_call_to_provider_impl");
   Value fn = Core::get(call, Value("function"), Value());
@@ -7874,6 +8605,31 @@ Value Core::_openai_tool_spec_impl(Value fn) {
   Core::set(out, Value("type"), Value("function"));
   Core::set(out, Value("function"), function);
   return out;
+}
+
+Value Core::provider_merge_headers(Value base, Value override) {
+  axir_coverage_mark("provider_merge_headers");
+  Value headers = Value::object();
+  Value groups = Value::array();
+  Core::append(groups, base);
+  Core::append(groups, override);
+  for (auto group : Core::iter(groups)) {
+    Value keys = Core::map_keys(group);
+    for (auto key : Core::iter(keys)) {
+      Value lower = Core::string_lower(key);
+      Value existing = Core::map_keys(headers);
+      for (auto name : Core::iter(existing)) {
+        Value existing_lower = Core::string_lower(name);
+        Value same = Core::eq(lower, existing_lower);
+        if (Core::truthy(same)) {
+          Core::map_delete(headers, name);
+        }
+      }
+      Value value = Core::get(group, key, Value());
+      Core::set(headers, key, value);
+    }
+  }
+  return headers;
 }
 
 Value Core::ai_merge_replay_metadata(Value previous, Value incoming) {
@@ -8781,7 +9537,7 @@ Value Core::provider_normalize_profile(Value profile) {
 
 Value Core::provider_profile_registry() {
   axir_coverage_mark("provider_profile_registry");
-  Value registry = Core::json_parse(Value("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"}},\"deferredCatalogProviderIds\":[]}\n"));
+  Value registry = Core::json_parse(Value("{\"registryVersion\":\"provider-profiles-v3\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta\":{\"id\":\"meta\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-chat\":{\"id\":\"meta-chat\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"meta-messages\":{\"id\":\"meta-messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"orcarouter\":{\"id\":\"orcarouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"typesafe\":{\"id\":\"typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"generatedClient\":\"AxAITypesafeClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-decisions\":{\"id\":\"openai-decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"generatedClient\":\"AxAIOpenAIDecisionsClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n"));
   return registry;
 }
 
@@ -8847,7 +9603,7 @@ Value Core::_ai_append_thought_deltas_impl(Value existing, Value incoming) {
 
 Value Core::provider_model_catalog_summary() {
   axir_coverage_mark("provider_model_catalog_summary");
-  Value summary = Core::json_parse(Value("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"));
+  Value summary = Core::json_parse(Value("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"grok\",\"reka\",\"anthropic\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"));
   return summary;
 }
 
@@ -12190,6 +12946,11 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
   Value provider_id = Core::provider_chat_profile(profile, model);
   Value descriptor = Core::provider_resolve_descriptor(provider_id, options);
   Value transport = Core::get(descriptor, Value("transport"), Value("openai-chat"));
+  Value is_decisions = Core::eq(transport, Value("openai-decisions"));
+  if (Core::truthy(is_decisions)) {
+    Value payload = Core::decisions_build_chat_request(request, options);
+    return payload;
+  }
   Value is_typesafe = Core::eq(transport, Value("typesafe-system-one"));
   if (Core::truthy(is_typesafe)) {
     Value payload = Core::typesafe_build_chat_request(request, options);
@@ -12699,6 +13460,11 @@ Value Core::provider_normalize_chat_response(Value profile, Value raw, Value ai_
   Value provider_id = Core::provider_chat_profile(profile, model);
   Value descriptor = Core::provider_descriptor(provider_id);
   Value transport = Core::get(descriptor, Value("transport"), Value("openai-chat"));
+  Value is_decisions = Core::eq(transport, Value("openai-decisions"));
+  if (Core::truthy(is_decisions)) {
+    Value response = Core::decisions_normalize_chat_response(raw, context);
+    return response;
+  }
   Value is_typesafe = Core::eq(transport, Value("typesafe-system-one"));
   if (Core::truthy(is_typesafe)) {
     Value response = Core::typesafe_normalize_chat_response(raw, context);
@@ -18248,6 +19014,10 @@ Value Core::provider_default_model_config(Value profile) {
   axir_coverage_mark("provider_default_model_config");
   Value config = Value::object();
   Value provider_id = Core::provider_normalize_profile(profile);
+  Value is_decisions = Core::eq(provider_id, Value("openai-decisions"));
+  if (Core::truthy(is_decisions)) {
+    return config;
+  }
   Value is_typesafe = Core::eq(provider_id, Value("typesafe"));
   if (Core::truthy(is_typesafe)) {
     return config;
@@ -51986,6 +52756,9 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
   // provider's sampling defaults (as its TS class starts from) under them,
   // after dropping the explicit ones the model rejects.
   model_config_ = Core::map_merge(Value::object(), Core::get(options, "model_config", Value::object()));
+  if (profile_ == "openai-decisions") {
+    Core::decisions_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
+  }
   if (profile_ == "typesafe") {
     Core::typesafe_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
   }
@@ -52291,7 +53064,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
@@ -52953,9 +53726,8 @@ Value OpenAICompatibleClient::headers() const {
   if (str(Core::get(descriptor_, "auth")) == "bearer") Core::set(headers, "Authorization", "Bearer " + api_key_);
   if (str(Core::get(descriptor_, "auth")) == "anthropic_key" || str(Core::get(descriptor_, "auth")) == "x-api-key") Core::set(headers, "x-api-key", api_key_);
   if (str(Core::get(descriptor_, "auth")) == "api_key_header") Core::set(headers, str(Core::get(descriptor_, "apiKeyHeader", "api-key")), api_key_);
-  for (const auto& entry : object_ref(Core::get(descriptor_, "headers", Value::object()))) {
-    Core::set(headers, entry.first, str(entry.second));
-  }
+  headers = Core::provider_merge_headers(headers, Core::get(descriptor_, "headers", Value::object()));
+  headers = Core::provider_merge_headers(headers, Core::get(options_, "headers", Value::object()));
   return headers;
 }
 
@@ -53063,9 +53835,9 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   if (!stream && str(Core::get(descriptor_, "transport")) == "openai-responses") operation = "responses";
   if (profile_ == "typesafe" && endpoint == "/v1/models") operation = "models";
   if (credential_provider_) {
-    for (const auto& [key, value] : credential_provider_(AxCredentialRequest{profile_, operation, method, request_url})) {
-      Core::set(resolved_headers, key, value);
-    }
+    Value fresh = Value::object();
+    for (const auto& [key, value] : credential_provider_(AxCredentialRequest{profile_, operation, method, request_url})) Core::set(fresh, key, value);
+    resolved_headers = Core::provider_merge_headers(resolved_headers, fresh);
   }
   Core::set(call, "headers", resolved_headers);
   if (method != "GET" && method != "HEAD") Core::set(call, body_key.empty() ? "json" : body_key, payload);
@@ -56606,6 +57378,37 @@ Value TypesafeResponse::to_value() const {
   Core::set(result,"answers",values);return result;
 }
 
+AxAIOpenAIDecisionsClient::AxAIOpenAIDecisionsClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
+    : options_(parse_json(stringify(options))), transport_(transport), credential_provider_(std::move(credential_provider)) {
+  OpenAICompatibleClient client("openai-decisions", "OpenAI Decisions", options_, transport_, "gpt-6-luna", "", credential_provider_);
+}
+Value AxAIOpenAIDecisionsClient::create(Value request, Value options, const AxCancellationToken* cancellation) {
+  Value payload = parse_json(stringify(request));
+  if (Core::get(payload, "model").is_null()) Core::set(payload, "model", Core::get(options_, "model", "gpt-6-luna"));
+  Core::decisions_validate_request(payload);
+  Value resolved = Core::provider_normalize_call_options(options);
+  for (const auto& entry : object_ref(options_)) if (Core::get(resolved, entry.first).is_null()) Core::set(resolved, entry.first, entry.second);
+  OpenAICompatibleClient client("openai-decisions", "OpenAI Decisions", resolved, transport_, "gpt-6-luna", "", credential_provider_);
+  const AxCancellationToken* parent = current_cancellation_token();
+  AxCancellationToken combined;
+  std::vector<AxCancellationToken::Subscription> subscriptions;
+  const AxCancellationToken* active = cancellation ? cancellation : parent;
+  if (parent && cancellation && parent != cancellation) {
+    auto inherited = *parent;
+    auto per_call = *cancellation;
+    subscriptions.push_back(parent->subscribe([combined, inherited]() mutable { combined.cancel(inherited.reason()); }));
+    subscriptions.push_back(cancellation->subscribe([combined, per_call]() mutable { combined.cancel(per_call.reason()); }));
+    active = &combined;
+  }
+  AxCancellationScope call_scope(active);
+  if (active) active->throw_if_cancelled();
+  Value raw = client.request_json_retried("/decisions", payload, "POST", resolved);
+  return Core::decisions_decode_response(raw, Core::get(payload, "questions"));
+}
+AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport, AxCredentialProvider credential_provider) {
+  return AxAIOpenAIDecisionsClient(std::move(options), transport, std::move(credential_provider));
+}
+
 AxAITypesafeClient::AxAITypesafeClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
     : options_(std::move(options)), transport_(transport), credential_provider_(std::move(credential_provider)) {
   if (Core::get(options_, "api_key").is_null() && Core::get(options_, "apiKey").is_null()) Core::set(options_, "api_key", env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")));
@@ -56653,7 +57456,7 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   if (transport == "anthropic-messages") {
     return std::make_shared<AnthropicClient>(canonical, std::move(options));
   }
-  if (transport == "openai-chat" || transport == "typesafe-system-one") {
+  if (transport == "openai-chat" || transport == "typesafe-system-one" || transport == "openai-decisions") {
     return std::make_shared<OpenAICompatibleClient>(canonical,
         canonical, std::move(options), nullptr,
         display(Core::get(descriptor, "defaultModel", "")),

@@ -1,0 +1,100 @@
+{
+  "expected_error_contains": "generation control",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "gpt-6-luna",
+  "name": "decisions-adapter-sampling-control",
+  "provider": "openai-decisions",
+  "request": {
+    "chatPrompt": [
+      {
+        "role": "system",
+        "content": "Classify the supplied evidence."
+      },
+      {
+        "role": "user",
+        "content": "Checkout is broken."
+      }
+    ],
+    "responseFormat": {
+      "type": "json_schema",
+      "schema": {
+        "name": "output",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "urgent": {
+              "type": "boolean",
+              "description": "Urgent?"
+            },
+            "team": {
+              "type": "string",
+              "enum": ["support", "billing"]
+            }
+          },
+          "required": ["urgent", "team"],
+          "additionalProperties": false
+        }
+      },
+      "fieldDescriptions": {
+        "urgent": {
+          "description": "Urgent?",
+          "valueDescriptions": {
+            "true": "Blocked",
+            "false": "Routine"
+          }
+        },
+        "team": {
+          "description": "Route the issue.",
+          "valueDescriptions": {
+            "billing": "Invoice issues"
+          }
+        }
+      }
+    },
+    "modelConfig": {
+      "temperature": 0.3
+    }
+  },
+  "service_options": {},
+  "transport_responses": [
+    {
+      "answers": [
+        {
+          "name": "urgent",
+          "probability": 0.5,
+          "type": "predicate"
+        },
+        {
+          "choice": "support",
+          "confidence": 0.8,
+          "name": "team",
+          "probabilities": [
+            {
+              "probability": 0.8,
+              "value": "support"
+            },
+            {
+              "probability": 0.2,
+              "value": "billing"
+            }
+          ],
+          "type": "choice"
+        }
+      ],
+      "model": "gpt-6-luna",
+      "usage": {
+        "input_tokens": 20,
+        "input_tokens_details": {
+          "cache_write_tokens": 2,
+          "cached_tokens": 4
+        },
+        "output_tokens": 3,
+        "output_tokens_details": {
+          "reasoning_tokens": 1
+        },
+        "total_tokens": 23
+      }
+    }
+  ]
+}

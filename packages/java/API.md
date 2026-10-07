@@ -144,6 +144,26 @@ Create a provider client from a named deployment profile and options.
 AxAIService client = Ax.ai("openai", Map.of("apiKey", System.getenv("OPENAI_API_KEY")));
 ```
 
+### `Ax.openaiDecisions`
+
+Create the native OpenAI Decisions client for ordered predicate, choice and score questions. Default model: gpt-6-luna.
+
+- Canonical Ax concept: `openai_decisions`
+- Kind: `function`
+- Form: `Ax.openaiDecisions`
+- Returns: `AxAIOpenAIDecisionsClient`
+- Important options: API key or credential provider, inline images, timeout, retry, cancellation
+
+### `AxAIOpenAIDecisionsClient`
+
+Native create requests preserve ordered answers, refusals, distributions, fractional scores and full usage. Signature adapters accept required boolean/class fields.
+
+- Canonical Ax concept: `AxAIOpenAIDecisionsClient`
+- Kind: `type`
+- Form: `AxAIOpenAIDecisionsClient`
+- Returns: `native Decisions response JSON`
+- Important options: create / Create, question names, boolean or string choices, safety_identifier
+
 ### `Ax.typesafe`
 
 Create the native Typesafe/Jev client separately from ordinary AI services. Default model: jev-latest.

@@ -5083,6 +5083,9 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
   // provider's sampling defaults (as its TS class starts from) under them,
   // after dropping the explicit ones the model rejects.
   model_config_ = Core::map_merge(Value::object(), Core::get(options, "model_config", Value::object()));
+  if (profile_ == "openai-decisions") {
+    Core::decisions_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
+  }
   if (profile_ == "typesafe") {
     Core::typesafe_require_number(Core::get(options_, "trueThreshold", Core::get(options_, "true_threshold", 0.5)), "trueThreshold", 0, 1);
   }
@@ -5388,7 +5391,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
@@ -6050,9 +6053,8 @@ Value OpenAICompatibleClient::headers() const {
   if (str(Core::get(descriptor_, "auth")) == "bearer") Core::set(headers, "Authorization", "Bearer " + api_key_);
   if (str(Core::get(descriptor_, "auth")) == "anthropic_key" || str(Core::get(descriptor_, "auth")) == "x-api-key") Core::set(headers, "x-api-key", api_key_);
   if (str(Core::get(descriptor_, "auth")) == "api_key_header") Core::set(headers, str(Core::get(descriptor_, "apiKeyHeader", "api-key")), api_key_);
-  for (const auto& entry : object_ref(Core::get(descriptor_, "headers", Value::object()))) {
-    Core::set(headers, entry.first, str(entry.second));
-  }
+  headers = Core::provider_merge_headers(headers, Core::get(descriptor_, "headers", Value::object()));
+  headers = Core::provider_merge_headers(headers, Core::get(options_, "headers", Value::object()));
   return headers;
 }
 
@@ -6160,9 +6162,9 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   if (!stream && str(Core::get(descriptor_, "transport")) == "openai-responses") operation = "responses";
   if (profile_ == "typesafe" && endpoint == "/v1/models") operation = "models";
   if (credential_provider_) {
-    for (const auto& [key, value] : credential_provider_(AxCredentialRequest{profile_, operation, method, request_url})) {
-      Core::set(resolved_headers, key, value);
-    }
+    Value fresh = Value::object();
+    for (const auto& [key, value] : credential_provider_(AxCredentialRequest{profile_, operation, method, request_url})) Core::set(fresh, key, value);
+    resolved_headers = Core::provider_merge_headers(resolved_headers, fresh);
   }
   Core::set(call, "headers", resolved_headers);
   if (method != "GET" && method != "HEAD") Core::set(call, body_key.empty() ? "json" : body_key, payload);
@@ -9703,6 +9705,37 @@ Value TypesafeResponse::to_value() const {
   Core::set(result,"answers",values);return result;
 }
 
+AxAIOpenAIDecisionsClient::AxAIOpenAIDecisionsClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
+    : options_(parse_json(stringify(options))), transport_(transport), credential_provider_(std::move(credential_provider)) {
+  OpenAICompatibleClient client("openai-decisions", "OpenAI Decisions", options_, transport_, "gpt-6-luna", "", credential_provider_);
+}
+Value AxAIOpenAIDecisionsClient::create(Value request, Value options, const AxCancellationToken* cancellation) {
+  Value payload = parse_json(stringify(request));
+  if (Core::get(payload, "model").is_null()) Core::set(payload, "model", Core::get(options_, "model", "gpt-6-luna"));
+  Core::decisions_validate_request(payload);
+  Value resolved = Core::provider_normalize_call_options(options);
+  for (const auto& entry : object_ref(options_)) if (Core::get(resolved, entry.first).is_null()) Core::set(resolved, entry.first, entry.second);
+  OpenAICompatibleClient client("openai-decisions", "OpenAI Decisions", resolved, transport_, "gpt-6-luna", "", credential_provider_);
+  const AxCancellationToken* parent = current_cancellation_token();
+  AxCancellationToken combined;
+  std::vector<AxCancellationToken::Subscription> subscriptions;
+  const AxCancellationToken* active = cancellation ? cancellation : parent;
+  if (parent && cancellation && parent != cancellation) {
+    auto inherited = *parent;
+    auto per_call = *cancellation;
+    subscriptions.push_back(parent->subscribe([combined, inherited]() mutable { combined.cancel(inherited.reason()); }));
+    subscriptions.push_back(cancellation->subscribe([combined, per_call]() mutable { combined.cancel(per_call.reason()); }));
+    active = &combined;
+  }
+  AxCancellationScope call_scope(active);
+  if (active) active->throw_if_cancelled();
+  Value raw = client.request_json_retried("/decisions", payload, "POST", resolved);
+  return Core::decisions_decode_response(raw, Core::get(payload, "questions"));
+}
+AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport, AxCredentialProvider credential_provider) {
+  return AxAIOpenAIDecisionsClient(std::move(options), transport, std::move(credential_provider));
+}
+
 AxAITypesafeClient::AxAITypesafeClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
     : options_(std::move(options)), transport_(transport), credential_provider_(std::move(credential_provider)) {
   if (Core::get(options_, "api_key").is_null() && Core::get(options_, "apiKey").is_null()) Core::set(options_, "api_key", env_or_default("TYPESAFE_APIKEY", env_or_default("TYPESAFE_API_KEY", "")));
@@ -9750,7 +9783,7 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   if (transport == "anthropic-messages") {
     return std::make_shared<AnthropicClient>(canonical, std::move(options));
   }
-  if (transport == "openai-chat" || transport == "typesafe-system-one") {
+  if (transport == "openai-chat" || transport == "typesafe-system-one" || transport == "openai-decisions") {
     return std::make_shared<OpenAICompatibleClient>(canonical,
         canonical, std::move(options), nullptr,
         display(Core::get(descriptor, "defaultModel", "")),

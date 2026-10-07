@@ -1,0 +1,160 @@
+{
+  "expected_error_contains": "score label",
+  "expected_transport_request": {
+    "json": {
+      "input": "Checkout is broken.",
+      "model": "gpt-6-luna",
+      "questions": [
+        {
+          "instructions": "Does this need immediate attention?",
+          "name": "urgent",
+          "type": "predicate"
+        },
+        {
+          "choices": [
+            {
+              "value": true
+            },
+            {
+              "value": "true"
+            },
+            {
+              "value": false
+            }
+          ],
+          "instructions": "Choose the route.",
+          "name": "route",
+          "type": "choice"
+        },
+        {
+          "instructions": "Rate the severity.",
+          "levels": [
+            {
+              "label": "Minor"
+            },
+            {
+              "label": "Blocked"
+            },
+            {
+              "label": "Outage"
+            }
+          ],
+          "name": "severity",
+          "type": "score"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_decisions_native",
+  "name": "decisions-native-wrong-score-label",
+  "request": {
+    "input": "Checkout is broken.",
+    "questions": [
+      {
+        "type": "predicate",
+        "name": "urgent",
+        "instructions": "Does this need immediate attention?"
+      },
+      {
+        "type": "choice",
+        "name": "route",
+        "instructions": "Choose the route.",
+        "choices": [
+          {
+            "value": true
+          },
+          {
+            "value": "true"
+          },
+          {
+            "value": false
+          }
+        ]
+      },
+      {
+        "type": "score",
+        "name": "severity",
+        "instructions": "Rate the severity.",
+        "levels": [
+          {
+            "label": "Minor"
+          },
+          {
+            "label": "Blocked"
+          },
+          {
+            "label": "Outage"
+          }
+        ]
+      }
+    ]
+  },
+  "response": {
+    "answers": [
+      {
+        "name": "urgent",
+        "probability": 0.5,
+        "type": "predicate"
+      },
+      {
+        "choice": true,
+        "confidence": 0.6,
+        "name": "route",
+        "probabilities": [
+          {
+            "probability": 0.6,
+            "value": true
+          },
+          {
+            "probability": 0.3,
+            "value": "true"
+          },
+          {
+            "probability": 0.1,
+            "value": false
+          }
+        ],
+        "type": "choice"
+      },
+      {
+        "confidence": 0.7,
+        "name": "severity",
+        "probabilities": [
+          {
+            "label": "Wrong",
+            "probability": 0.1,
+            "value": 0
+          },
+          {
+            "label": "Blocked",
+            "probability": 0.3,
+            "value": 1
+          },
+          {
+            "label": "Outage",
+            "probability": 0.6,
+            "value": 2
+          }
+        ],
+        "score": 1.5,
+        "type": "score"
+      }
+    ],
+    "model": "gpt-6-luna",
+    "usage": {
+      "input_tokens": 20,
+      "input_tokens_details": {
+        "cache_write_tokens": 2,
+        "cached_tokens": 4
+      },
+      "output_tokens": 3,
+      "output_tokens_details": {
+        "reasoning_tokens": 1
+      },
+      "total_tokens": 23
+    }
+  }
+}

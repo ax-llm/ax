@@ -1058,6 +1058,7 @@ class OpenAICompatibleClient : public AxBaseAI {
  private:
   friend class ResponsesChatSession;
   friend class AxAITypesafeClient;
+  friend class AxAIOpenAIDecisionsClient;
   std::string profile_;
   Value descriptor_;
   std::string base_url_;
@@ -1122,6 +1123,17 @@ struct TypesafeRequest {
   std::string model;
   Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);return value;}
 };
+
+class AxAIOpenAIDecisionsClient {
+ public:
+  explicit AxAIOpenAIDecisionsClient(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  Value create(Value request, Value options = Value::object(), const AxCancellationToken* cancellation = nullptr);
+ private:
+  Value options_;
+  Transport* transport_;
+  AxCredentialProvider credential_provider_;
+};
+AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
 
 class AxAITypesafeClient {
  public:

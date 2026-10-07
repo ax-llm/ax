@@ -655,18 +655,25 @@ struct Core {
   static Value _prompt_structured_impl(Value signature, Value values, Value functions, Value options);
   static Value _prompt_user_content_impl(Value signature, Value values);
   static Value _prompt_messages_impl(Value system, Value user);
+  static Value decisions_require_object(Value value, Value context);
   static Value typesafe_require_object(Value value, Value context);
+  static Value decisions_require_string(Value value, Value context, Value nonempty);
   static Value typesafe_require_string(Value value, Value context, Value nonempty);
   static Value openai_build_chat_request(Value request, Value options, Value prompt_caching);
   static Value _openai_build_chat_request_impl(Value request, Value options, Value prompt_caching, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value decisions_require_number(Value value, Value context, Value minimum, Value maximum);
   static Value typesafe_require_number(Value value, Value context, Value minimum, Value maximum);
+  static Value decisions_require_list(Value value, Value context, Value minimum, Value maximum);
   static Value typesafe_validate_json(Value value);
+  static Value decisions_require_count(Value value);
+  static Value decisions_validate_request(Value request);
   static Value typesafe_validate_entry(Value value, Value context);
   static Value typesafe_validate_request(Value request);
   static Value _openai_apply_cache_breakpoint_impl(Value message);
   static Value resolve_model_key(Value client_options, Value request, Value options, Value default_model, Value embed);
   static Value _openai_apply_model_config_impl(Value payload, Value model_config);
   static Value typesafe_decode_response(Value raw, Value questions);
+  static Value decisions_decode_response(Value raw, Value questions);
   static Value _openai_is_gpt56_family_impl(Value model);
   static Value _openai_is_gpt6_family_impl(Value model);
   static Value _apply_model_key_option_impl(Value options, Value entry, Value camel, Value snake);
@@ -679,6 +686,7 @@ struct Core {
   static Value openai_reasoning_effort(Value model, Value budget);
   static Value typesafe_build_chat_request(Value request, Value options);
   static Value validate_chat_request(Value request);
+  static Value decisions_build_chat_request(Value request, Value options);
   static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
   static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
@@ -694,10 +702,13 @@ struct Core {
   static Value typesafe_response_context(Value payload, Value options);
   static Value merge_usage_context(Value defaults, Value overrides);
   static Value provider_validate_chat_request(Value profile, Value request, Value options);
+  static Value decisions_response_context(Value payload, Value options);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
+  static Value decisions_normalize_chat_response(Value raw, Value context);
   static Value _openai_tool_call_to_provider_impl(Value call);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value _openai_tool_spec_impl(Value fn);
+  static Value provider_merge_headers(Value base, Value override);
   static Value ai_merge_replay_metadata(Value previous, Value incoming);
   static Value openai_build_embed_request(Value request);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
@@ -2109,6 +2120,7 @@ class OpenAICompatibleClient : public AxBaseAI {
  private:
   friend class ResponsesChatSession;
   friend class AxAITypesafeClient;
+  friend class AxAIOpenAIDecisionsClient;
   std::string profile_;
   Value descriptor_;
   std::string base_url_;
@@ -2173,6 +2185,17 @@ struct TypesafeRequest {
   std::string model;
   Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);return value;}
 };
+
+class AxAIOpenAIDecisionsClient {
+ public:
+  explicit AxAIOpenAIDecisionsClient(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  Value create(Value request, Value options = Value::object(), const AxCancellationToken* cancellation = nullptr);
+ private:
+  Value options_;
+  Transport* transport_;
+  AxCredentialProvider credential_provider_;
+};
+AxAIOpenAIDecisionsClient openai_decisions(Value options, Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
 
 class AxAITypesafeClient {
  public:

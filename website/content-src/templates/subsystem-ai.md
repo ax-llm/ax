@@ -71,7 +71,7 @@ remains the compatibility alias for native JSON Schema support, not for every
 JSON response format. The selected rung is recorded with the chat log so runs
 remain comparable and debuggable.
 
-### OpenAI Decisions (TypeScript) {#openai-decisions}
+### OpenAI Decisions {#openai-decisions}
 
 TypeScript supports `ai({ name: 'openai-decisions', apiKey })` with ordinary
 required boolean/class signatures, using the dedicated Decisions endpoint and
@@ -83,8 +83,11 @@ Use `openaiDecisions({ apiKey }).create({ input, questions })` for native ordere
 predicate, choice, and score questions, probabilities, confidence, usage, and
 per-question refusals. Scoring stays explicit in native rubrics. Numeric bounds
 never become scoring levels. Freeform outputs and tools require a generative
-provider. This transport currently ships in TypeScript; generated-language
-parity is tracked in the AxIR backlog.
+provider. Python, Java, C++, Go, and Rust support both interfaces through shared
+Core validation and conversion. Their native factories are `openai_decisions`,
+`Ax.openaiDecisions`, `axllm::openai_decisions`, `axllm.OpenAIDecisions`, and
+`openai_decisions`; request and response values use each language JSON representation.
+Each language has runnable signature and native examples in its generation directory.
 
 The runnable examples are
 [`openai-decisions.ts`](https://github.com/ax-llm/ax/blob/main/src/examples/typescript/generation/openai-decisions.ts)

@@ -179,6 +179,37 @@
         },
         {
           "target_name": "rust",
+          "canonical_name": "openai_decisions",
+          "public_name": "openai_decisions",
+          "kind": "function",
+          "description": "Create the native OpenAI Decisions client for ordered predicate, choice and score questions. Default model: gpt-6-luna.",
+          "form": "openai_decisions",
+          "important_options": [
+            "API key or credential provider",
+            "inline images",
+            "timeout",
+            "retry",
+            "cancellation"
+          ],
+          "returns": "AxAIOpenAIDecisionsClient"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxAIOpenAIDecisionsClient",
+          "public_name": "AxAIOpenAIDecisionsClient",
+          "kind": "type",
+          "description": "Native create requests preserve ordered answers, refusals, distributions, fractional scores and full usage. Signature adapters accept required boolean/class fields.",
+          "form": "AxAIOpenAIDecisionsClient",
+          "important_options": [
+            "create / Create",
+            "question names",
+            "boolean or string choices",
+            "safety_identifier"
+          ],
+          "returns": "native Decisions response JSON"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "typesafe",
           "public_name": "typesafe",
           "kind": "function",

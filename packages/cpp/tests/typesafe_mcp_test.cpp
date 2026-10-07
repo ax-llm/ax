@@ -60,4 +60,45 @@ static void nested_validation(){
   AxBalancer mixed({only,ai("openai",object({{"api_key","test"},{"models",Value::array()}}))});
   mixed.validate_chat_request(prose);
 }
-int main(){websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}
+static void decisions_nested_validation(){
+  auto typed=ai("openai-decisions",object({{"api_key","test"},{"models",Value::array()}}));
+  auto only=std::make_shared<AxBalancer>(std::vector<std::shared_ptr<AxAIService>>{typed});
+  auto prose=object({{"chat_prompt",array({object({{"role","user"},{"content","reply"}})})}});
+  bool rejected=false;try{only->validate_chat_request(prose);}catch(const AxError&){rejected=true;}check(rejected,"nested Decisions accepted prose");
+  only->validate_chat_request(parse_json(R"json({"chat_prompt":[{"role":"user","content":"outage"}],"response_format":{"type":"json_schema","schema":{"name":"decision","schema":{"type":"object","properties":{"urgent":{"type":"boolean"}},"required":["urgent"]}}}})json"));
+  AxBalancer mixed({only,ai("openai",object({{"api_key","test"},{"models",Value::array()}}))});
+  mixed.validate_chat_request(prose);
+}
+
+struct DecisionsTransport:Transport {
+  int calls=0;
+  Value call(Value request)override {
+    calls++;auto headers=Core::get(request,"headers");int count=0;
+    for(auto key:Core::iter(Core::map_keys(headers)))if(display(key)=="Authorization"||display(key)=="authorization"||display(key)=="AUTHORIZATION")count++;
+    check(count==1,"duplicate authorization headers");
+    check(display(Core::get(headers,"authorization"))=="Bearer fresh-"+std::to_string(calls),"credential precedence");
+    check(display(Core::get(headers,"x-trace"))=="kept","custom header lost");
+    check(display(Core::get(request,"url"))=="https://api.openai.com/v1/decisions","wrong Decisions endpoint");
+    if(calls==1)return parse_json(R"({"status":429,"json":{"error":"retry"}})");
+    return parse_json(R"({"model":"gpt-6-luna","answers":[{"type":"predicate","name":"flag","probability":0.8}],"usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}})");
+  }
+};
+static void decisions_client(){
+  for(bool native:{true,false}){
+    DecisionsTransport transport;int credentials=0;
+    auto provider=[&](const AxCredentialRequest& request){check(request.profile=="openai-decisions"&&request.operation=="chat","wrong credential operation");return std::map<std::string,std::string>{{"authorization","Bearer fresh-"+std::to_string(++credentials)}};};
+    auto options=parse_json(R"({"api_key":"static","headers":{"AUTHORIZATION":"Bearer custom","x-trace":"kept"},"retry":{"maxRetries":1,"initialDelayMs":1}})");
+    auto native_api=openai_decisions(options,&transport,provider);
+    OpenAICompatibleClient adapter("openai-decisions","OpenAI Decisions",options,&transport,"gpt-6-luna","",provider);
+    auto input=parse_json(R"({"input":"red","questions":[{"type":"predicate","name":"flag","instructions":"Is this red?"}]})");
+    auto chat=parse_json(R"({"chatPrompt":[{"role":"user","content":"red"}],"responseFormat":{"type":"json_schema","schema":{"name":"output","schema":{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}}}})");
+    auto result=native?native_api.create(input):adapter.chat(chat);
+    check(!Core::get(result,native?"answers":"results").is_null(),"Decisions response missing");
+    AxCancellationToken token;AxCancellationScope parent_scope(&token);token.cancel("stop Decisions");AxCancellationToken fresh;
+    bool aborted=false;try{if(native)native_api.create(input,Value::object(),&fresh);else{AxCancellationScope scope(&token);adapter.chat(chat);}}catch(const AxError&){aborted=true;}
+    check(aborted&&transport.calls==2&&credentials==2,"Decisions retry refresh/cancellation count");
+    check(token.subscription_count()==0&&fresh.subscription_count()==0,"Decisions cancellation subscriptions leaked");
+  }
+}
+
+int main(){decisions_client();decisions_nested_validation();websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}

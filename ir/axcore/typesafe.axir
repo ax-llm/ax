@@ -690,6 +690,10 @@ module @ax.typesafe version "0.1" {
     type signature = "(string, json, json) -> void throws"
     body @entry(%profile: string, %request: json, %options: json) {
       %canonical = core.call @provider_normalize_profile(%profile)
+      %is_decisions = core.call intrinsic.eq(%canonical, "openai-decisions")
+      core.if %is_decisions {
+        core.call @decisions_build_chat_request(%request, %options)
+      }
       %is_typesafe = core.call intrinsic.eq(%canonical, "typesafe")
       core.if %is_typesafe {
         core.call @typesafe_build_chat_request(%request, %options)

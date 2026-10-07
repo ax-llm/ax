@@ -1,0 +1,821 @@
+module @ax.decisions version "0.1" {
+  dialect @ax.provider version "0.1"
+
+  op ax.provider.class @AxAIOpenAIDecisionsClient {
+    attr core_kind = "record"
+    attr public = true
+    tag "openai-decisions-native-client"
+    type signature = "(options?:json) -> AxAIOpenAIDecisionsClient"
+  }
+
+  op ax.provider.semantic @decisions_require_object {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, string) -> json throws"
+    body @entry(%value: json, %context: string) {
+      %valid = core.type_is %value type "object"
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("OpenAI Decisions: {} must be an object", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @decisions_require_string {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, string, bool) -> string throws"
+    body @entry(%value: json, %context: string, %nonempty: bool) {
+      %valid = core.type_is %value type "string"
+      core.if %valid {
+        core.if %nonempty {
+          %text = core.string_trim %value
+          %valid = core.call intrinsic.ne(%text, "")
+        }
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("OpenAI Decisions: {} must be a string (nonempty where required)", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @decisions_require_number {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, string, f64, f64) -> f64 throws"
+    body @entry(%value: json, %context: string, %minimum: f64, %maximum: f64) {
+      %valid = core.type_is %value type "number"
+      core.if %valid {
+        %valid = core.call intrinsic.math.is_finite(%value)
+        %low = core.call intrinsic.lt(%value, %minimum)
+        %high = core.call intrinsic.gt(%value, %maximum)
+        %outside = core.call intrinsic.or(%low, %high)
+        %within = core.call intrinsic.not(%outside)
+        %valid = core.call intrinsic.and(%valid, %within)
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("OpenAI Decisions: {} must be a finite number between {} and {}", %context, %minimum, %maximum)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @decisions_require_list {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, string, f64, f64) -> json throws"
+    body @entry(%value: json, %context: string, %minimum: f64, %maximum: f64) {
+      %valid = core.type_is %value type "list"
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("OpenAI Decisions: {} must be an array", %context)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      %size = core.call intrinsic.len(%value)
+      core.call @decisions_require_number(%size, %context, %minimum, %maximum)
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @decisions_require_count {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json) -> void throws"
+    body @entry(%value: json) {
+      core.call @decisions_require_number(%value, "token count", 0, 9007199254740991.0)
+      %integer = core.call intrinsic.math.floor(%value)
+      %fractional = core.call intrinsic.ne(%integer, %value)
+      core.if %fractional {
+        core.raise "OpenAI Decisions: token counts must be nonnegative safe integers"
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @decisions_validate_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json) -> void throws"
+    body @entry(%request: json) {
+      core.call @decisions_require_object(%request, "request")
+      %model = core.get %request["model"]
+      core.call @decisions_require_string(%model, "model", true)
+      %safety = core.get %request["safety_identifier"]
+      %has_safety = core.call intrinsic.is_not_none(%safety)
+      core.if %has_safety {
+        core.call @decisions_require_string(%safety, "safety_identifier", false)
+      }
+      %input = core.get %request["input"]
+      %is_text = core.type_is %input type "string"
+      %structured = core.call intrinsic.not(%is_text)
+      %images = core.let 0
+      core.if %structured {
+        core.call @decisions_require_list(%input, "input", 1, 9007199254740991.0)
+        core.for %message in %input {
+          core.call @decisions_require_object(%message, "input message")
+          %role = core.get %message["role"]
+          %bad_role = core.call intrinsic.ne(%role, "user")
+          %type = core.let "message"
+          %has_type = core.call intrinsic.map.contains(%message, "type")
+          core.if %has_type {
+            %type = core.get %message["type"]
+          }
+          %bad_type = core.call intrinsic.ne(%type, "message")
+          %invalid = core.call intrinsic.or(%bad_role, %bad_type)
+          core.if %invalid {
+            core.raise "OpenAI Decisions: only user messages are supported"
+          }
+          %content = core.get %message["content"]
+          %text_content = core.type_is %content type "string"
+          %parts_content = core.call intrinsic.not(%text_content)
+          core.if %parts_content {
+            core.call @decisions_require_list(%content, "input content", 1, 9007199254740991.0)
+            core.for %part in %content {
+              core.call @decisions_require_object(%part, "input part")
+              %kind = core.get %part["type"]
+              %is_text = core.call intrinsic.eq(%kind, "input_text")
+              core.if %is_text {
+                %text = core.get %part["text"]
+                core.call @decisions_require_string(%text, "input text", false)
+              } else {
+                %is_image = core.call intrinsic.eq(%kind, "input_image")
+                %url = core.get %part["image_url"]
+                %url_string = core.type_is %url type "string"
+                %valid = core.call intrinsic.and(%is_image, %url_string)
+                core.if %valid {
+                  %valid = core.regex_match %url pattern "^data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/]+={0,2}$"
+                }
+                %invalid = core.call intrinsic.not(%valid)
+                core.if %invalid {
+                  core.raise "OpenAI Decisions: images require inline base64 data URLs; files, audio, and hosted URLs are unsupported"
+                }
+                %detail = core.get %part["detail"]
+                %has_detail = core.call intrinsic.is_not_none(%detail)
+                core.if %has_detail {
+                  %details = core.list
+                  core.append %details, "low"
+                  core.append %details, "high"
+                  core.append %details, "auto"
+                  core.append %details, "original"
+                  %known = core.call intrinsic.contains(%details, %detail)
+                  %invalid = core.call intrinsic.not(%known)
+                  core.if %invalid {
+                    core.raise "OpenAI Decisions: invalid image detail"
+                  }
+                }
+                %images = core.call intrinsic.add(%images, 1)
+              }
+            }
+          }
+        }
+      }
+      %too_many = core.call intrinsic.gt(%images, 128)
+      core.if %too_many {
+        core.raise "OpenAI Decisions: at most 128 images are supported"
+      }
+      %questions = core.get %request["questions"]
+      core.call @decisions_require_list(%questions, "questions", 1, 9007199254740991.0)
+      %names = core.map
+      core.for %q in %questions {
+        core.call @decisions_require_object(%q, "question")
+        %instructions = core.get %q["instructions"]
+        core.call @decisions_require_string(%instructions, "question instructions", false)
+        %has_name = core.call intrinsic.map.contains(%q, "name")
+        core.if %has_name {
+          %name = core.get %q["name"]
+          core.call @decisions_require_string(%name, "question name", false)
+          %duplicate = core.call intrinsic.map.contains(%names, %name)
+          core.if %duplicate {
+            core.raise "OpenAI Decisions: duplicate question name"
+          }
+          core.set %names[%name] = true
+        }
+        %kind = core.get %q["type"]
+        %predicate = core.call intrinsic.eq(%kind, "predicate")
+        %needs_options = core.call intrinsic.not(%predicate)
+        core.if %needs_options {
+          %choice = core.call intrinsic.eq(%kind, "choice")
+          %score = core.call intrinsic.eq(%kind, "score")
+          %valid = core.call intrinsic.or(%choice, %score)
+          %invalid = core.call intrinsic.not(%valid)
+          core.if %invalid {
+            core.raise "OpenAI Decisions: invalid question type or options"
+          }
+          %options = core.get %q["choices"]
+          %maximum = core.let 255
+          core.if %score {
+            %options = core.get %q["levels"]
+            %maximum = core.let 10
+          }
+          core.call @decisions_require_list(%options, %kind, 2, %maximum)
+          %values = core.map
+          core.for %option in %options {
+            core.call @decisions_require_object(%option, "question option")
+            %value = core.get %option["value"]
+            core.if %score {
+              %value = core.get %option["label"]
+            }
+            %is_boolean = core.type_is %value type "boolean"
+            %not_boolean = core.call intrinsic.not(%is_boolean)
+            %require_text = core.call intrinsic.or(%score, %not_boolean)
+            core.if %require_text {
+              core.call @decisions_require_string(%value, "option value", false)
+            }
+            %key = core.call intrinsic.json.stringify(%value)
+            %duplicate = core.call intrinsic.map.contains(%values, %key)
+            core.if %duplicate {
+              core.raise "OpenAI Decisions: duplicate option value"
+            }
+            core.set %values[%key] = true
+            %has_description = core.call intrinsic.map.contains(%option, "description")
+            core.if %has_description {
+              %description = core.get %option["description"]
+              core.call @decisions_require_string(%description, "option description", false)
+            }
+          }
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @decisions_decode_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%raw: json, %questions: json) {
+      core.call @decisions_require_object(%raw, "response")
+      %model = core.get %raw["model"]
+      core.call @decisions_require_string(%model, "response model", true)
+      %answers = core.get %raw["answers"]
+      %size = core.call intrinsic.len(%questions)
+      core.call @decisions_require_list(%answers, "answers", %size, %size)
+      %i = core.let 0
+      core.for %q in %questions {
+        %a = core.get %answers[%i]
+        %i = core.call intrinsic.add(%i, 1)
+        core.call @decisions_require_object(%a, "answer")
+        %name = core.get %q["name"]
+        %answer_name = core.get %a["name"]
+        %has_name = core.call intrinsic.map.contains(%a, "name")
+        %missing_name = core.call intrinsic.not(%has_name)
+        %wrong_name = core.call intrinsic.ne(%name, %answer_name)
+        %wrong_name = core.call intrinsic.or(%wrong_name, %missing_name)
+        core.if %wrong_name {
+          core.raise "OpenAI Decisions: incorrect answer name or order"
+        }
+        %kind = core.get %q["type"]
+        %answer_kind = core.get %a["type"]
+        %refusal = core.call intrinsic.eq(%answer_kind, "refusal")
+        %not_refusal = core.call intrinsic.not(%refusal)
+        core.if %not_refusal {
+          %wrong_type = core.call intrinsic.ne(%kind, %answer_kind)
+          core.if %wrong_type {
+            core.raise "OpenAI Decisions: incorrect answer type"
+          }
+          %predicate = core.call intrinsic.eq(%kind, "predicate")
+          core.if %predicate {
+            %probability = core.get %a["probability"]
+            core.call @decisions_require_number(%probability, "predicate probability", 0, 1)
+          } else {
+            %confidence = core.get %a["confidence"]
+            core.call @decisions_require_number(%confidence, "confidence", 0, 1)
+            %score = core.call intrinsic.eq(%kind, "score")
+            %options = core.get %q["choices"]
+            core.if %score {
+              %options = core.get %q["levels"]
+            }
+            %size = core.call intrinsic.len(%options)
+            %probabilities = core.get %a["probabilities"]
+            core.call @decisions_require_list(%probabilities, "probabilities", %size, %size)
+            %seen = core.map
+            %total = core.let 0.0
+            core.for %p in %probabilities {
+              core.call @decisions_require_object(%p, "probability")
+              %value = core.get %p["value"]
+              %key = core.call intrinsic.json.stringify(%value)
+              %duplicate = core.call intrinsic.map.contains(%seen, %key)
+              core.if %duplicate {
+                core.raise "OpenAI Decisions: unknown or duplicate probability value"
+              }
+              core.set %seen[%key] = true
+              %found = core.let false
+              core.if %score {
+                %upper = core.call intrinsic.add(%size, -1)
+                core.call @decisions_require_number(%value, "score index", 0, %upper)
+                %integer = core.call intrinsic.math.floor(%value)
+                %found = core.call intrinsic.eq(%value, %integer)
+                %option = core.get %options[%integer]
+                %label = core.get %option["label"]
+                %actual_label = core.get %p["label"]
+                %wrong_label = core.call intrinsic.ne(%label, %actual_label)
+                core.if %wrong_label {
+                  core.raise "OpenAI Decisions: incorrect score label"
+                }
+              } else {
+                core.for %option in %options {
+                  %expected = core.get %option["value"]
+                  %expected_key = core.call intrinsic.json.stringify(%expected)
+                  %match = core.call intrinsic.eq(%expected_key, %key)
+                  %found = core.call intrinsic.or(%found, %match)
+                }
+              }
+              %unknown = core.call intrinsic.not(%found)
+              core.if %unknown {
+                core.raise "OpenAI Decisions: unknown or duplicate probability value"
+              }
+              %probability = core.get %p["probability"]
+              core.call @decisions_require_number(%probability, "distribution probability", 0, 1)
+              %total = core.call intrinsic.add(%total, %probability)
+            }
+            %difference = core.call intrinsic.add(%total, -1)
+            %difference = core.call intrinsic.math.abs(%difference)
+            %epsilon = core.call intrinsic.mul(0.0000000000000002220446049250313, %size)
+            %tolerance = core.call intrinsic.add(0.01, %epsilon)
+            %invalid_total = core.call intrinsic.gt(%difference, %tolerance)
+            core.if %invalid_total {
+              core.raise "OpenAI Decisions: invalid probability distribution"
+            }
+            core.if %score {
+              %position = core.get %a["score"]
+              %upper = core.call intrinsic.add(%size, -1)
+              core.call @decisions_require_number(%position, "score", 0, %upper)
+            } else {
+              %selected = core.get %a["choice"]
+              %selected_key = core.call intrinsic.json.stringify(%selected)
+              %found = core.let false
+              core.for %option in %options {
+                %value = core.get %option["value"]
+                %key = core.call intrinsic.json.stringify(%value)
+                %match = core.call intrinsic.eq(%key, %selected_key)
+                %found = core.call intrinsic.or(%found, %match)
+              }
+              %unknown = core.call intrinsic.not(%found)
+              core.if %unknown {
+                core.raise "OpenAI Decisions: unknown choice"
+              }
+            }
+          }
+        }
+      }
+      %usage = core.get %raw["usage"]
+      core.call @decisions_require_object(%usage, "usage")
+      %keys = core.list
+      core.append %keys, "input_tokens"
+      core.append %keys, "output_tokens"
+      core.append %keys, "total_tokens"
+      core.for %key in %keys {
+        %value = core.get %usage[%key]
+        core.call @decisions_require_count(%value)
+      }
+      %input = core.get %usage["input_tokens_details"]
+      core.call @decisions_require_object(%input, "input token details")
+      %cached = core.get %input["cached_tokens"]
+      core.call @decisions_require_count(%cached)
+      %write = core.get %input["cache_write_tokens"]
+      core.call @decisions_require_count(%write)
+      %output = core.get %usage["output_tokens_details"]
+      core.call @decisions_require_object(%output, "output token details")
+      %reasoning = core.get %output["reasoning_tokens"]
+      core.call @decisions_require_count(%reasoning)
+      core.return %raw
+    }
+  }
+
+  op ax.provider.semantic @decisions_build_chat_request {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%request: json, %options: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %threshold_snake = core.get %options["true_threshold"] default 0.5
+      %threshold = core.get %options["trueThreshold"] default %threshold_snake
+      core.call @decisions_require_number(%threshold, "trueThreshold", 0, 1)
+      %functions = core.get %request["functions"] default %empty_list
+      %function_call_snake = core.get %request["function_call"] default "none"
+      %function_call = core.get %request["functionCall"] default %function_call_snake
+      %has_functions = core.call intrinsic.truthy(%functions)
+      %has_call = core.call intrinsic.ne(%function_call, "none")
+      %has_call_value = core.call intrinsic.truthy(%function_call)
+      %has_call = core.call intrinsic.and(%has_call, %has_call_value)
+      %tools = core.call intrinsic.or(%has_functions, %has_call)
+      core.if %tools {
+        core.raise "OpenAI Decisions does not support tools; use a generative provider for tool execution"
+      }
+      %config_snake = core.get %request["model_config"] default %empty_map
+      %config = core.get %request["modelConfig"] default %config_snake
+      %controls = core.call intrinsic.map.keys(%config)
+      core.for %control in %controls {
+        %value = core.get %config[%control]
+        %present = core.call intrinsic.is_not_none(%value)
+        core.if %present {
+          %is_stream = core.call intrinsic.eq(%control, "stream")
+          %is_n = core.call intrinsic.eq(%control, "n")
+          %one = core.call intrinsic.eq(%value, 1)
+          %numeric = core.type_is %value type "number"
+          %one = core.call intrinsic.and(%one, %numeric)
+          %allowed_n = core.call intrinsic.and(%is_n, %one)
+          %allowed = core.call intrinsic.or(%is_stream, %allowed_n)
+          %unsupported = core.call intrinsic.not(%allowed)
+          core.if %unsupported {
+            %message = core.call intrinsic.string.format("OpenAI Decisions does not support generation control {}", %control)
+            %error = core.call intrinsic.error.validation(%message)
+            core.raise %error
+          }
+        }
+      }
+      %format_snake = core.get %request["response_format"]
+      %format = core.get %request["responseFormat"] default %format_snake
+      %format_type = core.get %format["type"]
+      %wrong_format = core.call intrinsic.ne(%format_type, "json_schema")
+      core.if %wrong_format {
+        core.raise "OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs"
+      }
+      %wrapper = core.get %format["schema"]
+      core.call @decisions_require_object(%wrapper, "responseFormat.schema")
+      %schema = core.get %wrapper["schema"]
+      core.call @decisions_require_object(%schema, "output schema")
+      %root_type = core.get %schema["type"]
+      %flat = core.call intrinsic.eq(%root_type, "object")
+      %forbidden = core.list
+      core.append %forbidden, "anyOf"
+      core.append %forbidden, "oneOf"
+      core.append %forbidden, "allOf"
+      core.append %forbidden, "$ref"
+      core.for %key in %forbidden {
+        %value = core.get %schema[%key]
+        %has_value = core.call intrinsic.truthy(%value)
+        core.if %has_value {
+          %flat = core.let false
+        }
+      }
+      %not_flat = core.call intrinsic.not(%flat)
+      core.if %not_flat {
+        core.raise "OpenAI Decisions requires a flat object output schema"
+      }
+      %properties = core.get %schema["properties"]
+      core.call @decisions_require_object(%properties, "output properties")
+      %required = core.get %schema["required"] default %empty_list
+      %annotations = core.get %format["fieldDescriptions"] default %empty_map
+      %questions = core.list
+      %names = core.call intrinsic.map.keys(%properties)
+      core.append %forbidden, "const"
+      core.for %name in %names {
+        %field = core.get %properties[%name]
+        core.call @decisions_require_object(%field, %name)
+        %required_list = core.type_is %required type "list"
+        %supported = core.call intrinsic.contains(%required, %name)
+        %supported = core.call intrinsic.and(%supported, %required_list)
+        core.for %key in %forbidden {
+          %has_key = core.call intrinsic.map.contains(%field, %key)
+          core.if %has_key {
+            %supported = core.let false
+          }
+        }
+        %type_name = core.get %field["type"]
+        %class_options = core.get %field["enum"]
+        %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+        %has_enum = core.call intrinsic.is_not_none(%class_options)
+        %no_enum = core.call intrinsic.not(%has_enum)
+        %is_boolean = core.call intrinsic.and(%is_boolean, %no_enum)
+        %is_string = core.call intrinsic.eq(%type_name, "string")
+        %is_enum = core.type_is %class_options type "list"
+        %is_class = core.call intrinsic.and(%is_string, %is_enum)
+        %supported_type = core.call intrinsic.or(%is_boolean, %is_class)
+        %supported = core.call intrinsic.and(%supported, %supported_type)
+        %unsupported = core.call intrinsic.not(%supported)
+        core.if %unsupported {
+          %message = core.call intrinsic.string.format("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs", %name)
+          %error = core.call intrinsic.error.validation(%message)
+          core.raise %error
+        }
+        %annotation = core.get %annotations[%name]
+        %description = core.get %field["description"]
+        %has_annotation = core.call intrinsic.is_not_none(%annotation)
+        %descriptions = core.map
+        core.if %has_annotation {
+          core.call @decisions_require_object(%annotation, %name)
+          %description = core.get %annotation["description"]
+          %has_description = core.call intrinsic.is_not_none(%description)
+          core.if %has_description {
+            core.call @decisions_require_string(%description, %name, false)
+          }
+          %descriptions = core.get %annotation["valueDescriptions"]
+          core.call @decisions_require_object(%descriptions, %name)
+          %type_attrs = core.map
+          %annotation_type = core.let "boolean"
+          core.if %is_class {
+            %annotation_type = core.let "class"
+          }
+          core.set %type_attrs["name"] = %annotation_type
+          core.set %type_attrs["options"] = %class_options
+          core.set %type_attrs["value_descriptions"] = %descriptions
+          %typ = core.call intrinsic.record.new("FieldType", %type_attrs)
+          core.call @signature_validate_value_descriptions_impl(%typ, %name)
+        }
+        %instructions = core.call intrinsic.string.format("Evaluate the output field {}.", %name)
+        %is_description_string = core.type_is %description type "string"
+        %has_description = core.call intrinsic.truthy(%description)
+        %use_description = core.call intrinsic.and(%is_description_string, %has_description)
+        core.if %use_description {
+          %instructions = core.call intrinsic.string.format("{}: {}", %name, %description)
+        }
+        %question = core.map
+        core.set %question["instructions"] = %instructions
+        core.if %is_boolean {
+          core.set %question["type"] = "predicate"
+          core.if %has_annotation {
+            %lines = core.list
+            core.append %lines, %instructions
+            %description_keys = core.call intrinsic.map.keys(%descriptions)
+            core.for %key in %description_keys {
+              %value = core.get %descriptions[%key]
+              %line = core.call intrinsic.string.format("{}: {}", %key, %value)
+              core.append %lines, %line
+            }
+            %instructions = core.call intrinsic.string.join("\n", %lines)
+            core.set %question["instructions"] = %instructions
+          }
+        } else {
+          core.set %question["type"] = "choice"
+          %criteria = core.list
+          %seen = core.map
+          core.for %label in %class_options {
+            core.call @decisions_require_string(%label, %name, false)
+            %duplicate = core.call intrinsic.map.contains(%seen, %label)
+            core.if %duplicate {
+              core.raise "OpenAI Decisions: Choice labels must be unique"
+            }
+            %description = core.get %descriptions[%label]
+            %option = core.map
+            core.set %option["value"] = %label
+            %described = core.call intrinsic.map.contains(%descriptions, %label)
+            core.if %described {
+              core.set %option["description"] = %description
+            }
+            core.set %seen[%label] = true
+            core.append %criteria, %option
+          }
+          core.set %question["choices"] = %criteria
+        }
+        core.set %question["name"] = %name
+        core.append %questions, %question
+      }
+      %prompt_snake = core.get %request["chat_prompt"] default %empty_list
+      %prompt = core.get %request["chatPrompt"] default %prompt_snake
+      %parts = core.list
+      core.for %message in %prompt {
+        %role = core.get %message["role"]
+        %content = core.get %message["content"] default ""
+        %tool = core.call intrinsic.eq(%role, "function")
+        %tool_alt = core.call intrinsic.eq(%role, "tool")
+        %tool = core.call intrinsic.or(%tool, %tool_alt)
+        %calls = core.get %message["functionCalls"]
+        %calls_snake = core.get %message["function_calls"]
+        %calls = core.call intrinsic.coalesce(%calls, %calls_snake)
+        %calls = core.call intrinsic.truthy(%calls)
+        %audio = core.get %message["audio"]
+        %audio = core.call intrinsic.truthy(%audio)
+        %images = core.get %message["images"]
+        %images = core.call intrinsic.truthy(%images)
+        %invalid = core.call intrinsic.or(%tool, %calls)
+        %invalid = core.call intrinsic.or(%invalid, %audio)
+        %invalid = core.call intrinsic.or(%invalid, %images)
+        core.if %invalid {
+          core.raise "OpenAI Decisions does not support tool or media history"
+        }
+        %label = core.call intrinsic.string.format("{}:", %role)
+        %part = core.map
+        core.set %part["type"] = "input_text"
+        core.set %part["text"] = %label
+        core.append %parts, %part
+        %text = core.type_is %content type "string"
+        core.if %text {
+          %part = core.map
+          core.set %part["type"] = "input_text"
+          core.set %part["text"] = %content
+          core.append %parts, %part
+        } else {
+          core.call @decisions_require_list(%content, "message content", 0, 9007199254740991.0)
+          %user = core.call intrinsic.eq(%role, "user")
+          core.if %user {
+            core.for %raw_part in %content {
+              %kind = core.get %raw_part["type"]
+              %text = core.call intrinsic.eq(%kind, "text")
+              %part = core.map
+              core.if %text {
+                %value = core.get %raw_part["text"]
+                core.set %part["type"] = "input_text"
+                core.set %part["text"] = %value
+              } else {
+                %image = core.call intrinsic.eq(%kind, "image")
+                %invalid = core.call intrinsic.not(%image)
+                core.if %invalid {
+                  core.raise "OpenAI Decisions supports text and inline images only"
+                }
+                %image = core.get %raw_part["image"]
+                core.call @decisions_require_string(%image, "image", false)
+                %data = core.call intrinsic.string.starts_with(%image, "data:")
+                %not_data = core.call intrinsic.not(%data)
+                core.if %not_data {
+                  %mime_snake = core.get %raw_part["mime_type"]
+                  %mime = core.get %raw_part["mimeType"] default %mime_snake
+                  %image = core.call intrinsic.string.format("data:{};base64,{}", %mime, %image)
+                }
+                core.set %part["type"] = "input_image"
+                core.set %part["image_url"] = %image
+                %detail = core.get %raw_part["details"]
+                %has_detail = core.call intrinsic.truthy(%detail)
+                core.if %has_detail {
+                  core.set %part["detail"] = %detail
+                }
+              }
+              core.append %parts, %part
+            }
+          }
+        }
+      }
+      %message = core.map
+      core.set %message["role"] = "user"
+      core.set %message["content"] = %parts
+      %input = core.list
+      core.append %input, %message
+      %payload = core.map
+      %model = core.get %request["model"] default "gpt-6-luna"
+      core.set %payload["model"] = %model
+      core.set %payload["input"] = %input
+      core.set %payload["questions"] = %questions
+      %safety_snake = core.get %options["safety_identifier"]
+      %safety = core.get %options["safetyIdentifier"] default %safety_snake
+      %has_safety = core.call intrinsic.truthy(%safety)
+      core.if %has_safety {
+        core.set %payload["safety_identifier"] = %safety
+      }
+      core.call @decisions_validate_request(%payload)
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @decisions_response_context {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%payload: json, %options: json) {
+      %empty = core.map
+      %context = core.call intrinsic.map.merge(%empty, %payload)
+      %snake = core.get %options["true_threshold"] default 0.5
+      %threshold = core.get %options["trueThreshold"] default %snake
+      core.set %context["trueThreshold"] = %threshold
+      core.return %context
+    }
+  }
+
+  op ax.provider.semantic @decisions_normalize_chat_response {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/openai-decisions/validate.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%raw: json, %context: json) {
+      %questions = core.get %context["questions"]
+      core.call @decisions_require_list(%questions, "response request questions", 1, 9007199254740991.0)
+      %raw = core.call @decisions_decode_response(%raw, %questions)
+      %threshold = core.get %context["trueThreshold"] default 0.5
+      core.call @decisions_require_number(%threshold, "trueThreshold", 0, 1)
+      %answers = core.get %raw["answers"]
+      %values = core.map
+      core.for %answer in %answers {
+        %kind = core.get %answer["type"]
+        %refusal = core.call intrinsic.eq(%kind, "refusal")
+        core.if %refusal {
+          core.raise "OpenAI Decisions refused question"
+        }
+        %score = core.call intrinsic.eq(%kind, "score")
+        core.if %score {
+          core.raise "OpenAI Decisions scoring requires the native client"
+        }
+        %name = core.get %answer["name"]
+        %predicate = core.call intrinsic.eq(%kind, "predicate")
+        %value = core.get %answer["choice"]
+        core.if %predicate {
+          %probability = core.get %answer["probability"]
+          %below = core.call intrinsic.lt(%probability, %threshold)
+          %value = core.call intrinsic.not(%below)
+        }
+        core.set %values[%name] = %value
+      }
+      %content = core.call intrinsic.json.stringify(%values)
+      %result = core.map
+      core.set %result["index"] = 0
+      core.set %result["content"] = %content
+      core.set %result["finishReason"] = "stop"
+      %results = core.list
+      core.append %results, %result
+      %usage = core.get %raw["usage"]
+      %input = core.get %usage["input_tokens"]
+      %output = core.get %usage["output_tokens"]
+      %total = core.get %usage["total_tokens"]
+      %input_details = core.get %usage["input_tokens_details"]
+      %cached = core.get %input_details["cached_tokens"]
+      %write = core.get %input_details["cache_write_tokens"]
+      %output_details = core.get %usage["output_tokens_details"]
+      %reasoning = core.get %output_details["reasoning_tokens"]
+      %tokens = core.map
+      %negative_cached = core.call intrinsic.mul(%cached, -1)
+      %negative_write = core.call intrinsic.mul(%write, -1)
+      %uncached = core.call intrinsic.add(%input, %negative_cached)
+      %uncached = core.call intrinsic.add(%uncached, %negative_write)
+      %negative = core.call intrinsic.lt(%uncached, 0)
+      core.if %negative {
+        %uncached = core.let 0
+      }
+      core.set %tokens["promptTokens"] = %uncached
+      core.set %tokens["completionTokens"] = %output
+      core.set %tokens["totalTokens"] = %total
+      %has_cached = core.call intrinsic.gt(%cached, 0)
+      core.if %has_cached {
+        core.set %tokens["cacheReadTokens"] = %cached
+      }
+      %has_write = core.call intrinsic.gt(%write, 0)
+      core.if %has_write {
+        core.set %tokens["cacheCreationTokens"] = %write
+      }
+      core.set %tokens["reasoningTokens"] = %reasoning
+      %model_usage = core.map
+      %model = core.get %raw["model"]
+      core.set %model_usage["ai"] = "OpenAI Decisions"
+      core.set %model_usage["model"] = %model
+      core.set %model_usage["tokens"] = %tokens
+      %decision_metadata = core.map
+      core.set %decision_metadata["answers"] = %answers
+      %metadata = core.map
+      core.set %metadata["openaiDecisions"] = %decision_metadata
+      %response = core.map
+      core.set %response["results"] = %results
+      core.set %response["modelUsage"] = %model_usage
+      core.set %response["providerMetadata"] = %metadata
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @provider_merge_headers {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/util/headers.ts"
+    type signature = "(json, json) -> json throws"
+    body @entry(%base: json, %override: json) {
+      %headers = core.map
+      %groups = core.list
+      core.append %groups, %base
+      core.append %groups, %override
+      core.for %group in %groups {
+        %keys = core.call intrinsic.map.keys(%group)
+        core.for %key in %keys {
+          %lower = core.call intrinsic.string.lower(%key)
+          %existing = core.call intrinsic.map.keys(%headers)
+          core.for %name in %existing {
+            %existing_lower = core.call intrinsic.string.lower(%name)
+            %same = core.call intrinsic.eq(%lower, %existing_lower)
+            core.if %same {
+              core.call intrinsic.map.delete(%headers, %name)
+            }
+          }
+          %value = core.get %group[%key]
+          core.set %headers[%key] = %value
+        }
+      }
+      core.return %headers
+    }
+  }
+}

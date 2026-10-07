@@ -55,6 +55,16 @@ Typesafe-only balancers propagate the output-schema requirement. Mixed pools ret
 
 Runnable signature, native criteria/scoring, and two-program hybrid examples are under src/examples/go/generation/. See https://axllm.dev/go/examples/generation/.
 
+## OpenAI Decisions
+
+The openai-decisions provider uses /v1/decisions with gpt-6-luna by default. Required boolean fields become predicates; required class fields become choices. trueThreshold (or true_threshold) defaults to 0.5, is finite in [0,1], and uses an inclusive comparison. Field value descriptions become criteria instructions or choice descriptions. Raw answers remain in providerMetadata.openaiDecisions.answers; usage uses existing program APIs.
+
+Use `axllm.OpenAIDecisions` for native JSON requests and responses. Its create operation (Go: Create) accepts input and an ordered questions array. Each question has string instructions and an optional unique string name; unnamed answers retain name: null. Predicate returns probability. Choice requires 2-255 string or boolean choices and returns choice, confidence, and probabilities. Score requires 2-10 explicitly labelled levels and returns a fractional zero-based score, confidence, and probabilities. Handle type: refusal before accessing answer values. Preserve full model, answer order, and usage.
+
+Core validates response names, kinds, rubric membership, finite bounds, and distributions summing to one within an inclusive 0.01 tolerance. Probabilities are never normalized. Native input is text or user messages containing input_text and inline input_image data URLs (up to 128 images). Hosted image URLs, audio, non-user roles, and tool items are rejected. Signature prompt/history becomes role-labelled text evidence in one user message. Numeric bounds never define a score rubric; optional, numeric, nested, array, freeform, tool, and sampling requests are rejected before transport.
+
+Use api_key/apiKey or renewable credential providers with shared timeout, retry, and cancellation. Fresh credential headers override static/custom headers case-insensitively on every attempt. Inherited and per-call cancellation both apply. The endpoint returns a completed result without token streaming. Public signature and native examples are under src/examples/go/generation/.
+
 ## Named Deployment Profiles
 
 - The first `ai` / `NewAI` factory argument selects deployment behavior. The model option selects a model only inside that deployment; never infer request rules from a vendor-looking model ID.
@@ -152,7 +162,7 @@ Use the provider-backed Astra examples under `src/examples/go/generation/`, `sho
 
 ## Relevant API Surface
 
-- AxAI: `axllm.NewAI`, `axllm.Typesafe`, `axllm.AxAITypesafeClient`, `context.Context`, `axllm.AxAIServiceAbortedError`, `axllm.GetSupportedAIModels`, `axllm.AxCredentialRequest`, `axllm.AxCredentialProvider`, `AxOwnedClientFactory.OwnedWorkerFactory`, `axllm.AxChatSession`, `axllm.AxChatStream`, `axllm.OpenAICompatibleClient`, `axllm.OpenAIResponsesClient`, `axllm.GoogleGeminiClient`, `axllm.AnthropicClient`, `axllm.AxUsageContext`, `axllm.AxUsageEvent`, `axllm.AxUsageObserver`, `axllm.SetUsageObserver`, `axllm.AxRuntimeHooks`, `axllm.AxRateLimitInfo`, `axllm.AxRateLimiter`, `axllm.AxTracer`, `axllm.AxMeter`, `axllm.AxGlobals`, `axllm.SetRateLimiter`, `axllm.SetTracer`, `axllm.SetMeter`, `axllm.AxBalancer`, `axllm.AxBalancerAdaptiveStrategy`, `axllm.AxBalancerStatsStore`, `axllm.AxInMemoryBalancerStatsStore`, `axllm.CreateBalancerRouteStats`, `axllm.UpdateBalancerRouteStats`, `axllm.SampleBalancerRouteHealth`, `axllm.MultiServiceRouter`, `axllm.ProviderRouter`
+- AxAI: `axllm.NewAI`, `axllm.OpenAIDecisions`, `axllm.AxAIOpenAIDecisionsClient`, `axllm.Typesafe`, `axllm.AxAITypesafeClient`, `context.Context`, `axllm.AxAIServiceAbortedError`, `axllm.GetSupportedAIModels`, `axllm.AxCredentialRequest`, `axllm.AxCredentialProvider`, `AxOwnedClientFactory.OwnedWorkerFactory`, `axllm.AxChatSession`, `axllm.AxChatStream`, `axllm.OpenAICompatibleClient`, `axllm.OpenAIResponsesClient`, `axllm.GoogleGeminiClient`, `axllm.AnthropicClient`, `axllm.AxUsageContext`, `axllm.AxUsageEvent`, `axllm.AxUsageObserver`, `axllm.SetUsageObserver`, `axllm.AxRuntimeHooks`, `axllm.AxRateLimitInfo`, `axllm.AxRateLimiter`, `axllm.AxTracer`, `axllm.AxMeter`, `axllm.AxGlobals`, `axllm.SetRateLimiter`, `axllm.SetTracer`, `axllm.SetMeter`, `axllm.AxBalancer`, `axllm.AxBalancerAdaptiveStrategy`, `axllm.AxBalancerStatsStore`, `axllm.AxInMemoryBalancerStatsStore`, `axllm.CreateBalancerRouteStats`, `axllm.UpdateBalancerRouteStats`, `axllm.SampleBalancerRouteHealth`, `axllm.MultiServiceRouter`, `axllm.ProviderRouter`
 
 ## Guardrails
 

@@ -199,6 +199,9 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     // provider's sampling defaults (as its TS class starts from) under them,
     // after dropping the explicit ones the model rejects.
     this.modelConfig = new LinkedHashMap<>(Core.asMap(options.get("model_config")));
+    if (this.profile.equals("openai-decisions")) {
+      Core.decisions_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
+    }
     if (this.profile.equals("typesafe")) {
       Core.typesafe_require_number(this.options.getOrDefault("trueThreshold", this.options.getOrDefault("true_threshold", 0.5)), "trueThreshold", 0, 1);
     }
@@ -266,7 +269,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
     if (raw == null) raw = requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat", activeCancellation(), options);
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("openai-decisions") ? Core.decisions_response_context(payload, options) : profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
   }
 
   @Override public void validateChatRequest(Map<String, Object> request) {
@@ -478,7 +481,24 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
   @Override public AxChatStream openStream(Map<String,Object> request,AxCancellationToken cancellation)throws Exception {return openStream(request,Map.of(),cancellation);}
 
   @Override public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
-    return super.chat(request, callOptions);
+    if (!"openai-decisions".equals(profile)) return super.chat(request, callOptions);
+    var inherited = cancellation(options);
+    var perCall = cancellation(callOptions);
+    boolean merge = inherited != null && perCall != null && inherited != perCall;
+    var token = merge ? new AxCancellationToken() : inherited != null ? inherited : perCall;
+    var subscriptions = new java.util.ArrayList<AxCancellationToken.Subscription>();
+    try {
+      if (merge) {
+        subscriptions.add(inherited.subscribe(() -> token.cancel(inherited.reason())));
+        subscriptions.add(perCall.subscribe(() -> token.cancel(perCall.reason())));
+      }
+      if (token != null) token.throwIfCancelled();
+      var resolved = new LinkedHashMap<String,Object>(callOptions == null ? Map.of() : callOptions);
+      if (token != null) resolved.put("cancellation", token);
+      return super.chat(request, resolved);
+    } finally {
+      for (var subscription : subscriptions) subscription.close();
+    }
   }
 
   @Override public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
@@ -1004,7 +1024,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
         new CredentialRequest(profile, operation, method, requestUrl)
       );
       if (fresh == null) throw new AxAIServiceAuthenticationError("credential_provider returned null headers", null, null, null, null);
-      resolvedHeaders.putAll(fresh);
+      resolvedHeaders = Core.asMap(Core.provider_merge_headers(resolvedHeaders, fresh));
     }
     call.put("headers", resolvedHeaders);
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
@@ -1087,7 +1107,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if (credentialProvider != null) {
       Map<String, String> fresh = credentialProvider.credentials(new CredentialRequest(profile, "stream_chat", method, requestUrl));
       if (fresh == null) throw new AxAIServiceAuthenticationError("credential_provider returned null headers", null, null, null, null);
-      resolvedHeaders.putAll(fresh);
+      resolvedHeaders = Core.asMap(Core.provider_merge_headers(resolvedHeaders, fresh));
     }
     call.put("method", method);
     call.put("url", requestUrl);
@@ -1425,10 +1445,8 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     if ("api_key_header".equals(String.valueOf(descriptor.get("auth")))) {
       headers.put(String.valueOf(descriptor.getOrDefault("apiKeyHeader", "api-key")), apiKey == null ? "" : apiKey);
     }
-    Object extraHeaders = descriptor.get("headers");
-    if (extraHeaders instanceof Map<?, ?> rawHeaders) {
-      for (Map.Entry<?, ?> entry : rawHeaders.entrySet()) headers.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
-    }
+    headers = Core.asMap(Core.provider_merge_headers(headers, descriptor.getOrDefault("headers", Map.of())));
+    headers = Core.asMap(Core.provider_merge_headers(headers, options.getOrDefault("headers", Map.of())));
     return headers;
   }
 

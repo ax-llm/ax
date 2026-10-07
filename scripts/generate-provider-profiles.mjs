@@ -355,7 +355,7 @@ const transportClient = {
   'gemini-generate-content': 'GoogleGeminiClient',
   webllm: null,
   'typesafe-system-one': 'AxAITypesafeClient',
-  'openai-decisions': null,
+  'openai-decisions': 'AxAIOpenAIDecisionsClient',
 };
 const registry = {
   registryVersion: source.schemaVersion,

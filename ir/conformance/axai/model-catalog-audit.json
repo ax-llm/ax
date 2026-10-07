@@ -51,7 +51,8 @@
       "llama-cpp",
       "localai",
       "baseten-engine",
-      "typesafe"
+      "typesafe",
+      "openai-decisions"
     ],
     "filterOptions": ["all", "text", "embeddings", "code", "audio", "image"],
     "nextMilestone": "Generated catalog provider clients match the active catalog",

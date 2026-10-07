@@ -6,42 +6,42 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/SKILL.md",
-      "digest": "sha256:85736dd2b62dbb7ba30e38dc5ffcefcbde32ddbb08d82f39c8be819e07266653"
+      "digest": "sha256:c3e69653bc040b10389e7c7e0b23b261ea24e68f58066f5565a093461beba314"
     },
     {
       "name": "ax-python-ai",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:7157568ebe7620bb30fb7d442d6dd15a631100f9d21a5d34a42e9adef8e38077"
+      "digest": "sha256:0687e99e210657809872115b57c82967d7995745faae6746837965c1579c6d3f"
     },
     {
       "name": "ax-python-typesafe",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:a46be94b7b767b09f521d023a4d5757fcc42acee9a50935fe6bdd636af2d33b6"
+      "digest": "sha256:5fd3575e55cc9626d913eeff97ab40bdec470cce8b94ce7362fb58b08e8b17a2"
     },
     {
       "name": "ax-python-audio",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-python-audio/SKILL.md",
-      "digest": "sha256:dfc1d19c98e72658fc25ada08beef066a45449df11ec00574bd2ba9a21ba990d"
+      "digest": "sha256:6117c4e86e8078e49610056e17e059a12e589fe9e39ba40a9b9e9e367d4afc4e"
     },
     {
       "name": "ax-python-signature",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-python-signature/SKILL.md",
-      "digest": "sha256:f2a43cb6208d9bcef71fcc629c7ec827cd0d3daa85395f86c6928d63f02cf635"
+      "digest": "sha256:4e3aa09e8346d64e1f89bb090bba02c0e1f95baff0b7dca3c88e83096bbdde0b"
     },
     {
       "name": "ax-python-gen",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:c44a97b16a2d876ebfdde7ae5eba13c9c54140e644fd80448274cf459b7a159d"
+      "digest": "sha256:9a85c0a37fe7e0a438e448185652a1562d6381b48128518ca6d241b76c054139"
     },
     {
       "name": "ax-python-flow",
@@ -76,7 +76,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-python-agent-observability/SKILL.md",
-      "digest": "sha256:a6549e3c5ac6b9c69e3f0eabdb92bad8c6357bb159aa5e5253a40099d4428f02"
+      "digest": "sha256:88b0915535245dfaa81b30441b8269b3acee1a24040843825af807bc11899064"
     },
     {
       "name": "ax-python-agent-optimize",

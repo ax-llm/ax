@@ -1099,7 +1099,7 @@ callback supplies text; fallback policy can degrade, skip, or reject the file.
 The original conversation retains the file for later turns. Generated Python, Go,
 Java, C++, and Rust routers apply this policy in shared Core after selection.
 
-## OpenAI Decisions (TypeScript)
+## OpenAI Decisions
 
 Use `ai({ name: 'openai-decisions', apiKey })` for required boolean and class
 outputs through the dedicated `/v1/decisions` endpoint. The default model is
@@ -1175,7 +1175,12 @@ npm run tsx src/examples/typescript/generation/openai-decisions-native.ts
 npm run tsx src/examples/typescript/generation/openai-decisions-image.ts
 ```
 
-They use `OPENAI_API_KEY` or `OPENAI_APIKEY`. This integration currently ships
-in TypeScript; generated-language transport parity is tracked in the AxIR
-backlog. See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
+They use `OPENAI_API_KEY` or `OPENAI_APIKEY`. Python, Java, C++, Go, and Rust
+also support the signature adapter and native ordered questions. Their native
+factories are `openai_decisions`, `Ax.openaiDecisions`, `axllm::openai_decisions`,
+`axllm.OpenAIDecisions`, and `openai_decisions`, respectively. Native requests and
+responses use the language JSON map/value representation and preserve refusals
+and all usage fields. Runnable examples are under each language generation
+directory as `openai-decisions` and `openai-decisions-native` (Java uses
+`OpenAIDecisionsExample` and `OpenAIDecisionsNativeExample`). See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
 for the current provider contract and availability.
