@@ -1,5 +1,11 @@
 # Changelog
 
+## [25.1.1](https://github.com/ax-llm/ax/compare/25.1.0...25.1.1) (2026-10-07)
+
+### Bug Fixes
+
+* **ai:** merge refreshed credential headers case-insensitively ([#823](https://github.com/ax-llm/ax/pull/823)) ([d08f1b9](https://github.com/ax-llm/ax/commit/d08f1b9ccb0859f4f3952da083ea0dc1a9edecbb))
+
 ## [25.1.0](https://github.com/ax-llm/ax/compare/25.0.1...25.1.0) (2026-10-07)
 
 ### Features

@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-ai-aws-bedrock",
-  "version": "25.1.0",
+  "version": "25.1.1",
   "type": "module",
   "description": "AWS Bedrock Provider for AX - supports Claude, GPT OSS, and Titan Embed models",
   "repository": {
@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1122.0",
-    "@ax-llm/ax": "25.1.0"
+    "@ax-llm/ax": "25.1.1"
   },
   "bugs": {
     "url": "https://github.com/@ax-llm/ax/issues"
