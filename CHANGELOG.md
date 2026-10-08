@@ -1,5 +1,17 @@
 # Changelog
 
+## [25.2.1](https://github.com/ax-llm/ax/compare/25.2.0...25.2.1) (2026-10-08)
+
+### Features
+
+* support Claude Haiku 5.5 across all languages ([#827](https://github.com/ax-llm/ax/pull/827)) ([baa8adf](https://github.com/ax-llm/ax/commit/baa8adf616706e10a79fe91c743c6b58640fbbd0))
+
+## [25.2.0](https://github.com/ax-llm/ax/compare/25.1.1...25.2.0) (2026-10-07)
+
+### Features
+
+* **axir:** support OpenAI Decisions in all five generated languages ([#825](https://github.com/ax-llm/ax/issues/825)) ([b32f50f](https://github.com/ax-llm/ax/commit/b32f50f5ed7df4e6e92047e74813d88bf58b0f6e))
+
 ## [25.2.0](https://github.com/ax-llm/ax/compare/25.1.1...25.2.0) (2026-10-07)
 
 ### Features

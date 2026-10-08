@@ -1,7 +1,7 @@
 ---
 name: "ax-java-gepa"
 description: "Use when writing Java code with `dev.axllm:ax` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts."
-version: "25.2.0"
+version: "25.2.1"
 ---
 # Ax GEPA For Java
 

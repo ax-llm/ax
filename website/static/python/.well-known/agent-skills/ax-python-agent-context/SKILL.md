@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent-context"
 description: "Use when writing Python code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents."
-version: "25.2.0"
+version: "25.2.1"
 ---
 # AxAgent Context Selection For Python
 
