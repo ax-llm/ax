@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent-optimize"
 description: "Use when writing Python code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
-version: "25.2.0"
+version: "25.2.1"
 ---
 # AxAgent Optimize For Python
 
