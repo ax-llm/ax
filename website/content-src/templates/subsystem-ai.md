@@ -332,6 +332,27 @@ are conservative; exact or pattern rules apply only inside the selected profile,
 and callers can supply explicit model metadata for a deployment they have
 verified.
 
+### Haiku 5.5
+
+Select `AxAIAnthropicModel.Claude55Haiku` for `claude-haiku-5-5` on the Claude
+API, or `AxAIAnthropicVertexModel.Claude55Haiku` on Vertex. In Python, Go,
+Java, C++, and Rust, pass `model: "claude-haiku-5-5"` to the Anthropic client. Adaptive thinking
+defaults to medium effort. `thinkingTokenBudget: 'none'` disables thinking;
+combining it with `xhigh` or `max` effort fails locally. Other thinking levels
+use adaptive thinking, and forced tool choices remain supported. Ax supports
+both native JSON Schema and function-based structured output.
+
+Haiku 5.5 has a 1M-token context window and a 128K output limit. Base input/output
+pricing is $0.10/$0.50 per million tokens, rising to $0.50/$2.50 when total input
+exceeds 100K tokens, including cached input. Keep signed thinking blocks and
+earlier messages unchanged when replaying a conversation.
+
+The TypeScript example catalog includes **Haiku 5.5 ticket classification**.
+Python, Go, Java, C++, and Rust share the same request and replay semantics,
+and their public generation examples demonstrate the model.
+See the [Anthropic migration guide](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).
+
+
 {{aiProfileMatrix}}
 
 ### Major-version migration

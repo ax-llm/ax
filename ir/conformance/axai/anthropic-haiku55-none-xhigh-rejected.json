@@ -1,0 +1,47 @@
+{
+  "expected_error_contains": "claude-haiku-5-5 cannot disable thinking at effort 'xhigh'; use effort 'high' or below, or keep thinking on",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-haiku55-none-xhigh-rejected",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "Initial policy.",
+        "role": "system"
+      },
+      {
+        "content": "Start.",
+        "role": "user"
+      },
+      {
+        "content": "Started.",
+        "role": "assistant",
+        "thoughtBlocks": [
+          {
+            "data": "Earlier plan.",
+            "encrypted": false,
+            "signature": "earlier-signature"
+          }
+        ]
+      },
+      {
+        "cache": true,
+        "content": "Append this policy.",
+        "role": "system"
+      },
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "effort": "xhigh",
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  },
+  "transport_responses": []
+}

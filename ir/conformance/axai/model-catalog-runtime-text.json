@@ -4468,514 +4468,6 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
-          "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
-        },
-        "defaultModel": "grok-4.6",
-        "displayName": "xAI Grok",
-        "isDynamic": false,
-        "models": [
-          {
-            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
-            "cacheReadTokenCostPer1M": 0.05,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.5,
-            "contextWindow": 2000000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4-1-fast-non-reasoning",
-            "promptTokenCostPer1M": 0.2,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": ["grok-4-1-fast-reasoning-latest"],
-            "cacheReadTokenCostPer1M": 0.05,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.5,
-            "contextWindow": 2000000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4-1-fast-reasoning",
-            "promptTokenCostPer1M": 0.2,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true
-            },
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.5,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-3-mini",
-            "promptTokenCostPer1M": 0.3,
-            "provider": "grok",
-            "supported": {
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": [
-              "grok-4.20-multi-agent-0309",
-              "grok-4.20-multi-agent-latest"
-            ],
-            "cacheReadTokenCostPer1M": 0.2,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 2.5,
-            "contextWindow": 2000000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4.20-multi-agent",
-            "promptTokenCostPer1M": 1.25,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": [
-              "grok-4.20-0309-non-reasoning",
-              "grok-4.20-non-reasoning-latest"
-            ],
-            "cacheReadTokenCostPer1M": 0.2,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 2.5,
-            "contextWindow": 2000000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4.20-non-reasoning",
-            "promptTokenCostPer1M": 1.25,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": [
-              "grok-4.20-0309-reasoning",
-              "grok-4.20-reasoning-latest",
-              "grok-4.20",
-              "grok-4.20-0309"
-            ],
-            "cacheReadTokenCostPer1M": 0.2,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 2.5,
-            "contextWindow": 2000000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4.20-reasoning",
-            "promptTokenCostPer1M": 1.25,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": ["grok-4.3-latest", "grok-latest"],
-            "cacheReadTokenCostPer1M": 0.2,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": [
-                "none",
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "highest"
-              ],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 2.5,
-            "contextWindow": 1000000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4.3",
-            "promptTokenCostPer1M": 1.25,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 4,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-3-mini-fast",
-            "promptTokenCostPer1M": 0.6,
-            "provider": "grok",
-            "supported": {
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "aliases": ["grok-4.5-latest", "grok-build-latest"],
-            "cacheReadTokenCostPer1M": 0.3,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 6,
-            "contextWindow": 500000,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-4.5",
-            "promptTokenCostPer1M": 2,
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 15,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-3",
-            "promptTokenCostPer1M": 3,
-            "provider": "grok",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 25,
-            "currency": "USD",
-            "isDefault": false,
-            "name": "grok-3-fast",
-            "promptTokenCostPer1M": 5,
-            "provider": "grok",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
-              "showThoughts": false,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
-              "topP": true
-            },
-            "currency": "USD",
-            "isDefault": true,
-            "name": "grok-4.6",
-            "provider": "grok",
-            "supported": {
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          }
-        ],
-        "name": "grok"
-      },
-      {
-        "capabilities": {
-          "serviceTiers": [],
-          "thinking": false,
-          "thinkingLevels": []
-        },
-        "defaultModel": "command-r-plus",
-        "displayName": "Cohere",
-        "isDynamic": false,
-        "models": [
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 0.6,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "command-light",
-            "promptTokenCostPer1M": 0.3,
-            "provider": "cohere",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 1.5,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "command",
-            "promptTokenCostPer1M": 0.5,
-            "provider": "cohere",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 1.5,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "command-r",
-            "promptTokenCostPer1M": 0.5,
-            "provider": "cohere",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 15,
-            "currency": "usd",
-            "isDefault": true,
-            "name": "command-r-plus",
-            "promptTokenCostPer1M": 3,
-            "provider": "cohere",
-            "type": "text"
-          }
-        ],
-        "name": "cohere"
-      },
-      {
-        "capabilities": {
-          "serviceTiers": [],
-          "thinking": false,
-          "thinkingLevels": []
-        },
-        "defaultModel": "reka-core",
-        "displayName": "Reka",
-        "isDynamic": false,
-        "models": [
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 1,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "reka-edge",
-            "promptTokenCostPer1M": 0.4,
-            "provider": "reka",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 2,
-            "currency": "usd",
-            "isDefault": false,
-            "name": "reka-flash",
-            "promptTokenCostPer1M": 0.8,
-            "provider": "reka",
-            "type": "text"
-          },
-          {
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "imageOutput": false,
-              "serviceTiers": [],
-              "showThoughts": false,
-              "structuredOutputs": false,
-              "temperature": true,
-              "thinkingBudget": false,
-              "thinkingLevels": [],
-              "topP": true
-            },
-            "completionTokenCostPer1M": 15,
-            "currency": "usd",
-            "isDefault": true,
-            "name": "reka-core",
-            "promptTokenCostPer1M": 3,
-            "provider": "reka",
-            "type": "text"
-          }
-        ],
-        "name": "reka"
-      },
-      {
-        "capabilities": {
           "serviceTiers": [],
           "thinking": true,
           "thinkingLevels": [
@@ -4991,6 +4483,103 @@
         "displayName": "Anthropic",
         "isDynamic": false,
         "models": [
+          {
+            "cacheReadTokenCostPer1M": 0.01,
+            "cacheWriteTokenCostPer1M": 0.125,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 0.5,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.05,
+            "longContextCacheWriteTokenCostPer1M": 0.625,
+            "longContextCompletionTokenCostPer1M": 2.5,
+            "longContextPromptTokenCostPer1M": 0.5,
+            "longContextThreshold": 100000,
+            "maxTokens": 128000,
+            "name": "claude-haiku-5-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.1,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "temperatureOne": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.01,
+            "cacheWriteTokenCostPer1M": 0.125,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 0.5,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.05,
+            "longContextCacheWriteTokenCostPer1M": 0.625,
+            "longContextCompletionTokenCostPer1M": 2.5,
+            "longContextPromptTokenCostPer1M": 0.5,
+            "longContextThreshold": 100000,
+            "maxTokens": 128000,
+            "name": "claude-haiku-5-5",
+            "notSupported": {
+              "temperature": true,
+              "topK": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.1,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputModes": ["native", "function"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
           {
             "cacheReadTokenCostPer1M": 0.03,
             "cacheWriteTokenCostPer1M": 0.3,
@@ -6698,6 +6287,514 @@
       },
       {
         "capabilities": {
+          "serviceTiers": ["standard", "priority"],
+          "thinking": true,
+          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+        },
+        "defaultModel": "grok-4.6",
+        "displayName": "xAI Grok",
+        "isDynamic": false,
+        "models": [
+          {
+            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
+            "cacheReadTokenCostPer1M": 0.05,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.5,
+            "contextWindow": 2000000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4-1-fast-non-reasoning",
+            "promptTokenCostPer1M": 0.2,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": ["grok-4-1-fast-reasoning-latest"],
+            "cacheReadTokenCostPer1M": 0.05,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.5,
+            "contextWindow": 2000000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4-1-fast-reasoning",
+            "promptTokenCostPer1M": 0.2,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.5,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-3-mini",
+            "promptTokenCostPer1M": 0.3,
+            "provider": "grok",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": [
+              "grok-4.20-multi-agent-0309",
+              "grok-4.20-multi-agent-latest"
+            ],
+            "cacheReadTokenCostPer1M": 0.2,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 2.5,
+            "contextWindow": 2000000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4.20-multi-agent",
+            "promptTokenCostPer1M": 1.25,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": [
+              "grok-4.20-0309-non-reasoning",
+              "grok-4.20-non-reasoning-latest"
+            ],
+            "cacheReadTokenCostPer1M": 0.2,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 2.5,
+            "contextWindow": 2000000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4.20-non-reasoning",
+            "promptTokenCostPer1M": 1.25,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": [
+              "grok-4.20-0309-reasoning",
+              "grok-4.20-reasoning-latest",
+              "grok-4.20",
+              "grok-4.20-0309"
+            ],
+            "cacheReadTokenCostPer1M": 0.2,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 2.5,
+            "contextWindow": 2000000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4.20-reasoning",
+            "promptTokenCostPer1M": 1.25,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": ["grok-4.3-latest", "grok-latest"],
+            "cacheReadTokenCostPer1M": 0.2,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 2.5,
+            "contextWindow": 1000000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4.3",
+            "promptTokenCostPer1M": 1.25,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 4,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-3-mini-fast",
+            "promptTokenCostPer1M": 0.6,
+            "provider": "grok",
+            "supported": {
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": ["grok-4.5-latest", "grok-build-latest"],
+            "cacheReadTokenCostPer1M": 0.3,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 6,
+            "contextWindow": 500000,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-4.5",
+            "promptTokenCostPer1M": 2,
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 15,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-3",
+            "promptTokenCostPer1M": 3,
+            "provider": "grok",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 25,
+            "currency": "USD",
+            "isDefault": false,
+            "name": "grok-3-fast",
+            "promptTokenCostPer1M": 5,
+            "provider": "grok",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": true
+            },
+            "currency": "USD",
+            "isDefault": true,
+            "name": "grok-4.6",
+            "provider": "grok",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "grok"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "defaultModel": "command-r-plus",
+        "displayName": "Cohere",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.6,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "command-light",
+            "promptTokenCostPer1M": 0.3,
+            "provider": "cohere",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 1.5,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "command",
+            "promptTokenCostPer1M": 0.5,
+            "provider": "cohere",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 1.5,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "command-r",
+            "promptTokenCostPer1M": 0.5,
+            "provider": "cohere",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 15,
+            "currency": "usd",
+            "isDefault": true,
+            "name": "command-r-plus",
+            "promptTokenCostPer1M": 3,
+            "provider": "cohere",
+            "type": "text"
+          }
+        ],
+        "name": "cohere"
+      },
+      {
+        "capabilities": {
+          "serviceTiers": [],
+          "thinking": false,
+          "thinkingLevels": []
+        },
+        "defaultModel": "reka-core",
+        "displayName": "Reka",
+        "isDynamic": false,
+        "models": [
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 1,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "reka-edge",
+            "promptTokenCostPer1M": 0.4,
+            "provider": "reka",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 2,
+            "currency": "usd",
+            "isDefault": false,
+            "name": "reka-flash",
+            "promptTokenCostPer1M": 0.8,
+            "provider": "reka",
+            "type": "text"
+          },
+          {
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": [],
+              "showThoughts": false,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": false,
+              "thinkingLevels": [],
+              "topP": true
+            },
+            "completionTokenCostPer1M": 15,
+            "currency": "usd",
+            "isDefault": true,
+            "name": "reka-core",
+            "promptTokenCostPer1M": 3,
+            "provider": "reka",
+            "type": "text"
+          }
+        ],
+        "name": "reka"
+      },
+      {
+        "capabilities": {
           "serviceTiers": [],
           "thinking": false,
           "thinkingLevels": []
@@ -7775,7 +7872,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 213,
+    "modelCount": 215,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 51,
@@ -7788,10 +7885,10 @@
       "deepseek-responses",
       "openai",
       "openai-responses",
+      "anthropic",
       "grok",
       "cohere",
       "reka",
-      "anthropic",
       "openai-compatible",
       "azure-openai",
       "meta",
