@@ -660,7 +660,7 @@ Earlier OpenAI models retain their existing mapping.
 
 ### Anthropic Model-Specific Behavior
 
-- Opus 5.5, Fable 5.1, Fable 5, Opus 5, Opus 4.8, 4.7, and 4.6 plus Sonnet 5 and 5.5:
+- Opus 5.5, Fable 5.1, Fable 5, Opus 5, Opus 4.8, 4.7, and 4.6 plus Sonnet 5, Sonnet 5.5, and Haiku 5.5:
   adaptive thinking, no manual `budget_tokens`, and no `temperature` / `topP` /
   `topK`. When thoughts are requested, Ax asks Anthropic for summarized
   display; when they are hidden, Ax explicitly requests `display: 'omitted'`.
@@ -679,9 +679,21 @@ Earlier OpenAI models retain their existing mapping.
 - Opus 5.5, Sonnet 5.5, and Fable 5.1 refuse forced tool choice: Ax throws for
   `functionCall: 'required'` or a named function, and structured output uses
   the native `output_config.format` path.
-- Opus 4.8, Opus 5, Opus 5.5, Sonnet 5.5, Fable 5, and Fable 5.1 keep a later system
+- Haiku 5.5 (`AxAIAnthropicModel.Claude55Haiku`, also on Vertex):
+  adaptive thinking defaults to medium effort. `'none'` sends
+  `thinking: { type: 'disabled' }`; combining it with `'xhigh'` or `'max'`
+  fails locally. Other thinking levels use adaptive thinking with effort.
+  Forced tool choice is supported, as are native JSON Schema and function-based
+  structured outputs. Empty signed thinking blocks remain available for replay;
+  keep history append-only, including later system messages on both APIs.
+  The context window is 1M tokens and the output limit is 128K. Per million
+  tokens, input/output pricing is $0.10/$0.50 through 100K input tokens and
+  $0.50/$2.50 above 100K, counting cached input toward the threshold. Cache
+  reads and 5-minute writes use the corresponding tier. These semantics are
+  shared with the generated Python, Go, Java, C++, and Rust packages.
+- Opus 4.8, Opus 5, Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5, and Fable 5.1 keep a later system
   message in place on the first-party API; other models hoist it into the
-  system prompt. Sonnet 5.5 also preserves later system messages on Vertex,
+  system prompt. Sonnet 5.5 and Haiku 5.5 preserve later system messages on Vertex,
   keeping the prefix before signed thinking unchanged.
 - Opus 4.5: budget_tokens + effort levels (capped at `'high'`)
 - Other thinking models: budget tokens only

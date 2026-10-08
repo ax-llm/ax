@@ -9212,6 +9212,8 @@ module @ax.provider version "0.1" {
       %sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
       %not_vertex = core.call intrinsic.not(%is_vertex)
       %mid_allowed = core.call intrinsic.or(%not_vertex, %sonnet_55)
+      %haiku_55 = core.call @anthropic_haiku55_model_impl(%model)
+      %mid_allowed = core.call intrinsic.or(%mid_allowed, %haiku_55)
       %supports_mid = core.call intrinsic.and(%supports_mid, %mid_allowed)
       %system = core.list
       %messages = core.list
@@ -9360,6 +9362,9 @@ module @ax.provider version "0.1" {
       %sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
       %disabled_sonnet_55 = core.call intrinsic.and(%between_tools, %sonnet_55)
       %disabled_model = core.call intrinsic.or(%disabled_opus_5, %disabled_sonnet_55)
+      %is_haiku_55 = core.call @anthropic_haiku55_model_impl(%model)
+      %disabled_haiku_55 = core.call intrinsic.and(%thinking_disabled, %is_haiku_55)
+      %disabled_model = core.call intrinsic.or(%disabled_model, %disabled_haiku_55)
       %rejected_effort = core.call intrinsic.and(%disabled_model, %above_high)
       core.if %rejected_effort {
         %effort_message = core.call intrinsic.string.format("{} cannot disable thinking at effort '{}'; use effort 'high' or below, or keep thinking on", %model, %final_effort)
@@ -9390,6 +9395,8 @@ module @ax.provider version "0.1" {
       %is_adaptive = core.call intrinsic.or(%is_adaptive_opus, %is_sonnet_5)
       %is_adaptive = core.call intrinsic.or(%is_adaptive, %is_opus_5)
       %is_adaptive = core.call intrinsic.or(%is_adaptive, %is_fable_5)
+      %is_haiku_55 = core.call @anthropic_haiku55_model_impl(%model)
+      %is_adaptive = core.call intrinsic.or(%is_adaptive, %is_haiku_55)
       core.return %is_adaptive
     }
   }
@@ -9422,6 +9429,8 @@ module @ax.provider version "0.1" {
       %is_sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
       %on_by_default = core.call intrinsic.or(%is_opus_5, %is_sonnet_5)
       %on_by_default = core.call intrinsic.or(%on_by_default, %is_sonnet_55)
+      %is_haiku_55 = core.call @anthropic_haiku55_model_impl(%model)
+      %on_by_default = core.call intrinsic.or(%on_by_default, %is_haiku_55)
       core.return %on_by_default
     }
   }
@@ -9444,7 +9453,21 @@ module @ax.provider version "0.1" {
       %keeps = core.call intrinsic.or(%keeps, %is_fable_51)
       %is_sonnet_55 = core.call @anthropic_between_tools_model_impl(%model)
       %keeps = core.call intrinsic.or(%keeps, %is_sonnet_55)
+      %is_haiku_55 = core.call @anthropic_haiku55_model_impl(%model)
+      %keeps = core.call intrinsic.or(%keeps, %is_haiku_55)
       core.return %keeps
+    }
+  }
+
+  op ax.provider.semantic @anthropic_haiku55_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/anthropic/api.ts"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %matches = core.regex_match %model pattern "claude-haiku-5-5(?:$|[^0-9])"
+      core.return %matches
     }
   }
 
@@ -11834,6 +11857,8 @@ module @ax.provider version "0.1" {
       %deprecated = core.call intrinsic.or(%deprecated, %is_sonnet_5)
       %deprecated = core.call intrinsic.or(%deprecated, %is_opus_5)
       %deprecated = core.call intrinsic.or(%deprecated, %is_fable_5)
+      %is_haiku_55 = core.call @anthropic_haiku55_model_impl(%model)
+      %deprecated = core.call intrinsic.or(%deprecated, %is_haiku_55)
       core.return %deprecated
     }
   }

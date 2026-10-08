@@ -1,0 +1,125 @@
+{
+  "expected_output": [
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-haiku-5-5",
+        "tokens": {
+          "completion_tokens": 0,
+          "prompt_tokens": 2,
+          "total_tokens": 2
+        }
+      },
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "content": "",
+          "id": "msg_haiku55",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "index": 0,
+          "thought_blocks": [
+            {
+              "data": "",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "index": 0,
+          "thought_blocks": [
+            {
+              "data": "Plan.",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "index": 0,
+          "thought_blocks": [
+            {
+              "data": "",
+              "encrypted": false,
+              "signature": "signed-plan"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "index": 0,
+          "thought_blocks": [
+            {
+              "data": "opaque-one",
+              "encrypted": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "index": 0,
+          "thought_blocks": [
+            {
+              "data": "opaque-two",
+              "encrypted": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "remote_id": "msg_haiku55",
+      "results": [
+        {
+          "content": "Done.",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-haiku55-stream-none",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": true,
+      "thinkingTokenBudget": "none"
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_haiku55\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-haiku-5-5\",\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Plan.\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"signed-plan\"}}\n\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"opaque-one\"}}\n\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"opaque-two\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":3,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done.\"}}\n\n",
+      "status": 200
+    }
+  ]
+}

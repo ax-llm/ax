@@ -890,6 +890,7 @@ struct Core {
   static Value _anthropic_thinking_always_on_impl(Value model);
   static Value _anthropic_thinking_on_by_default_impl(Value model);
   static Value _anthropic_keeps_mid_conversation_system_impl(Value model);
+  static Value _anthropic_haiku55_model_impl(Value model);
   static Value _anthropic_between_tools_model_impl(Value model);
   static Value provider_response_context(Value payload, Value model_config, Value options);
   static Value _anthropic_apply_thought_visibility_impl(Value response, Value context);

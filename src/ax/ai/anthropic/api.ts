@@ -128,6 +128,7 @@ const CLAUDE_FABLE_5 = familyPattern('claude-fable-5');
 const CLAUDE_FABLE_5_1 = versionPattern('claude-fable-5-1');
 const CLAUDE_SONNET_5 = familyPattern('claude-sonnet-5');
 const CLAUDE_SONNET_5_5 = versionPattern('claude-sonnet-5-5');
+const CLAUDE_HAIKU_5_5 = versionPattern('claude-haiku-5-5');
 
 /**
  * Models that use adaptive thinking + output_config.effort and reject the legacy
@@ -137,6 +138,7 @@ const isAdaptiveThinkingModel = (model: string): boolean =>
   model.includes('claude-opus-4-6') ||
   isClaudeOpus47OrLater(model) ||
   isClaude5(model) ||
+  CLAUDE_HAIKU_5_5.test(model) ||
   model.includes('claude-opus-5') ||
   model.includes('claude-fable-5');
 
@@ -148,6 +150,7 @@ const isAdaptiveThinkingModel = (model: string): boolean =>
 const deprecatesSampling = (model: string): boolean =>
   isClaudeOpus47OrLater(model) ||
   isClaude5(model) ||
+  CLAUDE_HAIKU_5_5.test(model) ||
   model.includes('claude-opus-5') ||
   model.includes('claude-fable-5');
 
@@ -176,7 +179,8 @@ const isThinkingAlwaysOn = (model: string): boolean =>
 const isThinkingOnByDefault = (model: string): boolean =>
   CLAUDE_OPUS_5.test(model) ||
   CLAUDE_SONNET_5.test(model) ||
-  CLAUDE_SONNET_5_5.test(model);
+  CLAUDE_SONNET_5_5.test(model) ||
+  CLAUDE_HAIKU_5_5.test(model);
 
 /**
  * Models whose off switch is `thinking.type.between_tools`: `disabled` is a
@@ -318,6 +322,7 @@ const keepsMidConversationSystem = (model: string): boolean =>
   CLAUDE_OPUS_5.test(model) ||
   CLAUDE_OPUS_5_5.test(model) ||
   CLAUDE_SONNET_5_5.test(model) ||
+  CLAUDE_HAIKU_5_5.test(model) ||
   CLAUDE_FABLE_5.test(model) ||
   CLAUDE_FABLE_5_1.test(model);
 
@@ -624,7 +629,9 @@ class AxAIAnthropicImpl
 
     const supportsMidConversationSystem =
       keepsMidConversationSystem(modelStr) &&
-      (!this.isVertex || CLAUDE_SONNET_5_5.test(modelStr));
+      (!this.isVertex ||
+        CLAUDE_SONNET_5_5.test(modelStr) ||
+        CLAUDE_HAIKU_5_5.test(modelStr));
     const firstNonSystemIndex = req.chatPrompt.findIndex(
       (msg) => msg.role !== 'system'
     );
@@ -832,10 +839,11 @@ class AxAIAnthropicImpl
       outputConfig = { ...outputConfig, effort };
     }
 
-    // Opus 5 and Sonnet 5.5 only let thinking be switched off at effort
+    // Opus 5, Sonnet 5.5, and Haiku 5.5 only let thinking be switched off at effort
     // `high` or below.
     if (
-      ((thinkingWire?.type === 'disabled' && CLAUDE_OPUS_5.test(modelStr)) ||
+      ((thinkingWire?.type === 'disabled' &&
+        (CLAUDE_OPUS_5.test(modelStr) || CLAUDE_HAIKU_5_5.test(modelStr))) ||
         (thinkingWire?.type === 'between_tools' &&
           turnsThinkingOffBetweenTools(modelStr))) &&
       (outputConfig?.effort === 'xhigh' || outputConfig?.effort === 'max')

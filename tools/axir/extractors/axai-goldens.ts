@@ -13558,6 +13558,358 @@ for (const [id, config] of [
   });
 }
 
+// Haiku 5.5 goldens come from the TS provider, including qualified/datetime
+// ids, thinking-off validation, native structured output and replay metadata.
+const haiku55 = AxAIAnthropicModel.Claude55Haiku;
+const haiku55Reply = (model: string) => ({
+  id: 'msg_haiku55',
+  type: 'message',
+  role: 'assistant',
+  model,
+  content: [
+    { type: 'thinking', thinking: 'Plan.', signature: 'signed-plan' },
+    { type: 'redacted_thinking', data: 'opaque-one' },
+    { type: 'redacted_thinking', data: 'opaque-two' },
+    { type: 'text', text: 'Done.' },
+  ],
+  stop_reason: 'end_turn',
+  usage: { input_tokens: 2, output_tokens: 3 },
+});
+const haiku55Schema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { answer: { type: 'string' } },
+  required: ['answer'],
+};
+const snakeHaiku55 = (value: any): any => {
+  if (Array.isArray(value)) return value.map(snakeHaiku55);
+  if (!value || typeof value !== 'object') return value;
+  const names: Record<string, string> = {
+    thoughtBlocks: 'thought_blocks',
+    functionCalls: 'function_calls',
+    finishReason: 'finish_reason',
+    remoteId: 'remote_id',
+    modelUsage: 'model_usage',
+    promptTokens: 'prompt_tokens',
+    completionTokens: 'completion_tokens',
+    totalTokens: 'total_tokens',
+    cacheReadTokens: 'cache_read_tokens',
+    cacheCreationTokens: 'cache_creation_tokens',
+  };
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [names[k] ?? k, snakeHaiku55(v)])
+  );
+};
+for (const [id, model, config, extra] of [
+  ['none', haiku55, { thinkingTokenBudget: 'none' }, {}],
+  ['vertex-none', haiku55, { thinkingTokenBudget: 'none' }, { vertex: true }],
+  ['none-high', haiku55, { thinkingTokenBudget: 'none', effort: 'high' }, {}],
+  [
+    'none-xhigh-rejected',
+    haiku55,
+    { thinkingTokenBudget: 'none', effort: 'xhigh' },
+    {},
+  ],
+  [
+    'none-max-rejected',
+    haiku55,
+    { thinkingTokenBudget: 'none', effort: 'max' },
+    {},
+  ],
+  ['adaptive-highest', haiku55, { thinkingTokenBudget: 'highest' }, {}],
+  ['hidden', haiku55, { showThoughts: false }, {}],
+  [
+    'qualified-none',
+    'publishers/anthropic/models/claude-haiku-5-5',
+    { thinkingTokenBudget: 'none' },
+    {},
+  ],
+  [
+    'dated-none',
+    'claude-haiku-5-5-20261001',
+    { thinkingTokenBudget: 'none' },
+    {},
+  ],
+  ['minor-boundary', 'claude-haiku-5-50', { thinkingTokenBudget: 'none' }, {}],
+  [
+    'native-schema',
+    haiku55,
+    {},
+    { responseFormat: { type: 'json_schema', schema: haiku55Schema } },
+  ],
+  [
+    'forced-required',
+    haiku55,
+    {},
+    { functions: [claudeSearchTool], functionCall: 'required' },
+  ],
+  [
+    'forced-named',
+    haiku55,
+    {},
+    {
+      functions: [claudeSearchTool],
+      functionCall: { type: 'function', function: { name: 'search' } },
+    },
+  ],
+  [
+    'internal-output-choice',
+    haiku55,
+    { functionCallSource: 'ax' },
+    {
+      functions: [{ ...claudeSearchTool, name: '__axOutput' }],
+      functionCall: { type: 'function', function: { name: '__axOutput' } },
+    },
+  ],
+] as const) {
+  let body: any;
+  let output: any;
+  let error = '';
+  const client = new AxAIAnthropic({
+    apiKey: 'vertex' in extra ? async () => 'test-key' : 'test-key',
+    ...('vertex' in extra ? { projectId: 'demo-project', region: 'us' } : {}),
+    config: { model: model as any },
+    options: {
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body));
+        return Response.json(haiku55Reply(model));
+      },
+    },
+  });
+  const chatPrompt = [
+    { role: 'system', content: 'Initial policy.', cache: true },
+    { role: 'user', content: 'Start.' },
+    {
+      role: 'assistant',
+      content: 'Started.',
+      thoughtBlocks: [
+        {
+          data: 'Earlier plan.',
+          encrypted: false,
+          signature: 'earlier-signature',
+        },
+      ],
+    },
+    { role: 'system', content: 'Append this policy.', cache: true },
+    { role: 'user', content: 'Continue.' },
+  ];
+  try {
+    output = await client.chat(
+      {
+        chatPrompt,
+        ...extra,
+        modelConfig: {
+          stream: false,
+          ...('effort' in config ? { effort: config.effort } : {}),
+        },
+      } as any,
+      config as any
+    );
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  const portConfig = { stream: false, ...config } as any;
+  delete portConfig.functionCallSource;
+  const wire: any = body
+    ? {
+        messages: body.messages,
+        system: body.system,
+        ...(body.thinking ? { thinking: body.thinking } : {}),
+        ...(body.output_config ? { output_config: body.output_config } : {}),
+        ...(body.tool_choice ? { tool_choice: body.tool_choice } : {}),
+      }
+    : undefined;
+  const normalized = output ? snakeHaiku55(output) : undefined;
+  if (normalized?.model_usage) normalized.model_usage.ai = 'anthropic';
+  if (normalized)
+    for (const result of normalized.results) {
+      result.content ??= '';
+      result.function_calls ??= [];
+    }
+  writeFixture(`anthropic-haiku55-${id}`, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model,
+    ...('vertex' in extra
+      ? { service_options: { projectId: 'demo-project', region: 'us' } }
+      : {}),
+    request: {
+      chat_prompt: chatPrompt,
+      model_config: portConfig,
+      ...('functions' in extra
+        ? { functions: extra.functions, function_call: extra.functionCall }
+        : {}),
+      ...('responseFormat' in extra
+        ? { response_format: extra.responseFormat }
+        : {}),
+    } as any,
+    ...('functionCallSource' in config
+      ? { options: { functionCallSource: config.functionCallSource } }
+      : {}),
+    transport_responses: error
+      ? []
+      : [{ status: 200, json: haiku55Reply(model) }],
+    ...(error
+      ? {
+          expected_error_contains: error.includes(
+            'does not support explicitly forced tool choices'
+          )
+            ? 'does not support explicitly forced tool choices'
+            : error,
+          expected_transport_request_count: 0,
+        }
+      : {
+          expected_output: normalized,
+          expected_transport_request: { json: wire },
+          expected_transport_json_absent: [
+            'thinking',
+            'output_config',
+            'tool_choice',
+          ].filter((key) => !(key in body)),
+        }),
+  });
+}
+for (const [id, config] of [
+  ['visible', {}],
+  ['none', { thinkingTokenBudget: 'none' }],
+  ['hidden', { showThoughts: false }],
+  ['adaptive-hidden', { thinkingTokenBudget: 'high', showThoughts: false }],
+] as const) {
+  const events = [
+    {
+      type: 'message_start',
+      message: {
+        id: 'msg_haiku55',
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: haiku55,
+        usage: { input_tokens: 2, output_tokens: 0 },
+      },
+    },
+    {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'thinking', thinking: '' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: 'Plan.' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'signature_delta', signature: 'signed-plan' },
+    },
+    {
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'redacted_thinking', data: 'opaque-one' },
+    },
+    {
+      type: 'content_block_start',
+      index: 2,
+      content_block: { type: 'redacted_thinking', data: 'opaque-two' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 3,
+      delta: { type: 'text_delta', text: 'Done.' },
+    },
+  ];
+  const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+  const client = new AxAIAnthropic({
+    apiKey: 'test-key',
+    config: { model: haiku55 },
+    options: {
+      fetch: async () =>
+        new Response(body, {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+    },
+  });
+  const stream = await client.chat(
+    {
+      chatPrompt: [{ role: 'user', content: 'Continue.' }],
+      modelConfig: { stream: true },
+    },
+    { ...config, stream: true }
+  );
+  const chunks: any[] = [];
+  const reader = (stream as ReadableStream).getReader();
+  while (true) {
+    const item = await reader.read();
+    if (item.done) break;
+    chunks.push(item.value);
+  }
+  if (chunks.length !== events.length)
+    throw new Error(
+      `Haiku 5.5 streamed ${chunks.length}/${events.length} events`
+    );
+  const expected = chunks.map((chunk, index) => ({
+    results: snakeHaiku55(chunk.results),
+    remote_id: 'msg_haiku55',
+    ...(index === 0
+      ? {
+          model_usage: {
+            ai: 'anthropic',
+            model: haiku55,
+            tokens: { prompt_tokens: 2, completion_tokens: 0, total_tokens: 2 },
+          },
+        }
+      : {}),
+  }));
+  writeFixture(`anthropic-haiku55-stream-${id}`, {
+    kind: 'ai_stream',
+    provider: 'anthropic',
+    model: haiku55,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Continue.' }],
+      model_config: { stream: true, ...config },
+    },
+    transport_responses: [{ status: 200, body }],
+    expected_output: expected,
+  });
+}
+
+// The input tier includes both cache reads and cache creation, even on a cold cache.
+for (const totalInput of [100_000, 100_001]) {
+  const long = totalInput > 100_000;
+  writeFixture(`anthropic-haiku55-cache-cost-threshold-${totalInput}`, {
+    kind: 'ai_chat',
+    provider: 'anthropic',
+    model: haiku55,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'measure' }],
+      model_config: { stream: false, thinkingTokenBudget: 'none' },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          ...haiku55Reply(haiku55),
+          usage: {
+            input_tokens: 10_000,
+            output_tokens: 1000,
+            cache_read_input_tokens: 50_000,
+            cache_creation_input_tokens: totalInput - 60_000,
+          },
+        },
+      },
+    ],
+    expected_estimated_cost:
+      ((10_000 * 0.1 +
+        50_000 * 0.01 +
+        (totalInput - 60_000) * 0.125 +
+        1000 * 0.5) *
+        (long ? 5 : 1)) /
+      1_000_000,
+  });
+}
+
 // Gemini audio defaults: `speak()` uses 3.8 Flash TTS and `transcribe()` the
 // dedicated 3.5 Transcribe model; both are JSON generateContent calls. The
 // speak outputs carry TS's AxSpeechResponse keys, from TS's real speak(),

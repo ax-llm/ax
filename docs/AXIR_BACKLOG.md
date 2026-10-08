@@ -1381,3 +1381,12 @@ No entries.
   - Completed at: 2026-10-07
   - Completed by: `63721bbecacbbdfec0b52117b647272cf38b709b`
   - Verification: `All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass.`
+- `axir-2026-10-07-port-haiku-5-5-model-adaptive-thinking-and-tiered-pricing` [axai] Port Haiku 5.5 model, adaptive thinking, and tiered pricing
+  - Status: done
+  - Source commit: `be8468d53d0c6c8778007e707ad8df8765337252`
+  - TS paths: `src/ax/ai/anthropic/types.ts`, `src/ax/ai/anthropic/info.ts`, `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/haiku55.test.ts`, `src/ax/ai/catalog.test.ts`
+  - Impact: TypeScript adds Claude55Haiku on Anthropic and Vertex with 1M context, 128K output, adaptive thinking and explicit disabled thinking at high effort or below, forced tool choices and native/function structured output, append-only system history, sampling restrictions, and pricing above 100K total input including cache reads/writes. Mirror model metadata, wire behavior, and boundary conformance in generated Python, Go, Java, C++, and Rust.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-08
+  - Completed by: `working-tree`
+  - Verification: `Current-main verification: 1837 fixtures per generated language and downstream package consumers pass; Go passed a complete isolated release-gate rerun after the aggregate run exceeded the existing 100ms AxFlow cancellation assertion under parallel load. 1180 TypeScript provider/replay tests and 68 compiler unit tests pass; live Haiku examples succeed in all six languages; real forced tools, hidden signed-thinking replay with an appended system message, and streaming pass. Type checks, strict Core check, lowering, conformance/profile/package freshness, skills and 1980-page website checks pass.`

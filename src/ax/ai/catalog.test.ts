@@ -408,6 +408,22 @@ describe('axGetSupportedAIModels', () => {
 
   it.each([
     {
+      label: 'Claude 5.5 Haiku',
+      name: AxAIAnthropicModel.Claude55Haiku,
+      pricing: {
+        promptTokenCostPer1M: 0.1,
+        completionTokenCostPer1M: 0.5,
+        cacheReadTokenCostPer1M: 0.01,
+        cacheWriteTokenCostPer1M: 0.125,
+        longContextThreshold: 100_000,
+        longContextPromptTokenCostPer1M: 0.5,
+        longContextCompletionTokenCostPer1M: 2.5,
+        longContextCacheReadTokenCostPer1M: 0.05,
+        longContextCacheWriteTokenCostPer1M: 0.625,
+      },
+      fastPricing: undefined,
+    },
+    {
       label: 'Claude 5.5 Opus',
       name: AxAIAnthropicModel.Claude55Opus,
       pricing: {

@@ -3,6 +3,53 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIAnthropicModel, AxAIAnthropicVertexModel } from './types.js';
 
 export const axModelInfoAnthropic: AxModelInfo[] = [
+  // Haiku 5.5 (2026-10). Long-context rates apply above 100K input tokens.
+  // https://platform.claude.com/docs/en/models/haiku-5-5/overview
+  {
+    name: AxAIAnthropicModel.Claude55Haiku,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.1,
+    completionTokenCostPer1M: 0.5,
+    cacheReadTokenCostPer1M: 0.01,
+    cacheWriteTokenCostPer1M: 0.125,
+    longContextThreshold: 100_000,
+    longContextPromptTokenCostPer1M: 0.5,
+    longContextCompletionTokenCostPer1M: 2.5,
+    longContextCacheReadTokenCostPer1M: 0.05,
+    longContextCacheWriteTokenCostPer1M: 0.625,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
+    supported: {
+      temperatureOne: true,
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+    },
+  },
+  {
+    name: AxAIAnthropicVertexModel.Claude55Haiku,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.1,
+    completionTokenCostPer1M: 0.5,
+    cacheReadTokenCostPer1M: 0.01,
+    cacheWriteTokenCostPer1M: 0.125,
+    longContextThreshold: 100_000,
+    longContextPromptTokenCostPer1M: 0.5,
+    longContextCompletionTokenCostPer1M: 2.5,
+    longContextCacheReadTokenCostPer1M: 0.05,
+    longContextCacheWriteTokenCostPer1M: 0.625,
+    maxTokens: 128000,
+    contextWindow: 1_000_000,
+    notSupported: { temperature: true, topP: true, topK: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
+    },
+  },
   // 5.5 Opus (2026-09). Cache hits bill at 0.05x input. Forced tool choice
   // is refused, so structured output must stay native.
   {
