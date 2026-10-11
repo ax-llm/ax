@@ -10,14 +10,14 @@ Add the dependency from Maven Central:
 <dependency>
   <groupId>dev.axllm</groupId>
   <artifactId>ax</artifactId>
-  <version>25.2.1</version>
+  <version>25.3.0</version>
 </dependency>
 ```
 
 Or with Gradle:
 
 ```groovy
-implementation 'dev.axllm:ax:25.2.1'
+implementation 'dev.axllm:ax:25.3.0'
 ```
 
 Realtime audio over WebSocket uses the JDK's built-in `java.net.http` WebSocket — no extra dependency.
@@ -38,7 +38,8 @@ System.out.println(schema.get("properties"));
 - AxAI: select named deployment profiles independently from model IDs, resolve model-aware structured-output modes, and attach renewable request credentials through one provider boundary.
 - Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - Meta Muse: `meta` (Responses), `meta-chat` (Chat Completions), and `meta-messages` (Messages) default to `muse-spark-1.3` with `MODEL_API_KEY`. Muse Image uses chat and `results[].images`; Muse Voice uses batch transcription or realtime streaming chat. Contributor models expose provider-training data-use metadata and are never defaults. Glimmer uses the existing self-hosted profiles; Ax does not manage weights.
-- OpenAI Decisions: use required boolean/class signatures or native ordered predicate, choice, and score questions with explicit rubrics, inline images, raw probabilities, refusals, and full usage.
+- Jev and OpenAI Decisions: use required boolean/class/rubric score signatures with (evidence) to retain probabilities, native values, optional confidence, and trusted provenance through AxGen. Generative models use the same contract with elicited evidence. Rerank query/document pairs by the continuous rubric score while preserving candidate IDs.
+- Native decision clients: use explicit provider request shapes for advanced criteria, structured state, ordered questions, and provider-specific media. Normal evidence-bearing signatures support scores and answered/refused outcomes without calling these clients directly.
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
