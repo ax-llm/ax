@@ -33,6 +33,32 @@ console.log(result.sentiment); // "positive" ✨
 **That's it.** No prompt engineering. No trial and error. It works with GPT-4,
 Claude, Gemini, or any LLM.
 
+## Decision Evidence and Reranking
+
+Use Jev or OpenAI Decisions through normal Ax signatures and AxGen. Add
+`(evidence)` or fluent `.withEvidence()` to boolean/class fields, and declare
+ordered rubric scores with `score`. Native probabilities, selected values,
+continuous scores, and optional confidence stay in the result; Ax attaches
+provider/model provenance. Generative models use the same signature with
+estimates marked `elicited`, without native confidence. Shared result shapes
+do not imply comparable confidence calibration across models.
+
+```typescript
+const judge = ax(
+  'query:string, document:string -> relevant:boolean(evidence, threshold 0.7), relevance:score "Irrelevant, Related, Partial answer, Direct answer"(evidence)',
+);
+const decisions = ai({ name: 'openai-decisions', apiKey: process.env.OPENAI_APIKEY! });
+const result = await judge.forward(decisions, {
+  query: 'How do I request a refund?',
+  document: 'Request a refund through your account billing page.',
+});
+console.log(result.relevance.value, result.relevant.probability);
+```
+
+For reranking, keep candidate IDs in application code and sort results by
+`relevance.value`. See [signatures and decision evidence](https://axllm.dev/typescript/concepts/signatures/)
+for thresholds, result shapes, and refusal handling.
+
 ## Why Thousands of Developers Choose Ax
 
 ### 🎯 **Define Once, Run Anywhere**

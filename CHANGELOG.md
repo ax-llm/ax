@@ -1,16 +1,10 @@
 # Changelog
 
-## [25.3.0](https://github.com/ax-llm/ax/compare/25.2.0...25.2.1) (2026-10-11)
+## [25.3.0](https://github.com/ax-llm/ax/compare/25.2.1...25.3.0) (2026-10-11)
 
 ### Features
 
-* add decision evidence and rubric scores to Ax signatures ([#832](https://github.com/ax-llm/ax/issues/832)) ([5c2b83f](https://github.com/ax-llm/ax/commit/5c2b83f1718db934f432f804cf09a674c419481e))
-
-## [25.2.1](https://github.com/ax-llm/ax/compare/25.2.0...25.2.1) (2026-10-08)
-
-### Features
-
-* support Claude Haiku 5.5 across all languages ([#827](https://github.com/ax-llm/ax/issues/827)) ([baa8adf](https://github.com/ax-llm/ax/commit/baa8adf616706e10a79fe91c743c6b58640fbbd0))
+* add decision evidence and rubric scores to Ax signatures ([#832](https://github.com/ax-llm/ax/pull/832)) ([5c2b83f](https://github.com/ax-llm/ax/commit/5c2b83f1718db934f432f804cf09a674c419481e))
 
 ## [25.2.1](https://github.com/ax-llm/ax/compare/25.2.0...25.2.1) (2026-10-08)
 
