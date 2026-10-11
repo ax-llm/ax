@@ -1,6 +1,6 @@
 ---
 name: "ax-java-typesafe"
-description: "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
+description: "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
 version: "25.2.1"
 ---
 # Typesafe / Jev For Java
@@ -10,7 +10,7 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 ## When To Use
 
 - Use Jev for typed decisions with ordinary Ax signatures.
-- Use native questions for probabilities, rich criteria, structured state, or scoring.
+- Retain probabilities and scores through evidence-bearing AxGen signatures; use native questions for advanced criteria or structured state.
 - Compose a separate generative program for prose or tools.
 
 ## Package Facts

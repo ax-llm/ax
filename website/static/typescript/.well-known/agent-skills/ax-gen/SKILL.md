@@ -360,8 +360,9 @@ Rules:
 In TypeScript, providers advertising `requiresStructuredOutput` (such as
 Typesafe) automatically receive a schema for scalar-only signatures too.
 Ax renders JSON instructions/examples and parses the resulting object without
-changing the program's signature. Typesafe accepts required boolean and class
-outputs; numeric scoring uses the provider-specific native client. Boolean/class
+changing the program's signature. Typesafe and OpenAI Decisions accept required
+boolean, class, and ordered rubric score outputs. Add `(evidence)` or
+`.withEvidence()` to retain probabilities and native values in AxGen. Boolean/class
 value descriptions map to native criteria, while conventional providers receive
 readable descriptions in prompts and schemas. See the
 [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)

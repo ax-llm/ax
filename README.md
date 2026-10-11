@@ -638,5 +638,9 @@ me about the project — or [open an issue](https://github.com/ax-llm/ax/issues)
 Apache 2.0
 
 Typesafe/Jev is supported in TypeScript, Python, Java, C++, Go, and Rust:
-ordinary boolean/class signatures, per-value criteria, configurable boolean
-conversion, and a separate native client for probabilities and scoring.
+boolean/class and ordered rubric score signatures, per-value criteria, and
+configurable boolean conversion. Add `.withEvidence()` to retain probabilities,
+native values, and confidence through AxGen. The same signature works with
+OpenAI Decisions and generative providers, with explicit provenance. Native
+clients support advanced provider request shapes. See the
+[decision evidence and reranking guide](src/ax/skills/ax-typesafe.md#decision-evidence-and-reranking).

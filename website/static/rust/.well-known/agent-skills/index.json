@@ -18,9 +18,9 @@
     {
       "name": "ax-rust-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-rust-typesafe/SKILL.md",
-      "digest": "sha256:d1c30fc866f4aa4e9c6363e5fee1aae3f10ad11023f9465593ff0b0c3e36b808"
+      "digest": "sha256:d1009d91797815c5e4ce0fb719a838a918bfab53c196e41ddbba157a3195471f"
     },
     {
       "name": "ax-rust-audio",

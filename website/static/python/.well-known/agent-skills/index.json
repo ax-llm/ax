@@ -18,9 +18,9 @@
     {
       "name": "ax-python-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:2e99ed73a53bad7161d86f4a2f526fd0dc471edfcd3afe9c5789e47b9c2dfef4"
+      "digest": "sha256:920f15c15bb5e9b4e356f441d7d59d0934a761ab11d9e6ef5ff01f4c6d803a3d"
     },
     {
       "name": "ax-python-audio",

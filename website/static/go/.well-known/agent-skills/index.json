@@ -18,9 +18,9 @@
     {
       "name": "ax-go-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-go-typesafe/SKILL.md",
-      "digest": "sha256:fa7a2d22f12306aa8d816c77df4bf933539affaaba5fb734c72db7281a0d7cf0"
+      "digest": "sha256:cdd837dabeb15c366e7aa4e2978808d6086c67e0d856f12c8e07c3a2c13b72d8"
     },
     {
       "name": "ax-go-audio",

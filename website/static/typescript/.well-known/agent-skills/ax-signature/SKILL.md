@@ -115,9 +115,9 @@ bounds still describe validation constraints; Typesafe Score rubrics remain nati
 The same descriptions, validation, serialization, schemas, and prompt semantics
 are generated for Python, Java, C++, Go, and Rust.
 
-For Jev, use these descriptions for boolean/class criteria. Full structured
-criteria, native probabilities, and Score rubrics use the separate native
-client; see the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md).
+For Jev, use these descriptions for boolean/class criteria. Add `.withEvidence()`
+to retain probabilities in AxGen and use `f.score(levels)` for ordered rubrics.
+Full structured criteria use the separate native client; see the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md).
 The adapter's `trueThreshold` is provider-wide conversion policy, not a field modifier.
 
 ### Existing modifier rules

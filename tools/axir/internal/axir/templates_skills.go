@@ -49,8 +49,8 @@ var packageSkillSpecs = []packageSkillSpec{
 		ID:          "typesafe",
 		Title:       "Typesafe / Jev",
 		Area:        "decision signatures and native questions",
-		Description: "Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation",
-		UseWhen:     []string{"Use Jev for typed decisions with ordinary Ax signatures.", "Use native questions for probabilities, rich criteria, structured state, or scoring.", "Compose a separate generative program for prose or tools."},
+		Description: "Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation",
+		UseWhen:     []string{"Use Jev for typed decisions with ordinary Ax signatures.", "Retain probabilities and scores through evidence-bearing AxGen signatures; use native questions for advanced criteria or structured state.", "Compose a separate generative program for prose or tools."},
 		Sections:    []string{"signatures", "axgen", "axai"},
 	},
 

@@ -14,13 +14,14 @@ Create provider clients near the application boundary, keep keys in environment 
 
 {{aiProviderExamples}}
 
-### Typesafe / Jev decisions
+### Jev and OpenAI Decisions
 
 Use the `typesafe` or `openai-decisions` provider profile for required boolean,
 class, and rubric score signatures. Add `(evidence)` to retain probabilities and
 native confidence through your Ax program. See [decision evidence](/{{languageId}}/concepts/signatures/).
-Use the separate native clients for advanced structured criteria and request features. These APIs default to `jev-latest`; prose and tools need a
-generative step. See the [Typesafe/Jev skill](/typescript/skills/ax-typesafe/)
+Use the separate native clients for advanced structured criteria and request
+features. Typesafe/Jev defaults to `jev-latest`; OpenAI Decisions defaults to
+`gpt-6-luna`. Prose and tools need a generative step. See the [Typesafe/Jev skill](/typescript/skills/ax-typesafe/)
 for conversion settings and question design. TypeScript, Python, Java, C++, Go,
 and Rust all support both interfaces, with signature, native, and hybrid examples
 in each language’s [generation gallery](/{{languageId}}/examples/generation/).

@@ -18,9 +18,9 @@
     {
       "name": "ax-cpp-typesafe",
       "type": "skill-md",
-      "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-cpp-typesafe/SKILL.md",
-      "digest": "sha256:b741e280682a816e8917c434f0cc1e0c1fa886cfe687dac447e14109b4de7f3d"
+      "digest": "sha256:50b52f14fc72823ac9a5c199ddd2872a20ca8425fef01b77de9fe6410d5ad5c6"
     },
     {
       "name": "ax-cpp-audio",

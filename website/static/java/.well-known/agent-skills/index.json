@@ -18,9 +18,9 @@
     {
       "name": "ax-java-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-java-typesafe/SKILL.md",
-      "digest": "sha256:6703b2b3848d2fda13ff8e73f8f7819059119ec9b917d9783182f3825328c4fb"
+      "digest": "sha256:d527ff9f894561e0933d75586f2813f60605d1334e1ef238585c25c186928b1f"
     },
     {
       "name": "ax-java-audio",

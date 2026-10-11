@@ -1,6 +1,6 @@
 ---
 name: ax-typesafe
-description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class signatures with value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
+description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
 version: "25.2.1"
 ---
 
@@ -132,11 +132,12 @@ The same signature works with conventional providers: Ax renders the base
 description plus `value: description` lines in the prompt and JSON schema.
 Annotations survive serialization and do not change inferred types or allowed
 values. Use the [signature skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md)
-for the complete syntax. Structured JSON criteria and numeric rubrics belong
-in native requests below, rather than encoded JSON inside a quoted description.
+for the complete syntax. Declare ordered label rubrics with `score` fields.
+Structured JSON criteria and custom numeric rubric entries use native requests
+below, rather than encoded JSON inside a quoted description.
 
 The adapter sends the normal Ax prompt as native state and batches the outputs
-in one request. Required boolean/class outputs are supported; optional, array,
+in one request. Required boolean/class/rubric score outputs are supported; optional, array,
 nested, numeric, and freeform outputs fail before network access. Media, tools,
 multiple completion samples, and generation controls such as `temperature` or
 `maxTokens` are unsupported. There is no token streaming; Ax's
