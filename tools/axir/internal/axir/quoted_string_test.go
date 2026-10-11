@@ -200,3 +200,13 @@ func TestCheckersReadQuotedStringsAsLiterals(t *testing.T) {
 		t.Fatalf("quoted @ type value must still be checked (%v)", types)
 	}
 }
+
+func TestLexDecodesStringEscapes(t *testing.T) {
+	tokens := lex(`"a\r\nb\tc\"d\\e"`)
+	if len(tokens) == 0 || tokens[0].kind != "string" {
+		t.Fatalf("tokens = %+v", tokens)
+	}
+	if want := "a\r\nb\tc\"d\\e"; tokens[0].text != want {
+		t.Fatalf("lex = %q, want %q", tokens[0].text, want)
+	}
+}

@@ -103,6 +103,8 @@ func lex(src string) []token {
 						b.WriteByte('\n')
 					case 't':
 						b.WriteByte('\t')
+					case 'r':
+						b.WriteByte('\r')
 					case '"', '\\':
 						b.WriteByte(src[i])
 					default:

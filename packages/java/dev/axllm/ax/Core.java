@@ -41594,7 +41594,7 @@ final class Core {
 
   static Object _agent_runtime_code_fence_violation(Object code) {
     axirCoverageMark("_agent_runtime_code_fence_violation");
-    Object normalized_newlines = Core.stringReplace(code, "r\n", "\n");
+    Object normalized_newlines = Core.stringReplace(code, "\r\n", "\n");
     Object lines = Core.stringSplit(normalized_newlines, "\n");
     Object inside_fence = Boolean.FALSE;
     Object block_count = 0;
@@ -41627,7 +41627,7 @@ final class Core {
     normalized = Core.stringTrim(normalized);
     normalized = Core.regexReplace("[^\\n]*</think>", "", normalized);
     normalized = Core.stringTrim(normalized);
-    normalized = Core.stringReplace(normalized, "r\n", "\n");
+    normalized = Core.stringReplace(normalized, "\r\n", "\n");
     Object search = normalized;
     Object extracted = "";
     Object has_extracted = Boolean.FALSE;

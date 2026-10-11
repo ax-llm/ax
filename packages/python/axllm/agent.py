@@ -11233,7 +11233,7 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
 
 def _agent_runtime_code_fence_violation(code: str) -> bool:
     _core_coverage_mark("_agent_runtime_code_fence_violation")
-    normalized_newlines = _core_string_replace(code, "r\n", "\n")
+    normalized_newlines = _core_string_replace(code, "\r\n", "\n")
     lines = _core_string_split(normalized_newlines, "\n")
     inside_fence = False
     block_count = 0
@@ -11265,7 +11265,7 @@ def _normalize_agent_runtime_code(code: str) -> str:
     normalized = str(normalized).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
     normalized = _core_regex_replace("[^\\n]*</think>", "", normalized)
     normalized = str(normalized).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
-    normalized = _core_string_replace(normalized, "r\n", "\n")
+    normalized = _core_string_replace(normalized, "\r\n", "\n")
     search = normalized
     extracted = ""
     has_extracted = False

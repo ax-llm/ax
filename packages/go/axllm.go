@@ -87335,7 +87335,7 @@ func _agent_runtime_code_fence_violation(args ...Value) (Value, error) {
 	_ = v_lines
 	_ = v_multiple
 	_ = v_normalized_newlines
-	v_normalized_newlines = _core_string_replace(v_code, "r\n", "\n")
+	v_normalized_newlines = _core_string_replace(v_code, "\r\n", "\n")
 	v_lines = _core_string_split(v_normalized_newlines, "\n")
 	v_inside_fence = false
 	v_block_count = 0
@@ -87406,7 +87406,7 @@ func _normalize_agent_runtime_code(args ...Value) (Value, error) {
 	v_normalized = coreStringTrim(v_normalized)
 	v_normalized = _core_regex_replace("[^\\n]*</think>", "", v_normalized)
 	v_normalized = coreStringTrim(v_normalized)
-	v_normalized = _core_string_replace(v_normalized, "r\n", "\n")
+	v_normalized = _core_string_replace(v_normalized, "\r\n", "\n")
 	v_search = v_normalized
 	v_extracted = ""
 	v_has_extracted = false
