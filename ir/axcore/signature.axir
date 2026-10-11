@@ -4,7 +4,7 @@ module @ax.signature version "0.1" {
   op ax.signature.record @FieldType {
     attr core_kind = "record"
     tag "src/ax/dsp/sig.ts"
-    type fields = "name:string,isArray:bool,options?:list<string>,fields?:map<string,FieldType>,minLength?:f64,maxLength?:f64,minimum?:f64,maximum?:f64,pattern?:string,patternDescription?:string,valueDescriptions?:map<string,string>,format?:string,language?:string,description?:string"
+    type fields = "name:string,isArray:bool,options?:list<string>,fields?:map<string,FieldType>,minLength?:f64,maxLength?:f64,minimum?:f64,maximum?:f64,pattern?:string,patternDescription?:string,valueDescriptions?:map<string,string>,evidence?:json,format?:string,language?:string,description?:string"
   }
 
   op ax.signature.record @Field {
@@ -287,6 +287,7 @@ module @ax.signature version "0.1" {
         %type_pattern = core.get %field_type["pattern"]
         %type_pattern_description = core.get %field_type["pattern_description"]
         %type_value_descriptions = core.get %field_type["value_descriptions"]
+        %type_evidence = core.get %field_type["evidence"]
         %type_format = core.get %field_type["format"]
         %type_language = core.get %field_type["language"]
         core.set %type_attrs["name"] = %type_name
@@ -300,6 +301,7 @@ module @ax.signature version "0.1" {
         core.set %type_attrs["pattern"] = %type_pattern
         core.set %type_attrs["pattern_description"] = %type_pattern_description
         core.set %type_attrs["value_descriptions"] = %type_value_descriptions
+        core.set %type_attrs["evidence"] = %type_evidence
         core.set %type_attrs["format"] = %type_format
         core.set %type_attrs["language"] = %type_language
         core.set %type_attrs["description"] = %description
@@ -370,6 +372,7 @@ module @ax.signature version "0.1" {
       core.append %types, "number"
       core.append %types, "object"
       core.append %types, "class"
+      core.append %types, "score"
       core.append %types, "image"
       core.append %types, "audio"
       core.append %types, "file"
@@ -447,12 +450,10 @@ module @ax.signature version "0.1" {
         core.raise %error
       }
       %is_class = core.call intrinsic.eq(%type_name, "class")
-      core.if %is_class {
+      %is_score = core.call intrinsic.eq(%type_name, "score")
+      %is_enum = core.call intrinsic.or(%is_class, %is_score)
+      core.if %is_enum {
         %input = core.call intrinsic.eq(%section, "input")
-        core.if %input {
-          %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
-          core.raise %error
-        }
         %bag = core.call intrinsic.string.starts_with(%rest, "(")
         core.if %bag {
           %message = core.call intrinsic.string.format("Field \"{}\": constraints are not supported on class fields", %field_name)
@@ -476,6 +477,14 @@ module @ax.signature version "0.1" {
           %quoted_value = core.get %quoted["value"]
           %option_text = core.call intrinsic.string.replace(%quoted_value, "|", ",")
           %options = core.call intrinsic.string.split_trim_nonempty(%option_text, ",")
+          core.if %is_score {
+            %raw_options = core.call intrinsic.string.split_top_level(%option_text, ",")
+            %options = core.list
+            core.for %option in %raw_options {
+              %option = core.string_trim %option
+              core.append %options, %option
+            }
+          }
           %option_count = core.call intrinsic.len(%options)
           %empty_options = core.call intrinsic.eq(%option_count, 0)
           core.if %empty_options {
@@ -483,7 +492,7 @@ module @ax.signature version "0.1" {
             core.raise %error
           }
           %attrs = core.map
-          core.set %attrs["name"] = "class"
+          core.set %attrs["name"] = %type_name
           core.set %attrs["is_array"] = %is_array
           core.set %attrs["options"] = %options
           %quoted_rest = core.get %quoted["rest"]
@@ -498,11 +507,26 @@ module @ax.signature version "0.1" {
               core.raise %error
             }
             %group_text = core.get %group["group"]
-            %descriptions = core.call @signature_parse_class_descriptions_impl(%group_text, %field_name)
-            core.set %attrs["value_descriptions"] = %descriptions
+            %policy = core.call @evidence_parse_options_impl(%group_text)
+            %evidence = core.get %policy["evidence"]
+            core.set %attrs["evidence"] = %evidence
+            %description_text = core.get %policy["rest"] default ""
+            %has_description_text = core.call intrinsic.ne(%description_text, "")
+            core.if %has_description_text {
+              %descriptions = core.call @signature_parse_class_descriptions_impl(%description_text, %field_name)
+              core.set %attrs["value_descriptions"] = %descriptions
+            }
             %quoted_rest = core.get %group["rest"]
           }
+          %quoted_rest = core.string_trim %quoted_rest
+          %suffix_array = core.call intrinsic.string.starts_with(%quoted_rest, "[]")
+          core.if %suffix_array {
+            core.set %attrs["is_array"] = true
+            %quoted_rest = core.call intrinsic.string.slice(%quoted_rest, 2)
+            %quoted_rest = core.string_trim %quoted_rest
+          }
           %typ = core.call intrinsic.record.new("FieldType", %attrs)
+          core.call @evidence_validate_type_impl(%typ)
           core.call @signature_validate_value_descriptions_impl(%typ, %field_name)
           %out = core.map
           core.set %out["type"] = %typ
@@ -619,8 +643,22 @@ module @ax.signature version "0.1" {
         %error = core.call intrinsic.error.signature(%message)
         core.raise %error
       }
-      %parts = core.call intrinsic.string.split_top_level(%raw, ",")
       %attrs = core.map
+      core.set %attrs["name"] = %type_name
+      %decision_options = core.call @evidence_parse_options_impl(%raw)
+      %evidence = core.get %decision_options["evidence"]
+      core.set %attrs["evidence"] = %evidence
+      %raw = core.get %decision_options["rest"] default ""
+      %empty_decision_bag = core.call intrinsic.eq(%raw, "")
+      core.if %empty_decision_bag {
+        %out = core.map
+        core.set %out["attrs"] = %attrs
+        core.set %out["is_cached"] = false
+        %typ = core.call intrinsic.record.new("FieldType", %attrs)
+        core.call @evidence_validate_type_impl(%typ)
+        core.return %out
+      }
+      %parts = core.call intrinsic.string.split_top_level(%raw, ",")
       %seen = core.list
       %state = core.map
       core.set %state["is_cached"] = false
@@ -983,6 +1021,8 @@ module @ax.signature version "0.1" {
     type signature = "(FieldType, bool) -> string"
     body @entry(%typ: FieldType, %is_cached: bool) {
       %entries = core.call @signature_render_value_descriptions_impl(%typ)
+      %evidence_entries = core.call @evidence_render_entries_impl(%typ)
+      core.for %entry in %evidence_entries { core.append %entries, %entry }
       %min_length = core.get %typ["min_length"]
       %minimum = core.get %typ["minimum"]
       %min = core.call intrinsic.coalesce(%min_length, %minimum)
@@ -1059,17 +1099,22 @@ module @ax.signature version "0.1" {
       %type_name = core.get %typ["name"]
       %is_array = core.get %typ["is_array"] default false
       %is_class = core.call intrinsic.eq(%type_name, "class")
+      %is_score = core.call intrinsic.eq(%type_name, "score")
+      %is_class = core.call intrinsic.or(%is_class, %is_score)
       core.if %is_class {
         %state = core.map
-        core.set %state["value"] = "class"
+        core.set %state["value"] = %type_name
         core.if %is_array {
-          core.set %state["value"] = "class[]"
+          %array_name = core.call intrinsic.string.format("{}[]", %type_name)
+          core.set %state["value"] = %array_name
         }
         %options = core.get %typ["options"]
         %joined = core.call intrinsic.string.join(" | ", %options)
         %class_name = core.get %state["value"]
         %result = core.call intrinsic.string.format("{} \"{}\"", %class_name, %joined)
         %entries = core.call @signature_render_value_descriptions_impl(%typ)
+        %evidence_entries = core.call @evidence_render_entries_impl(%typ)
+        core.for %entry in %evidence_entries { core.append %entries, %entry }
         %has_entries = core.call intrinsic.truthy(%entries)
         core.if %has_entries {
           %body = core.call intrinsic.string.join(", ", %entries)
@@ -1213,11 +1258,13 @@ module @ax.signature version "0.1" {
       }
       %typ = core.get %field["type"]
       core.call @signature_validate_value_descriptions_impl(%typ, %name)
+      core.call @evidence_validate_type_impl(%typ)
       %type_name = core.get %typ["name"]
       %valid_types = core.list
       core.append %valid_types, "audio"
       core.append %valid_types, "boolean"
       core.append %valid_types, "class"
+      core.append %valid_types, "score"
       core.append %valid_types, "code"
       core.append %valid_types, "date"
       core.append %valid_types, "dateRange"
@@ -1253,6 +1300,9 @@ module @ax.signature version "0.1" {
       %top_level = core.call intrinsic.not(%nested)
       %input_class_base = core.call intrinsic.and(%is_class, %is_input)
       %input_class = core.call intrinsic.and(%input_class_base, %top_level)
+      %input_evidence = core.get %typ["evidence"]
+      %plain_class = core.call intrinsic.is_none(%input_evidence)
+      %input_class = core.call intrinsic.and(%input_class, %plain_class)
       core.if %input_class {
         %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
         core.raise %error

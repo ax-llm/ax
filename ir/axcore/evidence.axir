@@ -1,0 +1,825 @@
+module @ax.evidence version "0.1" {
+  dialect @ax.gen version "0.1"
+
+  op ax.gen.semantic @evidence_is_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(FieldType) -> bool"
+    body @entry(%typ: FieldType) {
+      %evidence = core.get %typ["evidence"]
+      %present = core.call intrinsic.is_not_none(%evidence)
+      %name = core.get %typ["name"]
+      %score = core.call intrinsic.eq(%name, "score")
+      %result = core.call intrinsic.or(%present, %score)
+      core.return %result
+    }
+  }
+
+  op ax.gen.semantic @evidence_has_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(list<Field>) -> bool"
+    body @entry(%fields: list<Field>) {
+      core.for %field in %fields {
+        %typ = core.get %field["type"]
+        %decision = core.call @evidence_is_type_impl(%typ)
+        core.if %decision { core.return true }
+        %children = core.get %typ["fields"]
+        %present = core.call intrinsic.is_not_none(%children)
+        core.if %present {
+          %nested = core.call intrinsic.fields.from_map(%children)
+          %decision = core.call @evidence_has_fields_impl(%nested)
+          core.if %decision { core.return true }
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.gen.semantic @evidence_validate_type_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(FieldType) -> void throws"
+    body @entry(%typ: FieldType) {
+      %name = core.get %typ["name"]
+      %evidence = core.get %typ["evidence"]
+      %present = core.call intrinsic.is_not_none(%evidence)
+      core.if %present {
+        %supported = core.list
+        core.append %supported, "boolean"
+        core.append %supported, "class"
+        core.append %supported, "score"
+        %valid = core.call intrinsic.contains(%supported, %name)
+        %object = core.type_is %evidence type "object"
+        %valid = core.call intrinsic.and(%valid, %object)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid { core.raise "Evidence requires a boolean, class or score field" }
+        %keys = core.call intrinsic.map.keys(%evidence)
+        %allowed = core.list
+        core.append %allowed, "threshold"
+        core.append %allowed, "onRefusal"
+        core.for %key in %keys {
+          %known = core.call intrinsic.contains(%allowed, %key)
+          %unknown = core.call intrinsic.not(%known)
+          core.if %unknown { core.raise "Unknown evidence option" }
+        }
+        %threshold = core.get %evidence["threshold"]
+        %has_threshold = core.call intrinsic.is_not_none(%threshold)
+        core.if %has_threshold {
+          %is_boolean = core.call intrinsic.eq(%name, "boolean")
+          %number = core.type_is %threshold type "number"
+          %valid = core.call intrinsic.and(%is_boolean, %number)
+          core.if %valid {
+            %finite = core.call intrinsic.math.is_finite(%threshold)
+            %low = core.call intrinsic.gte(%threshold, 0)
+            %high = core.call intrinsic.lte(%threshold, 1)
+            %range = core.call intrinsic.and(%low, %high)
+            %valid = core.call intrinsic.and(%finite, %range)
+          }
+          %invalid = core.call intrinsic.not(%valid)
+          core.if %invalid { core.raise "threshold requires a boolean field and a finite value in [0, 1]" }
+        }
+        %policy = core.get %evidence["onRefusal"] default "throw"
+        %throw_policy = core.call intrinsic.eq(%policy, "throw")
+        %return_policy = core.call intrinsic.eq(%policy, "return")
+        %valid = core.call intrinsic.or(%throw_policy, %return_policy)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid { core.raise "onRefusal must be throw or return" }
+      }
+      %score = core.call intrinsic.eq(%name, "score")
+      core.if %score {
+        %labels = core.get %typ["options"]
+        %list = core.type_is %labels type "list"
+        %invalid = core.call intrinsic.not(%list)
+        core.if %invalid { core.raise "Score requires 2-10 distinct, nonempty ordered rubric labels" }
+        %count = core.call intrinsic.len(%labels)
+        %low = core.call intrinsic.lt(%count, 2)
+        %high = core.call intrinsic.gt(%count, 10)
+        %invalid = core.call intrinsic.or(%low, %high)
+        core.if %invalid { core.raise "Score requires 2-10 distinct, nonempty ordered rubric labels" }
+        %seen = core.list
+        core.for %label in %labels {
+          %string = core.type_is %label type "string"
+          %invalid = core.call intrinsic.not(%string)
+          core.if %invalid { core.raise "Score labels must be strings" }
+          %trimmed = core.string_trim %label
+          %empty = core.call intrinsic.eq(%trimmed, "")
+          %duplicate = core.call intrinsic.contains(%seen, %label)
+          %invalid = core.call intrinsic.or(%empty, %duplicate)
+          core.if %invalid { core.raise "Score requires distinct, nonempty ordered rubric labels" }
+          core.append %seen, %label
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @evidence_parse_options_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(string) -> json throws"
+    body @entry(%raw: string) {
+      %parts = core.call intrinsic.string.split_top_level(%raw, ",")
+      %evidence = core.map
+      %seen = core.list
+      %remaining = core.list
+      core.for %part in %parts {
+        %part = core.string_trim %part
+        %words = core.call intrinsic.string.words(%part)
+        %token = core.call intrinsic.list.get(%words, 0, "")
+        %e = core.call intrinsic.eq(%token, "evidence")
+        %t = core.call intrinsic.eq(%token, "threshold")
+        %r = core.call intrinsic.eq(%token, "refusal")
+        %modifier = core.call intrinsic.or(%e, %t)
+        %modifier = core.call intrinsic.or(%modifier, %r)
+        core.if %modifier {
+          %duplicate = core.call intrinsic.contains(%seen, %token)
+          core.if %duplicate { core.raise "Duplicate evidence modifier" }
+          core.append %seen, %token
+          %count = core.call intrinsic.len(%words)
+          %arg = core.call intrinsic.list.get(%words, 1, "")
+          core.if %e {
+            %bad = core.call intrinsic.ne(%count, 1)
+            core.if %bad { core.raise "evidence does not take an argument" }
+          } else {
+            %bad = core.call intrinsic.ne(%count, 2)
+            core.if %bad { core.raise "Evidence modifier requires one argument" }
+            core.if %t {
+              %number = core.call intrinsic.json.parse(%arg)
+              core.set %evidence["threshold"] = %number
+            } else { core.set %evidence["onRefusal"] = %arg }
+          }
+        } else { core.append %remaining, %part }
+      }
+      %has_evidence = core.call intrinsic.contains(%seen, "evidence")
+      %has_policy = core.call intrinsic.truthy(%seen)
+      %missing_evidence = core.call intrinsic.not(%has_evidence)
+      %invalid = core.call intrinsic.and(%has_policy, %missing_evidence)
+      core.if %invalid { core.raise "threshold and refusal require the evidence modifier" }
+      %out = core.map
+      core.if %has_evidence { core.set %out["evidence"] = %evidence }
+      %rest = core.call intrinsic.string.join(", ", %remaining)
+      core.set %out["rest"] = %rest
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @evidence_render_entries_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(FieldType) -> list<string>"
+    body @entry(%typ: FieldType) {
+      %entries = core.list
+      %evidence = core.get %typ["evidence"]
+      %present = core.call intrinsic.is_not_none(%evidence)
+      core.if %present {
+        core.append %entries, "evidence"
+        %threshold = core.get %evidence["threshold"]
+        %present = core.call intrinsic.is_not_none(%threshold)
+        core.if %present {
+          %entry = core.call intrinsic.string.format("threshold {}", %threshold)
+          core.append %entries, %entry
+        }
+        %policy = core.get %evidence["onRefusal"]
+        %present = core.call intrinsic.is_not_none(%policy)
+        core.if %present {
+          %entry = core.call intrinsic.string.format("refusal {}", %policy)
+          core.append %entries, %entry
+        }
+      }
+      core.return %entries
+    }
+  }
+
+  op ax.gen.semantic @evidence_schema_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "schema"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(FieldType) -> json throws"
+    body @entry(%typ: FieldType) {
+      %name = core.get %typ["name"]
+      %labels = core.get %typ["options"]
+      %p = core.map
+      core.set %p["type"] = "number"
+      core.set %p["minimum"] = 0
+      core.set %p["maximum"] = 1
+      %props = core.map
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      %score = core.call intrinsic.eq(%name, "score")
+      %required = core.list
+      core.if %is_boolean {
+        core.set %props["probability"] = %p
+        core.append %required, "probability"
+      } else {
+        %distribution = core.map
+        core.if %score {
+          core.set %distribution["type"] = "array"
+          core.set %distribution["items"] = %p
+          %count = core.call intrinsic.len(%labels)
+          core.set %distribution["minItems"] = %count
+          core.set %distribution["maxItems"] = %count
+          %order = core.call intrinsic.string.join(", ", %labels)
+          %hint = core.call intrinsic.string.format("Probabilities in rubric order, lowest to highest: {}", %order)
+          core.set %distribution["description"] = %hint
+        } else {
+          core.set %distribution["type"] = "object"
+          %ps = core.map
+          core.for %label in %labels { core.set %ps[%label] = %p }
+          core.set %distribution["properties"] = %ps
+          core.set %distribution["required"] = %labels
+          core.set %distribution["additionalProperties"] = false
+        }
+        core.set %props["probabilities"] = %distribution
+        core.append %required, "probabilities"
+      }
+      %schema = core.map
+      core.set %schema["type"] = "object"
+      core.set %schema["properties"] = %props
+      core.set %schema["required"] = %required
+      core.set %schema["additionalProperties"] = false
+      %evidence = core.get %typ["evidence"]
+      %policy = core.get %evidence["onRefusal"] default "throw"
+      %return_policy = core.call intrinsic.eq(%policy, "return")
+      core.if %return_policy {
+        %status = core.map
+        core.set %status["type"] = "string"
+        %answered = core.list
+        core.append %answered, "answered"
+        core.set %status["enum"] = %answered
+        core.set %props["status"] = %status
+        core.append %required, "status"
+        %refused = core.map
+        core.set %refused["type"] = "object"
+        %refusal_props = core.map
+        %refusal_status = core.map
+        core.set %refusal_status["type"] = "string"
+        %tags = core.list
+        core.append %tags, "refused"
+        core.set %refusal_status["enum"] = %tags
+        core.set %refusal_props["status"] = %refusal_status
+        core.set %refused["properties"] = %refusal_props
+        %keys = core.list
+        core.append %keys, "status"
+        core.set %refused["required"] = %keys
+        core.set %refused["additionalProperties"] = false
+        %alternatives = core.list
+        core.append %alternatives, %schema
+        core.append %alternatives, %refused
+        %schema = core.map
+        core.set %schema["anyOf"] = %alternatives
+      }
+      %array = core.get %typ["is_array"] default false
+      core.if %array {
+        %wrapped = core.map
+        core.set %wrapped["type"] = "array"
+        core.set %wrapped["items"] = %schema
+        %schema = core.let %wrapped
+      }
+      core.return %schema
+    }
+  }
+
+  op ax.gen.semantic @evidence_probability_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "schema"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(json, string) -> f64 throws"
+    body @entry(%v: json, %path: string) {
+      %valid = core.type_is %v type "number"
+      core.if %valid {
+        %finite = core.call intrinsic.math.is_finite(%v)
+        %low = core.call intrinsic.gte(%v, 0)
+        %high = core.call intrinsic.lte(%v, 1)
+        %range = core.call intrinsic.and(%low, %high)
+        %valid = core.call intrinsic.and(%finite, %range)
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Invalid probability for {}", %path)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %v
+    }
+  }
+
+  op ax.gen.semantic @evidence_decode_one_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(FieldType, json, json, string) -> json throws"
+    body @entry(%typ: FieldType, %raw: json, %context: json, %path: string) {
+      %object = core.type_is %raw type "object"
+      %invalid = core.call intrinsic.not(%object)
+      core.if %invalid {
+        %error = core.call intrinsic.error.validation("Decision evidence must be an object")
+        core.raise %error
+      }
+      %name = core.get %typ["name"]
+      %evidence = core.get %typ["evidence"]
+      %provenance = core.get %context["provenance"]
+      %source = core.get %provenance["source"] default "elicited"
+      %native_state = core.call intrinsic.eq(%source, "native")
+      %native_answers = core.get %context["native"]
+      %answer = core.get %native_answers[%path]
+      %status = core.get %raw["status"]
+      %missing_native = core.call intrinsic.is_none(%answer)
+      %missing_native = core.call intrinsic.and(%native_state, %missing_native)
+      core.if %missing_native {
+        %error = core.call intrinsic.error.validation("Missing native decision")
+        core.raise %error
+      }
+      %refused = core.call intrinsic.eq(%status, "refused")
+      core.if %native_state { %refused = core.get %answer["refused"] default false }
+      %policy = core.get %evidence["onRefusal"] default "throw"
+      %return_policy = core.call intrinsic.eq(%policy, "return")
+      %keys = core.call intrinsic.map.keys(%raw)
+      core.if %refused {
+        %key_count = core.call intrinsic.len(%keys)
+        %valid_shape = core.call intrinsic.eq(%key_count, 1)
+        %valid_status = core.call intrinsic.eq(%status, "refused")
+        %valid_shape = core.call intrinsic.and(%valid_shape, %valid_status)
+        %invalid_shape = core.call intrinsic.not(%valid_shape)
+        core.if %invalid_shape {
+          %error = core.call intrinsic.error.validation("Invalid refusal evidence shape")
+          core.raise %error
+        }
+        %throw_policy = core.call intrinsic.not(%return_policy)
+        core.if %throw_policy {
+          %error = core.call intrinsic.error.decision_refusal(%path, %provenance)
+          core.raise %error
+        }
+        %out = core.map
+        core.set %out["status"] = "refused"
+        core.set %out["provenance"] = %provenance
+        core.return %out
+      }
+      %elicited = core.call intrinsic.not(%native_state)
+      %require_status = core.call intrinsic.and(%return_policy, %elicited)
+      %answered_status = core.call intrinsic.eq(%status, "answered")
+      %invalid_status = core.call intrinsic.not(%answered_status)
+      %invalid_status = core.call intrinsic.and(%require_status, %invalid_status)
+      core.if %invalid_status {
+        %error = core.call intrinsic.error.validation("Invalid decision evidence status")
+        core.raise %error
+      }
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      %score = core.call intrinsic.eq(%name, "score")
+      %allowed = core.list
+      core.if %is_boolean { core.append %allowed, "probability" } else { core.append %allowed, "probabilities" }
+      core.if %return_policy { core.append %allowed, "status" }
+      core.for %key in %keys {
+        %known = core.call intrinsic.contains(%allowed, %key)
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %error = core.call intrinsic.error.validation("Unexpected decision evidence key")
+          core.raise %error
+        }
+      }
+      %out = core.map
+      core.set %out["provenance"] = %provenance
+      core.if %is_boolean {
+        %p = core.get %raw["probability"]
+        %p = core.call @evidence_probability_impl(%p, %path)
+        %threshold = core.get %evidence["threshold"] default 0.5
+        %value = core.call intrinsic.gte(%p, %threshold)
+        core.set %out["value"] = %value
+        core.set %out["probability"] = %p
+        core.set %out["threshold"] = %threshold
+      } else {
+        %labels = core.get %typ["options"]
+        %ps = core.get %raw["probabilities"]
+        %valid_distribution = core.type_is %ps type "object"
+        core.if %score { %valid_distribution = core.type_is %ps type "list" }
+        %invalid_distribution = core.call intrinsic.not(%valid_distribution)
+        core.if %invalid_distribution {
+          %error = core.call intrinsic.error.validation("Invalid decision distribution shape")
+          core.raise %error
+        }
+        %count = core.call intrinsic.len(%labels)
+        %actual = core.call intrinsic.len(%ps)
+        %wrong_count = core.call intrinsic.ne(%count, %actual)
+        core.if %wrong_count {
+          %error = core.call intrinsic.error.validation("Decision probabilities must cover exactly their declared options")
+          core.raise %error
+        }
+        %sum = core.let 0.0
+        %mean = core.let 0.0
+        %maximum = core.let -1.0
+        %choice = core.let ""
+        %index = core.let 0
+        core.for %label in %labels {
+          %p = core.get %ps[%label]
+          core.if %score { %p = core.call intrinsic.list.get(%ps, %index) }
+          %p = core.call @evidence_probability_impl(%p, %path)
+          %sum = core.call intrinsic.add(%sum, %p)
+          %part = core.call intrinsic.mul(%index, %p)
+          %mean = core.call intrinsic.add(%mean, %part)
+          %larger = core.call intrinsic.gt(%p, %maximum)
+          core.if %larger {
+            %choice = core.let %label
+            %maximum = core.let %p
+          }
+          %index = core.call intrinsic.add(%index, 1)
+        }
+        %difference = core.call intrinsic.add(%sum, -1.0)
+        %low = core.call intrinsic.lt(%difference, -0.01000000000001)
+        %high = core.call intrinsic.gt(%difference, 0.01000000000001)
+        %bad_sum = core.call intrinsic.or(%low, %high)
+        core.if %bad_sum {
+          %error = core.call intrinsic.error.validation("Decision probabilities must sum to one")
+          core.raise %error
+        }
+        %value = core.let %choice
+        core.if %score { %value = core.call intrinsic.div(%mean, %sum) }
+        core.if %native_state { %value = core.get %answer["value"] }
+        %valid_value = core.call intrinsic.contains(%labels, %value)
+        core.if %score {
+          %valid_value = core.type_is %value type "number"
+          core.if %valid_value {
+            %finite = core.call intrinsic.math.is_finite(%value)
+            %low = core.call intrinsic.gte(%value, 0)
+            %maximum_score = core.call intrinsic.add(%count, -1)
+            %high = core.call intrinsic.lte(%value, %maximum_score)
+            %valid_value = core.call intrinsic.and(%low, %high)
+            %valid_value = core.call intrinsic.and(%valid_value, %finite)
+          }
+        }
+        %invalid_value = core.call intrinsic.not(%valid_value)
+        core.if %invalid_value {
+          %error = core.call intrinsic.error.validation("Invalid decision value")
+          core.raise %error
+        }
+        %has_evidence = core.call intrinsic.is_not_none(%evidence)
+        %plain_score = core.call intrinsic.not(%has_evidence)
+        %plain_score = core.call intrinsic.and(%score, %plain_score)
+        core.if %plain_score { core.return %value }
+        core.set %out["value"] = %value
+        core.set %out["probabilities"] = %ps
+        core.if %score { core.set %out["levels"] = %labels }
+        %confidence = core.get %answer["confidence"]
+        %has_confidence = core.call intrinsic.is_not_none(%confidence)
+        %copy_confidence = core.call intrinsic.and(%native_state, %has_confidence)
+        core.if %copy_confidence {
+          %confidence = core.call @evidence_probability_impl(%confidence, %path)
+          core.set %out["confidence"] = %confidence
+        }
+      }
+      core.if %return_policy { core.set %out["status"] = "answered" }
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @evidence_decode_values_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(list<Field>, json, json, string) -> json throws"
+    body @entry(%fields: list<Field>, %values: json, %context: json, %prefix: string) {
+      core.for %field in %fields {
+        %name = core.get %field["name"]
+        %typ = core.get %field["type"]
+        %value = core.get %values[%name]
+        %present = core.call intrinsic.is_not_none(%value)
+        core.if %present {
+          %path = core.let %name
+          %qualified = core.call intrinsic.ne(%prefix, "")
+          core.if %qualified { %path = core.call intrinsic.string.format("{}.{}", %prefix, %name) }
+          %decision = core.call @evidence_is_type_impl(%typ)
+          %children = core.get %typ["fields"]
+          %has_children = core.call intrinsic.is_not_none(%children)
+          %array = core.get %typ["is_array"] default false
+          %items = core.list
+          core.if %array { %items = core.let %value } else { core.append %items, %value }
+          %decoded = core.list
+          %index = core.let 0
+          core.for %item in %items {
+            %item_path = core.let %path
+            core.if %array { %item_path = core.call intrinsic.string.format("{}[{}]", %path, %index) }
+            core.if %decision { %item = core.call @evidence_decode_one_impl(%typ, %item, %context, %item_path) }
+            else {
+              core.if %has_children {
+                %nested = core.call intrinsic.fields.from_map(%children)
+                %item = core.call @evidence_decode_values_impl(%nested, %item, %context, %item_path)
+              }
+            }
+            core.append %decoded, %item
+            %index = core.call intrinsic.add(%index, 1)
+          }
+          core.if %array { core.set %values[%name] = %decoded }
+          else {
+            %single = core.call intrinsic.list.get(%decoded, 0)
+            core.set %values[%name] = %single
+          }
+        }
+      }
+      core.return %values
+    }
+  }
+
+  op ax.gen.semantic @evidence_context_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%response: json, %client: json) {
+      %trusted = core.get %response["decisionContext"]
+      %found = core.call intrinsic.is_not_none(%trusted)
+      core.if %found { core.return %trusted }
+      %usage = core.get %response["modelUsage"]
+      %provenance = core.map
+      core.set %provenance["source"] = "elicited"
+      %provider = core.get %usage["ai"] default "AI"
+      %model = core.get %usage["model"]
+      core.set %provenance["provider"] = %provider
+      %found_model = core.call intrinsic.is_not_none(%model)
+      core.if %found_model { core.set %provenance["model"] = %model }
+      %context = core.map
+      core.set %context["provenance"] = %provenance
+      core.return %context
+    }
+  }
+  op ax.gen.semantic @evidence_request_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(list<Field>) -> json"
+    body @entry(%fields: list<Field>) {
+      %out = core.map
+      core.for %field in %fields {
+        %typ = core.get %field["type"]
+        %decision = core.call @evidence_is_type_impl(%typ)
+        core.if %decision {
+          %entry = core.map
+          %name = core.get %typ["name"]
+          %labels = core.get %typ["options"]
+          %evidence = core.get %typ["evidence"]
+          %array = core.get %typ["is_array"] default false
+          %optional = core.get %field["is_optional"] default false
+          core.set %entry["type"] = %name
+          core.set %entry["options"] = %labels
+          core.set %entry["evidence"] = %evidence
+          core.set %entry["isArray"] = %array
+          core.set %entry["isOptional"] = %optional
+          %key = core.get %field["name"]
+          core.set %out[%key] = %entry
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @evidence_placeholder_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(FieldType) -> json"
+    body @entry(%typ: FieldType) {
+      %name = core.get %typ["name"]
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      %score = core.call intrinsic.eq(%name, "score")
+      %out = core.map
+      core.if %is_boolean { core.set %out["probability"] = "<probability of true, 0 to 1>" }
+      else {
+        %labels = core.get %typ["options"]
+        %ps = core.map
+        core.if %score { %ps = core.list }
+        core.for %label in %labels {
+          core.if %score { core.append %ps, "<probability, 0 to 1>" }
+          else { core.set %ps[%label] = "<probability, 0 to 1>" }
+        }
+        core.set %out["probabilities"] = %ps
+      }
+      %evidence = core.get %typ["evidence"]
+      %policy = core.get %evidence["onRefusal"] default "throw"
+      %return_policy = core.call intrinsic.eq(%policy, "return")
+      core.if %return_policy { core.set %out["status"] = "answered" }
+      %array = core.get %typ["is_array"] default false
+      core.if %array {
+        %wrapped = core.list
+        core.append %wrapped, %out
+        core.return %wrapped
+      }
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @evidence_result_schema_impl {
+    attr core_kind = "func"
+    attr emit_module = "schema"
+    attr private = true
+    tag "src/ax/dsp/jsonSchema.ts"
+    type signature = "(FieldType) -> json"
+    body @entry(%typ: FieldType) {
+      %name = core.get %typ["name"]
+      %levels = core.get %typ["options"]
+      %evidence = core.get %typ["evidence"]
+      %is_boolean = core.call intrinsic.eq(%name, "boolean")
+      %score = core.call intrinsic.eq(%name, "score")
+      %p = core.map
+      core.set %p["type"] = "number"
+      core.set %p["minimum"] = 0
+      core.set %p["maximum"] = 1
+      %value = core.map
+      core.if %is_boolean { core.set %value["type"] = "boolean" }
+      else {
+        core.if %score {
+          core.set %value["type"] = "number"
+          core.set %value["minimum"] = 0
+          %count = core.call intrinsic.len(%levels)
+          %maximum = core.call intrinsic.add(%count, -1)
+          core.set %value["maximum"] = %maximum
+        } else {
+          core.set %value["type"] = "string"
+          core.set %value["enum"] = %levels
+        }
+      }
+      %plain = core.call intrinsic.is_none(%evidence)
+      %plain_score = core.call intrinsic.and(%plain, %score)
+      %schema = core.let %value
+      %rich = core.call intrinsic.not(%plain_score)
+      core.if %rich {
+        %schema = core.map
+        core.set %schema["type"] = "object"
+        %props = core.map
+        core.set %props["value"] = %value
+        %provenance = core.map
+        core.set %provenance["type"] = "object"
+        %provenance_props = core.map
+        %text = core.map
+        core.set %text["type"] = "string"
+        %source = core.map
+        core.set %source["type"] = "string"
+        %sources = core.list
+        core.append %sources, "native"
+        core.append %sources, "elicited"
+        core.set %source["enum"] = %sources
+        core.set %provenance_props["source"] = %source
+        core.set %provenance_props["provider"] = %text
+        core.set %provenance_props["model"] = %text
+        core.set %provenance["properties"] = %provenance_props
+        %provenance_required = core.list
+        core.append %provenance_required, "source"
+        core.append %provenance_required, "provider"
+        core.set %provenance["required"] = %provenance_required
+        core.set %provenance["additionalProperties"] = false
+        core.set %props["provenance"] = %provenance
+        core.if %is_boolean {
+          core.set %props["probability"] = %p
+          core.set %props["threshold"] = %p
+        } else {
+          %ps = core.map
+          core.if %score {
+            core.set %ps["type"] = "array"
+            core.set %ps["items"] = %p
+            %labels = core.map
+            core.set %labels["type"] = "array"
+            core.set %labels["items"] = %text
+            core.set %props["levels"] = %labels
+          } else {
+            core.set %ps["type"] = "object"
+            %probability_props = core.map
+            core.for %label in %levels { core.set %probability_props[%label] = %p }
+            core.set %ps["properties"] = %probability_props
+            core.set %ps["required"] = %levels
+            core.set %ps["additionalProperties"] = false
+          }
+          core.set %props["probabilities"] = %ps
+        }
+        %required = core.call intrinsic.map.keys(%props)
+        core.set %schema["required"] = %required
+        core.set %schema["properties"] = %props
+        core.set %schema["additionalProperties"] = false
+        %non_boolean = core.call intrinsic.not(%is_boolean)
+        core.if %non_boolean { core.set %props["confidence"] = %p }
+        %policy = core.get %evidence["onRefusal"] default "throw"
+        %return_policy = core.call intrinsic.eq(%policy, "return")
+        core.if %return_policy {
+          %status = core.map
+          core.set %status["type"] = "string"
+          %answered = core.list
+          core.append %answered, "answered"
+          core.set %status["enum"] = %answered
+          core.set %props["status"] = %status
+          core.append %required, "status"
+          %refusal = core.map
+          core.set %refusal["type"] = "object"
+          %refusal_props = core.map
+          %refusal_status = core.map
+          core.set %refusal_status["type"] = "string"
+          %refused = core.list
+          core.append %refused, "refused"
+          core.set %refusal_status["enum"] = %refused
+          core.set %refusal_props["status"] = %refusal_status
+          core.set %refusal_props["provenance"] = %provenance
+          core.set %refusal["properties"] = %refusal_props
+          %refusal_required = core.list
+          core.append %refusal_required, "status"
+          core.append %refusal_required, "provenance"
+          core.set %refusal["required"] = %refusal_required
+          core.set %refusal["additionalProperties"] = false
+          %alternatives = core.list
+          core.append %alternatives, %schema
+          core.append %alternatives, %refusal
+          %schema = core.map
+          core.set %schema["anyOf"] = %alternatives
+        }
+      }
+      %array = core.get %typ["is_array"] default false
+      core.if %array {
+        %wrapped = core.map
+        core.set %wrapped["type"] = "array"
+        core.set %wrapped["items"] = %schema
+        %schema = core.let %wrapped
+      }
+      core.return %schema
+    }
+  }
+
+
+  op ax.gen.semantic @evidence_example_values_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/decision.ts"
+    type signature = "(list<Field>, json) -> json"
+    body @entry(%fields: list<Field>, %values: json) {
+      %empty = core.map
+      %out = core.call intrinsic.map.merge(%empty, %values)
+      core.for %field in %fields {
+        %name = core.get %field["name"]
+        %typ = core.get %field["type"]
+        %value = core.get %out[%name]
+        %present = core.call intrinsic.is_not_none(%value)
+        core.if %present {
+          %decision = core.call @evidence_is_type_impl(%typ)
+          %children = core.get %typ["fields"]
+          %has_children = core.call intrinsic.is_not_none(%children)
+          %array = core.get %typ["is_array"] default false
+          %items = core.list
+          core.if %array { %items = core.let %value } else { core.append %items, %value }
+          %converted = core.list
+          core.for %item in %items {
+            %object = core.type_is %item type "object"
+            core.if %object {
+              core.if %decision {
+                %raw = core.map
+                %status = core.get %item["status"]
+                %refused = core.call intrinsic.eq(%status, "refused")
+                core.if %refused { core.set %raw["status"] = "refused" }
+                else {
+                  %type_name = core.get %typ["name"]
+                  %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+                  %key = core.let "probabilities"
+                  core.if %is_boolean { %key = core.let "probability" }
+                  %probabilities = core.get %item[%key]
+                  core.set %raw[%key] = %probabilities
+                  %evidence = core.get %typ["evidence"]
+                  %policy = core.get %evidence["onRefusal"]
+                  %return_policy = core.call intrinsic.eq(%policy, "return")
+                  core.if %return_policy { core.set %raw["status"] = "answered" }
+                }
+                %item = core.let %raw
+              } else {
+                core.if %has_children {
+                  %nested = core.call intrinsic.fields.from_map(%children)
+                  %item = core.call @evidence_example_values_impl(%nested, %item)
+                }
+              }
+            }
+            core.append %converted, %item
+          }
+          core.if %array { core.set %out[%name] = %converted }
+          else {
+            %single = core.call intrinsic.list.get(%converted, 0)
+            core.set %out[%name] = %single
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+}

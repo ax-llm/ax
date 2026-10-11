@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:2d303c783561e113e03aa86fabe8fbcaaad620b2689a0cdb4a67eb951e3ab43a"
+      "digest": "sha256:a1f941b60b1367082977769ee21317c26994946ebdbb544b61773bd63914d847"
     },
     {
       "name": "ax-typesafe",
       "type": "skill-md",
       "description": "Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class signatures with value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.",
       "url": "ax-typesafe/SKILL.md",
-      "digest": "sha256:216986da03cbbe6317345d210d5180ff8c0dbf0fcf01831854ef10b3d5b4f342"
+      "digest": "sha256:70bd18c7c7a2ccc37a5406e051b1795a1caf567d034d6a85e3d64cdf3520c995"
     },
     {
       "name": "ax-audio",
@@ -34,14 +34,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:bee8afdc93c3f8e11894274e540a7316dd81f91d1a7e772f91e97bfb8ca2e46e"
+      "digest": "sha256:e531f9af35f7ce3f82efa22cea967124eb55104937664f5da34dbbfc70b1ebf5"
     },
     {
       "name": "ax-gen",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:48bd74b10a5fea7312823a813ea1e3967de918dd0fe5f3d756570071d1772f03"
+      "digest": "sha256:5ac39be3986d858de467b87d1788fe0e084ea927f35f6793319ae38d90bb2adf"
     },
     {
       "name": "ax-mcp",

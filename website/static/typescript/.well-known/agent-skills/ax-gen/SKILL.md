@@ -619,3 +619,12 @@ required properties and argument types before their handlers start. Invalid
 arguments enter the correction loop; exhausting the step limit fails the run.
 This does not establish support for every JSON Schema constraint. Generated
 session parity remains open; see `docs/COMPILER.md`.
+
+## Decision model outputs
+
+Use boolean/class `.withEvidence()` or a rubric `f.score(levels).withEvidence()`
+to retain probabilities and native confidence through `forward()`. String equivalents
+are `boolean(evidence)` and `score "Low, Medium, High"(evidence)`. See
+[decision evidence](ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
+provenance, refusal policy, and reranking. These are normal program outputs;
+processors, assertions, result selection, traces, and caches receive decoded evidence.

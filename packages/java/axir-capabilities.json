@@ -47,6 +47,7 @@
   "core_owned_feature_groups": [
     "signature",
     "signature-value-descriptions",
+    "signature-decision-evidence",
     "wire-field-extraction",
     "typesafe-native-and-signatures",
     "openai-decisions-native-and-signatures",

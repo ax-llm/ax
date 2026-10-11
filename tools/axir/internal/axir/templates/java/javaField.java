@@ -56,6 +56,13 @@ public final class Field {
       Core._signature_validate_value_descriptions_impl(out.type, out.type.name);
       return out;
     }
+    public Fluent withEvidence() { return withEvidence(Map.of()); }
+    public Fluent withEvidence(Map<String, Object> options) {
+      Fluent out = copy();
+      out.type.evidence = new LinkedHashMap<>(options);
+      Core._evidence_validate_type_impl(out.type);
+      return out;
+    }
     public Fluent optional() { Fluent out = copy(); out.optional = true; return out; }
     public Fluent internal() { Fluent out = copy(); out.internal = true; return out; }
     public Fluent cache() { Fluent out = copy(); out.cached = true; return out; }
@@ -106,6 +113,12 @@ public final class Field {
     public AxSignature.Builder call() { return new AxSignature.Builder(); }
     public Fluent string() { return string(null); }
     public Fluent string(String description) { return new Fluent("string", description); }
+    public Fluent score(List<String> levels) { return score(levels, null); }
+    public Fluent score(List<String> levels, String description) {
+      FieldType type = new FieldType("score"); type.options = List.copyOf(levels);
+      Core._evidence_validate_type_impl(type);
+      return new Fluent(type, description, description, false, false, false);
+    }
     public Fluent number() { return number(null); }
     public Fluent number(String description) { return new Fluent("number", description); }
     public Fluent boolean_() { return boolean_(null); }

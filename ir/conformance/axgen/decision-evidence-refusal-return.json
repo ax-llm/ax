@@ -1,0 +1,26 @@
+{
+  "name": "decision-evidence-refusal-return",
+  "kind": "forward",
+  "signature": "query:string -> relevant:boolean(evidence, refusal return)",
+  "input": {
+    "query": "x"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "content": "{\"relevant\":{\"status\":\"refused\"}}"
+    }
+  ],
+  "expected_output": {
+    "relevant": {
+      "status": "refused",
+      "provenance": {
+        "source": "elicited",
+        "provider": "AI"
+      }
+    }
+  },
+  "expected_request_count": 1
+}

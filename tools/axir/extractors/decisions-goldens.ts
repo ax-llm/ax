@@ -635,7 +635,7 @@ await adapter(
   },
   chatRaw,
   {},
-  'required boolean or class'
+  'required boolean, class or rubric score'
 );
 await adapter(
   'optional-field',
@@ -655,7 +655,7 @@ await adapter(
   },
   chatRaw,
   {},
-  'required boolean or class'
+  'required boolean, class or rubric score'
 );
 await adapter(
   'sampling-control',

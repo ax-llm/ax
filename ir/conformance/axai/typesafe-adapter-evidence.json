@@ -1,0 +1,206 @@
+{
+  "expected_output": {
+    "modelUsage": {
+      "ai": "Typesafe",
+      "model": "jev-latest",
+      "tokens": {
+        "completionTokens": 3,
+        "promptTokens": 21,
+        "totalTokens": 24
+      }
+    },
+    "providerMetadata": {
+      "typesafe": {
+        "answers": {
+          "team": {
+            "choice": "support",
+            "confidence": 0.7,
+            "probabilities": {
+              "billing": 0.2,
+              "support": 0.8
+            },
+            "type": "choice"
+          },
+          "urgent": {
+            "noul": 0.85,
+            "type": "noul"
+          },
+          "relevance": {
+            "type": "score",
+            "score": 1.1,
+            "confidence": 0.7,
+            "probabilities": {
+              "2": 0.5,
+              "0": 0.2,
+              "1": 0.3
+            },
+            "legend": {
+              "0": "No",
+              "1": "Some",
+              "2": "Yes"
+            }
+          }
+        }
+      }
+    },
+    "results": [
+      {
+        "content": "{\"team\":{\"probabilities\":{\"billing\":0.2,\"support\":0.8}},\"urgent\":{\"probability\":0.85},\"relevance\":{\"probabilities\":[0.2,0.3,0.5]}}",
+        "finishReason": "stop",
+        "index": 0,
+        "decisionContext": {
+          "provenance": {
+            "source": "native",
+            "provider": "Typesafe",
+            "model": "jev-latest"
+          },
+          "native": {
+            "urgent": {},
+            "team": {
+              "value": "support",
+              "confidence": 0.7
+            },
+            "relevance": {
+              "value": 1.1,
+              "confidence": 0.7
+            }
+          }
+        }
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "model": "jev-latest",
+      "questions": {
+        "team": {
+          "criteria": {
+            "billing": "Payment questions",
+            "support": "Product help"
+          },
+          "instructions": "team: Responsible team",
+          "type": "choice"
+        },
+        "urgent": {
+          "instructions": "Evaluate the output field urgent.",
+          "type": "noul"
+        },
+        "relevance": {
+          "type": "score",
+          "criteria": ["No", "Some", "Yes"],
+          "instructions": "Evaluate the output field relevance."
+        }
+      },
+      "state": {
+        "messages": [
+          {
+            "content": "Checkout is unavailable",
+            "role": "user"
+          }
+        ]
+      }
+    }
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "name": "typesafe-adapter-evidence",
+  "provider": "typesafe",
+  "request": {
+    "chatPrompt": [
+      {
+        "content": "Checkout is unavailable",
+        "role": "user"
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "fieldDescriptions": {
+        "team": {
+          "description": "Responsible team",
+          "valueDescriptions": {
+            "billing": "Payment questions",
+            "support": "Product help"
+          }
+        }
+      },
+      "schema": {
+        "name": "decision",
+        "schema": {
+          "properties": {
+            "team": {
+              "type": "object"
+            },
+            "urgent": {
+              "type": "object"
+            },
+            "relevance": {
+              "type": "object"
+            }
+          },
+          "required": ["urgent", "team", "relevance"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema",
+      "decisionFields": {
+        "urgent": {
+          "type": "boolean",
+          "evidence": {
+            "threshold": 0.7
+          }
+        },
+        "team": {
+          "type": "class",
+          "options": ["support", "billing"],
+          "evidence": {}
+        },
+        "relevance": {
+          "type": "score",
+          "options": ["No", "Some", "Yes"],
+          "evidence": {}
+        }
+      }
+    }
+  },
+  "transport_responses": [
+    {
+      "answers": {
+        "team": {
+          "choice": "support",
+          "confidence": 0.7,
+          "probabilities": {
+            "billing": 0.2,
+            "support": 0.8
+          },
+          "type": "choice"
+        },
+        "urgent": {
+          "noul": 0.85,
+          "type": "noul"
+        },
+        "relevance": {
+          "type": "score",
+          "score": 1.1,
+          "confidence": 0.7,
+          "probabilities": {
+            "2": 0.5,
+            "0": 0.2,
+            "1": 0.3
+          },
+          "legend": {
+            "0": "No",
+            "1": "Some",
+            "2": "Yes"
+          }
+        }
+      },
+      "model": "jev-latest",
+      "usage": {
+        "input_tokens": 21,
+        "output_tokens": 3
+      }
+    }
+  ]
+}

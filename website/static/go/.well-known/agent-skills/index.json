@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:e96e2dcd4d341ad656fef6eabefe4314f6bae987ec48a941cbc376615734425b"
+      "digest": "sha256:24b29aaa999d2f260017086ac876f8611358b06b85c4bd0d3190d15485da4cab"
     },
     {
       "name": "ax-go-typesafe",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-go-typesafe/SKILL.md",
-      "digest": "sha256:9057e34cce28db835bf3c53b1819704ad01b8d68c498ba5139a7010d626300cc"
+      "digest": "sha256:fa7a2d22f12306aa8d816c77df4bf933539affaaba5fb734c72db7281a0d7cf0"
     },
     {
       "name": "ax-go-audio",
@@ -34,14 +34,14 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-go-signature/SKILL.md",
-      "digest": "sha256:4dc4ee329c79f8681c39b2289a4e627ab19ea75e808d64ab327828975ac9d5a5"
+      "digest": "sha256:5963509646062b3a4a5138873dde8175c3e5d4c4a11bd1531b65958aa19ce2b9"
     },
     {
       "name": "ax-go-gen",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:ae648c7f8994f69e59d36aef67af472c4e0311b97fb8ef8a9e06c11d228aea9e"
+      "digest": "sha256:dd567020d23cd713d954c91c04f8bca65a0aebef0e578c331f1e693efd8c9ebc"
     },
     {
       "name": "ax-go-flow",

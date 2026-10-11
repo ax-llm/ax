@@ -43,9 +43,10 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.list.sorted_strings":     "core_sorted_strings",
 	"intrinsic.record.new":              "core_record_new",
 
-	"intrinsic.error.signature":  "core_signature_error",
-	"intrinsic.error.runtime":    "core_runtime_error",
-	"intrinsic.error.validation": "core_validation_error",
+	"intrinsic.error.signature":        "core_signature_error",
+	"intrinsic.error.runtime":          "core_runtime_error",
+	"intrinsic.error.validation":       "core_validation_error",
+	"intrinsic.error.decision_refusal": "core_decision_refusal_error",
 
 	"intrinsic.string.format":                         "core_string_format",
 	"intrinsic.string.replace":                        "core_string_replace",
@@ -136,7 +137,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.agent.observer.notify":                 "core_agent_observer_notify",
 	"intrinsic.agent.transcribe":                      "core_agent_transcribe",
 	"intrinsic.agent.runtime.create_session":          "core_agent_runtime_create_session",
-	"intrinsic.agent.runtime.is_executable":          "core_agent_runtime_is_executable",
+	"intrinsic.agent.runtime.is_executable":           "core_agent_runtime_is_executable",
 	"intrinsic.agent.runtime.execute":                 "core_agent_runtime_execute",
 	"intrinsic.agent.runtime.inspect":                 "core_agent_runtime_inspect",
 	"intrinsic.agent.runtime.export_state":            "core_agent_runtime_export_state",

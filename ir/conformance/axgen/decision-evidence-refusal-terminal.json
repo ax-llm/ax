@@ -1,0 +1,18 @@
+{
+  "name": "decision-evidence-refusal-terminal",
+  "kind": "forward",
+  "signature": "query:string -> relevant:boolean(evidence)",
+  "input": {
+    "query": "x"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "content": "{\"relevant\":{\"status\":\"refused\"}}"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_error_contains": "Decision refused: relevant"
+}

@@ -1,0 +1,301 @@
+{
+  "expected_output": {
+    "modelUsage": {
+      "ai": "OpenAI Decisions",
+      "model": "gpt-6-luna",
+      "tokens": {
+        "cacheCreationTokens": 2,
+        "cacheReadTokens": 4,
+        "completionTokens": 3,
+        "promptTokens": 14,
+        "reasoningTokens": 1,
+        "totalTokens": 23
+      }
+    },
+    "providerMetadata": {
+      "openaiDecisions": {
+        "answers": [
+          {
+            "name": "urgent",
+            "probability": 0.5,
+            "type": "predicate"
+          },
+          {
+            "choice": "support",
+            "confidence": 0.8,
+            "name": "team",
+            "probabilities": [
+              {
+                "probability": 0.8,
+                "value": "support"
+              },
+              {
+                "probability": 0.2,
+                "value": "billing"
+              }
+            ],
+            "type": "choice"
+          },
+          {
+            "type": "score",
+            "name": "relevance",
+            "score": 1.1,
+            "confidence": 0.7,
+            "probabilities": [
+              {
+                "value": 2,
+                "label": "Yes",
+                "probability": 0.5
+              },
+              {
+                "value": 0,
+                "label": "No",
+                "probability": 0.2
+              },
+              {
+                "value": 1,
+                "label": "Some",
+                "probability": 0.3
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "results": [
+      {
+        "content": "{\"urgent\":{\"probability\":0.5},\"team\":{\"probabilities\":{\"support\":0.8,\"billing\":0.2}},\"relevance\":{\"probabilities\":[0.2,0.3,0.5]}}",
+        "finishReason": "stop",
+        "index": 0,
+        "decisionContext": {
+          "provenance": {
+            "source": "native",
+            "provider": "OpenAI Decisions",
+            "model": "gpt-6-luna"
+          },
+          "native": {
+            "urgent": {},
+            "team": {
+              "value": "support",
+              "confidence": 0.8
+            },
+            "relevance": {
+              "value": 1.1,
+              "confidence": 0.7
+            }
+          }
+        }
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["stream", "temperature", "trueThreshold"],
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "system:",
+              "type": "input_text"
+            },
+            {
+              "text": "Classify the supplied evidence.",
+              "type": "input_text"
+            },
+            {
+              "text": "user:",
+              "type": "input_text"
+            },
+            {
+              "text": "Checkout is broken.",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "gpt-6-luna",
+      "questions": [
+        {
+          "instructions": "urgent: Urgent?\ntrue: Blocked\nfalse: Routine",
+          "name": "urgent",
+          "type": "predicate"
+        },
+        {
+          "choices": [
+            {
+              "value": "support"
+            },
+            {
+              "description": "Invoice issues",
+              "value": "billing"
+            }
+          ],
+          "instructions": "team: Route the issue.",
+          "name": "team",
+          "type": "choice"
+        },
+        {
+          "type": "score",
+          "name": "relevance",
+          "levels": [
+            {
+              "label": "No"
+            },
+            {
+              "label": "Some"
+            },
+            {
+              "label": "Yes"
+            }
+          ],
+          "instructions": "Evaluate the output field relevance."
+        }
+      ],
+      "safety_identifier": "customer-1"
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions"
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "model": "gpt-6-luna",
+  "name": "openai-decisions-adapter-evidence",
+  "provider": "openai-decisions",
+  "request": {
+    "chatPrompt": [
+      {
+        "role": "system",
+        "content": "Classify the supplied evidence."
+      },
+      {
+        "role": "user",
+        "content": "Checkout is broken."
+      }
+    ],
+    "responseFormat": {
+      "type": "json_schema",
+      "schema": {
+        "name": "output",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "urgent": {
+              "type": "object"
+            },
+            "team": {
+              "type": "object"
+            },
+            "relevance": {
+              "type": "object"
+            }
+          },
+          "required": ["urgent", "team", "relevance"],
+          "additionalProperties": false
+        }
+      },
+      "fieldDescriptions": {
+        "urgent": {
+          "description": "Urgent?",
+          "valueDescriptions": {
+            "true": "Blocked",
+            "false": "Routine"
+          }
+        },
+        "team": {
+          "description": "Route the issue.",
+          "valueDescriptions": {
+            "billing": "Invoice issues"
+          }
+        }
+      },
+      "decisionFields": {
+        "team": {
+          "type": "class",
+          "options": ["support", "billing"],
+          "evidence": {}
+        },
+        "relevance": {
+          "type": "score",
+          "options": ["No", "Some", "Yes"],
+          "evidence": {}
+        },
+        "urgent": {
+          "type": "boolean",
+          "evidence": {
+            "threshold": 0.7
+          }
+        }
+      }
+    },
+    "modelConfig": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "safetyIdentifier": "customer-1"
+  },
+  "transport_responses": [
+    {
+      "answers": [
+        {
+          "name": "urgent",
+          "probability": 0.5,
+          "type": "predicate"
+        },
+        {
+          "choice": "support",
+          "confidence": 0.8,
+          "name": "team",
+          "probabilities": [
+            {
+              "probability": 0.8,
+              "value": "support"
+            },
+            {
+              "probability": 0.2,
+              "value": "billing"
+            }
+          ],
+          "type": "choice"
+        },
+        {
+          "type": "score",
+          "name": "relevance",
+          "score": 1.1,
+          "confidence": 0.7,
+          "probabilities": [
+            {
+              "value": 2,
+              "label": "Yes",
+              "probability": 0.5
+            },
+            {
+              "value": 0,
+              "label": "No",
+              "probability": 0.2
+            },
+            {
+              "value": 1,
+              "label": "Some",
+              "probability": 0.3
+            }
+          ]
+        }
+      ],
+      "model": "gpt-6-luna",
+      "usage": {
+        "input_tokens": 20,
+        "input_tokens_details": {
+          "cache_write_tokens": 2,
+          "cached_tokens": 4
+        },
+        "output_tokens": 3,
+        "output_tokens_details": {
+          "reasoning_tokens": 1
+        },
+        "total_tokens": 23
+      }
+    }
+  ]
+}

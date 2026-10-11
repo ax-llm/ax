@@ -795,6 +795,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 		CoreOwnedFeatureGroups: targetCoreOwnedFeatureGroups(target, []string{
 			"signature",
 			"signature-value-descriptions",
+			"signature-decision-evidence",
 			"wire-field-extraction",
 			"typesafe-native-and-signatures",
 			"openai-decisions-native-and-signatures",
@@ -1267,6 +1268,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "Errors And Values",
 			Summary: "Handle target-native errors and dynamic values at Ax host boundaries.",
 			Symbols: []APIReferenceSymbol{
+				sym("AxDecisionRefusalError", "type", "Terminal decision-field refusal; retains field path and provider provenance.", []string{"fieldPath", "provenance"}, "error"),
 				sym("AxGenerateError", "type", "Generation boundary failure retaining the original cause; cancellation propagates unchanged.", []string{"message", "cause"}, "error"),
 				sym("AxError", "type", "Target-native error envelope for validation, provider, runtime, MCP, and optimizer failures.", []string{"category", "message", "status", "code", "retryable"}, "error"),
 				sym("Value", "type", "Dynamic JSON-like value boundary used by generated package APIs, tools, providers, MCP, and runtime sessions.", []string{"string", "number", "boolean", "object", "array", "null"}, "dynamic value"),
@@ -1301,6 +1303,8 @@ func apiRuntimeProfileSymbols(target string) []APIReferenceSymbol {
 
 func apiReferencePublicName(target, canonical string) string {
 	switch canonical {
+	case "AxDecisionRefusalError":
+		return mapTarget(target, "AxDecisionRefusalError", "AxGen.AxDecisionRefusalError", "AxDecisionRefusalError", "AxDecisionRefusalError", "AxError (error_type: AxDecisionRefusalError)")
 	case "s":
 		return mapTarget(target, "s", "Ax.s", "axllm::s", "axllm.S", "s")
 	case "f":

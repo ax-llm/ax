@@ -250,6 +250,7 @@ class FieldType:
     pattern: str | None = None
     pattern_description: str | None = None
     value_descriptions: dict[str, str] | None = None
+    evidence: dict[str, Any] | None = None
     format: str | None = None
     language: str | None = None
     description: str | None = None
@@ -294,6 +295,13 @@ class FluentField:
         clone = self._clone()
         clone.type.value_descriptions = copy.deepcopy(descriptions)
         _signature_validate_value_descriptions_impl(clone.type, clone.type.name)
+        return clone
+
+    def with_evidence(self, *, threshold: float | None = None, on_refusal: str = "throw"):
+        clone = self._clone()
+        clone.type.evidence = {"onRefusal": on_refusal}
+        if threshold is not None: clone.type.evidence["threshold"] = threshold
+        _evidence_validate_type_impl(clone.type)
         return clone
 
     def optional(self):
@@ -420,6 +428,12 @@ class FluentFactory:
 
     def string(self, description: str | None = None): return FluentField("string", description)
     def number(self, description: str | None = None): return FluentField("number", description)
+    def score(self, levels: list[str], description: str | None = None):
+        item = FluentField("score", description)
+        item.type.options = list(levels)
+        _evidence_validate_type_impl(item.type)
+        return item
+
     def boolean(self, description: str | None = None): return FluentField("boolean", description)
     def json(self, description: str | None = None): return FluentField("json", description)
     def object(self, fields: dict[str, FluentField] | None = None, description: str | None = None): return FluentField("object", description, fields=fields)
@@ -465,12 +479,12 @@ class AxSignature:
     def get_description(self): return self.description
 
     def has_complex_fields(self) -> bool:
-        return self.force_structured or any(field.type.name == "object" or field.type.fields for field in self.output_fields)
+        return self.force_structured or _evidence_has_fields_impl(self.output_fields) or any(field.type.name == "object" or field.type.fields for field in self.output_fields)
 
     def to_json_schema(self, target: str = "outputs", options: dict[str, Any] | None = None):
         from .schema import to_json_schema
         fields = self.input_fields if target == "inputs" else self.output_fields
-        return to_json_schema(fields, options=options)
+        return to_json_schema(fields, options={"decisionMode":"result", **(options or {})})
 
     def toJSONSchema(self, target: str = "outputs", options: dict[str, Any] | None = None):
         return self.to_json_schema(target, options)
@@ -882,6 +896,7 @@ def _core_record_new(name, values):
             pattern=values.get("pattern"),
             pattern_description=values.get("pattern_description", values.get("patternDescription")),
             value_descriptions=values.get("value_descriptions", values.get("valueDescriptions")),
+            evidence=values.get("evidence"),
             format=values.get("format"),
             language=values.get("language"),
             description=values.get("description"),
@@ -926,3 +941,10 @@ def _title(name: str) -> str:
 
 
 # AXIR_CORE_SIGNATURE_FUNCTIONS
+
+
+def _core_gte(a, b): return a >= b
+def _core_lte(a, b): return a <= b
+def _core_math_is_finite(value):
+    import math
+    return math.isfinite(value)

@@ -6,6 +6,7 @@ import re
 from typing import Any
 from .signature import _js_date_millis, _js_number_text, _js_format
 from .signature import (
+    _evidence_is_type_impl,
     _signature_describe_field_values_impl,
 )
 
@@ -245,6 +246,7 @@ def _nested_field(name, item):
             pattern=item.get("pattern"),
             pattern_description=item.get("patternDescription", item.get("pattern_description")),
             value_descriptions=item.get("valueDescriptions", item.get("value_descriptions")),
+            evidence=item.get("evidence"),
             format=item.get("format"),
             description=item.get("description"),
         )
@@ -635,6 +637,90 @@ def _validate_string_constraints_impl(value: str, field: Field) -> None:
     return None
 
 
+def _evidence_schema_impl(typ: FieldType) -> Any:
+    _core_coverage_mark("_evidence_schema_impl")
+    name = _core_get(typ, "name", None)
+    labels = _core_get(typ, "options", None)
+    p = {}
+    p["type"] = "number"
+    p["minimum"] = 0
+    p["maximum"] = 1
+    props = {}
+    is_boolean = _core_eq(name, "boolean")
+    score = _core_eq(name, "score")
+    required = []
+    if is_boolean:
+        props["probability"] = p
+        required.append("probability")
+    else:
+        distribution = {}
+        if score:
+            distribution["type"] = "array"
+            distribution["items"] = p
+            count = _core_len(labels)
+            distribution["minItems"] = count
+            distribution["maxItems"] = count
+            order = _core_string_join(", ", labels)
+            hint = _core_string_format("Probabilities in rubric order, lowest to highest: {}", order)
+            distribution["description"] = hint
+        else:
+            distribution["type"] = "object"
+            ps = {}
+            for label in labels:
+                ps[label] = p
+            distribution["properties"] = ps
+            distribution["required"] = labels
+            distribution["additionalProperties"] = False
+        props["probabilities"] = distribution
+        required.append("probabilities")
+    schema = {}
+    schema["type"] = "object"
+    schema["properties"] = props
+    schema["required"] = required
+    schema["additionalProperties"] = False
+    evidence = _core_get(typ, "evidence", None)
+    policy = _core_get(evidence, "onRefusal", "throw")
+    return_policy = _core_eq(policy, "return")
+    if return_policy:
+        status = {}
+        status["type"] = "string"
+        answered = []
+        answered.append("answered")
+        status["enum"] = answered
+        props["status"] = status
+        required.append("status")
+        refused = {}
+        refused["type"] = "object"
+        refusal_props = {}
+        refusal_status = {}
+        refusal_status["type"] = "string"
+        tags = []
+        tags.append("refused")
+        refusal_status["enum"] = tags
+        refusal_props["status"] = refusal_status
+        refused["properties"] = refusal_props
+        keys = []
+        keys.append("status")
+        refused["required"] = keys
+        refused["additionalProperties"] = False
+        alternatives = []
+        alternatives.append(schema)
+        alternatives.append(refused)
+        schema = {}
+        schema["anyOf"] = alternatives
+    else:
+        pass
+    array = _core_get(typ, "is_array", False)
+    if array:
+        wrapped = {}
+        wrapped["type"] = "array"
+        wrapped["items"] = schema
+        schema = wrapped
+    else:
+        pass
+    return schema
+
+
 def _validate_number_constraints_impl(value: float, field: Field) -> None:
     _core_coverage_mark("_validate_number_constraints_impl")
     typ = _core_get(field, "type", None)
@@ -760,6 +846,11 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
         item_field = _core_field_item(field)
         for item in value:
             _validate_value_impl(item_field, item, path)
+        return None
+    else:
+        pass
+    decision = _evidence_is_type_impl(typ)
+    if decision:
         return None
     else:
         pass
@@ -964,6 +1055,27 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
     return None
 
 
+def _evidence_probability_impl(v: Any, path: str) -> f64:
+    _core_coverage_mark("_evidence_probability_impl")
+    valid = _core_type_is(v, "number")
+    if valid:
+        finite = _core_math_is_finite(v)
+        low = _core_gte(v, 0)
+        high = _core_lte(v, 1)
+        range = _core_and(low, high)
+        valid = _core_and(finite, range)
+    else:
+        pass
+    invalid = _core_not(valid)
+    if invalid:
+        message = _core_string_format("Invalid probability for {}", path)
+        error = _core_validation_error(message)
+        raise error
+    else:
+        pass
+    return v
+
+
 def _schema_nullable_optional_impl(schema: Any, field: Field, options: Any) -> Any:
     _core_coverage_mark("_schema_nullable_optional_impl")
     is_optional = _core_get(field, "is_optional", False)
@@ -1034,6 +1146,21 @@ def _schema_field_schema_impl(field: Field, is_nested: bool, options: Any) -> An
     _core_coverage_mark("_schema_field_schema_impl")
     typ = _core_get(field, "type", None)
     type_name = _core_get(typ, "name", None)
+    decision = _evidence_is_type_impl(typ)
+    if decision:
+        schema = _evidence_schema_impl(typ)
+        decision_mode = _core_get(options, "decisionMode", "request")
+        result_mode = _core_eq(decision_mode, "result")
+        if result_mode:
+            schema = _evidence_result_schema_impl(typ)
+        else:
+            pass
+        description = _signature_describe_field_values_impl(field)
+        schema["description"] = description
+        nullable = _schema_nullable_optional_impl(schema, field, options)
+        return nullable
+    else:
+        pass
     media_types = []
     media_types.append("image")
     media_types.append("audio")
@@ -1217,4 +1344,142 @@ def _schema_to_json_schema_impl(fields: list[Any], schema_title: str, options: A
             pass
     return schema
 
+
+def _evidence_result_schema_impl(typ: FieldType) -> Any:
+    _core_coverage_mark("_evidence_result_schema_impl")
+    name = _core_get(typ, "name", None)
+    levels = _core_get(typ, "options", None)
+    evidence = _core_get(typ, "evidence", None)
+    is_boolean = _core_eq(name, "boolean")
+    score = _core_eq(name, "score")
+    p = {}
+    p["type"] = "number"
+    p["minimum"] = 0
+    p["maximum"] = 1
+    value = {}
+    if is_boolean:
+        value["type"] = "boolean"
+    else:
+        if score:
+            value["type"] = "number"
+            value["minimum"] = 0
+            count = _core_len(levels)
+            maximum = _core_add(count, -1)
+            value["maximum"] = maximum
+        else:
+            value["type"] = "string"
+            value["enum"] = levels
+    plain = _core_is_none(evidence)
+    plain_score = _core_and(plain, score)
+    schema = value
+    rich = _core_not(plain_score)
+    if rich:
+        schema = {}
+        schema["type"] = "object"
+        props = {}
+        props["value"] = value
+        provenance = {}
+        provenance["type"] = "object"
+        provenance_props = {}
+        text = {}
+        text["type"] = "string"
+        source = {}
+        source["type"] = "string"
+        sources = []
+        sources.append("native")
+        sources.append("elicited")
+        source["enum"] = sources
+        provenance_props["source"] = source
+        provenance_props["provider"] = text
+        provenance_props["model"] = text
+        provenance["properties"] = provenance_props
+        provenance_required = []
+        provenance_required.append("source")
+        provenance_required.append("provider")
+        provenance["required"] = provenance_required
+        provenance["additionalProperties"] = False
+        props["provenance"] = provenance
+        if is_boolean:
+            props["probability"] = p
+            props["threshold"] = p
+        else:
+            ps = {}
+            if score:
+                ps["type"] = "array"
+                ps["items"] = p
+                labels = {}
+                labels["type"] = "array"
+                labels["items"] = text
+                props["levels"] = labels
+            else:
+                ps["type"] = "object"
+                probability_props = {}
+                for label in levels:
+                    probability_props[label] = p
+                ps["properties"] = probability_props
+                ps["required"] = levels
+                ps["additionalProperties"] = False
+            props["probabilities"] = ps
+        required = _core_map_keys(props)
+        schema["required"] = required
+        schema["properties"] = props
+        schema["additionalProperties"] = False
+        non_boolean = _core_not(is_boolean)
+        if non_boolean:
+            props["confidence"] = p
+        else:
+            pass
+        policy = _core_get(evidence, "onRefusal", "throw")
+        return_policy = _core_eq(policy, "return")
+        if return_policy:
+            status = {}
+            status["type"] = "string"
+            answered = []
+            answered.append("answered")
+            status["enum"] = answered
+            props["status"] = status
+            required.append("status")
+            refusal = {}
+            refusal["type"] = "object"
+            refusal_props = {}
+            refusal_status = {}
+            refusal_status["type"] = "string"
+            refused = []
+            refused.append("refused")
+            refusal_status["enum"] = refused
+            refusal_props["status"] = refusal_status
+            refusal_props["provenance"] = provenance
+            refusal["properties"] = refusal_props
+            refusal_required = []
+            refusal_required.append("status")
+            refusal_required.append("provenance")
+            refusal["required"] = refusal_required
+            refusal["additionalProperties"] = False
+            alternatives = []
+            alternatives.append(schema)
+            alternatives.append(refusal)
+            schema = {}
+            schema["anyOf"] = alternatives
+        else:
+            pass
+    else:
+        pass
+    array = _core_get(typ, "is_array", False)
+    if array:
+        wrapped = {}
+        wrapped["type"] = "array"
+        wrapped["items"] = schema
+        schema = wrapped
+    else:
+        pass
+    return schema
+
 # END AXIR CORE EMITTED FUNCTIONS
+
+
+def _core_math_is_finite(value):
+    import math
+    return math.isfinite(value)
+
+
+def _core_add(a, b): return a + b

@@ -6,6 +6,12 @@ import java.util.List;
 import java.util.Map;
 
 public final class AxGen implements AxProgram {
+  public static final class AxDecisionRefusalError extends RuntimeException {
+    public final String fieldPath;
+    public final Map<String,Object> provenance;
+    AxDecisionRefusalError(String path, Map<String,Object> source) { super("Decision refused: " + path); fieldPath=path; provenance=source; }
+  }
+
   public java.util.function.Supplier<AxProgram> ownedWorkerFactory() {
     if(executionContext!=null)return null;
     Map<String,Object> snapshot=Core.asMap(Core.ownedCopy(options));
@@ -502,7 +508,7 @@ public final class AxGen implements AxProgram {
     // As in TypeScript, the cache is read before the run's span and metrics,
     // so a stored output records neither; an error from the read propagates.
     Map<String, Object> callOptions = AxRuntimeHooks.strip(forwardOptions);
-    Map<String, Object> cached = readCacheFirst(values, callOptions, false);
+    Map<String, Object> cached = readCacheFirst(client, values, callOptions, false);
     // A stored output's audio outputs are rendered, as TypeScript does.
     if (cached != null) return Core.asMap(Core._render_audio_outputs_impl(this, client, cached, callOptions));
     AxGlobals.Scope scope = AxGlobals.openScope(
@@ -528,8 +534,9 @@ public final class AxGen implements AxProgram {
   // the forward only stores, and returns null. Options that already carry a
   // lookup (an enclosing forward made it) are left as they are, and without
   // a caching function the options stay unchanged.
-  private Map<String, Object> readCacheFirst(Map<String, Object> values, Map<String, Object> callOptions, boolean ignoreReadErrors) {
+  private Map<String, Object> readCacheFirst(AiClient client, Map<String, Object> values, Map<String, Object> callOptions, boolean ignoreReadErrors) {
     if (callOptions.containsKey(CACHE_LOOKUP)) return null;
+    callOptions.put("_evidence_cache_identity", System.identityHashCode(client));
     Map<String, Object> lookup = Core.asMap(Core._cache_lookup_impl(this, values, callOptions, ignoreReadErrors));
     if (lookup.get("fn") == null) return null;
     if (Core.truthy(lookup.get("hit"))) return Core.asMap(lookup.get("value"));
@@ -597,7 +604,7 @@ public final class AxGen implements AxProgram {
     // an error from the read is ignored, and a stored output arrives as one
     // delta without a run.
     Map<String, Object> callOptions = AxRuntimeHooks.strip(forwardOptions);
-    Map<String, Object> stored = readCacheFirst(input, callOptions, true);
+    Map<String, Object> stored = readCacheFirst(client, input, callOptions, true);
     if (stored != null) {
       // A stored output's audio outputs are rendered, as TypeScript does.
       Map<String, Object> cached = Core.asMap(Core._render_audio_outputs_impl(this, client, stored, callOptions));

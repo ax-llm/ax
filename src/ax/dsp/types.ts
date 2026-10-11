@@ -17,6 +17,11 @@ import type {
 import type { AxAIMemory } from '../mem/types.js';
 import type { AxUCPClient } from '../ucp/client.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
+import type {
+  AxBooleanEvidence,
+  AxClassEvidence,
+  AxScoreEvidence,
+} from './decision.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxGen } from './generate.js';
 import type { AxOptimizableComponent } from './optimizable.js';
@@ -157,8 +162,24 @@ export type AxProgramTrace<IN, OUT> = {
   programId: string;
 };
 
+/**
+ * Evidence-bearing outputs may use labels in training examples without invented probabilities.
+ * @inline
+ */
+type EvidenceExampleValue<T> = T extends AxBooleanEvidence
+  ? T | boolean
+  : T extends AxClassEvidence<infer L>
+    ? T | L
+    : T extends AxScoreEvidence
+      ? T | number
+      : T extends readonly unknown[]
+        ? { [K in keyof T]: EvidenceExampleValue<T[K]> }
+        : T extends object
+          ? { [K in keyof T]: EvidenceExampleValue<T[K]> }
+          : T;
+
 export type AxProgramDemos<IN, OUT, ID extends string = string> = {
-  traces: (OUT & Partial<IN>)[];
+  traces: ((OUT | EvidenceExampleValue<OUT>) & Partial<IN>)[];
   programId: ID;
 };
 

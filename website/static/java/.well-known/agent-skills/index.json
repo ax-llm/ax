@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:ef8156c0c186476211623d1c2559ea0480ce08934ad7602d0e073542a3e0af6b"
+      "digest": "sha256:be4f476ec247c9011454d93cfce5badf33236cf8bc699ef76770aad3e8c08f2d"
     },
     {
       "name": "ax-java-typesafe",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-java-typesafe/SKILL.md",
-      "digest": "sha256:2035ca524f29320ac14ca03d2aa8ff293671f9f595a255fe2d0dc8140dd0d290"
+      "digest": "sha256:6703b2b3848d2fda13ff8e73f8f7819059119ec9b917d9783182f3825328c4fb"
     },
     {
       "name": "ax-java-audio",
@@ -34,14 +34,14 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-java-signature/SKILL.md",
-      "digest": "sha256:a38d500a9916815a3a2ff6ed6a880eacc4afec52039cbc057bc6e3509616befc"
+      "digest": "sha256:fc4661def7273fd82ebfc226e76b3a4f02d0da561ed6f0ad6eb895079f4169e2"
     },
     {
       "name": "ax-java-gen",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:1ac1b510e61b19bd3a43a6b63a19fa6f5928549276d24c63dbc30f1e097eb0f6"
+      "digest": "sha256:179652132b7fb5a066d559738fd2d709dcf38129cf0181454bcea1227e238fbf"
     },
     {
       "name": "ax-java-flow",

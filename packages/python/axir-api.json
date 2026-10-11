@@ -1198,6 +1198,19 @@
       "symbols": [
         {
           "target_name": "python",
+          "canonical_name": "AxDecisionRefusalError",
+          "public_name": "AxDecisionRefusalError",
+          "kind": "type",
+          "description": "Terminal decision-field refusal; retains field path and provider provenance.",
+          "form": "AxDecisionRefusalError",
+          "important_options": [
+            "fieldPath",
+            "provenance"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "python",
           "canonical_name": "AxGenerateError",
           "public_name": "AxGenerateError",
           "kind": "type",

@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:2af602a5eb51a1aabd8ababdedd245d34483742a95736ef9e28a467fdd62f3af"
+      "digest": "sha256:be393421708f64d68e3633ff87f259133e80d319db53e3e9c6ec174a8b882875"
     },
     {
       "name": "ax-python-typesafe",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:e31b8bb25c42134efce400bf9cd5d0dc6117a7602a20d48ba5cf835ad9693e3b"
+      "digest": "sha256:2e99ed73a53bad7161d86f4a2f526fd0dc471edfcd3afe9c5789e47b9c2dfef4"
     },
     {
       "name": "ax-python-audio",
@@ -34,14 +34,14 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-python-signature/SKILL.md",
-      "digest": "sha256:5f37ee340224fbef5cc442e3cc7ac60311330fa5f22065bf8e7013e1f74e706f"
+      "digest": "sha256:f08a8cf54349f7aa8c1513de7ce80758caffc31187bbe13cce0bf98bd5bfdd5d"
     },
     {
       "name": "ax-python-gen",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:a11103e39a24cd6cb297478fbedf13d00aa1236be5979e705b07d1745f449fff"
+      "digest": "sha256:1064b99f3e617d687cf6d26fb5c5d550713552cdae673b21bfdb7f62a37cf4b7"
     },
     {
       "name": "ax-python-flow",

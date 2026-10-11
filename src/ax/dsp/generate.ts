@@ -1,4 +1,10 @@
 import { axRunChatSession } from './chatSession.js';
+import {
+  AxDecisionRefusalError,
+  decisionFields,
+  decodeDecisionValues,
+  hasDecisionFields,
+} from './decision.js';
 import { processSessionPartialResult } from './response/streaming.js';
 import { createStructuredDelta } from './response/structuredDelta.js';
 import { axValidateToolArguments } from './toolArguments.js';
@@ -1311,6 +1317,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
       responseFormat = {
         type: 'json_schema',
+        decisionFields: decisionFields(outputFields),
         ...(fieldDescriptions ? { fieldDescriptions } : {}),
         schema: {
           name: 'output',
@@ -2185,6 +2192,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             ? {
                 responseFormat: {
                   type: 'json_schema' as const,
+                  decisionFields: decisionFields(
+                    this.signature.getOutputFields()
+                  ),
                   fieldDescriptions: outputValueDescriptions(
                     this.signature.getOutputFields()
                   ),
@@ -2628,6 +2638,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                   }
                 }
               } catch (e) {
+                if (e instanceof AxDecisionRefusalError) throw e;
                 if (e instanceof AxStopFunctionCallException) {
                   stopFunctionTriggered = true;
                   let stopOutputYielded = false;
@@ -2650,6 +2661,22 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                       });
 
                       const outputFields = this.signature.getOutputFields();
+                      if (hasDecisionFields(outputFields))
+                        decodeDecisionValues(
+                          outputFields,
+                          args,
+                          states[0]?.decisionContext ?? {
+                            provenance: {
+                              source: 'elicited',
+                              provider: ai.getName(),
+                              model: String(
+                                options.model ??
+                                  ai.getLastUsedChatModel?.() ??
+                                  ''
+                              ),
+                            },
+                          }
+                        );
                       for (const state of states) {
                         for (const field of outputFields) {
                           if (field.name in args) {
@@ -2863,6 +2890,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
               return;
             } catch (e) {
+              if (e instanceof AxDecisionRefusalError) throw e;
               // Re-throw abort errors immediately — never retry or wrap them
               if (e instanceof AxAIServiceAbortedError) {
                 throw e;
@@ -3000,6 +3028,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
             this.signature
           );
         } catch (e) {
+          if (e instanceof AxDecisionRefusalError) throw e;
           // Infrastructure error handling
           const error = e as Error;
           const isInfraError =
@@ -3599,7 +3628,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const cacheKey = (() => {
       if (!cachingFunction || options?.control) return undefined;
       const inputNames = this.signature.getInputFields().map((f) => f.name);
-      return this.computeCacheKey(values, inputNames);
+      return this.computeCacheKey(values, inputNames, ai, options);
     })();
     if (cachingFunction && cacheKey) {
       const cached = await cachingFunction(cacheKey);
@@ -3780,7 +3809,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const cacheKey = (() => {
       if (!cachingFunction || options?.control) return undefined;
       const inputNames = this.signature.getInputFields().map((f) => f.name);
-      return this.computeCacheKey(values, inputNames);
+      return this.computeCacheKey(values, inputNames, ai, options);
     })();
     if (cachingFunction && cacheKey) {
       let cached: unknown;
@@ -3920,7 +3949,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     );
   }
 
-  private computeCacheKey(values: IN, inputNames: readonly string[]): string {
+  private computeCacheKey(
+    values: IN,
+    inputNames: readonly string[],
+    ai: Readonly<AxAIService>,
+    options?: Readonly<AxProgramForwardOptions<any>>
+  ): string {
     const hasher = createHash('sha256');
     hasher.update(this.signature.hash() ?? '');
 
@@ -3967,6 +4001,26 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       hasher.update(String(v));
     };
 
+    if (hasDecisionFields(this.signature.getOutputFields())) {
+      hasher.update('decision-evidence-v1');
+      updateWithValue({
+        provider: ai.getName(),
+        service: ai.getId(),
+        model: options?.model,
+        instruction: this.getInstruction(),
+        examples: this.examples,
+        demos: this.demos,
+        options: {
+          modelConfig: options?.modelConfig,
+          sampleCount: options?.sampleCount,
+          thinkingTokenBudget: options?.thinkingTokenBudget,
+          showThoughts: options?.showThoughts,
+          serviceTier: options?.serviceTier,
+          strictMode: options?.strictMode,
+          structuredOutputMode: options?.structuredOutputMode,
+        },
+      });
+    }
     const row = inputNames.map((n) => (values as any)?.[n]);
     for (const val of row) updateWithValue(val);
 

@@ -428,6 +428,7 @@ async function renderContext(language, page) {
       'signatures.string',
       'signature'
     ),
+    decisionEvidenceExample: snippetBlock(language, 'decisionEvidenceExample'),
     signatureFluentExample: snippetBlock(language, 'signatures.fluent'),
     signatureValidationExample: snippetBlock(language, 'signatures.validation'),
     signatureHybridExample: snippetBlock(language, 'signatures.hybrid'),

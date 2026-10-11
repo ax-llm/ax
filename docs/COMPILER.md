@@ -288,10 +288,14 @@ manifest rather than provider-specific target templates. See
 [`docs/AI_PROFILES.md`](./AI_PROFILES.md).
 
 Core owns the OpenAI Decisions request and response validation, ordered predicate,
-choice, and score questions, inline images, full usage, and boolean/class signature
-conversion. All five generated languages expose a native JSON client as well as
+choice, and score questions, inline images, full usage, and boolean/class/score
+signature conversion. All five generated languages expose a native JSON client as well as
 the `openai-decisions` provider. Numeric signature fields never imply score rubrics.
-Native probabilities remain unchanged; refusal handling is explicit. Transport
+Native probabilities remain unchanged; refusal handling is explicit. The shared
+`evidence.axir` module owns evidence schemas, validation, local thresholds, value
+derivation for generative models, provenance, terminal refusals, and recursive
+array/nested decoding. AxGen decodes evidence before processors, assertions,
+traces, and caching, and emits complete evidence when streaming. Transport
 wrappers refresh credentials per retry and merge header names case-insensitively.
 
 Core also owns Vertex routing for Gemini and Anthropic. Generated clients accept

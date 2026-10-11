@@ -1,4 +1,5 @@
 import { assertAssertions, assertStreamingAssertions } from '../asserts.js';
+import { decodeDecisionValues, hasDecisionFields } from '../decision.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractFinalValue, streamValues } from '../extract.js';
 import {
@@ -95,6 +96,14 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           parseJsonStringFields,
           strictStructuredJson
         );
+        if (hasDecisionFields(signature.getOutputFields()))
+          decodeDecisionValues(
+            signature.getOutputFields(),
+            finalJson,
+            state.decisionContext ?? {
+              provenance: { source: 'elicited', provider: ai.getName() },
+            }
+          );
         const { delta, fullValues } = createStructuredDelta<OUT>({
           signature,
           parsedValues: finalJson,
@@ -141,6 +150,14 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       );
     }
 
+    if (!jsonParsed && hasDecisionFields(signature.getOutputFields()))
+      decodeDecisionValues(
+        signature.getOutputFields(),
+        state.values,
+        state.decisionContext ?? {
+          provenance: { source: 'elicited', provider: ai.getName() },
+        }
+      );
     if (signatureToolCallingManager) {
       const promptFuncs = await signatureToolCallingManager.processResults(
         state.values

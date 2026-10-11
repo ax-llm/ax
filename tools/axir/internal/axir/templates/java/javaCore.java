@@ -321,6 +321,7 @@ final class Core {
         case "pattern" -> t.pattern;
         case "pattern_description", "patternDescription" -> t.patternDescription;
         case "value_descriptions", "valueDescriptions" -> t.valueDescriptions;
+        case "evidence" -> t.evidence;
         case "format" -> t.format;
         case "language" -> t.language;
         case "description" -> t.description;
@@ -684,6 +685,7 @@ final class Core {
 
   static Object signatureError(Object message) { return new AxSignatureError(String.valueOf(message)); }
   static Object validationError(Object message) { return new AxValidationError(String.valueOf(message)); }
+  static Object decisionRefusalError(Object path, Object provenance) { return new AxGen.AxDecisionRefusalError(String.valueOf(path), asMap(provenance)); }
   static Object runtimeError(Object message) { return new RuntimeException(String.valueOf(message)); }
   static Object exceptionMessage(Object error) { return error instanceof Throwable t ? t.getMessage() : String.valueOf(error); }
   // The same error with a new message and the original as its cause. It keeps
@@ -802,6 +804,7 @@ final class Core {
       t.valueDescriptions = new LinkedHashMap<>();
       for (var entry : asMap(descriptions).entrySet()) t.valueDescriptions.put(entry.getKey(), (String) entry.getValue());
     }
+    t.evidence = v.get("evidence") == null ? null : new LinkedHashMap<>(asMap(v.get("evidence")));
     t.pattern = (String) v.get("pattern");
     t.patternDescription = (String) v.getOrDefault("patternDescription", v.get("pattern_description"));
     t.format = (String) v.get("format");
@@ -1344,6 +1347,8 @@ final class Core {
     return Json.stringify(value);
   }
   static String axgenFormatValues(Object gen, Object values, String kind) {
+    Object decisionFields=get(get(gen,"signature",null),kind+"_fields",new ArrayList<>());
+    if (kind.equals("output") && truthy(_evidence_has_fields_impl(decisionFields))) return Json.stringify(_evidence_example_values_impl(decisionFields,values));
     Map<String, Object> map = asMap(values);
     List<String> lines = new ArrayList<>();
     for (Object raw : asList(get(get(gen, "signature", null), kind + "_fields", List.of()))) {
@@ -2215,7 +2220,7 @@ class PromptRuntime {
   // structured: whether the prompt asks for structured output, which ends the
   // section with the exact JSON shape.
   static String outputSection(AxSignature sig, boolean structured) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (structured) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }
-  static Object outputTypePlaceholder(FieldType type) { Object value; switch (type.name) { case "number" -> value = 0; case "boolean" -> value = true; case "object", "json" -> { Map<String, Object> object = new LinkedHashMap<>(); if (type.fields != null) for (Map.Entry<String, Object> entry : type.fields.entrySet()) { Field field = entry.getValue() instanceof Field nested ? nested : new Field(entry.getKey(), (FieldType) entry.getValue(), null, false, false, false); if (!field.internal) object.put(entry.getKey(), outputTypePlaceholder(field.type)); } value = object; } case "class" -> value = type.options == null || type.options.isEmpty() ? "<allowed value>" : type.options.get(0); case "code" -> value = "<complete source>"; case "date" -> value = "<YYYY-MM-DD>"; case "datetime" -> value = "<ISO 8601 datetime>"; case "dateRange" -> value = new LinkedHashMap<>(Map.of("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")); case "datetimeRange" -> value = new LinkedHashMap<>(Map.of("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")); case "url" -> value = "<url>"; default -> value = "<string>"; } return type.array ? List.of(value) : value; }
+  static Object outputTypePlaceholder(FieldType type) { if (Core.truthy(Core._evidence_is_type_impl(type))) return Core._evidence_placeholder_impl(type); Object value; switch (type.name) { case "number" -> value = 0; case "boolean" -> value = true; case "object", "json" -> { Map<String, Object> object = new LinkedHashMap<>(); if (type.fields != null) for (Map.Entry<String, Object> entry : type.fields.entrySet()) { Field field = entry.getValue() instanceof Field nested ? nested : new Field(entry.getKey(), (FieldType) entry.getValue(), null, false, false, false); if (!field.internal) object.put(entry.getKey(), outputTypePlaceholder(field.type)); } value = object; } case "class" -> value = type.options == null || type.options.isEmpty() ? "<allowed value>" : type.options.get(0); case "code" -> value = "<complete source>"; case "date" -> value = "<YYYY-MM-DD>"; case "datetime" -> value = "<ISO 8601 datetime>"; case "dateRange" -> value = new LinkedHashMap<>(Map.of("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")); case "datetimeRange" -> value = new LinkedHashMap<>(Map.of("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")); case "url" -> value = "<url>"; default -> value = "<string>"; } return type.array ? List.of(value) : value; }
   static List<Field> outputFields(AxSignature sig) { List<Field> out = new ArrayList<>(); for (Field field : sig.outputs) if (!field.internal) out.add(field); return out; }
   static Map<String, String> fieldMap(AxSignature sig) { Map<String, String> out = new LinkedHashMap<>(); for (Field f : sig.inputs) out.put(f.name, f.title); for (Field f : sig.outputs) out.put(f.name, f.title); return out; }
   static String formatDescription(String text) { String v = text == null ? "" : text.trim(); if (v.isEmpty()) return ""; return v.substring(0, 1).toUpperCase() + v.substring(1) + (v.endsWith(".") ? "" : "."); }

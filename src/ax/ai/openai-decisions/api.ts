@@ -1,3 +1,4 @@
+import type { AxNativeDecision } from '../../dsp/decision.js';
 import { validateValueDescriptions } from '../../dsp/valueDescriptions.js';
 import type { AxAPI } from '../../util/apicall.js';
 import { AxBaseAI } from '../base.js';
@@ -68,7 +69,7 @@ class DecisionsImpl {
   private plan(req: Readonly<AxInternalChatRequest<string>>): QuestionPlan[] {
     if (req.responseFormat?.type !== 'json_schema') {
       throw new Error(
-        'OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs'
+        'OpenAI Decisions requires an output schema. Use ax() with required boolean, class or rubric score outputs'
       );
     }
     const wrapper = record(req.responseFormat.schema, 'responseFormat.schema');
@@ -87,10 +88,23 @@ class DecisionsImpl {
     if (!Object.keys(properties).length)
       throw new Error('OpenAI Decisions requires at least one output field');
     return Object.entries(properties).map(([name, value]) => {
-      const field = record(value, `field ${name}`);
+      const wireField = record(value, `field ${name}`);
+      const decision = req.responseFormat?.decisionFields?.[name];
+      if (decision?.isArray || decision?.isOptional)
+        throw new Error(
+          'Decision providers require flat, required scalar outputs'
+        );
+      const field = decision
+        ? {
+            ...wireField,
+            type: decision.type === 'class' ? 'string' : decision.type,
+            enum: decision.type === 'class' ? decision.options : undefined,
+            anyOf: undefined,
+          }
+        : wireField;
       const unsupported = () =>
         new Error(
-          `OpenAI Decisions cannot evaluate output "${name}". Use required boolean or class fields; use openaiDecisions().create() for scoring, or a generative provider for other outputs`
+          `OpenAI Decisions cannot evaluate output "${name}". Use required boolean, class or rubric score fields, or a generative provider for other outputs`
         );
       if (
         !Array.isArray(required) ||
@@ -129,6 +143,16 @@ class DecisionsImpl {
         typeof description === 'string' && description
           ? `${name}: ${description}`
           : `Evaluate the output field ${name}.`;
+      if (decision?.type === 'score') {
+        return {
+          name,
+          question: {
+            type: 'score' as const,
+            instructions,
+            levels: decision.options!.map((label) => ({ label })),
+          },
+        };
+      }
       if (field.type === 'boolean' && !field.enum) {
         return {
           name,
@@ -253,22 +277,69 @@ class DecisionsImpl {
       name,
     }));
     const response = decodeDecisionsResponse(raw, questions);
+    const native: Record<string, AxNativeDecision> = {};
     const entries = response.answers.map((answer) => {
+      const name = answer.name!;
+      if (req.responseFormat?.decisionFields?.[name]) {
+        if (answer.type === 'refusal') {
+          native[name] = { refused: true };
+          return [name, { status: 'refused' }];
+        }
+        if (answer.type === 'predicate') {
+          native[name] = {};
+          return [name, { probability: answer.probability }];
+        }
+        if (answer.type === 'score') {
+          native[name] = { value: answer.score, confidence: answer.confidence };
+          return [
+            name,
+            {
+              probabilities: [...answer.probabilities]
+                .sort((a, b) => Number(a.value) - Number(b.value))
+                .map((p) => p.probability),
+            },
+          ];
+        }
+        native[name] = {
+          value: answer.choice as string,
+          confidence: answer.confidence,
+        };
+        return [
+          name,
+          {
+            probabilities: Object.fromEntries(
+              answer.probabilities.map((p) => [p.value, p.probability])
+            ),
+          },
+        ];
+      }
       if (answer.type === 'refusal')
-        throw new Error(`OpenAI Decisions refused question "${answer.name}"`);
-      if (answer.type === 'score')
-        throw new Error('OpenAI Decisions scoring requires the native client');
+        throw new Error(`OpenAI Decisions refused question "${name}"`);
       return [
-        answer.name,
+        name,
         answer.type === 'predicate'
           ? answer.probability >= this.threshold
-          : answer.choice,
+          : answer.type === 'choice'
+            ? answer.choice
+            : answer.score,
       ];
     });
     return {
       results: [
         {
           index: 0,
+          ...(Object.keys(native).length
+            ? {
+                decisionContext: {
+                  provenance: {
+                    source: 'native' as const,
+                    provider: 'OpenAI Decisions',
+                    model: response.model,
+                  },
+                  native,
+                },
+              }
+            : {}),
           content: JSON.stringify(Object.fromEntries(entries)),
           finishReason: 'stop',
         },
@@ -282,7 +353,7 @@ class DecisionsImpl {
     };
   }
 }
-/** Dedicated Decisions endpoint for required boolean/class signatures. */
+/** Dedicated Decisions endpoint for required boolean/class/rubric score signatures. */
 export class AxAIOpenAIDecisions<TModelKey = string> extends AxBaseAI<
   string,
   never,

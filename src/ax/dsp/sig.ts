@@ -6,6 +6,15 @@ import type {
   AxFunctionJSONSchema,
 } from '../ai/types.js';
 import { createHash } from '../util/crypto.js';
+import {
+  type AxBooleanEvidence,
+  type AxClassEvidence,
+  type AxDecisionResult,
+  type AxEvidenceOptions,
+  type AxScoreEvidence,
+  hasDecisionFields,
+  validateDecisionField,
+} from './decision.js';
 import { axGlobals } from './globals.js';
 import { toJsonSchema } from './jsonSchema.js';
 import {
@@ -52,6 +61,7 @@ export interface AxFieldType {
     | 'dateRange'
     | 'datetime'
     | 'datetimeRange'
+    | 'score'
     | 'class'
     | 'code'
     | 'object';
@@ -67,6 +77,7 @@ export interface AxFieldType {
   readonly minimum?: number; // Number minimum value
   readonly maximum?: number; // Number maximum value
   readonly pattern?: string; // String regex pattern
+  readonly evidence?: AxEvidenceOptions;
   readonly valueDescriptions?: Readonly<Record<string, string>>;
   readonly patternDescription?: string; // Human-readable description of the pattern
   readonly format?: string; // String format (email, uri, uuid, etc.)
@@ -296,6 +307,9 @@ export class AxFluentFieldType<
     | Record<string, AxFluentFieldInfo | AxFluentFieldType>
     | undefined = undefined,
   TIsCached extends boolean = false,
+  TEvidence extends AxEvidenceOptions | undefined =
+    | AxEvidenceOptions
+    | undefined,
 > implements AxFieldType
 {
   readonly type: TType;
@@ -311,6 +325,7 @@ export class AxFluentFieldType<
   readonly minimum?: number;
   readonly maximum?: number;
   readonly pattern?: string;
+  readonly evidence: TEvidence;
   readonly valueDescriptions?: Readonly<Record<string, string>>;
   readonly patternDescription?: string;
   readonly format?: string;
@@ -332,12 +347,14 @@ export class AxFluentFieldType<
     minimum?: number;
     maximum?: number;
     pattern?: string;
+    evidence?: TEvidence;
     valueDescriptions?: Readonly<Record<string, string>>;
     patternDescription?: string;
     format?: string;
     language?: string;
   }) {
     this.type = fieldType.type;
+    this.evidence = fieldType.evidence as TEvidence;
     this.isArray = fieldType.isArray;
     this.options = fieldType.options;
     this.description = fieldType.description;
@@ -380,10 +397,66 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     validateValueDescriptions(this.type, descriptions, this.options);
     return new AxFluentFieldType({ ...this, valueDescriptions: descriptions });
+  }
+
+  withEvidence<
+    const E extends TType extends 'boolean'
+      ? AxEvidenceOptions
+      : Omit<AxEvidenceOptions, 'threshold'> & { threshold?: never } = {},
+  >(
+    this: TType extends 'boolean' | 'class' | 'score'
+      ? AxFluentFieldType<
+          TType,
+          TIsArray,
+          TOptions,
+          TIsOptional,
+          TIsInternal,
+          TFields,
+          TIsCached,
+          TEvidence
+        >
+      : never,
+    options?: E
+  ): AxFluentFieldType<
+    TType,
+    TIsArray,
+    TOptions,
+    TIsOptional,
+    TIsInternal,
+    TFields,
+    TIsCached,
+    E
+  > {
+    validateDecisionField({
+      type: this.type,
+      options: this.options,
+      evidence: options ?? {},
+    });
+    const field = this as AxFluentFieldType<
+      TType,
+      TIsArray,
+      TOptions,
+      TIsOptional,
+      TIsInternal,
+      TFields,
+      TIsCached,
+      TEvidence
+    >;
+    return new AxFluentFieldType<
+      TType,
+      TIsArray,
+      TOptions,
+      TIsOptional,
+      TIsInternal,
+      TFields,
+      TIsCached,
+      E
+    >({ ...field, evidence: (options ?? {}) as E });
   }
 
   optional(): AxFluentFieldType<
@@ -393,7 +466,8 @@ export class AxFluentFieldType<
     true,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     return new AxFluentFieldType({
       ...this,
@@ -410,7 +484,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     return new AxFluentFieldType({
       ...this,
@@ -427,7 +502,8 @@ export class AxFluentFieldType<
     TIsOptional,
     true,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     return new AxFluentFieldType({
       ...this,
@@ -447,7 +523,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    true
+    true,
+    TEvidence
   > {
     return new AxFluentFieldType({
       ...this,
@@ -467,7 +544,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -495,7 +573,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -521,7 +600,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -542,7 +622,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -568,7 +649,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -590,7 +672,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -611,7 +694,8 @@ export class AxFluentFieldType<
     TIsOptional,
     TIsInternal,
     TFields,
-    TIsCached
+    TIsCached,
+    TEvidence
   > {
     if (this.type === 'string') {
       return new AxFluentFieldType({
@@ -844,6 +928,22 @@ export const f = Object.assign(
      * f.number('Rating').min(1).max(5)
      * ```
      */
+    score: <const L extends readonly string[]>(
+      levels: L,
+      desc?: string
+    ): AxFluentFieldType<'score', false, L, false, false, undefined, false> => {
+      validateDecisionField({ type: 'score', options: levels });
+      return new AxFluentFieldType({
+        type: 'score',
+        isArray: false,
+        options: levels,
+        description: desc,
+        isOptional: false,
+        isInternal: false,
+        isCached: false,
+      });
+    },
+
     number: (
       desc?: string
     ): AxFluentFieldType<
@@ -1412,6 +1512,7 @@ export interface AxField {
       | 'dateRange'
       | 'datetime'
       | 'datetimeRange'
+      | 'score'
       | 'class'
       | 'code'
       | 'object';
@@ -1423,6 +1524,7 @@ export interface AxField {
     minimum?: number;
     maximum?: number;
     pattern?: string;
+    evidence?: AxEvidenceOptions;
     valueDescriptions?: Readonly<Record<string, string>>;
     patternDescription?: string;
     format?: string;
@@ -1469,124 +1571,161 @@ type InferClassValueType<
       ? string[]
       : string;
 
+type EvidenceValue<
+  T extends {
+    type: string;
+    options?: readonly string[];
+    isArray?: boolean;
+    evidence?: AxEvidenceOptions;
+  },
+> = T['type'] extends 'boolean'
+  ? AxBooleanEvidence
+  : T['type'] extends 'class'
+    ? AxClassEvidence<NonNullable<T['options']>[number]>
+    : AxScoreEvidence;
+type EvidenceOutput<
+  T extends {
+    type: string;
+    options?: readonly string[];
+    isArray?: boolean;
+    evidence?: AxEvidenceOptions;
+  },
+> = T['isArray'] extends true ? EvidenceSingle<T>[] : EvidenceSingle<T>;
+type EvidenceSingle<
+  T extends {
+    type: string;
+    options?: readonly string[];
+    isArray?: boolean;
+    evidence?: AxEvidenceOptions;
+  },
+> = T['evidence'] extends { onRefusal: 'return' }
+  ? AxDecisionResult<EvidenceValue<T>>
+  : EvidenceValue<T>;
+
 type InferFieldValueType<
   T,
   TMode extends 'input' | 'output' = 'input',
 > = T extends AxFieldType | AxFluentFieldType
-  ? T['type'] extends 'string'
-    ? T['isArray'] extends true
-      ? string[]
-      : string
-    : T['type'] extends 'number'
+  ? undefined extends T['evidence']
+    ? T['type'] extends 'score'
       ? T['isArray'] extends true
         ? number[]
         : number
-      : T['type'] extends 'boolean'
+      : T['type'] extends 'string'
         ? T['isArray'] extends true
-          ? boolean[]
-          : boolean
-        : T['type'] extends 'json'
+          ? string[]
+          : string
+        : T['type'] extends 'number'
           ? T['isArray'] extends true
-            ? any[]
-            : any
-          : T['type'] extends 'date'
+            ? number[]
+            : number
+          : T['type'] extends 'boolean'
             ? T['isArray'] extends true
-              ? Date[]
-              : Date
-            : T['type'] extends 'dateRange'
+              ? boolean[]
+              : boolean
+            : T['type'] extends 'json'
               ? T['isArray'] extends true
-                ? AxDateRangeValue[]
-                : AxDateRangeValue
-              : T['type'] extends 'datetime'
+                ? any[]
+                : any
+              : T['type'] extends 'date'
                 ? T['isArray'] extends true
                   ? Date[]
                   : Date
-                : T['type'] extends 'datetimeRange'
+                : T['type'] extends 'dateRange'
                   ? T['isArray'] extends true
                     ? AxDateRangeValue[]
                     : AxDateRangeValue
-                  : T['type'] extends 'image'
+                  : T['type'] extends 'datetime'
                     ? T['isArray'] extends true
-                      ? {
-                          mimeType: string;
-                          data: string;
-                          details?: 'high' | 'low' | 'auto';
-                          cache?: boolean;
-                          optimize?: 'quality' | 'size' | 'auto';
-                          altText?: string;
-                        }[]
-                      : {
-                          mimeType: string;
-                          data: string;
-                          details?: 'high' | 'low' | 'auto';
-                          cache?: boolean;
-                          optimize?: 'quality' | 'size' | 'auto';
-                          altText?: string;
-                        }
-                    : T['type'] extends 'audio'
-                      ? InferAudioValueType<T, TMode>
-                      : T['type'] extends 'file'
+                      ? Date[]
+                      : Date
+                    : T['type'] extends 'datetimeRange'
+                      ? T['isArray'] extends true
+                        ? AxDateRangeValue[]
+                        : AxDateRangeValue
+                      : T['type'] extends 'image'
                         ? T['isArray'] extends true
-                          ? (
-                              | {
-                                  mimeType: string;
-                                  data: string;
-                                  filename?: string;
-                                  cache?: boolean;
-                                  extractedText?: string;
-                                }
-                              | {
-                                  mimeType: string;
-                                  fileUri: string;
-                                  filename?: string;
-                                  cache?: boolean;
-                                  extractedText?: string;
-                                }
-                            )[]
-                          :
-                              | {
-                                  mimeType: string;
-                                  data: string;
-                                  filename?: string;
-                                  cache?: boolean;
-                                  extractedText?: string;
-                                }
-                              | {
-                                  mimeType: string;
-                                  fileUri: string;
-                                  filename?: string;
-                                  cache?: boolean;
-                                  extractedText?: string;
-                                }
-                        : T['type'] extends 'url'
-                          ? T['isArray'] extends true
-                            ? string[]
-                            : string
-                          : T['type'] extends 'code'
+                          ? {
+                              mimeType: string;
+                              data: string;
+                              details?: 'high' | 'low' | 'auto';
+                              cache?: boolean;
+                              optimize?: 'quality' | 'size' | 'auto';
+                              altText?: string;
+                            }[]
+                          : {
+                              mimeType: string;
+                              data: string;
+                              details?: 'high' | 'low' | 'auto';
+                              cache?: boolean;
+                              optimize?: 'quality' | 'size' | 'auto';
+                              altText?: string;
+                            }
+                        : T['type'] extends 'audio'
+                          ? InferAudioValueType<T, TMode>
+                          : T['type'] extends 'file'
                             ? T['isArray'] extends true
-                              ? string[]
-                              : string
-                            : T['type'] extends 'class'
-                              ? InferClassValueType<T>
-                              : T['type'] extends 'object'
-                                ? T extends { fields: infer F }
-                                  ? F extends Record<string, any>
-                                    ? T['isArray'] extends true
-                                      ? {
-                                          [K in keyof F]: InferFluentType<
-                                            F[K],
-                                            TMode
-                                          >;
-                                        }[]
-                                      : {
-                                          [K in keyof F]: InferFluentType<
-                                            F[K],
-                                            TMode
-                                          >;
-                                        }
+                              ? (
+                                  | {
+                                      mimeType: string;
+                                      data: string;
+                                      filename?: string;
+                                      cache?: boolean;
+                                      extractedText?: string;
+                                    }
+                                  | {
+                                      mimeType: string;
+                                      fileUri: string;
+                                      filename?: string;
+                                      cache?: boolean;
+                                      extractedText?: string;
+                                    }
+                                )[]
+                              :
+                                  | {
+                                      mimeType: string;
+                                      data: string;
+                                      filename?: string;
+                                      cache?: boolean;
+                                      extractedText?: string;
+                                    }
+                                  | {
+                                      mimeType: string;
+                                      fileUri: string;
+                                      filename?: string;
+                                      cache?: boolean;
+                                      extractedText?: string;
+                                    }
+                            : T['type'] extends 'url'
+                              ? T['isArray'] extends true
+                                ? string[]
+                                : string
+                              : T['type'] extends 'code'
+                                ? T['isArray'] extends true
+                                  ? string[]
+                                  : string
+                                : T['type'] extends 'class'
+                                  ? InferClassValueType<T>
+                                  : T['type'] extends 'object'
+                                    ? T extends { fields: infer F }
+                                      ? F extends Record<string, any>
+                                        ? T['isArray'] extends true
+                                          ? {
+                                              [K in keyof F]: InferFluentType<
+                                                F[K],
+                                                TMode
+                                              >;
+                                            }[]
+                                          : {
+                                              [K in keyof F]: InferFluentType<
+                                                F[K],
+                                                TMode
+                                              >;
+                                            }
+                                        : any
+                                      : any
                                     : any
-                                  : any
-                                : any
+    : EvidenceOutput<T>
   : any;
 
 // Improved fluent field type that preserves exact type information for better inference
@@ -1615,6 +1754,7 @@ export interface AxFluentFieldInfo<
   readonly minimum?: number;
   readonly maximum?: number;
   readonly pattern?: string;
+  readonly evidence?: AxEvidenceOptions;
   readonly valueDescriptions?: Readonly<Record<string, string>>;
   readonly patternDescription?: string;
   readonly format?: string;
@@ -1639,6 +1779,7 @@ function convertFluentToAxFieldType(
     pattern: fluent.pattern,
     patternDescription: fluent.patternDescription,
     valueDescriptions: fluent.valueDescriptions,
+    evidence: fluent.evidence,
     format: fluent.format,
     language: fluent.language,
     fields: fluent.fields
@@ -1658,120 +1799,126 @@ function convertFluentToAxFieldType(
 type InferFluentType<
   T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
   TMode extends 'input' | 'output' = 'input',
-> = T['type'] extends 'string'
-  ? T['isArray'] extends true
-    ? string[]
-    : string
-  : T['type'] extends 'number'
+> = undefined extends T['evidence']
+  ? T['type'] extends 'score'
     ? T['isArray'] extends true
       ? number[]
       : number
-    : T['type'] extends 'boolean'
+    : T['type'] extends 'string'
       ? T['isArray'] extends true
-        ? boolean[]
-        : boolean
-      : T['type'] extends 'json'
+        ? string[]
+        : string
+      : T['type'] extends 'number'
         ? T['isArray'] extends true
-          ? any[]
-          : any
-        : T['type'] extends 'date'
+          ? number[]
+          : number
+        : T['type'] extends 'boolean'
           ? T['isArray'] extends true
-            ? Date[]
-            : Date
-          : T['type'] extends 'dateRange'
+            ? boolean[]
+            : boolean
+          : T['type'] extends 'json'
             ? T['isArray'] extends true
-              ? AxDateRangeValue[]
-              : AxDateRangeValue
-            : T['type'] extends 'datetime'
+              ? any[]
+              : any
+            : T['type'] extends 'date'
               ? T['isArray'] extends true
                 ? Date[]
                 : Date
-              : T['type'] extends 'datetimeRange'
+              : T['type'] extends 'dateRange'
                 ? T['isArray'] extends true
                   ? AxDateRangeValue[]
                   : AxDateRangeValue
-                : T['type'] extends 'image'
+                : T['type'] extends 'datetime'
                   ? T['isArray'] extends true
-                    ? {
-                        mimeType: string;
-                        data: string;
-                        details?: 'high' | 'low' | 'auto';
-                        cache?: boolean;
-                        optimize?: 'quality' | 'size' | 'auto';
-                        altText?: string;
-                      }[]
-                    : {
-                        mimeType: string;
-                        data: string;
-                        details?: 'high' | 'low' | 'auto';
-                        cache?: boolean;
-                        optimize?: 'quality' | 'size' | 'auto';
-                        altText?: string;
-                      }
-                  : T['type'] extends 'audio'
-                    ? InferAudioValueType<T, TMode>
-                    : T['type'] extends 'file'
+                    ? Date[]
+                    : Date
+                  : T['type'] extends 'datetimeRange'
+                    ? T['isArray'] extends true
+                      ? AxDateRangeValue[]
+                      : AxDateRangeValue
+                    : T['type'] extends 'image'
                       ? T['isArray'] extends true
-                        ? (
-                            | {
-                                mimeType: string;
-                                data: string;
-                                filename?: string;
-                                cache?: boolean;
-                                extractedText?: string;
-                              }
-                            | {
-                                mimeType: string;
-                                fileUri: string;
-                                filename?: string;
-                                cache?: boolean;
-                                extractedText?: string;
-                              }
-                          )[]
-                        :
-                            | {
-                                mimeType: string;
-                                data: string;
-                                filename?: string;
-                                cache?: boolean;
-                                extractedText?: string;
-                              }
-                            | {
-                                mimeType: string;
-                                fileUri: string;
-                                filename?: string;
-                                cache?: boolean;
-                                extractedText?: string;
-                              }
-                      : T['type'] extends 'url'
-                        ? T['isArray'] extends true
-                          ? string[]
-                          : string
-                        : T['type'] extends 'code'
+                        ? {
+                            mimeType: string;
+                            data: string;
+                            details?: 'high' | 'low' | 'auto';
+                            cache?: boolean;
+                            optimize?: 'quality' | 'size' | 'auto';
+                            altText?: string;
+                          }[]
+                        : {
+                            mimeType: string;
+                            data: string;
+                            details?: 'high' | 'low' | 'auto';
+                            cache?: boolean;
+                            optimize?: 'quality' | 'size' | 'auto';
+                            altText?: string;
+                          }
+                      : T['type'] extends 'audio'
+                        ? InferAudioValueType<T, TMode>
+                        : T['type'] extends 'file'
                           ? T['isArray'] extends true
-                            ? string[]
-                            : string
-                          : T['type'] extends 'class'
-                            ? InferClassValueType<T>
-                            : T['type'] extends 'object'
-                              ? T extends { fields: infer F }
-                                ? F extends Record<string, any>
-                                  ? T['isArray'] extends true
-                                    ? {
-                                        [K in keyof F]: InferFluentType<
-                                          F[K],
-                                          TMode
-                                        >;
-                                      }[]
-                                    : {
-                                        [K in keyof F]: InferFluentType<
-                                          F[K],
-                                          TMode
-                                        >;
-                                      }
+                            ? (
+                                | {
+                                    mimeType: string;
+                                    data: string;
+                                    filename?: string;
+                                    cache?: boolean;
+                                    extractedText?: string;
+                                  }
+                                | {
+                                    mimeType: string;
+                                    fileUri: string;
+                                    filename?: string;
+                                    cache?: boolean;
+                                    extractedText?: string;
+                                  }
+                              )[]
+                            :
+                                | {
+                                    mimeType: string;
+                                    data: string;
+                                    filename?: string;
+                                    cache?: boolean;
+                                    extractedText?: string;
+                                  }
+                                | {
+                                    mimeType: string;
+                                    fileUri: string;
+                                    filename?: string;
+                                    cache?: boolean;
+                                    extractedText?: string;
+                                  }
+                          : T['type'] extends 'url'
+                            ? T['isArray'] extends true
+                              ? string[]
+                              : string
+                            : T['type'] extends 'code'
+                              ? T['isArray'] extends true
+                                ? string[]
+                                : string
+                              : T['type'] extends 'class'
+                                ? InferClassValueType<T>
+                                : T['type'] extends 'object'
+                                  ? T extends { fields: infer F }
+                                    ? F extends Record<string, any>
+                                      ? T['isArray'] extends true
+                                        ? {
+                                            [K in keyof F]: InferFluentType<
+                                              F[K],
+                                              TMode
+                                            >;
+                                          }[]
+                                        : {
+                                            [K in keyof F]: InferFluentType<
+                                              F[K],
+                                              TMode
+                                            >;
+                                          }
+                                      : any
+                                    : any
                                   : any
-                                : any
-                              : any;
+  : EvidenceOutput<T>;
 
 // Helper flags for fluent type modifiers
 type _IsInternal<T> = T extends { readonly isInternal: true } ? true : false;
@@ -1816,6 +1963,7 @@ function convertFieldTypeToAxField(
       pattern: fieldType.pattern,
       patternDescription: fieldType.patternDescription,
       valueDescriptions: fieldType.valueDescriptions,
+      evidence: fieldType.evidence,
       format: fieldType.format,
       language: fieldType.language,
     },
@@ -1869,6 +2017,7 @@ function createAxFieldFromFluentField<
       pattern: fieldInfo.pattern,
       patternDescription: fieldInfo.patternDescription,
       valueDescriptions: fieldInfo.valueDescriptions,
+      evidence: fieldInfo.evidence,
       format: fieldInfo.format,
       language: fieldInfo.language,
       description: fieldInfo.itemDescription,
@@ -2830,6 +2979,7 @@ export class AxSignature<
   };
 
   private computeHasComplexFields = (): boolean => {
+    if (hasDecisionFields(this.outputFields)) return true;
     if (this._forceComplexFields) {
       return true;
     }
@@ -2878,12 +3028,16 @@ export class AxSignature<
   public toJSONSchema = (): AxFunctionJSONSchema => {
     // Combine input and output fields for the JSON schema
     const allFields = [...this.inputFields, ...this.outputFields];
-    return toJsonSchema(allFields, this.description ?? 'Schema');
+    return toJsonSchema(allFields, this.description ?? 'Schema', {
+      decisionMode: 'result',
+    });
   };
 
   public toInputJSONSchema = (): AxFunctionJSONSchema => {
     // Only input fields — used for AxFunction.parameters so callers see exactly what to pass
-    return toJsonSchema(this.inputFields, this.description ?? 'Schema');
+    return toJsonSchema(this.inputFields, this.description ?? 'Schema', {
+      decisionMode: 'result',
+    });
   };
 }
 
@@ -2904,6 +3058,7 @@ function renderModifierBag(
     readonly minimum?: number;
     readonly maximum?: number;
     readonly pattern?: string;
+    readonly evidence?: AxEvidenceOptions;
     readonly valueDescriptions?: Readonly<Record<string, string>>;
     readonly patternDescription?: string;
     readonly format?: string;
@@ -2916,6 +3071,13 @@ function renderModifierBag(
     ([value, description]) =>
       `${type.name === 'boolean' ? value : `"${escapeRenderedString(value)}"`} "${escapeRenderedString(description)}"`
   );
+  if (type.evidence) {
+    entries.push('evidence');
+    if (type.evidence.threshold !== undefined)
+      entries.push(`threshold ${type.evidence.threshold}`);
+    if (type.evidence.onRefusal !== undefined)
+      entries.push(`refusal ${type.evidence.onRefusal}`);
+  }
   const min = type.minLength ?? type.minimum;
   const max = type.maxLength ?? type.maximum;
   if (min !== undefined) {
@@ -2950,8 +3112,8 @@ function renderModifierBag(
 // Renders a nested AxFieldType (inside object{ ... }) back to its string
 // grammar form, without the field name or trailing description.
 function renderNestedType(fieldType: Readonly<AxFieldType>): string {
-  if (fieldType.type === 'class') {
-    let result = 'class';
+  if (fieldType.type === 'class' || fieldType.type === 'score') {
+    let result: string = fieldType.type;
     if (fieldType.isArray) {
       result += '[]';
     }
@@ -3021,13 +3183,16 @@ function renderField(field: Readonly<AxField>): string {
       }
     } else {
       result += `:${field.type.name}`;
-      if (field.type.name !== 'class') {
+      if (field.type.name !== 'class' && field.type.name !== 'score') {
         result += renderModifierBag(field.type, field.isCached);
       }
       if (field.type.isArray) {
         result += '[]';
       }
-      if (field.type.name === 'class' && field.type.options) {
+      if (
+        (field.type.name === 'class' || field.type.name === 'score') &&
+        field.type.options
+      ) {
         result += ` "${escapeRenderedString(field.type.options.join(' | '))}"`;
         result += renderModifierBag(field.type, undefined);
       }
@@ -3168,6 +3333,7 @@ function validateFieldType(
   if (!field.type) return;
 
   const { type } = field;
+  validateDecisionField(type);
   validateValueDescriptions(
     type.name,
     type.valueDescriptions,
@@ -3195,7 +3361,7 @@ function validateFieldType(
   }
 
   if (type.name === 'class') {
-    if (context === 'input') {
+    if (context === 'input' && !type.evidence) {
       throw new AxSignatureValidationError(
         'Class type is not supported in input fields',
         field.name,

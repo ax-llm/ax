@@ -4,6 +4,7 @@ import os
 import json
 import re
 from typing import Any
+from .signature import _evidence_is_type_impl, _evidence_placeholder_impl
 from .signature import _core_gt, _core_type_is, _core_record_new, _js_date_prompt_text, _js_json_dumps, _js_number_text, _signature_describe_field_values_impl, _signature_nested_value_descriptions_impl, _js_format
 
 
@@ -479,6 +480,7 @@ def _core_prompt_output_fields_section(signature, structured=None) -> str:
 
 
 def _core_prompt_output_type_placeholder(field_type):
+    if _evidence_is_type_impl(field_type): return _evidence_placeholder_impl(field_type)
     name = getattr(field_type, "name", "string")
     if name == "number": value = 0
     elif name == "boolean": value = True

@@ -380,6 +380,17 @@ module @ax.schema version "0.1" {
     body @entry(%field: Field, %is_nested: bool, %options: json) {
       %typ = core.get %field["type"]
       %type_name = core.get %typ["name"]
+      %decision = core.call @evidence_is_type_impl(%typ)
+      core.if %decision {
+        %schema = core.call @evidence_schema_impl(%typ)
+        %decision_mode = core.get %options["decisionMode"] default "request"
+        %result_mode = core.call intrinsic.eq(%decision_mode, "result")
+        core.if %result_mode { %schema = core.call @evidence_result_schema_impl(%typ) }
+        %description = core.call @signature_describe_field_values_impl(%field)
+        core.set %schema["description"] = %description
+        %nullable = core.call @schema_nullable_optional_impl(%schema, %field, %options)
+        core.return %nullable
+      }
       %media_types = core.list
       core.append %media_types, "image"
       core.append %media_types, "audio"

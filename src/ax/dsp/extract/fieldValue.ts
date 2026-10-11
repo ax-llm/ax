@@ -1,3 +1,4 @@
+import { isDecisionField } from '../decision.js';
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import {
@@ -26,6 +27,8 @@ const convertValueToType = (
   val: unknown,
   required = false
 ) => {
+  if (isDecisionField(field))
+    return typeof val === 'string' ? JSON.parse(extractBlock(val)) : val;
   switch (field.type?.name) {
     case 'code':
       return extractBlock(String(val));

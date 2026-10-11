@@ -1,3 +1,4 @@
+import type { AxDecisionContext, AxDecisionField } from '../dsp/decision.js';
 // ReadableStream is available globally in modern browsers and Node.js 16+
 
 import type { Context, Meter, Tracer } from '@opentelemetry/api';
@@ -491,6 +492,8 @@ export type AxChatImageOutput = {
 };
 
 export type AxChatResponseResult = {
+  /** Trusted decision adapter evidence, never model-authored JSON. */
+  decisionContext?: AxDecisionContext;
   index: number;
   content?: string;
   /** Responses-style output phase for commentary/final-answer ordering. */
@@ -771,6 +774,8 @@ export type AxChatRequest<TModel = string> = {
     | { type: 'function'; function: { name: string } };
   responseFormat?: {
     type: 'json_object' | 'json_schema';
+    /** Logical decision fields; stripped from wire JSON Schema by adapters. */
+    decisionFields?: Readonly<Record<string, AxDecisionField>>;
     schema?: any;
     /**
      * Original per-value guidance for adapters that can represent it structurally.

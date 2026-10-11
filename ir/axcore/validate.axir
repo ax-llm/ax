@@ -269,6 +269,8 @@ module @ax.validate version "0.1" {
         }
         core.return
       }
+      %decision = core.call @evidence_is_type_impl(%typ)
+      core.if %decision { core.return }
       %is_image = core.call intrinsic.eq(%type_name, "image")
       core.if %is_image {
         %valid_image = core.call intrinsic.media.valid_image(%value)

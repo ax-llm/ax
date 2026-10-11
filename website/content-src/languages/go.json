@@ -120,7 +120,7 @@
         ]
       },
       "audio": [
-        "// Realtime audio over WebSocket — needs Go 1.23+",
+        "// Realtime audio over WebSocket \u2014 needs Go 1.23+",
         "client := ax.NewOpenAIResponsesClient(map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"api_key\": os.Getenv(\"OPENAI_APIKEY\")})",
         "request := map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"chat_prompt\": ax.Array(ax.Object(\"role\", \"user\", \"content\", \"Say hello.\")), \"audio\": ax.Object(\"output\", ax.Object(\"voice\", \"alloy\"))}",
         "final, _ := client.RealtimeChat(context.Background(), request, nil, nil)  // one merged turn: transcript + base64 PCM audio",
@@ -242,7 +242,54 @@
       "pb.Evolve(ctx, examples, metric, nil)   // grow a playbook offline from examples",
       "pb.Update(ctx, map[string]axllm.Value{\"example\": ex, \"prediction\": pred, \"feedback\": \"...\"})",
       "pb.ApplyTo(program)"
-    ]
+    ],
+    "decisionEvidenceExample": {
+      "sourcePath": "src/examples/go/generation/decision-evidence.go",
+      "code": [
+        "package main",
+        "",
+        "import (",
+        "\t\"context\"",
+        "\t\"encoding/json\"",
+        "\t\"fmt\"",
+        "\tax \"github.com/ax-llm/ax/packages/go\"",
+        "\t\"os\"",
+        "\t\"sort\"",
+        "\t\"time\"",
+        ")",
+        "",
+        "func main() {",
+        "\tkey := os.Getenv(\"OPENAI_API_KEY\")",
+        "\tif key == \"\" {",
+        "\t\tkey = os.Getenv(\"OPENAI_APIKEY\")",
+        "\t}",
+        "\tctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)",
+        "\tdefer cancel()",
+        "\tmodel := ax.NewAI(\"openai-decisions\", map[string]ax.Value{\"api_key\": key})",
+        "\tjudge := ax.NewAx(\"query:string, document:string -> relevant:boolean(evidence, threshold 0.7), relevance:score \\\"Irrelevant, Related, Partial answer, Direct answer\\\"(evidence)\", nil)",
+        "\tcandidates := []struct{ id, text string }{{\"refund\", \"Request a refund within 30 days through your account billing page.\"}, {\"password\", \"Reset your password using the sign-in page.\"}}",
+        "\tranked := []map[string]ax.Value{}",
+        "\tfor _, item := range candidates {",
+        "\t\tresult, err := judge.Forward(ctx, model, map[string]ax.Value{\"query\": \"How do I request a refund?\", \"document\": item.text}, nil)",
+        "\t\tif err != nil {",
+        "\t\t\tpanic(err)",
+        "\t\t}",
+        "\t\tvalues := result.(map[string]ax.Value)",
+        "\t\tvalues[\"id\"] = item.id",
+        "\t\tranked = append(ranked, values)",
+        "\t}",
+        "\tscore := func(i int) float64 { return ranked[i][\"relevance\"].(map[string]ax.Value)[\"value\"].(float64) }",
+        "\tsort.SliceStable(ranked, func(i, j int) bool { return score(i) > score(j) })",
+        "\tdata, err := json.MarshalIndent(ranked, \"\", \"  \")",
+        "\tif err != nil {",
+        "\t\tpanic(err)",
+        "\t}",
+        "\tfmt.Println(string(data))",
+        "}"
+      ],
+      "fence": "go",
+      "requiresCredentials": true
+    }
   },
   "snippetGroups": {
     "ai": {

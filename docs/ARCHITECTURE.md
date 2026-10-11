@@ -82,8 +82,12 @@ Cohere, and Grok share Core request/response normalization. Grok Voice and
 Gemini Live use reusable realtime-audio grammar profiles. Targets still own
 real HTTP, SSE, WebSocket, auth, retry, and binary media transport.
 
-Typesafe/Jev has an adapter in TypeScript and all five generated languages for required boolean/class
-signatures and a separate native `typesafe()` client for Noul, Choice, and Score.
+Typesafe/Jev and OpenAI Decisions have adapters in TypeScript and all five
+generated languages for required boolean, class, and ordered rubric score
+signatures. Their native clients support advanced provider request features.
+Evidence modifiers keep probabilities, values, native confidence, and provenance
+in ordinary AxGen results. Generative estimates are marked `elicited`; native
+evidence is marked `native`. The shared shape does not imply shared calibration.
 The native methods stay outside the common AI/program interfaces. Signature
 value descriptions become native criteria for Typesafe and readable descriptions
 for conventional providers. Request validation excludes incompatible schemas

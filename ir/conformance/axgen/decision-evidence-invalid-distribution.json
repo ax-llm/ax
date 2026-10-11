@@ -1,0 +1,21 @@
+{
+  "name": "decision-evidence-invalid-distribution",
+  "kind": "forward",
+  "signature": "query:string -> category:class \"a, b\"(evidence)",
+  "input": {
+    "query": "x"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "content": "{\"category\":{\"probabilities\":{\"a\":0.7,\"b\":0.7}}}"
+    }
+  ],
+  "expected_request_count": 1,
+  "expected_error_contains": "Decision probabilities must sum to one",
+  "options": {
+    "validation_retries": 0
+  }
+}

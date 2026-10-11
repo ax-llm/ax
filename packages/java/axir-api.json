@@ -1198,6 +1198,19 @@
       "symbols": [
         {
           "target_name": "java",
+          "canonical_name": "AxDecisionRefusalError",
+          "public_name": "AxGen.AxDecisionRefusalError",
+          "kind": "type",
+          "description": "Terminal decision-field refusal; retains field path and provider provenance.",
+          "form": "AxGen.AxDecisionRefusalError",
+          "important_options": [
+            "fieldPath",
+            "provenance"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxGenerateError",
           "public_name": "AxGenerateError",
           "kind": "type",

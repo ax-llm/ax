@@ -258,6 +258,12 @@ class AxError : public std::runtime_error {
   std::shared_ptr<const AxError> cause_;
 };
 
+class AxDecisionRefusalError : public AxError {
+ public:
+  std::string field_path;
+  Value provenance;
+  AxDecisionRefusalError(std::string path, Value source) : AxError("decision", "Decision refused: " + path, "AxDecisionRefusalError"), field_path(std::move(path)), provenance(std::move(source)) {}
+};
 class AxGenerateError : public AxError {
  public:
   explicit AxGenerateError(const AxError& error) : AxError(error) {}
@@ -452,6 +458,7 @@ struct Core {
   static Value signature_error(Value message);
   static Value validation_error(Value message);
   static Value runtime_error(Value message);
+  static Value decision_refusal_error(Value path, Value provenance);
   static Value ai_error_response(Value message, Value response_body = Value());
   static Value ai_error_refusal(Value message, Value response_body);
   static Value ai_error_stream(Value message, Value response_body, Value retryable);

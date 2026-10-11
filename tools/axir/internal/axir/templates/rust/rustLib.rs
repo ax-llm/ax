@@ -917,6 +917,8 @@ pub struct FieldType {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "valueDescriptions")]
     pub value_descriptions: Option<Map<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<Map<String, Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
@@ -938,6 +940,7 @@ impl FieldType {
             pattern: None,
             pattern_description: None,
             value_descriptions: None,
+            evidence: None,
             format: None,
             language: None,
             description: None,
@@ -969,12 +972,23 @@ impl FieldType {
             pattern: None,
             pattern_description: None,
             value_descriptions: None,
+            evidence: None,
             format: None,
             language: None,
             description: None,
         }
     }
 
+    pub fn with_evidence(mut self, options: Map<String, Value>) -> Result<Self, AxError> {
+        self.evidence = Some(options);
+        _evidence_validate_type_impl(&[core_field_type_value(&self)?])?;
+        Ok(self)
+    }
+    pub fn score(levels: Vec<String>) -> Result<Self, AxError> {
+        let mut result = Self::new("score"); result.options = Some(levels);
+        _evidence_validate_type_impl(&[core_field_type_value(&result)?])?;
+        Ok(result)
+    }
     pub fn describe_values(mut self, descriptions: Map<String, Value>) -> Result<Self, AxError> {
         self.value_descriptions = Some(descriptions);
         _signature_validate_value_descriptions_impl(&[core_field_type_value(&self)?, CoreValue::from(self.name.as_str())])?;
@@ -1022,6 +1036,7 @@ impl FieldType {
         if let Some(value) = &self.pattern {
             out.insert("pattern".to_string(), Value::String(value.clone()));
         }
+        if let Some(value) = &self.evidence { out.insert("evidence".to_string(), Value::Object(value.clone())); }
         if let Some(value) = &self.value_descriptions { out.insert("valueDescriptions".to_string(), Value::Object(value.clone())); }
         if let Some(value) = &self.pattern_description {
             out.insert(
@@ -1127,7 +1142,7 @@ impl AxSignature {
         };
         core_fields_value(fields)
             .and_then(|fields_value| {
-                to_json_schema(&[fields_value, CoreValue::from("Schema"), core_value_from_json(options)])
+                to_json_schema(&[fields_value, CoreValue::from("Schema"), core_map_merge(&[core_value_from_json(&json!({"decisionMode":"result"})), core_value_from_json(options)])?])
             })
             .map(|schema| core_value_to_json(&schema))
             .unwrap_or(Value::Null)
@@ -1246,6 +1261,7 @@ fn field_type_from_payload(raw: &Value) -> FieldType {
     field_type.max_length = number_key(raw, &["maxLength"]);
     field_type.minimum = number_key(raw, &["minimum"]);
     field_type.maximum = number_key(raw, &["maximum"]);
+    field_type.evidence = raw.get("evidence").and_then(Value::as_object).cloned();
     field_type.value_descriptions = raw.get("valueDescriptions").or_else(|| raw.get("value_descriptions")).and_then(Value::as_object).cloned();
     field_type.pattern = raw.get("pattern").and_then(Value::as_str).map(ToString::to_string);
     field_type.pattern_description = raw
@@ -1293,6 +1309,7 @@ fn field_from_spec(name: &str, raw: &Value) -> Field {
     if let Some(value) = raw.get("pattern").and_then(Value::as_str) {
         type_payload.insert("pattern".to_string(), Value::String(value.to_string()));
     }
+    if let Some(value) = raw.get("evidence") { type_payload.insert("evidence".to_string(), value.clone()); }
     if let Some(value) = raw.get("valueDescriptions") { type_payload.insert("valueDescriptions".to_string(), value.clone()); }
     if let Some(value) = raw.get("patternDescription").and_then(Value::as_str) {
         type_payload.insert("patternDescription".to_string(), Value::String(value.to_string()));
@@ -2578,9 +2595,9 @@ impl OpenAICompatibleClient {
         };
         let profile = self.profile.clone();
         let response_context = if profile == "openai-decisions" {
-            core_value_to_json(&decisions_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
+            core_value_to_json(&decisions_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options), core_value_from_json(&req)])?)
         } else if profile == "typesafe" {
-            core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options)])?)
+            core_value_to_json(&typesafe_response_context(&[core_value_from_json(&payload), core_value_from_json(&self.options), core_value_from_json(&req)])?)
         } else { core_value_to_json(&provider_response_context(&[core_value_from_json(&payload), core_value_from_json(&req["model_config"]), core_value_from_json(&self.options)])?) };
         let response = normalize_openai_response(&profile, &model, raw, &response_context);
         if let Ok(value) = &response {
@@ -5385,6 +5402,7 @@ impl AxGen {
         let lookup = match &prepared {
             Some(state) => {
                 let lookup_options = core_forward_options(&options, caching_function.as_ref())?;
+                core_set(&lookup_options, CoreValue::from("_evidence_cache_identity"), CoreValue::from_string(format!("{}:{:p}", client.get_name(), client)))?;
                 // A flow worker's relay control, with no caller's control
                 // behind it, doesn't skip the cache: TS's parallel flow nodes
                 // run without a control. A program's own control has taken
@@ -20245,6 +20263,7 @@ fn core_record_to_json(kind: &str, map: &CoreMap) -> Value {
                 ("pattern", "pattern"),
                 ("patternDescription", "pattern_description"),
                 ("valueDescriptions", "value_descriptions"),
+                ("evidence", "evidence"),
                 ("format", "format"),
                 ("language", "language"),
                 ("description", "description"),
@@ -21092,6 +21111,7 @@ fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 ("minimum", "minimum"), ("maximum", "maximum"),
                 ("pattern", "pattern"), ("pattern_description", "patternDescription"),
                 ("value_descriptions", "valueDescriptions"),
+                ("evidence", "evidence"),
                 ("format", "format"), ("language", "language"),
                 ("description", "description"),
             ] { out.set(snake, read(snake, camel)); }
@@ -21695,6 +21715,7 @@ fn core_field_type_value(ft: &FieldType) -> Result<CoreValue, AxError> {
         }
         core_set(&values, CoreValue::from("fields"), nested)?;
     }
+    if let Some(evidence) = &ft.evidence { core_set(&values, CoreValue::from("evidence"), core_value_from_json(&Value::Object(evidence.clone())))?; }
     if let Some(descriptions) = &ft.value_descriptions { core_set(&values, CoreValue::from("value_descriptions"), core_value_from_json(&Value::Object(descriptions.clone())))?; }
     let record = core_record_new(&[CoreValue::from("FieldType"), values])?;
     for (key, val) in [
@@ -22686,6 +22707,8 @@ fn core_prompt_get_output_fields(signature: &CoreValue) -> Result<Vec<CoreValue>
 
 #[allow(dead_code)]
 fn core_prompt_has_complex_fields(signature: &CoreValue) -> Result<bool, AxError> {
+    let fields = core_get(signature, &CoreValue::from("output_fields"), CoreValue::Null);
+    if core_truthy(&_evidence_has_fields_impl(&[fields])?) { return Ok(true); }
     if core_truthy(&core_get(signature, &CoreValue::from("force_structured"), CoreValue::Null)) {
         return Ok(true);
     }
@@ -22792,6 +22815,9 @@ fn core_prompt_output_fields_section(signature: &CoreValue, structured: bool) ->
 }
 
 fn core_prompt_output_type_placeholder(field_type: &CoreValue) -> Value {
+    if _evidence_is_type_impl(&[field_type.clone()]).map(|v|core_truthy(&v)).unwrap_or(false) {
+        return core_value_to_json(&_evidence_placeholder_impl(&[field_type.clone()]).expect("valid evidence type"));
+    }
     let name = core_get(field_type, &CoreValue::from("name"), CoreValue::Null).text();
     let mut value = match name.as_str() {
         "number" => json!(0),
@@ -24464,6 +24490,10 @@ fn core_axgen_format_values_impl(
         CoreValue::new_map()
     };
     let fields = core_axgen_fields_for_impl(gen, kind)?;
+    let field_list = CoreValue::List(Rc::new(RefCell::new(fields.clone())));
+    if kind=="output" && core_truthy(&_evidence_has_fields_impl(&[field_list.clone()])?) {
+        return Ok(core_value_to_json(&_evidence_example_values_impl(&[field_list,values.clone()])?).to_string());
+    }
     let mut lines: Vec<String> = Vec::new();
     for field in &fields {
         let name = core_get(field, &CoreValue::from("name"), CoreValue::Null);
@@ -29405,4 +29435,12 @@ mod router_embed_key_tests {
         assert_eq!(calls[1]["json"]["model"], "text-embedding-3-small");
         Ok(())
     }
+}
+
+fn core_decision_refusal_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let path=core_arg(args,0).text();
+    let mut error=AxError::new("decision", format!("Decision refused: {}",path));
+    error.error_type=Some("AxDecisionRefusalError".to_owned());
+    error.response_body=Some(json!({"fieldPath":path,"provenance":core_value_to_json(&core_arg(args,1))}));
+    Ok(CoreValue::Error(Rc::new(error)))
 }

@@ -1,0 +1,32 @@
+{
+  "name": "decision-evidence-nested-array",
+  "kind": "forward",
+  "signature": "query:string -> matches:object{ flag:boolean(evidence), category?:class \"a, b\"(evidence) }[]",
+  "input": {
+    "query": "x"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "content": "{\"matches\":[{\"flag\":{\"probability\":0.8}}]}"
+    }
+  ],
+  "expected_output": {
+    "matches": [
+      {
+        "flag": {
+          "value": true,
+          "probability": 0.8,
+          "threshold": 0.5,
+          "provenance": {
+            "source": "elicited",
+            "provider": "AI"
+          }
+        }
+      }
+    ]
+  },
+  "expected_request_count": 1
+}
