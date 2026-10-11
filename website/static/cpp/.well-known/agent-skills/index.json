@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:19cd77e536a6562e879e9209ef04b33b1200f81fbb6165ae8e191f8b7023411a"
+      "digest": "sha256:70a1678c4ac27bb5233023c1f137d1ce60e545ffa5e13a77f99dbe12e08c9de6"
     },
     {
       "name": "ax-cpp-typesafe",
       "type": "skill-md",
-      "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-cpp-typesafe/SKILL.md",
-      "digest": "sha256:fe7f73a25aa7ef17dcb2947f20740e05ca864f29e5047f54eda20b8a211cafc9"
+      "digest": "sha256:50b52f14fc72823ac9a5c199ddd2872a20ca8425fef01b77de9fe6410d5ad5c6"
     },
     {
       "name": "ax-cpp-audio",
@@ -34,14 +34,14 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-cpp-signature/SKILL.md",
-      "digest": "sha256:f007dbb14cd3df8aed166799a0fa4049df9eba3be1db443138dd7a512d79611b"
+      "digest": "sha256:c518a6e1f6fab6e0017f9566861a7aff1176c31f6829ba98b4f4d1a3b65601d9"
     },
     {
       "name": "ax-cpp-gen",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:553470104f80f102ca952dd2dd558127c254416b7980f2819c2776e6aefbdbce"
+      "digest": "sha256:03baf5672c1e06f4d0119e272f1e54232e87734003e0b47c7b0e35e1174b179f"
     },
     {
       "name": "ax-cpp-flow",

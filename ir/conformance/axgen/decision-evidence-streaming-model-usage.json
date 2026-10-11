@@ -1,0 +1,125 @@
+{
+  "name": "decision-evidence-streaming-model-usage",
+  "kind": "streaming_forward",
+  "signature": "query:string -> relevant:boolean(evidence, threshold 0.7), category:class \"a, b\"(evidence), relevance:score \"No, Some, Yes\"(evidence)",
+  "input": {
+    "query": "x"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "index": 0,
+              "content": "{\"relevant\":{\"probability\":0.6},\"category\":{\"pro"
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "content": "babilities\":{\"a\":0.4,\"b\":0.6}},\"relevance\":{\"probabilities\":[0.2,0.3,0.5]}}"
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "index": 0,
+              "finish_reason": "stop"
+            }
+          ],
+          "modelUsage": {
+            "ai": "Provider",
+            "model": "actual-model",
+            "tokens": {
+              "promptTokens": 1,
+              "completionTokens": 1,
+              "totalTokens": 2
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "relevant": {
+      "value": false,
+      "probability": 0.6,
+      "threshold": 0.7,
+      "provenance": {
+        "source": "elicited",
+        "provider": "Provider",
+        "model": "actual-model"
+      }
+    },
+    "category": {
+      "value": "b",
+      "probabilities": {
+        "a": 0.4,
+        "b": 0.6
+      },
+      "provenance": {
+        "source": "elicited",
+        "provider": "Provider",
+        "model": "actual-model"
+      }
+    },
+    "relevance": {
+      "value": 1.3,
+      "levels": ["No", "Some", "Yes"],
+      "probabilities": [0.2, 0.3, 0.5],
+      "provenance": {
+        "source": "elicited",
+        "provider": "Provider",
+        "model": "actual-model"
+      }
+    }
+  },
+  "expected_request_count": 1,
+  "expected_deltas": [
+    {
+      "index": 0,
+      "version": 0,
+      "delta": {
+        "relevant": {
+          "value": false,
+          "probability": 0.6,
+          "threshold": 0.7,
+          "provenance": {
+            "source": "elicited",
+            "provider": "Provider",
+            "model": "actual-model"
+          }
+        },
+        "category": {
+          "value": "b",
+          "probabilities": {
+            "a": 0.4,
+            "b": 0.6
+          },
+          "provenance": {
+            "source": "elicited",
+            "provider": "Provider",
+            "model": "actual-model"
+          }
+        },
+        "relevance": {
+          "value": 1.3,
+          "levels": ["No", "Some", "Yes"],
+          "probabilities": [0.2, 0.3, 0.5],
+          "provenance": {
+            "source": "elicited",
+            "provider": "Provider",
+            "model": "actual-model"
+          }
+        }
+      }
+    }
+  ]
+}

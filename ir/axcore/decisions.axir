@@ -457,7 +457,7 @@ module @ax.decisions version "0.1" {
       %format_type = core.get %format["type"]
       %wrong_format = core.call intrinsic.ne(%format_type, "json_schema")
       core.if %wrong_format {
-        core.raise "OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs"
+        core.raise "OpenAI Decisions requires an output schema. Use ax() with required boolean, class or rubric score outputs"
       }
       %wrapper = core.get %format["schema"]
       core.call @decisions_require_object(%wrapper, "responseFormat.schema")
@@ -485,6 +485,7 @@ module @ax.decisions version "0.1" {
       core.call @decisions_require_object(%properties, "output properties")
       %required = core.get %schema["required"] default %empty_list
       %annotations = core.get %format["fieldDescriptions"] default %empty_map
+      %decision_fields = core.get %format["decisionFields"] default %empty_map
       %questions = core.list
       %names = core.call intrinsic.map.keys(%properties)
       core.append %forbidden, "const"
@@ -492,6 +493,25 @@ module @ax.decisions version "0.1" {
         %field = core.get %properties[%name]
         core.call @decisions_require_object(%field, %name)
         %required_list = core.type_is %required type "list"
+        %decision = core.get %decision_fields[%name]
+        %rich = core.call intrinsic.is_not_none(%decision)
+        core.if %rich {
+          %array = core.get %decision["isArray"] default false
+          %optional = core.get %decision["isOptional"] default false
+          %invalid = core.call intrinsic.or(%array, %optional)
+          core.if %invalid { core.raise "Decision providers require flat, required scalar outputs" }
+          %wire_description = core.get %field["description"]
+          %field = core.map
+          %kind = core.get %decision["type"]
+          %class_kind = core.call intrinsic.eq(%kind, "class")
+          core.if %class_kind { %kind = core.let "string" }
+          core.set %field["type"] = %kind
+          core.set %field["description"] = %wire_description
+          core.if %class_kind {
+            %labels = core.get %decision["options"]
+            core.set %field["enum"] = %labels
+          }
+        }
         %supported = core.call intrinsic.contains(%required, %name)
         %supported = core.call intrinsic.and(%supported, %required_list)
         core.for %key in %forbidden {
@@ -510,10 +530,12 @@ module @ax.decisions version "0.1" {
         %is_enum = core.type_is %class_options type "list"
         %is_class = core.call intrinsic.and(%is_string, %is_enum)
         %supported_type = core.call intrinsic.or(%is_boolean, %is_class)
+        %is_score = core.call intrinsic.eq(%type_name, "score")
+        %supported_type = core.call intrinsic.or(%supported_type, %is_score)
         %supported = core.call intrinsic.and(%supported, %supported_type)
         %unsupported = core.call intrinsic.not(%supported)
         core.if %unsupported {
-          %message = core.call intrinsic.string.format("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs", %name)
+          %message = core.call intrinsic.string.format("OpenAI Decisions cannot evaluate output {}. Use required boolean, class or rubric score fields; use a generative provider for other outputs", %name)
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -550,6 +572,20 @@ module @ax.decisions version "0.1" {
         }
         %question = core.map
         core.set %question["instructions"] = %instructions
+        core.if %is_score {
+          core.set %question["type"] = "score"
+          %labels = core.get %decision["options"]
+          %levels = core.list
+          core.for %label in %labels {
+            %level = core.map
+            core.set %level["label"] = %label
+            core.append %levels, %level
+          }
+          core.set %question["levels"] = %levels
+          core.set %question["name"] = %name
+          core.append %questions, %question
+          core.continue
+        }
         core.if %is_boolean {
           core.set %question["type"] = "predicate"
           core.if %has_annotation {
@@ -689,13 +725,17 @@ module @ax.decisions version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "src/ax/ai/openai-decisions/validate.ts"
-    type signature = "(json, json) -> json throws"
-    body @entry(%payload: json, %options: json) {
+    type signature = "(json, json, json) -> json throws"
+    body @entry(%payload: json, %options: json, %request: json) {
       %empty = core.map
       %context = core.call intrinsic.map.merge(%empty, %payload)
       %snake = core.get %options["true_threshold"] default 0.5
       %threshold = core.get %options["trueThreshold"] default %snake
       core.set %context["trueThreshold"] = %threshold
+      %format_snake = core.get %request["response_format"]
+      %format = core.get %request["responseFormat"] default %format_snake
+      %decision_fields = core.get %format["decisionFields"]
+      core.set %context["decisionFields"] = %decision_fields
       core.return %context
     }
   }
@@ -714,8 +754,61 @@ module @ax.decisions version "0.1" {
       core.call @decisions_require_number(%threshold, "trueThreshold", 0, 1)
       %answers = core.get %raw["answers"]
       %values = core.map
+      %decision_fields = core.get %context["decisionFields"]
+      %native_state = core.map
       core.for %answer in %answers {
+        %name = core.get %answer["name"]
         %kind = core.get %answer["type"]
+        %decision = core.get %decision_fields[%name]
+        %rich = core.call intrinsic.is_not_none(%decision)
+        core.if %rich {
+          %raw_evidence = core.map
+          %native_evidence = core.map
+          %refusal = core.call intrinsic.eq(%kind, "refusal")
+          core.if %refusal {
+            core.set %raw_evidence["status"] = "refused"
+            core.set %native_evidence["refused"] = true
+          } else {
+            %is_boolean = core.call intrinsic.eq(%kind, "predicate")
+            core.if %is_boolean {
+              %p = core.get %answer["probability"]
+              core.set %raw_evidence["probability"] = %p
+            } else {
+            %ps = core.map
+            %value = core.let 0
+            %distribution = core.get %answer["probabilities"]
+            %score = core.call intrinsic.eq(%kind, "score")
+            %ps = core.map
+            core.for %entry in %distribution {
+              %key = core.get %entry["value"]
+              %p = core.get %entry["probability"]
+              core.if %score { %key = core.call intrinsic.string.format("{}", %key) }
+              core.set %ps[%key] = %p
+            }
+            core.if %score {
+              %labels = core.get %decision["options"]
+              %ordered = core.list
+              %index = core.let 0
+              core.for %label in %labels {
+                %key = core.call intrinsic.string.format("{}", %index)
+                %p = core.get %ps[%key]
+                core.append %ordered, %p
+                %index = core.call intrinsic.add(%index, 1)
+              }
+              %ps = core.let %ordered
+              %value = core.get %answer["score"]
+            } else { %value = core.get %answer["choice"] }
+              core.set %raw_evidence["probabilities"] = %ps
+              core.set %native_evidence["value"] = %value
+              %confidence = core.get %answer["confidence"]
+              %has_confidence = core.call intrinsic.is_not_none(%confidence)
+              core.if %has_confidence { core.set %native_evidence["confidence"] = %confidence }
+            }
+          }
+          core.set %values[%name] = %raw_evidence
+          core.set %native_state[%name] = %native_evidence
+          core.continue
+        }
         %refusal = core.call intrinsic.eq(%kind, "refusal")
         core.if %refusal {
           core.raise "OpenAI Decisions refused question"
@@ -736,6 +829,16 @@ module @ax.decisions version "0.1" {
       }
       %content = core.call intrinsic.json.stringify(%values)
       %result = core.map
+      %trusted = core.map
+      %provenance = core.map
+      core.set %provenance["source"] = "native"
+      core.set %provenance["provider"] = "OpenAI Decisions"
+      %model = core.get %raw["model"]
+      core.set %provenance["model"] = %model
+      core.set %trusted["provenance"] = %provenance
+      core.set %trusted["native"] = %native_state
+      %has_native = core.call intrinsic.truthy(%native_state)
+      core.if %has_native { core.set %result["decisionContext"] = %trusted }
       core.set %result["index"] = 0
       core.set %result["content"] = %content
       core.set %result["finishReason"] = "stop"

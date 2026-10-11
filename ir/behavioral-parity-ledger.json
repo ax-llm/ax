@@ -144,6 +144,36 @@
   ],
   "entries": [
     {
+      "capability": "gen.signature.decision_evidence",
+      "summary": "Boolean, class, and rubric score signatures return validated evidence with trusted provenance; native selections and scores remain unchanged, while generative values are derived from distributions.",
+      "ir_ops": [
+        "@evidence_validate_type_impl",
+        "@evidence_schema_impl",
+        "@evidence_decode_values_impl",
+        "@evidence_context_impl",
+        "@evidence_request_fields_impl",
+        "@decisions_normalize_chat_response",
+        "@typesafe_normalize_chat_response"
+      ],
+      "fixtures": [
+        "axgen/decision-evidence-generative.json",
+        "axgen/decision-evidence-native-values.json",
+        "axgen/decision-evidence-plain-score.json",
+        "axgen/decision-evidence-nested-array.json",
+        "axgen/decision-evidence-refusal-return.json",
+        "axgen/decision-evidence-refusal-terminal.json",
+        "axgen/decision-evidence-native-streaming.json",
+        "axgen/decision-evidence-streaming-model-usage.json",
+        "axgen/decision-evidence-invalid-distribution.json",
+        "axai/openai-decisions-adapter-evidence.json",
+        "axai/typesafe-adapter-evidence.json"
+      ],
+      "gate": "cross-target conformance",
+      "verified_targets": ["python", "java", "cpp", "go", "rust"],
+      "pending_targets": [],
+      "state": "Verified in all five generated languages. Fixtures assert native and elicited values, provenance, rubric ordering, validation, complete streaming evidence, and terminal refusal behavior."
+    },
+    {
       "capability": "agent.rlm.prompt_rendered",
       "summary": "The agent executor/responder RLM instruction is rendered from IR into agent state (not empty).",
       "ir_ops": ["@agent_factory"],

@@ -432,6 +432,8 @@ module @ax.gen version "0.1" {
         %response_format = core.map
         core.set %response_format["type"] = "json_schema"
         core.set %response_format["schema"] = %schema_wrap
+        %decisions = core.call @evidence_request_fields_impl(%output_fields)
+        core.set %response_format["decisionFields"] = %decisions
         %annotations = core.call @signature_output_value_descriptions_impl(%output_fields)
         %has_annotations = core.call intrinsic.truthy(%annotations)
         core.if %has_annotations {
@@ -517,6 +519,8 @@ module @ax.gen version "0.1" {
           %recovered = core.call @parse_json_string_fields(%output_fields, %output)
           %validated = core.call @stream_json_validate_output_impl(%output_fields, %recovered)
         }
+        %decision_context = core.call @evidence_context_impl(%completion, %gen)
+        %validated = core.call @evidence_decode_values_impl(%output_fields, %validated, %decision_context, "")
         // The answer's values parsed: TS's memory cleanup runs here, before
         // the field processors and assertions (response/nonStreaming.ts).
         core.set %parse_state["parsed"] = true
@@ -837,6 +841,8 @@ module @ax.gen version "0.1" {
               core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
               %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
               %structured_validated = core.call @stream_json_validate_output_impl(%output_fields, %structured_recovered)
+              %decision_context = core.call @evidence_context_impl(%response, %client)
+              %structured_validated = core.call @evidence_decode_values_impl(%output_fields, %structured_validated, %decision_context, "")
               %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
               %structured_stage = core.let "assertion"
               %structured_assertion_failure = core.call @run_assertions(%gen, %structured_processed)
@@ -851,6 +857,9 @@ module @ax.gen version "0.1" {
                 %structured_done = core.let %structured_public
               }
             } catch %structured_validation_error {
+              %refusal_message = core.call intrinsic.exception.message(%structured_validation_error)
+              %refusal = core.call intrinsic.string.starts_with(%refusal_message, "Decision refused:")
+              core.if %refusal { core.raise %structured_validation_error }
               %structured_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
               core.if %structured_retries_exhausted {
                 %structured_output_text = core.call @attempt_output_impl(%response)
@@ -921,6 +930,9 @@ module @ax.gen version "0.1" {
             %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json, %thought_field, %thought_prefix, %text_contract, %strict_mode, %parse_state)
             %parsed_bundle = core.let %parsed
           } catch %validation_error {
+            %refusal_message = core.call intrinsic.exception.message(%validation_error)
+            %refusal = core.call intrinsic.string.starts_with(%refusal_message, "Decision refused:")
+            core.if %refusal { core.raise %validation_error }
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
             core.if %retries_exhausted {
               %output_text = core.call @attempt_output_impl(%response)
@@ -1750,6 +1762,8 @@ module @ax.gen version "0.1" {
         core.return true
       }
       %output_fields = core.get %signature["output_fields"]
+      %decisions = core.call @evidence_has_fields_impl(%output_fields)
+      core.if %decisions { core.return true }
       core.for %field in %output_fields {
         %field_type = core.get %field["type"]
         %type_name = core.get %field_type["name"]
@@ -2341,6 +2355,8 @@ module @ax.gen version "0.1" {
                   core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
                   %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
                   %structured_validated = core.call @stream_json_validate_output_impl(%output_fields, %structured_recovered)
+              %decision_context = core.call @evidence_context_impl(%response, %client)
+              %structured_validated = core.call @evidence_decode_values_impl(%output_fields, %structured_validated, %decision_context, "")
                   %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
                   %structured_stage = core.let "assertion"
                   %structured_failure = core.call @run_assertions(%gen, %structured_processed)
@@ -2383,6 +2399,8 @@ module @ax.gen version "0.1" {
               } else {
                 %feedback = core.list
                 core.for %final_state in %states {
+                  %decision_context = core.call @evidence_context_impl(%response, %client)
+                  core.set %config["decision_context"] = %decision_context
                   %finalized = core.call @stream_finalize_impl(%gen, %config, %ctx, %final_state)
                   %final_failure = core.get %finalized["failure"]
                   %has_final_failure = core.call intrinsic.is_not_none(%final_failure)
@@ -2423,6 +2441,9 @@ module @ax.gen version "0.1" {
                 %fatal_failure = core.call @generate_failed_impl(%attempt_error)
                 core.raise %fatal_failure
               }
+              %refusal_message = core.call intrinsic.exception.message(%attempt_error)
+              %decision_refusal = core.call intrinsic.string.starts_with(%refusal_message, "Decision refused:")
+              core.if %decision_refusal { core.raise %attempt_error }
               %aborted = core.call intrinsic.exception.is_aborted(%attempt_error)
               core.if %aborted {
                 core.raise %attempt_error
@@ -2607,6 +2628,8 @@ module @ax.gen version "0.1" {
         core.return %error
       }
       %text = core.call intrinsic.exception.message(%error)
+      %decision_refusal = core.call intrinsic.string.starts_with(%text, "Decision refused:")
+      core.if %decision_refusal { core.return %error }
       %message = core.call intrinsic.add("Generate failed: ", %text)
       %wrapped = core.call intrinsic.exception.generate(%error, %message)
       core.return %wrapped
@@ -2772,8 +2795,8 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "src/ax/dsp/generate.ts"
-    type signature = "(AxGen, json) -> string"
-    body @entry(%gen: AxGen, %values: json) {
+    type signature = "(AxGen, json, json) -> string"
+    body @entry(%gen: AxGen, %values: json, %options: json) {
       // computeCacheKey: the SHA-256 of the signature and the input values,
       // in input field order, media data included. Each language writes the
       // text its own way, so keys are deterministic but not shared across
@@ -2801,6 +2824,38 @@ module @ax.gen version "0.1" {
         %output_optional = core.call @stream_field_flag_impl(%field, "is_optional", "isOptional")
         %output_line = core.call intrinsic.string.format("output {} {} {}", %output_name, %output_label, %output_optional)
         core.append %lines, %output_line
+      }
+      %decisions = core.call @evidence_has_fields_impl(%output_fields)
+      core.if %decisions {
+        %full_signature = core.call @signature_to_string(%signature)
+        core.append %lines, %full_signature
+        %identity = core.map
+        %instruction = core.get %gen["instruction"]
+        %examples = core.get %gen["examples"]
+        %demos = core.get %gen["demos"]
+        %service = core.get %options["_evidence_cache_identity"]
+        core.set %identity["instruction"] = %instruction
+        core.set %identity["examples"] = %examples
+        core.set %identity["demos"] = %demos
+        core.set %identity["service"] = %service
+        %call = core.map
+        %keys = core.list
+        core.append %keys, "model"
+        core.append %keys, "model_config"
+        core.append %keys, "modelConfig"
+        core.append %keys, "sampleCount"
+        core.append %keys, "sample_count"
+        core.append %keys, "thinkingTokenBudget"
+        core.append %keys, "showThoughts"
+        core.append %keys, "serviceTier"
+        core.append %keys, "structuredOutputMode"
+        core.for %key in %keys {
+          %v = core.get %options[%key]
+          core.set %call[%key] = %v
+        }
+        core.set %identity["call"] = %call
+        %identity_json = core.call intrinsic.json.stable_stringify(%identity)
+        core.append %lines, %identity_json
       }
       // Sorted keys, so the same values give the same key in every run.
       %inputs_json = core.call intrinsic.json.stable_stringify(%inputs)
@@ -2870,7 +2925,7 @@ module @ax.gen version "0.1" {
       core.set %lookup["hit"] = false
       %use_cache = core.call intrinsic.is_not_none(%cache_fn)
       core.if %use_cache {
-        %cache_key = core.call @cache_key_impl(%gen, %values)
+        %cache_key = core.call @cache_key_impl(%gen, %values, %options)
         core.set %lookup["key"] = %cache_key
         %cached = core.call intrinsic.none()
         core.if %ignore_read_errors {

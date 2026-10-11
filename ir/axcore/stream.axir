@@ -3629,6 +3629,8 @@ module @ax.stream version "0.1" {
       core.set %state["content"] = %content
       %empty_fields = core.list
       %fields = core.get %config["fields"] default %empty_fields
+      %decisions = core.call @evidence_has_fields_impl(%fields)
+      core.if %decisions { core.return %deltas }
       %empty_held = core.list
       %held = core.get %config["held"] default %empty_held
       %structured = core.get %config["structured"] default false
@@ -3762,6 +3764,9 @@ module @ax.stream version "0.1" {
             core.call @stream_json_strings_impl(%fields, %final_json, false)
           }
           core.call @stream_json_validate_impl(%fields, %final_json, false, %strict_json)
+          %decision_context = core.get %config["decision_context"]
+          %decisions = core.call @evidence_has_fields_impl(%fields)
+          core.if %decisions { %final_json = core.call @evidence_decode_values_impl(%fields, %final_json, %decision_context, "") }
           %no_marker = core.call intrinsic.none()
           %final_deltas = core.call @stream_apply_structured_impl(%state, %fields, %final_json, %no_marker, %held)
           core.call @stream_emit_deltas_impl(%ctx, %index, %final_deltas)
@@ -4025,6 +4030,8 @@ module @ax.stream version "0.1" {
       // any case; string, code, class and object fields need their type.
       // Other types keep their own validation.
       %typ = core.get %field["type"]
+      %decision = core.call @evidence_is_type_impl(%typ)
+      core.if %decision { core.return %value }
       %name = core.get %typ["name"] default "string"
       %is_boolean_value = core.type_is %value type "boolean"
       %is_number_type = core.call intrinsic.eq(%name, "number")

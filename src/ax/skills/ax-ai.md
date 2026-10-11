@@ -54,8 +54,14 @@ hybrid examples. The two interfaces serve different output contracts:
 
 | Need | Interface |
 |---|---|
-| Required boolean/class outputs with normal signature-shaped results | `ai({ name: 'typesafe', apiKey, trueThreshold: 0.9 })` and `ax(...).forward()` |
-| Native probabilities, structured state/criteria, or Score | `typesafe({ apiKey }).systemOne({ state, questions })` |
+| Required boolean/class/rubric score outputs through Ax signatures | `ai({ name: 'typesafe', apiKey, trueThreshold: 0.9 })` and `ax(...).forward()` |
+| Explicit provider request shapes or structured state/criteria | `typesafe({ apiKey }).systemOne({ state, questions })` |
+
+Use `.withEvidence()` on boolean/class fields or `f.score(levels).withEvidence()`
+to retain probabilities, native scores, and confidence through normal AxGen
+outputs. The string forms use `(evidence)`. See the
+[decision evidence guide](ax-typesafe.md#decision-evidence-and-reranking) for
+result shapes, provenance, and reranking with both Jev and OpenAI Decisions.
 
 Both default to `jev-latest`. Set the adapter's model with `config.model`; set
 native defaults with `model`. Native `listModels()` retrieves the provider's
@@ -73,7 +79,7 @@ The [signature skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-si
 covers the string and fluent `.describeValues(...)` forms.
 
 Numeric outputs, including bounded numbers, are unsupported; scoring uses
-explicit native rubrics. Freeform text, optional/array/nested outputs, media,
+explicit `score` rubrics in signatures. Freeform text, optional/array/nested outputs, media,
 tools, and sampling controls are also unsupported. Ax sends its normal prompt
 as state. Use a separate generative program for prose or tools.
 
@@ -1113,44 +1119,54 @@ Java, C++, and Rust routers apply this policy in shared Core after selection.
 
 ## OpenAI Decisions
 
-Use `ai({ name: 'openai-decisions', apiKey })` for required boolean and class
+Use `ai({ name: 'openai-decisions', apiKey })` for required boolean, class, and rubric score
 outputs through the dedicated `/v1/decisions` endpoint. The default model is
 `gpt-6-luna`. This is a separate provider profile from OpenAI Chat and Responses.
 
 ```typescript
-import { ai, ax, openaiDecisions } from '@ax-llm/ax';
+import { ai, ax } from '@ax-llm/ax';
 const model = ai({ name: 'openai-decisions', apiKey, trueThreshold: 0.9 });
 const triage = ax('ticket:string -> urgent:boolean, team:class "support, billing"');
 const values = await triage.forward(model, { ticket: 'I was charged twice.' });
 
-const native = await openaiDecisions({ apiKey }).create({
-  input: 'I was charged twice.',
-  questions: [{ type: 'predicate', name: 'duplicate_charge', instructions: 'Was the customer charged twice?' }],
+const judge = ax(
+  'query:string, document:string -> relevant:boolean(evidence, threshold 0.7), relevance:score "Irrelevant, Related, Partial answer, Direct answer"(evidence)'
+);
+const result = await judge.forward(model, {
+  query: 'How do I request a refund?',
+  document: 'Request a refund through your account billing page.',
 });
-const answer = native.answers[0];
-if (answer.type === 'predicate') console.log(answer.probability);
-else console.log('Refused', answer.name);
+console.log(result.relevant.probability, result.relevance.value);
 ```
 
-The signature adapter maps booleans to predicates and classes to choices.
+The signature adapter maps booleans to predicates, classes to choices, and
+ordered `score` labels to native score levels.
 Boolean value descriptions become question instruction lines; class value
 descriptions become each choice's `description`. `trueThreshold` defaults to
 `0.5`, must be finite in `[0, 1]`, and converts probabilities with an inclusive
 comparison. It is local conversion policy. Raw native answers remain in
 `program.getChatLog().at(-1)?.providerMetadata?.openaiDecisions?.answers`.
-Usage uses existing `getUsage()` APIs. Refused adapter questions throw instead
-of producing a value. Optional, numeric, array, nested, and freeform outputs,
+Evidence-bearing fields retain probabilities, provider-selected classes, continuous
+scores, and native confidence in normal program outputs. Boolean evidence uses
+its field threshold, defaulting to `0.5`; scalar fields retain `trueThreshold`.
+Ax attaches provenance, and a generative model uses the same signature with
+`source: 'elicited'`, values derived from probabilities, and no native confidence.
+These shared shapes do not imply comparable calibration across providers.
+
+Usage uses existing `getUsage()` APIs. Evidence refusals raise terminal
+`AxDecisionRefusalError` by default; `(evidence, refusal return)` gives an
+answered/refused union without correction retries. Optional, numeric, array, nested, and freeform outputs,
 tools, and generation controls are rejected before transport. A completed result
 can be delivered through `streamingForward()`; the endpoint has no token stream.
 
-For native probabilities, scoring, and explicit refusal handling, use
+For custom native question/request shapes and provider-specific input, use
 `openaiDecisions({ apiKey, model?, apiURL?, credentialProvider?, headers?, options? }).create(request, options?)`.
 Questions are an ordered array of `predicate`, `choice`, and `score` objects.
 Each has string `instructions` and an optional unique `name`. Choices use
 `choices: [{ value: string | boolean, description?: string }]`; boolean values
 and strings with the same spelling stay distinct. Choice requires 2–255 options.
 Scores require 2–10 levels and use
-`levels: [{ label, description? }, ...]`. The score is a fractional expected
+`levels: [{ label, description? }, ...]`. The score is a fractional native
 level index starting at zero. Ax does not infer rubrics from numeric bounds.
 
 The response preserves answer order, model, full usage, and per-question
@@ -1182,6 +1198,7 @@ requests are excluded from router/balancer selection and fallbacks.
 Run the public examples from the repository root:
 
 ```bash
+npm run tsx src/examples/typescript/generation/decision-evidence.ts
 npm run tsx src/examples/typescript/generation/openai-decisions.ts
 npm run tsx src/examples/typescript/generation/openai-decisions-native.ts
 npm run tsx src/examples/typescript/generation/openai-decisions-image.ts

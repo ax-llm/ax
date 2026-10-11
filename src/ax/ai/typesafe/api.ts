@@ -1,3 +1,4 @@
+import type { AxNativeDecision } from '../../dsp/decision.js';
 // cspell:ignore noul jev systemone
 import { validateValueDescriptions } from '../../dsp/valueDescriptions.js';
 import type { AxAPI } from '../../util/apicall.js';
@@ -19,6 +20,7 @@ import type {
   AxAITypesafeChoiceQuestion,
   AxAITypesafeNoulQuestion,
   AxAITypesafeRequest,
+  AxAITypesafeScoreQuestion,
 } from './types.js';
 import {
   decodeTypesafeResponse,
@@ -43,7 +45,10 @@ export type AxAITypesafeArgs<TModelKey = string> = {
 
 type QuestionPlan = {
   name: string;
-  question: AxAITypesafeNoulQuestion | AxAITypesafeChoiceQuestion;
+  question:
+    | AxAITypesafeNoulQuestion
+    | AxAITypesafeChoiceQuestion
+    | AxAITypesafeScoreQuestion;
 };
 
 type Request = AxAITypesafeRequest & { model: string };
@@ -114,7 +119,7 @@ class TypesafeImpl {
   private plan(req: Readonly<AxInternalChatRequest<string>>): QuestionPlan[] {
     if (req.responseFormat?.type !== 'json_schema') {
       throw new Error(
-        'Typesafe requires an output schema. Use ax() with required boolean or class outputs'
+        'Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs'
       );
     }
     const wrapper = record(req.responseFormat.schema, 'responseFormat.schema');
@@ -133,10 +138,23 @@ class TypesafeImpl {
     if (!Object.keys(properties).length)
       throw new Error('Typesafe requires at least one output field');
     return Object.entries(properties).map(([name, value]) => {
-      const field = record(value, `field ${name}`);
+      const wireField = record(value, `field ${name}`);
+      const decision = req.responseFormat?.decisionFields?.[name];
+      if (decision?.isArray || decision?.isOptional)
+        throw new Error(
+          'Decision providers require flat, required scalar outputs'
+        );
+      const field = decision
+        ? {
+            ...wireField,
+            type: decision.type === 'class' ? 'string' : decision.type,
+            enum: decision.type === 'class' ? decision.options : undefined,
+            anyOf: undefined,
+          }
+        : wireField;
       const unsupported = () =>
         new Error(
-          `Typesafe cannot evaluate output "${name}". Use required boolean or class fields; use typesafe().systemOne() for scoring, or a generative provider for other outputs`
+          `Typesafe cannot evaluate output "${name}". Use required boolean, class or rubric score fields, or a generative provider for other outputs`
         );
       if (
         !Array.isArray(required) ||
@@ -173,6 +191,16 @@ class TypesafeImpl {
         typeof description === 'string' && description
           ? `${name}: ${description}`
           : `Evaluate the output field ${name}.`;
+      if (decision?.type === 'score') {
+        return {
+          name,
+          question: {
+            type: 'score' as const,
+            instructions,
+            criteria: decision.options as [string, string, ...string[]],
+          },
+        };
+      }
       if (field.type === 'boolean' && !field.enum) {
         return {
           name,
@@ -253,17 +281,53 @@ class TypesafeImpl {
       raw,
       Object.fromEntries(plan.map(({ name, question }) => [name, question]))
     );
+    const native: Record<string, AxNativeDecision> = {};
     const entries = plan.map(({ name }) => {
       const answer = response.answers[name]!;
+      if (req.responseFormat?.decisionFields?.[name]) {
+        if (answer.type === 'noul') {
+          native[name] = {};
+          return [name, { probability: answer.noul }];
+        }
+        if (answer.type === 'score') {
+          native[name] = { value: answer.score, confidence: answer.confidence };
+          return [
+            name,
+            {
+              probabilities: Object.keys(answer.probabilities)
+                .sort((a, b) => Number(a) - Number(b))
+                .map((k) => answer.probabilities[k]),
+            },
+          ];
+        }
+        native[name] = { value: answer.choice, confidence: answer.confidence };
+        return [name, { probabilities: answer.probabilities }];
+      }
       return [
         name,
-        answer.type === 'noul' ? answer.noul >= this.threshold : answer.choice,
+        answer.type === 'noul'
+          ? answer.noul >= this.threshold
+          : answer.type === 'choice'
+            ? answer.choice
+            : answer.score,
       ];
     });
     return {
       results: [
         {
           index: 0,
+          ...(Object.keys(native).length
+            ? {
+                decisionContext: {
+                  provenance: {
+                    source: 'native' as const,
+                    provider: 'Typesafe',
+                    model: response.model,
+                  },
+                  native,
+                },
+              }
+            : {}),
           content: JSON.stringify(Object.fromEntries(entries)),
           finishReason: 'stop',
         },

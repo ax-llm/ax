@@ -1,3 +1,9 @@
+import type {
+  AxBooleanEvidence,
+  AxClassEvidence,
+  AxDecisionResult,
+  AxScoreEvidence,
+} from './decision.js';
 // === Typesafe Signature Parsing Types ===
 //
 // This module provides TypeScript type-level parsing of signature strings to enable
@@ -74,6 +80,7 @@ import type { AxAudioInput, AxChatAudioOutput } from '../ai/types.js';
 export interface InputTypeMap {
   string: string;
   number: number;
+  score: number;
   boolean: boolean;
   json: any; // Flexible type - accepts any JSON value
   date: Date;
@@ -133,25 +140,29 @@ type ParseClassOptions<S extends string> =
 type ResolveType<
   T extends string,
   TMode extends 'input' | 'output',
-> = T extends keyof TypeMapForMode<TMode>
-  ? TypeMapForMode<TMode>[T]
-  : // Object tags must be checked before the array branch: an object body can
-    // itself end in "[]" and would otherwise be misread as an array type.
-    T extends `obj[]|${infer Body}`
-    ? ParseObjectBody<Body, TMode>[]
-    : T extends `obj|${infer Body}`
-      ? ParseObjectBody<Body, TMode>
-      : T extends `${infer BaseType}[]`
-        ? BaseType extends keyof TypeMapForMode<TMode>
-          ? TypeMapForMode<TMode>[BaseType][]
-          : any[]
-        : T extends `class[]|${infer Options}`
-          ? ParseClassOptions<Options>[]
-          : T extends `class|${infer Options}`
-            ? ParseClassOptions<Options>
-            : T extends 'class'
-              ? string // fallback for class without options
-              : any; // fallback for unknown types
+> = T extends `evidence-return|${infer Base}`
+  ? ResolveEvidenceResult<Base>
+  : T extends `evidence|${infer Base}`
+    ? ResolveEvidence<Base>
+    : T extends keyof TypeMapForMode<TMode>
+      ? TypeMapForMode<TMode>[T]
+      : // Object tags must be checked before the array branch: an object body can
+        // itself end in "[]" and would otherwise be misread as an array type.
+        T extends `obj[]|${infer Body}`
+        ? ParseObjectBody<Body, TMode>[]
+        : T extends `obj|${infer Body}`
+          ? ParseObjectBody<Body, TMode>
+          : T extends `${infer BaseType}[]`
+            ? BaseType extends keyof TypeMapForMode<TMode>
+              ? TypeMapForMode<TMode>[BaseType][]
+              : any[]
+            : T extends `class[]|${infer Options}`
+              ? ParseClassOptions<Options>[]
+              : T extends `class|${infer Options}`
+                ? ParseClassOptions<Options>
+                : T extends 'class'
+                  ? string // fallback for class without options
+                  : any; // fallback for unknown types
 
 // Recursively parses the body of an `object{ ... }` type into a structural
 // object type, reusing the full field pipeline. The mapped-type wrap flattens
@@ -269,22 +280,41 @@ type SkipModifierBag<S extends string> = S extends `"${infer Rest}`
 
 type ExtractClassTag<S extends string, Prefix extends string> =
   Trim<S> extends `"${infer Rest}`
-    ? TakeQuoted<Rest> extends [infer Options extends string, string]
-      ? `${Prefix}|${Options}`
+    ? TakeQuoted<Rest> extends [
+        infer Options extends string,
+        infer After extends string,
+      ]
+      ? Trim<
+          Trim<After> extends `(${infer Bag}` ? SkipModifierBag<Bag> : After
+        > extends `[]${string}`
+        ? `class[]|${Options}`
+        : `${Prefix}|${Options}`
       : 'class'
     : 'class';
 
-type ExtractType<S extends string> = S extends `class[]${infer Rest}`
-  ? ExtractClassTag<Rest, 'class[]'>
-  : S extends `class${infer Rest}`
-    ? ExtractClassTag<Rest, 'class'>
-    : S extends `object{${infer Rest}`
-      ? ExtractObjectTag<Rest>
-      : S extends `${infer Base}(${infer Rest}`
-        ? Base extends keyof InputTypeMap | 'object'
-          ? ExtractType<`${Base}${SkipModifierBag<Rest>}`>
-          : ExtractSimpleType<S>
-        : ExtractSimpleType<S>;
+type ExtractType<S extends string> = S extends `score[]${string}`
+  ? 'score[]'
+  : S extends `score${infer Tail}`
+    ? Trim<Tail> extends `"${infer Q}`
+      ? TakeQuoted<Q> extends [string, infer After extends string]
+        ? Trim<
+            Trim<After> extends `(${infer Bag}` ? SkipModifierBag<Bag> : After
+          > extends `[]${string}`
+          ? 'score[]'
+          : 'score'
+        : 'score'
+      : 'score'
+    : S extends `class[]${infer Rest}`
+      ? ExtractClassTag<Rest, 'class[]'>
+      : S extends `class${infer Rest}`
+        ? ExtractClassTag<Rest, 'class'>
+        : S extends `object{${infer Rest}`
+          ? ExtractObjectTag<Rest>
+          : S extends `${infer Base}(${infer Rest}`
+            ? Base extends keyof InputTypeMap | 'object'
+              ? ExtractType<`${Base}${SkipModifierBag<Rest>}`>
+              : ExtractSimpleType<S>
+            : ExtractSimpleType<S>;
 
 type ExtractSimpleType<S extends string> =
   S extends `${infer Type}[] "${infer _Desc}"`
@@ -297,9 +327,67 @@ type ExtractSimpleType<S extends string> =
 
 // Parses a "name: type" or "name?: type" part, now handling arrays, class types, and descriptions
 // If no type is specified, defaults to 'string'
+type ResolveEvidenceResult<T extends string> = T extends `class[]|${infer L}`
+  ? AxDecisionResult<AxClassEvidence<ParseClassOptions<L>>>[]
+  : T extends `${infer Base}[]`
+    ? AxDecisionResult<ResolveEvidence<Base>>[]
+    : AxDecisionResult<ResolveEvidence<T>>;
+type ResolveEvidence<T extends string> = T extends `class[]|${infer L}`
+  ? AxClassEvidence<ParseClassOptions<L>>[]
+  : T extends `${infer Base}[]`
+    ? ResolveEvidence<Base>[]
+    : T extends 'boolean'
+      ? AxBooleanEvidence
+      : T extends `class|${infer L}`
+        ? AxClassEvidence<ParseClassOptions<L>>
+        : AxScoreEvidence;
+type ModifierTokens<
+  S extends string,
+  Out extends string = '',
+> = S extends `"${infer Rest}`
+  ? TakeQuoted<Rest> extends [string, infer After extends string]
+    ? ModifierTokens<After, Out>
+    : Out
+  : S extends `)${string}`
+    ? Out
+    : S extends `${infer Char}${infer Rest}`
+      ? ModifierTokens<Rest, `${Out}${Char}`>
+      : Out;
+type DecisionTypeTag<
+  S extends string,
+  Tag extends string,
+> = S extends `boolean(${infer Bag}`
+  ? EvidenceTag<ModifierTokens<Bag>, Tag>
+  : S extends `class${infer Tail}` | `score${infer Tail}`
+    ? Trim<Tail> extends `[]${infer Rest}`
+      ? DecisionEnumTag<Rest, Tag>
+      : DecisionEnumTag<Tail, Tag>
+    : Tag;
+type DecisionEnumTag<Tail extends string, Tag extends string> =
+  Trim<Tail> extends `"${infer Q}`
+    ? TakeQuoted<Q> extends [string, infer After extends string]
+      ? Trim<After> extends `(${infer Bag}`
+        ? EvidenceTag<ModifierTokens<Bag>, Tag>
+        : Tag
+      : Tag
+    : Tag;
+type EvidenceTag<
+  Bag extends string,
+  Tag extends string,
+> = Bag extends `${string}evidence${string}`
+  ? Bag extends `${string}refusal return${string}`
+    ? `evidence-return|${Tag}`
+    : `evidence|${Tag}`
+  : Tag;
+
 type ParseNameAndType<S extends string> =
   S extends `${infer Name}:${infer TypePart}`
-    ? ParseField<Name> & { type: Trim<ExtractType<Trim<TypePart>>> }
+    ? ParseField<Name> & {
+        type: DecisionTypeTag<
+          Trim<TypePart>,
+          Trim<ExtractType<Trim<TypePart>>>
+        >;
+      }
     : S extends `${infer Name} "${infer _Description}"`
       ? ParseField<Name> & { type: 'string' }
       : ParseField<S> & { type: 'string' };

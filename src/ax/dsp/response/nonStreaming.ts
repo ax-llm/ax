@@ -1,4 +1,5 @@
 import { assertAssertions } from '../asserts.js';
+import { decodeDecisionValues, hasDecisionFields } from '../decision.js';
 import { ValidationError } from '../errors.js';
 import { extractValues } from '../extract.js';
 import { processFieldProcessors } from '../fieldProcessor.js';
@@ -112,6 +113,15 @@ export async function* processResponse<OUT extends AxGenOut>({
       state.values[thoughtFieldName] = result.thought;
     }
 
+    state.decisionContext = result.decisionContext ?? {
+      provenance: {
+        source: 'elicited',
+        provider: res.modelUsage?.ai ?? ai.getName(),
+        model:
+          res.modelUsage?.model ?? String(ai.getLastUsedChatModel?.() ?? ''),
+      },
+    };
+
     if (result.functionCalls?.length) {
       const funcs = parseFunctionCalls(ai, result.functionCalls, state.values);
       if (funcs && funcs.length > 0) {
@@ -196,6 +206,17 @@ export async function* processResponse<OUT extends AxGenOut>({
         });
       }
     }
+
+    if (
+      hasDecisionFields(signature.getOutputFields()) &&
+      !result.functionCalls?.length &&
+      !promptToolStep
+    )
+      decodeDecisionValues(
+        signature.getOutputFields(),
+        state.values,
+        state.decisionContext
+      );
 
     if (!disableMemoryCleanup) {
       mem.removeByTag('correction', sessionId);

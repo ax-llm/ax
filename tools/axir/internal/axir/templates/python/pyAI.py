@@ -1405,7 +1405,7 @@ class ProviderOperationClient(AxBaseAI):
         if raw is None:
             operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
             raw = self._request_json_retried(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation, base_url=self._call_base_url(options), cancellation=_cancellation_token(options), error_options=options, retry_options=options, timeout_ms=self._call_timeout_ms(options))
-        return provider_normalize_chat_response(self.profile, raw, self.name, model, decisions_response_context(payload, options) if self.profile == "openai-decisions" else typesafe_response_context(payload, options) if self.profile == "typesafe" else provider_response_context(payload, request.get("model_config") or {}, options))
+        return provider_normalize_chat_response(self.profile, raw, self.name, model, decisions_response_context(payload, options, request) if self.profile == "openai-decisions" else typesafe_response_context(payload, options, request) if self.profile == "typesafe" else provider_response_context(payload, request.get("model_config") or {}, options))
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
         cancellation = _check_cancelled(options)

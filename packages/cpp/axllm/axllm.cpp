@@ -1952,6 +1952,7 @@ Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(v
 Value Core::json_pretty(Value value) { return Value(pretty_stringify(value)); }
 Value Core::signature_error(Value message) { return Value(Object{{"__error", "signature"}, {"message", str(message)}}); }
 Value Core::validation_error(Value message) { return Value(Object{{"__error", "validation"}, {"message", str(message)}}); }
+Value Core::decision_refusal_error(Value path, Value provenance) { return object({{"__error","decision"},{"__type","AxDecisionRefusalError"},{"message","Decision refused: " + str(path)},{"payload",object({{"fieldPath",path},{"provenance",provenance}})}}); }
 Value Core::runtime_error(Value message) { return Value(Object{{"__error", "runtime"}, {"message", str(message)}}); }
 static Value ai_error_object(const std::string& type, Value message, Value status = Value(), Value code = Value(), Value response_body = Value(), Value request = Value(), Value retryable = Value(false)) {
   Object out;
@@ -1987,6 +1988,9 @@ Value Core::exception_value(const std::exception& error) {
       out["request"] = Value(std::move(request));
     }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
+    if (const auto* decision = dynamic_cast<const AxDecisionRefusalError*>(ax)) {
+      out["payload"] = object({{"fieldPath", decision->field_path}, {"provenance", decision->provenance}});
+    }
     if (const auto* clarification = dynamic_cast<const AxAgentClarificationError*>(ax)) {
       out["clarification"] = clarification->clarification;
       out["state"] = clarification->state;
@@ -2111,6 +2115,7 @@ AxError Core::as_error(Value error) {
   return AxError("runtime", str(error));
 }
 [[noreturn]] void Core::raise_error(Value error) {
+  if (str(get_key(error,"__type")) == "AxDecisionRefusalError") { Value payload=get_key(error,"payload"); throw AxDecisionRefusalError(str(get_key(payload,"fieldPath")),get_key(payload,"provenance")); }
   if (str(get_key(error, "__type")) == "AxGenerateError") throw AxGenerateError(as_error(error));
   if (truthy(exception_is_aborted(error))) {
     std::string message = str(get_key(error, "message"));
@@ -2999,6 +3004,7 @@ static std::string prompt_field_type_text(Value typ) {
   return Core::truthy(get_key(typ, "isArray")) ? "json array of " + base + " items" : base;
 }
 static bool prompt_complex(Value sig) {
+  if (Core::truthy(Core::_evidence_has_fields_impl(get_key(sig, "outputs")))) return true;
   for (const auto& field : array_ref(get_key(sig, "outputs"))) {
     Value typ = get_key(field, "type");
     if (str(get_key(typ, "name")) == "object" || !object_ref(get_key(typ, "fields")).empty()) return true;
@@ -3043,6 +3049,7 @@ static std::string prompt_render_output_fields(const Array& fields, const Object
   return joined;
 }
 static Value prompt_output_type_placeholder(Value typ) {
+  if (Core::truthy(Core::_evidence_is_type_impl(typ))) return Core::_evidence_placeholder_impl(typ);
   std::string name = str(get_key(typ, "name"));
   Value value("<string>");
   if (name == "number") value = Value(0);
@@ -3289,6 +3296,8 @@ static std::string axgen_value_text(Value value) {
   return value.is_string() ? str(value) : stringify(value);
 }
 static std::string axgen_format_values(Value gen, Value values, const std::string& kind) {
+  Value fields=Core::get(Core::get(gen,"signature"),kind+"_fields",Value::array());
+  if(kind=="output" && Core::truthy(Core::_evidence_has_fields_impl(fields))) return stringify(Core::_evidence_example_values_impl(fields,values));
   std::vector<std::string> lines;
   for (const auto& field : array_ref(Core::get(Core::get(gen, "signature"), kind + "_fields", Value::array()))) {
     std::string name = str(get_key(field, "name"));
@@ -3618,6 +3627,16 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state) { return opena
 Value Core::openai_normalize_embed_response(Value raw) { return openai_normalize_embed_response(std::move(raw), "openai", Value()); }
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
+Value Core::_evidence_is_type_impl(Value typ) {
+  axir_coverage_mark("_evidence_is_type_impl");
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value present = Core::is_not_none(evidence);
+  Value name = Core::get(typ, Value("name"), Value());
+  Value score = Core::eq(name, Value("score"));
+  Value result = Core::or_(present, score);
+  return result;
+}
+
 Value Core::_signature_value_keys_impl(Value typ) {
   axir_coverage_mark("_signature_value_keys_impl");
   Value empty_keys = Value::array();
@@ -3631,6 +3650,27 @@ Value Core::_signature_value_keys_impl(Value typ) {
     Core::append(keys, Value("false"));
   }
   return keys;
+}
+
+Value Core::_evidence_has_fields_impl(Value fields) {
+  axir_coverage_mark("_evidence_has_fields_impl");
+  for (auto field : Core::iter(fields)) {
+    Value typ = Core::get(field, Value("type"), Value());
+    Value decision = Core::_evidence_is_type_impl(typ);
+    if (Core::truthy(decision)) {
+      return Value(true);
+    }
+    Value children = Core::get(typ, Value("fields"), Value());
+    Value present = Core::is_not_none(children);
+    if (Core::truthy(present)) {
+      Value nested = Core::fields_from_map(children);
+      decision = Core::_evidence_has_fields_impl(nested);
+      if (Core::truthy(decision)) {
+        return Value(true);
+      }
+    }
+  }
+  return Value(false);
 }
 
 Value Core::parse_signature(Value signature) {
@@ -3687,6 +3727,96 @@ Value Core::_signature_validate_value_descriptions_impl(Value typ, Value field_n
 Value Core::validate_signature(Value signature) {
   axir_coverage_mark("validate_signature");
   Core::_signature_validate_impl(signature);
+  return Value();
+}
+
+Value Core::_evidence_validate_type_impl(Value typ) {
+  axir_coverage_mark("_evidence_validate_type_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value present = Core::is_not_none(evidence);
+  if (Core::truthy(present)) {
+    Value supported = Value::array();
+    Core::append(supported, Value("boolean"));
+    Core::append(supported, Value("class"));
+    Core::append(supported, Value("score"));
+    Value valid = Core::contains(supported, name);
+    Value object = Core::type_is(evidence, Value("object"));
+    valid = Core::and_(valid, object);
+    Value invalid = Core::not_(valid);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Evidence requires a boolean, class or score field");
+    }
+    Value keys = Core::map_keys(evidence);
+    Value allowed = Value::array();
+    Core::append(allowed, Value("threshold"));
+    Core::append(allowed, Value("onRefusal"));
+    for (auto key : Core::iter(keys)) {
+      Value known = Core::contains(allowed, key);
+      Value unknown = Core::not_(known);
+      if (Core::truthy(unknown)) {
+        throw AxError("runtime", "Unknown evidence option");
+      }
+    }
+    Value threshold = Core::get(evidence, Value("threshold"), Value());
+    Value has_threshold = Core::is_not_none(threshold);
+    if (Core::truthy(has_threshold)) {
+      Value is_boolean = Core::eq(name, Value("boolean"));
+      Value number = Core::type_is(threshold, Value("number"));
+      valid = Core::and_(is_boolean, number);
+      if (Core::truthy(valid)) {
+        Value finite = Core::math_is_finite(threshold);
+        Value low = Core::gte(threshold, Value(0));
+        Value high = Core::lte(threshold, Value(1));
+        Value range = Core::and_(low, high);
+        valid = Core::and_(finite, range);
+      }
+      invalid = Core::not_(valid);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "threshold requires a boolean field and a finite value in [0, 1]");
+      }
+    }
+    Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+    Value throw_policy = Core::eq(policy, Value("throw"));
+    Value return_policy = Core::eq(policy, Value("return"));
+    valid = Core::or_(throw_policy, return_policy);
+    invalid = Core::not_(valid);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "onRefusal must be throw or return");
+    }
+  }
+  Value score = Core::eq(name, Value("score"));
+  if (Core::truthy(score)) {
+    Value labels = Core::get(typ, Value("options"), Value());
+    Value list = Core::type_is(labels, Value("list"));
+    Value invalid = Core::not_(list);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Score requires 2-10 distinct, nonempty ordered rubric labels");
+    }
+    Value count = Core::len(labels);
+    Value low = Core::lt(count, Value(2));
+    Value high = Core::gt(count, Value(10));
+    invalid = Core::or_(low, high);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Score requires 2-10 distinct, nonempty ordered rubric labels");
+    }
+    Value seen = Value::array();
+    for (auto label : Core::iter(labels)) {
+      Value string = Core::type_is(label, Value("string"));
+      invalid = Core::not_(string);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "Score labels must be strings");
+      }
+      Value trimmed = Core::string_trim(label);
+      Value empty = Core::eq(trimmed, Value(""));
+      Value duplicate = Core::contains(seen, label);
+      invalid = Core::or_(empty, duplicate);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "Score requires distinct, nonempty ordered rubric labels");
+      }
+      Core::append(seen, label);
+    }
+  }
   return Value();
 }
 
@@ -3862,6 +3992,69 @@ Value Core::_signature_parse_class_descriptions_impl(Value raw, Value field_name
   return descriptions;
 }
 
+Value Core::_evidence_parse_options_impl(Value raw) {
+  axir_coverage_mark("_evidence_parse_options_impl");
+  Value parts = Core::string_split_top_level(raw, Value(","));
+  Value evidence = Value::object();
+  Value seen = Value::array();
+  Value remaining = Value::array();
+  for (auto part : Core::iter(parts)) {
+    part = Core::string_trim(part);
+    Value words = Core::string_words(part);
+    Value token = Core::list_get(words, Value(0), Value(""));
+    Value e = Core::eq(token, Value("evidence"));
+    Value t = Core::eq(token, Value("threshold"));
+    Value r = Core::eq(token, Value("refusal"));
+    Value modifier = Core::or_(e, t);
+    modifier = Core::or_(modifier, r);
+    if (Core::truthy(modifier)) {
+      Value duplicate = Core::contains(seen, token);
+      if (Core::truthy(duplicate)) {
+        throw AxError("runtime", "Duplicate evidence modifier");
+      }
+      Core::append(seen, token);
+      Value count = Core::len(words);
+      Value arg = Core::list_get(words, Value(1), Value(""));
+      if (Core::truthy(e)) {
+        Value bad = Core::ne(count, Value(1));
+        if (Core::truthy(bad)) {
+          throw AxError("runtime", "evidence does not take an argument");
+        }
+      }
+      if (!Core::truthy(e)) {
+        Value bad = Core::ne(count, Value(2));
+        if (Core::truthy(bad)) {
+          throw AxError("runtime", "Evidence modifier requires one argument");
+        }
+        if (Core::truthy(t)) {
+          Value number = Core::json_parse(arg);
+          Core::set(evidence, Value("threshold"), number);
+        }
+        if (!Core::truthy(t)) {
+          Core::set(evidence, Value("onRefusal"), arg);
+        }
+      }
+    }
+    if (!Core::truthy(modifier)) {
+      Core::append(remaining, part);
+    }
+  }
+  Value has_evidence = Core::contains(seen, Value("evidence"));
+  Value has_policy = Core::truthy_value(seen);
+  Value missing_evidence = Core::not_(has_evidence);
+  Value invalid = Core::and_(has_policy, missing_evidence);
+  if (Core::truthy(invalid)) {
+    throw AxError("runtime", "threshold and refusal require the evidence modifier");
+  }
+  Value out = Value::object();
+  if (Core::truthy(has_evidence)) {
+    Core::set(out, Value("evidence"), evidence);
+  }
+  Value rest = Core::string_join(Value(", "), remaining);
+  Core::set(out, Value("rest"), rest);
+  return out;
+}
+
 Value Core::_signature_parse_fields_impl(Value text, Value output) {
   axir_coverage_mark("_signature_parse_fields_impl");
   Value parts = Core::string_split_top_level(text, Value(","));
@@ -3898,6 +4091,29 @@ Value Core::_signature_render_value_descriptions_impl(Value typ) {
         label = Core::string_format(Value("\"{}\""), escaped_key);
       }
       Value entry = Core::string_format(Value("{} \"{}\""), label, escaped);
+      Core::append(entries, entry);
+    }
+  }
+  return entries;
+}
+
+Value Core::_evidence_render_entries_impl(Value typ) {
+  axir_coverage_mark("_evidence_render_entries_impl");
+  Value entries = Value::array();
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value present = Core::is_not_none(evidence);
+  if (Core::truthy(present)) {
+    Core::append(entries, Value("evidence"));
+    Value threshold = Core::get(evidence, Value("threshold"), Value());
+    present = Core::is_not_none(threshold);
+    if (Core::truthy(present)) {
+      Value entry = Core::string_format(Value("threshold {}"), threshold);
+      Core::append(entries, entry);
+    }
+    Value policy = Core::get(evidence, Value("onRefusal"), Value());
+    present = Core::is_not_none(policy);
+    if (Core::truthy(present)) {
+      Value entry = Core::string_format(Value("refusal {}"), policy);
       Core::append(entries, entry);
     }
   }
@@ -4026,6 +4242,7 @@ Value Core::_signature_parse_field_common_impl(Value raw, Value output, Value ne
     Value type_pattern = Core::get(field_type, Value("pattern"), Value());
     Value type_pattern_description = Core::get(field_type, Value("pattern_description"), Value());
     Value type_value_descriptions = Core::get(field_type, Value("value_descriptions"), Value());
+    Value type_evidence = Core::get(field_type, Value("evidence"), Value());
     Value type_format = Core::get(field_type, Value("format"), Value());
     Value type_language = Core::get(field_type, Value("language"), Value());
     Core::set(type_attrs, Value("name"), type_name);
@@ -4039,6 +4256,7 @@ Value Core::_signature_parse_field_common_impl(Value raw, Value output, Value ne
     Core::set(type_attrs, Value("pattern"), type_pattern);
     Core::set(type_attrs, Value("pattern_description"), type_pattern_description);
     Core::set(type_attrs, Value("value_descriptions"), type_value_descriptions);
+    Core::set(type_attrs, Value("evidence"), type_evidence);
     Core::set(type_attrs, Value("format"), type_format);
     Core::set(type_attrs, Value("language"), type_language);
     Core::set(type_attrs, Value("description"), description);
@@ -4148,6 +4366,7 @@ Value Core::_signature_parse_base_type_impl(Value raw) {
   Core::append(types, Value("number"));
   Core::append(types, Value("object"));
   Core::append(types, Value("class"));
+  Core::append(types, Value("score"));
   Core::append(types, Value("image"));
   Core::append(types, Value("audio"));
   Core::append(types, Value("file"));
@@ -4218,12 +4437,10 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
     Core::raise_error(error);
   }
   Value is_class = Core::eq(type_name, Value("class"));
-  if (Core::truthy(is_class)) {
+  Value is_score = Core::eq(type_name, Value("score"));
+  Value is_enum = Core::or_(is_class, is_score);
+  if (Core::truthy(is_enum)) {
     Value input = Core::eq(section, Value("input"));
-    if (Core::truthy(input)) {
-      Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
-      Core::raise_error(error);
-    }
     Value bag = Core::string_starts_with(rest, Value("("));
     if (Core::truthy(bag)) {
       Value message = Core::string_format(Value("Field \"{}\": constraints are not supported on class fields"), field_name);
@@ -4247,6 +4464,14 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
       Value quoted_value = Core::get(quoted, Value("value"), Value());
       Value option_text = Core::string_replace(quoted_value, Value("|"), Value(","));
       Value options = Core::string_split_trim_nonempty(option_text, Value(","));
+      if (Core::truthy(is_score)) {
+        Value raw_options = Core::string_split_top_level(option_text, Value(","));
+        options = Value::array();
+        for (auto option : Core::iter(raw_options)) {
+          option = Core::string_trim(option);
+          Core::append(options, option);
+        }
+      }
       Value option_count = Core::len(options);
       Value empty_options = Core::eq(option_count, Value(0));
       if (Core::truthy(empty_options)) {
@@ -4254,7 +4479,7 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
         Core::raise_error(error);
       }
       Value attrs = Value::object();
-      Core::set(attrs, Value("name"), Value("class"));
+      Core::set(attrs, Value("name"), type_name);
       Core::set(attrs, Value("is_array"), is_array);
       Core::set(attrs, Value("options"), options);
       Value quoted_rest = Core::get(quoted, Value("rest"), Value());
@@ -4269,11 +4494,26 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
           Core::raise_error(error);
         }
         Value group_text = Core::get(group, Value("group"), Value());
-        Value descriptions = Core::_signature_parse_class_descriptions_impl(group_text, field_name);
-        Core::set(attrs, Value("value_descriptions"), descriptions);
+        Value policy = Core::_evidence_parse_options_impl(group_text);
+        Value evidence = Core::get(policy, Value("evidence"), Value());
+        Core::set(attrs, Value("evidence"), evidence);
+        Value description_text = Core::get(policy, Value("rest"), Value(""));
+        Value has_description_text = Core::ne(description_text, Value(""));
+        if (Core::truthy(has_description_text)) {
+          Value descriptions = Core::_signature_parse_class_descriptions_impl(description_text, field_name);
+          Core::set(attrs, Value("value_descriptions"), descriptions);
+        }
         quoted_rest = Core::get(group, Value("rest"), Value());
       }
+      quoted_rest = Core::string_trim(quoted_rest);
+      Value suffix_array = Core::string_starts_with(quoted_rest, Value("[]"));
+      if (Core::truthy(suffix_array)) {
+        Core::set(attrs, Value("is_array"), Value(true));
+        quoted_rest = Core::string_slice(quoted_rest, Value(2));
+        quoted_rest = Core::string_trim(quoted_rest);
+      }
       Value typ = Core::record_new(Value("FieldType"), attrs);
+      Core::_evidence_validate_type_impl(typ);
       Core::_signature_validate_value_descriptions_impl(typ, field_name);
       Value out = Value::object();
       Core::set(out, Value("type"), typ);
@@ -4374,6 +4614,71 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
   return out;
 }
 
+Value Core::_evidence_request_fields_impl(Value fields) {
+  axir_coverage_mark("_evidence_request_fields_impl");
+  Value out = Value::object();
+  for (auto field : Core::iter(fields)) {
+    Value typ = Core::get(field, Value("type"), Value());
+    Value decision = Core::_evidence_is_type_impl(typ);
+    if (Core::truthy(decision)) {
+      Value entry = Value::object();
+      Value name = Core::get(typ, Value("name"), Value());
+      Value labels = Core::get(typ, Value("options"), Value());
+      Value evidence = Core::get(typ, Value("evidence"), Value());
+      Value array = Core::get(typ, Value("is_array"), Value(false));
+      Value optional = Core::get(field, Value("is_optional"), Value(false));
+      Core::set(entry, Value("type"), name);
+      Core::set(entry, Value("options"), labels);
+      Core::set(entry, Value("evidence"), evidence);
+      Core::set(entry, Value("isArray"), array);
+      Core::set(entry, Value("isOptional"), optional);
+      Value key = Core::get(field, Value("name"), Value());
+      Core::set(out, key, entry);
+    }
+  }
+  return out;
+}
+
+Value Core::_evidence_placeholder_impl(Value typ) {
+  axir_coverage_mark("_evidence_placeholder_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value out = Value::object();
+  if (Core::truthy(is_boolean)) {
+    Core::set(out, Value("probability"), Value("<probability of true, 0 to 1>"));
+  }
+  if (!Core::truthy(is_boolean)) {
+    Value labels = Core::get(typ, Value("options"), Value());
+    Value ps = Value::object();
+    if (Core::truthy(score)) {
+      ps = Value::array();
+    }
+    for (auto label : Core::iter(labels)) {
+      if (Core::truthy(score)) {
+        Core::append(ps, Value("<probability, 0 to 1>"));
+      }
+      if (!Core::truthy(score)) {
+        Core::set(ps, label, Value("<probability, 0 to 1>"));
+      }
+    }
+    Core::set(out, Value("probabilities"), ps);
+  }
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+  Value return_policy = Core::eq(policy, Value("return"));
+  if (Core::truthy(return_policy)) {
+    Core::set(out, Value("status"), Value("answered"));
+  }
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  if (Core::truthy(array)) {
+    Value wrapped = Value::array();
+    Core::append(wrapped, out);
+    return wrapped;
+  }
+  return out;
+}
+
 Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, Value field_name, Value raw) {
   axir_coverage_mark("_signature_parse_modifier_bag_impl");
   Value text = Core::string_trim(raw);
@@ -4383,8 +4688,22 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
     Value error = Core::signature_error(message);
     Core::raise_error(error);
   }
-  Value parts = Core::string_split_top_level(raw, Value(","));
   Value attrs = Value::object();
+  Core::set(attrs, Value("name"), type_name);
+  Value decision_options = Core::_evidence_parse_options_impl(raw);
+  Value evidence = Core::get(decision_options, Value("evidence"), Value());
+  Core::set(attrs, Value("evidence"), evidence);
+  raw = Core::get(decision_options, Value("rest"), Value(""));
+  Value empty_decision_bag = Core::eq(raw, Value(""));
+  if (Core::truthy(empty_decision_bag)) {
+    Value out = Value::object();
+    Core::set(out, Value("attrs"), attrs);
+    Core::set(out, Value("is_cached"), Value(false));
+    Value typ = Core::record_new(Value("FieldType"), attrs);
+    Core::_evidence_validate_type_impl(typ);
+    return out;
+  }
+  Value parts = Core::string_split_top_level(raw, Value(","));
   Value seen = Value::array();
   Value state = Value::object();
   Core::set(state, Value("is_cached"), Value(false));
@@ -4654,6 +4973,77 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
   return out;
 }
 
+Value Core::_evidence_example_values_impl(Value fields, Value values) {
+  axir_coverage_mark("_evidence_example_values_impl");
+  Value empty = Value::object();
+  Value out = Core::map_merge(empty, values);
+  for (auto field : Core::iter(fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value typ = Core::get(field, Value("type"), Value());
+    Value value = Core::get(out, name, Value());
+    Value present = Core::is_not_none(value);
+    if (Core::truthy(present)) {
+      Value decision = Core::_evidence_is_type_impl(typ);
+      Value children = Core::get(typ, Value("fields"), Value());
+      Value has_children = Core::is_not_none(children);
+      Value array = Core::get(typ, Value("is_array"), Value(false));
+      Value items = Value::array();
+      if (Core::truthy(array)) {
+        items = value;
+      }
+      if (!Core::truthy(array)) {
+        Core::append(items, value);
+      }
+      Value converted = Value::array();
+      for (auto item : Core::iter(items)) {
+        Value object = Core::type_is(item, Value("object"));
+        if (Core::truthy(object)) {
+          if (Core::truthy(decision)) {
+            Value raw = Value::object();
+            Value status = Core::get(item, Value("status"), Value());
+            Value refused = Core::eq(status, Value("refused"));
+            if (Core::truthy(refused)) {
+              Core::set(raw, Value("status"), Value("refused"));
+            }
+            if (!Core::truthy(refused)) {
+              Value type_name = Core::get(typ, Value("name"), Value());
+              Value is_boolean = Core::eq(type_name, Value("boolean"));
+              Value key = Value("probabilities");
+              if (Core::truthy(is_boolean)) {
+                key = Value("probability");
+              }
+              Value probabilities = Core::get(item, key, Value());
+              Core::set(raw, key, probabilities);
+              Value evidence = Core::get(typ, Value("evidence"), Value());
+              Value policy = Core::get(evidence, Value("onRefusal"), Value());
+              Value return_policy = Core::eq(policy, Value("return"));
+              if (Core::truthy(return_policy)) {
+                Core::set(raw, Value("status"), Value("answered"));
+              }
+            }
+            item = raw;
+          }
+          if (!Core::truthy(decision)) {
+            if (Core::truthy(has_children)) {
+              Value nested = Core::fields_from_map(children);
+              item = Core::_evidence_example_values_impl(nested, item);
+            }
+          }
+        }
+        Core::append(converted, item);
+      }
+      if (Core::truthy(array)) {
+        Core::set(out, name, converted);
+      }
+      if (!Core::truthy(array)) {
+        Value single = Core::list_get(converted, Value(0));
+        Core::set(out, name, single);
+      }
+    }
+  }
+  return out;
+}
+
 Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value parent) {
   axir_coverage_mark("_signature_parse_object_fields_impl");
   Value text = Core::string_trim(raw);
@@ -4727,6 +5117,10 @@ Value Core::_signature_escape_string_impl(Value value) {
 Value Core::_signature_render_modifier_bag_impl(Value typ, Value is_cached) {
   axir_coverage_mark("_signature_render_modifier_bag_impl");
   Value entries = Core::_signature_render_value_descriptions_impl(typ);
+  Value evidence_entries = Core::_evidence_render_entries_impl(typ);
+  for (auto entry : Core::iter(evidence_entries)) {
+    Core::append(entries, entry);
+  }
   Value min_length = Core::get(typ, Value("min_length"), Value());
   Value minimum = Core::get(typ, Value("minimum"), Value());
   Value min = Core::coalesce(min_length, minimum);
@@ -4797,17 +5191,24 @@ Value Core::_signature_render_type_impl(Value typ, Value is_cached) {
   Value type_name = Core::get(typ, Value("name"), Value());
   Value is_array = Core::get(typ, Value("is_array"), Value(false));
   Value is_class = Core::eq(type_name, Value("class"));
+  Value is_score = Core::eq(type_name, Value("score"));
+  is_class = Core::or_(is_class, is_score);
   if (Core::truthy(is_class)) {
     Value state = Value::object();
-    Core::set(state, Value("value"), Value("class"));
+    Core::set(state, Value("value"), type_name);
     if (Core::truthy(is_array)) {
-      Core::set(state, Value("value"), Value("class[]"));
+      Value array_name = Core::string_format(Value("{}[]"), type_name);
+      Core::set(state, Value("value"), array_name);
     }
     Value options = Core::get(typ, Value("options"), Value());
     Value joined = Core::string_join(Value(" | "), options);
     Value class_name = Core::get(state, Value("value"), Value());
     Value result = Core::string_format(Value("{} \"{}\""), class_name, joined);
     Value entries = Core::_signature_render_value_descriptions_impl(typ);
+    Value evidence_entries = Core::_evidence_render_entries_impl(typ);
+    for (auto entry : Core::iter(evidence_entries)) {
+      Core::append(entries, entry);
+    }
     Value has_entries = Core::truthy_value(entries);
     if (Core::truthy(has_entries)) {
       Value body = Core::string_join(Value(", "), entries);
@@ -4933,11 +5334,13 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   }
   Value typ = Core::get(field, Value("type"), Value());
   Core::_signature_validate_value_descriptions_impl(typ, name);
+  Core::_evidence_validate_type_impl(typ);
   Value type_name = Core::get(typ, Value("name"), Value());
   Value valid_types = Value::array();
   Core::append(valid_types, Value("audio"));
   Core::append(valid_types, Value("boolean"));
   Core::append(valid_types, Value("class"));
+  Core::append(valid_types, Value("score"));
   Core::append(valid_types, Value("code"));
   Core::append(valid_types, Value("date"));
   Core::append(valid_types, Value("dateRange"));
@@ -4973,6 +5376,9 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   Value top_level = Core::not_(nested);
   Value input_class_base = Core::and_(is_class, is_input);
   Value input_class = Core::and_(input_class_base, top_level);
+  Value input_evidence = Core::get(typ, Value("evidence"), Value());
+  Value plain_class = Core::is_none(input_evidence);
+  input_class = Core::and_(input_class, plain_class);
   if (Core::truthy(input_class)) {
     Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
     Core::raise_error(error);
@@ -5415,6 +5821,93 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
   return Value();
 }
 
+Value Core::_evidence_schema_impl(Value typ) {
+  axir_coverage_mark("_evidence_schema_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value labels = Core::get(typ, Value("options"), Value());
+  Value p = Value::object();
+  Core::set(p, Value("type"), Value("number"));
+  Core::set(p, Value("minimum"), Value(0));
+  Core::set(p, Value("maximum"), Value(1));
+  Value props = Value::object();
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value required = Value::array();
+  if (Core::truthy(is_boolean)) {
+    Core::set(props, Value("probability"), p);
+    Core::append(required, Value("probability"));
+  }
+  if (!Core::truthy(is_boolean)) {
+    Value distribution = Value::object();
+    if (Core::truthy(score)) {
+      Core::set(distribution, Value("type"), Value("array"));
+      Core::set(distribution, Value("items"), p);
+      Value count = Core::len(labels);
+      Core::set(distribution, Value("minItems"), count);
+      Core::set(distribution, Value("maxItems"), count);
+      Value order = Core::string_join(Value(", "), labels);
+      Value hint = Core::string_format(Value("Probabilities in rubric order, lowest to highest: {}"), order);
+      Core::set(distribution, Value("description"), hint);
+    }
+    if (!Core::truthy(score)) {
+      Core::set(distribution, Value("type"), Value("object"));
+      Value ps = Value::object();
+      for (auto label : Core::iter(labels)) {
+        Core::set(ps, label, p);
+      }
+      Core::set(distribution, Value("properties"), ps);
+      Core::set(distribution, Value("required"), labels);
+      Core::set(distribution, Value("additionalProperties"), Value(false));
+    }
+    Core::set(props, Value("probabilities"), distribution);
+    Core::append(required, Value("probabilities"));
+  }
+  Value schema = Value::object();
+  Core::set(schema, Value("type"), Value("object"));
+  Core::set(schema, Value("properties"), props);
+  Core::set(schema, Value("required"), required);
+  Core::set(schema, Value("additionalProperties"), Value(false));
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+  Value return_policy = Core::eq(policy, Value("return"));
+  if (Core::truthy(return_policy)) {
+    Value status = Value::object();
+    Core::set(status, Value("type"), Value("string"));
+    Value answered = Value::array();
+    Core::append(answered, Value("answered"));
+    Core::set(status, Value("enum"), answered);
+    Core::set(props, Value("status"), status);
+    Core::append(required, Value("status"));
+    Value refused = Value::object();
+    Core::set(refused, Value("type"), Value("object"));
+    Value refusal_props = Value::object();
+    Value refusal_status = Value::object();
+    Core::set(refusal_status, Value("type"), Value("string"));
+    Value tags = Value::array();
+    Core::append(tags, Value("refused"));
+    Core::set(refusal_status, Value("enum"), tags);
+    Core::set(refusal_props, Value("status"), refusal_status);
+    Core::set(refused, Value("properties"), refusal_props);
+    Value keys = Value::array();
+    Core::append(keys, Value("status"));
+    Core::set(refused, Value("required"), keys);
+    Core::set(refused, Value("additionalProperties"), Value(false));
+    Value alternatives = Value::array();
+    Core::append(alternatives, schema);
+    Core::append(alternatives, refused);
+    schema = Value::object();
+    Core::set(schema, Value("anyOf"), alternatives);
+  }
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  if (Core::truthy(array)) {
+    Value wrapped = Value::object();
+    Core::set(wrapped, Value("type"), Value("array"));
+    Core::set(wrapped, Value("items"), schema);
+    schema = wrapped;
+  }
+  return schema;
+}
+
 Value Core::_validate_number_constraints_impl(Value value, Value field) {
   axir_coverage_mark("_validate_number_constraints_impl");
   Value typ = Core::get(field, Value("type"), Value());
@@ -5528,6 +6021,10 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     for (auto item : Core::iter(value)) {
       Core::_validate_value_impl(item_field, item, path);
     }
+    return Value();
+  }
+  Value decision = Core::_evidence_is_type_impl(typ);
+  if (Core::truthy(decision)) {
     return Value();
   }
   Value is_image = Core::eq(type_name, Value("image"));
@@ -5703,6 +6200,25 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
   return Value();
 }
 
+Value Core::_evidence_probability_impl(Value v, Value path) {
+  axir_coverage_mark("_evidence_probability_impl");
+  Value valid = Core::type_is(v, Value("number"));
+  if (Core::truthy(valid)) {
+    Value finite = Core::math_is_finite(v);
+    Value low = Core::gte(v, Value(0));
+    Value high = Core::lte(v, Value(1));
+    Value range = Core::and_(low, high);
+    valid = Core::and_(finite, range);
+  }
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("Invalid probability for {}"), path);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  return v;
+}
+
 Value Core::_schema_nullable_optional_impl(Value schema, Value field, Value options) {
   axir_coverage_mark("_schema_nullable_optional_impl");
   Value is_optional = Core::get(field, Value("is_optional"), Value(false));
@@ -5770,6 +6286,19 @@ Value Core::_schema_field_schema_impl(Value field, Value is_nested, Value option
   axir_coverage_mark("_schema_field_schema_impl");
   Value typ = Core::get(field, Value("type"), Value());
   Value type_name = Core::get(typ, Value("name"), Value());
+  Value decision = Core::_evidence_is_type_impl(typ);
+  if (Core::truthy(decision)) {
+    Value schema = Core::_evidence_schema_impl(typ);
+    Value decision_mode = Core::get(options, Value("decisionMode"), Value("request"));
+    Value result_mode = Core::eq(decision_mode, Value("result"));
+    if (Core::truthy(result_mode)) {
+      schema = Core::_evidence_result_schema_impl(typ);
+    }
+    Value description = Core::_signature_describe_field_values_impl(field);
+    Core::set(schema, Value("description"), description);
+    Value nullable = Core::_schema_nullable_optional_impl(schema, field, options);
+    return nullable;
+  }
   Value media_types = Value::array();
   Core::append(media_types, Value("image"));
   Core::append(media_types, Value("audio"));
@@ -5941,6 +6470,141 @@ Value Core::_schema_to_json_schema_impl(Value fields, Value schema_title, Value 
         Core::append(required, field_name);
       }
     }
+  }
+  return schema;
+}
+
+Value Core::_evidence_result_schema_impl(Value typ) {
+  axir_coverage_mark("_evidence_result_schema_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value levels = Core::get(typ, Value("options"), Value());
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value p = Value::object();
+  Core::set(p, Value("type"), Value("number"));
+  Core::set(p, Value("minimum"), Value(0));
+  Core::set(p, Value("maximum"), Value(1));
+  Value value = Value::object();
+  if (Core::truthy(is_boolean)) {
+    Core::set(value, Value("type"), Value("boolean"));
+  }
+  if (!Core::truthy(is_boolean)) {
+    if (Core::truthy(score)) {
+      Core::set(value, Value("type"), Value("number"));
+      Core::set(value, Value("minimum"), Value(0));
+      Value count = Core::len(levels);
+      Value maximum = Core::add(count, Value(-1));
+      Core::set(value, Value("maximum"), maximum);
+    }
+    if (!Core::truthy(score)) {
+      Core::set(value, Value("type"), Value("string"));
+      Core::set(value, Value("enum"), levels);
+    }
+  }
+  Value plain = Core::is_none(evidence);
+  Value plain_score = Core::and_(plain, score);
+  Value schema = value;
+  Value rich = Core::not_(plain_score);
+  if (Core::truthy(rich)) {
+    schema = Value::object();
+    Core::set(schema, Value("type"), Value("object"));
+    Value props = Value::object();
+    Core::set(props, Value("value"), value);
+    Value provenance = Value::object();
+    Core::set(provenance, Value("type"), Value("object"));
+    Value provenance_props = Value::object();
+    Value text = Value::object();
+    Core::set(text, Value("type"), Value("string"));
+    Value source = Value::object();
+    Core::set(source, Value("type"), Value("string"));
+    Value sources = Value::array();
+    Core::append(sources, Value("native"));
+    Core::append(sources, Value("elicited"));
+    Core::set(source, Value("enum"), sources);
+    Core::set(provenance_props, Value("source"), source);
+    Core::set(provenance_props, Value("provider"), text);
+    Core::set(provenance_props, Value("model"), text);
+    Core::set(provenance, Value("properties"), provenance_props);
+    Value provenance_required = Value::array();
+    Core::append(provenance_required, Value("source"));
+    Core::append(provenance_required, Value("provider"));
+    Core::set(provenance, Value("required"), provenance_required);
+    Core::set(provenance, Value("additionalProperties"), Value(false));
+    Core::set(props, Value("provenance"), provenance);
+    if (Core::truthy(is_boolean)) {
+      Core::set(props, Value("probability"), p);
+      Core::set(props, Value("threshold"), p);
+    }
+    if (!Core::truthy(is_boolean)) {
+      Value ps = Value::object();
+      if (Core::truthy(score)) {
+        Core::set(ps, Value("type"), Value("array"));
+        Core::set(ps, Value("items"), p);
+        Value labels = Value::object();
+        Core::set(labels, Value("type"), Value("array"));
+        Core::set(labels, Value("items"), text);
+        Core::set(props, Value("levels"), labels);
+      }
+      if (!Core::truthy(score)) {
+        Core::set(ps, Value("type"), Value("object"));
+        Value probability_props = Value::object();
+        for (auto label : Core::iter(levels)) {
+          Core::set(probability_props, label, p);
+        }
+        Core::set(ps, Value("properties"), probability_props);
+        Core::set(ps, Value("required"), levels);
+        Core::set(ps, Value("additionalProperties"), Value(false));
+      }
+      Core::set(props, Value("probabilities"), ps);
+    }
+    Value required = Core::map_keys(props);
+    Core::set(schema, Value("required"), required);
+    Core::set(schema, Value("properties"), props);
+    Core::set(schema, Value("additionalProperties"), Value(false));
+    Value non_boolean = Core::not_(is_boolean);
+    if (Core::truthy(non_boolean)) {
+      Core::set(props, Value("confidence"), p);
+    }
+    Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+    Value return_policy = Core::eq(policy, Value("return"));
+    if (Core::truthy(return_policy)) {
+      Value status = Value::object();
+      Core::set(status, Value("type"), Value("string"));
+      Value answered = Value::array();
+      Core::append(answered, Value("answered"));
+      Core::set(status, Value("enum"), answered);
+      Core::set(props, Value("status"), status);
+      Core::append(required, Value("status"));
+      Value refusal = Value::object();
+      Core::set(refusal, Value("type"), Value("object"));
+      Value refusal_props = Value::object();
+      Value refusal_status = Value::object();
+      Core::set(refusal_status, Value("type"), Value("string"));
+      Value refused = Value::array();
+      Core::append(refused, Value("refused"));
+      Core::set(refusal_status, Value("enum"), refused);
+      Core::set(refusal_props, Value("status"), refusal_status);
+      Core::set(refusal_props, Value("provenance"), provenance);
+      Core::set(refusal, Value("properties"), refusal_props);
+      Value refusal_required = Value::array();
+      Core::append(refusal_required, Value("status"));
+      Core::append(refusal_required, Value("provenance"));
+      Core::set(refusal, Value("required"), refusal_required);
+      Core::set(refusal, Value("additionalProperties"), Value(false));
+      Value alternatives = Value::array();
+      Core::append(alternatives, schema);
+      Core::append(alternatives, refusal);
+      schema = Value::object();
+      Core::set(schema, Value("anyOf"), alternatives);
+    }
+  }
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  if (Core::truthy(array)) {
+    Value wrapped = Value::object();
+    Core::set(wrapped, Value("type"), Value("array"));
+    Core::set(wrapped, Value("items"), schema);
+    schema = wrapped;
   }
   return schema;
 }
@@ -7325,7 +7989,7 @@ Value Core::typesafe_build_chat_request(Value request, Value options) {
   Value format_type = Core::get(format, Value("type"), Value());
   Value wrong_format = Core::ne(format_type, Value("json_schema"));
   if (Core::truthy(wrong_format)) {
-    throw AxError("runtime", "Typesafe requires an output schema. Use ax() with required boolean or class outputs");
+    throw AxError("runtime", "Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs");
   }
   Value wrapper = Core::get(format, Value("schema"), Value());
   Core::typesafe_require_object(wrapper, Value("responseFormat.schema"));
@@ -7353,12 +8017,36 @@ Value Core::typesafe_build_chat_request(Value request, Value options) {
   Core::typesafe_require_object(properties, Value("output properties"));
   Value required = Core::get(schema, Value("required"), empty_list);
   Value annotations = Core::get(format, Value("fieldDescriptions"), empty_map);
+  Value decision_fields = Core::get(format, Value("decisionFields"), empty_map);
   Value questions = Value::object();
   Value names = Core::map_keys(properties);
   Core::append(forbidden, Value("const"));
   for (auto name : Core::iter(names)) {
     Value field = Core::get(properties, name, Value());
     Core::typesafe_require_object(field, name);
+    Value decision = Core::get(decision_fields, name, Value());
+    Value rich = Core::is_not_none(decision);
+    if (Core::truthy(rich)) {
+      Value array = Core::get(decision, Value("isArray"), Value(false));
+      Value optional = Core::get(decision, Value("isOptional"), Value(false));
+      Value invalid = Core::or_(array, optional);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "Decision providers require flat, required scalar outputs");
+      }
+      Value wire_description = Core::get(field, Value("description"), Value());
+      field = Value::object();
+      Value kind = Core::get(decision, Value("type"), Value());
+      Value class_kind = Core::eq(kind, Value("class"));
+      if (Core::truthy(class_kind)) {
+        kind = Value("string");
+      }
+      Core::set(field, Value("type"), kind);
+      Core::set(field, Value("description"), wire_description);
+      if (Core::truthy(class_kind)) {
+        Value labels = Core::get(decision, Value("options"), Value());
+        Core::set(field, Value("enum"), labels);
+      }
+    }
     Value supported = Core::contains(required, name);
     for (auto key : Core::iter(forbidden)) {
       Value has_key = Core::map_contains(field, key);
@@ -7376,10 +8064,12 @@ Value Core::typesafe_build_chat_request(Value request, Value options) {
     Value is_enum = Core::type_is(class_options, Value("list"));
     Value is_class = Core::and_(is_string, is_enum);
     Value supported_type = Core::or_(is_boolean, is_class);
+    Value is_score = Core::eq(type_name, Value("score"));
+    supported_type = Core::or_(supported_type, is_score);
     supported = Core::and_(supported, supported_type);
     Value unsupported = Core::not_(supported);
     if (Core::truthy(unsupported)) {
-      Value message = Core::string_format(Value("Typesafe cannot evaluate output {}. Use required boolean or class fields; use typesafe().systemOne() for scoring, or a generative provider for other outputs"), name);
+      Value message = Core::string_format(Value("Typesafe cannot evaluate output {}. Use required boolean, class or rubric score fields, or a generative provider for other outputs"), name);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -7416,6 +8106,13 @@ Value Core::typesafe_build_chat_request(Value request, Value options) {
     }
     Value question = Value::object();
     Core::set(question, Value("instructions"), instructions);
+    if (Core::truthy(is_score)) {
+      Core::set(question, Value("type"), Value("score"));
+      Value levels = Core::get(decision, Value("options"), Value());
+      Core::set(question, Value("criteria"), levels);
+      Core::set(questions, name, question);
+      continue;
+    }
     if (Core::truthy(is_boolean)) {
       Core::set(question, Value("type"), Value("noul"));
       if (Core::truthy(has_annotation)) {
@@ -7649,7 +8346,7 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
   Value format_type = Core::get(format, Value("type"), Value());
   Value wrong_format = Core::ne(format_type, Value("json_schema"));
   if (Core::truthy(wrong_format)) {
-    throw AxError("runtime", "OpenAI Decisions requires an output schema. Use ax() with required boolean or class outputs");
+    throw AxError("runtime", "OpenAI Decisions requires an output schema. Use ax() with required boolean, class or rubric score outputs");
   }
   Value wrapper = Core::get(format, Value("schema"), Value());
   Core::decisions_require_object(wrapper, Value("responseFormat.schema"));
@@ -7677,6 +8374,7 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
   Core::decisions_require_object(properties, Value("output properties"));
   Value required = Core::get(schema, Value("required"), empty_list);
   Value annotations = Core::get(format, Value("fieldDescriptions"), empty_map);
+  Value decision_fields = Core::get(format, Value("decisionFields"), empty_map);
   Value questions = Value::array();
   Value names = Core::map_keys(properties);
   Core::append(forbidden, Value("const"));
@@ -7684,6 +8382,29 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
     Value field = Core::get(properties, name, Value());
     Core::decisions_require_object(field, name);
     Value required_list = Core::type_is(required, Value("list"));
+    Value decision = Core::get(decision_fields, name, Value());
+    Value rich = Core::is_not_none(decision);
+    if (Core::truthy(rich)) {
+      Value array = Core::get(decision, Value("isArray"), Value(false));
+      Value optional = Core::get(decision, Value("isOptional"), Value(false));
+      Value invalid = Core::or_(array, optional);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "Decision providers require flat, required scalar outputs");
+      }
+      Value wire_description = Core::get(field, Value("description"), Value());
+      field = Value::object();
+      Value kind = Core::get(decision, Value("type"), Value());
+      Value class_kind = Core::eq(kind, Value("class"));
+      if (Core::truthy(class_kind)) {
+        kind = Value("string");
+      }
+      Core::set(field, Value("type"), kind);
+      Core::set(field, Value("description"), wire_description);
+      if (Core::truthy(class_kind)) {
+        Value labels = Core::get(decision, Value("options"), Value());
+        Core::set(field, Value("enum"), labels);
+      }
+    }
     Value supported = Core::contains(required, name);
     supported = Core::and_(supported, required_list);
     for (auto key : Core::iter(forbidden)) {
@@ -7702,10 +8423,12 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
     Value is_enum = Core::type_is(class_options, Value("list"));
     Value is_class = Core::and_(is_string, is_enum);
     Value supported_type = Core::or_(is_boolean, is_class);
+    Value is_score = Core::eq(type_name, Value("score"));
+    supported_type = Core::or_(supported_type, is_score);
     supported = Core::and_(supported, supported_type);
     Value unsupported = Core::not_(supported);
     if (Core::truthy(unsupported)) {
-      Value message = Core::string_format(Value("OpenAI Decisions cannot evaluate output {}. Use required boolean or class fields; use openai_decisions().create() for scoring, or a generative provider for other outputs"), name);
+      Value message = Core::string_format(Value("OpenAI Decisions cannot evaluate output {}. Use required boolean, class or rubric score fields; use a generative provider for other outputs"), name);
       Value error = Core::validation_error(message);
       Core::raise_error(error);
     }
@@ -7742,6 +8465,20 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
     }
     Value question = Value::object();
     Core::set(question, Value("instructions"), instructions);
+    if (Core::truthy(is_score)) {
+      Core::set(question, Value("type"), Value("score"));
+      Value labels = Core::get(decision, Value("options"), Value());
+      Value levels = Value::array();
+      for (auto label : Core::iter(labels)) {
+        Value level = Value::object();
+        Core::set(level, Value("label"), label);
+        Core::append(levels, level);
+      }
+      Core::set(question, Value("levels"), levels);
+      Core::set(question, Value("name"), name);
+      Core::append(questions, question);
+      continue;
+    }
     if (Core::truthy(is_boolean)) {
       Core::set(question, Value("type"), Value("predicate"));
       if (Core::truthy(has_annotation)) {
@@ -8164,59 +8901,6 @@ Value Core::_url_part_text_impl(Value part) {
   return text;
 }
 
-Value Core::typesafe_normalize_chat_response(Value raw, Value context) {
-  axir_coverage_mark("typesafe_normalize_chat_response");
-  Value questions = Core::get(context, Value("questions"), Value());
-  Core::typesafe_require_object(questions, Value("response request questions"));
-  raw = Core::typesafe_decode_response(raw, questions);
-  Value threshold = Core::get(context, Value("trueThreshold"), Value(0.5));
-  Core::typesafe_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
-  Value answers = Core::get(raw, Value("answers"), Value());
-  Value values = Value::object();
-  Value names = Core::map_keys(questions);
-  for (auto name : Core::iter(names)) {
-    Value answer = Core::get(answers, name, Value());
-    Value kind = Core::get(answer, Value("type"), Value());
-    Value is_noul = Core::eq(kind, Value("noul"));
-    Value value = Core::get(answer, Value("choice"), Value());
-    if (Core::truthy(is_noul)) {
-      Value probability = Core::get(answer, Value("noul"), Value());
-      Value below = Core::lt(probability, threshold);
-      value = Core::not_(below);
-    }
-    Core::set(values, name, value);
-  }
-  Value content = Core::json_stringify(values);
-  Value result = Value::object();
-  Core::set(result, Value("index"), Value(0));
-  Core::set(result, Value("content"), content);
-  Core::set(result, Value("finishReason"), Value("stop"));
-  Value results = Value::array();
-  Core::append(results, result);
-  Value usage = Core::get(raw, Value("usage"), Value());
-  Value input = Core::get(usage, Value("input_tokens"), Value());
-  Value output = Core::get(usage, Value("output_tokens"), Value());
-  Value total = Core::add(input, output);
-  Value tokens = Value::object();
-  Core::set(tokens, Value("promptTokens"), input);
-  Core::set(tokens, Value("completionTokens"), output);
-  Core::set(tokens, Value("totalTokens"), total);
-  Value model_usage = Value::object();
-  Value model = Core::get(raw, Value("model"), Value());
-  Core::set(model_usage, Value("ai"), Value("Typesafe"));
-  Core::set(model_usage, Value("model"), model);
-  Core::set(model_usage, Value("tokens"), tokens);
-  Value typesafe_metadata = Value::object();
-  Core::set(typesafe_metadata, Value("answers"), answers);
-  Value metadata = Value::object();
-  Core::set(metadata, Value("typesafe"), typesafe_metadata);
-  Value response = Value::object();
-  Core::set(response, Value("results"), results);
-  Core::set(response, Value("modelUsage"), model_usage);
-  Core::set(response, Value("providerMetadata"), metadata);
-  return response;
-}
-
 Value Core::_openai_content_part_impl(Value part) {
   axir_coverage_mark("_openai_content_part_impl");
   Value type = Core::get(part, Value("type"), Value());
@@ -8354,14 +9038,121 @@ Value Core::_openai_content_part_impl(Value part) {
   Core::raise_error(error);
 }
 
-Value Core::typesafe_response_context(Value payload, Value options) {
-  axir_coverage_mark("typesafe_response_context");
-  Value empty = Value::object();
-  Value context = Core::map_merge(empty, payload);
-  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
-  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
-  Core::set(context, Value("trueThreshold"), threshold);
-  return context;
+Value Core::typesafe_normalize_chat_response(Value raw, Value context) {
+  axir_coverage_mark("typesafe_normalize_chat_response");
+  Value questions = Core::get(context, Value("questions"), Value());
+  Core::typesafe_require_object(questions, Value("response request questions"));
+  raw = Core::typesafe_decode_response(raw, questions);
+  Value threshold = Core::get(context, Value("trueThreshold"), Value(0.5));
+  Core::typesafe_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
+  Value answers = Core::get(raw, Value("answers"), Value());
+  Value values = Value::object();
+  Value decision_fields = Core::get(context, Value("decisionFields"), Value());
+  Value native_state = Value::object();
+  Value names = Core::map_keys(questions);
+  for (auto name : Core::iter(names)) {
+    Value answer = Core::get(answers, name, Value());
+    Value kind = Core::get(answer, Value("type"), Value());
+    Value decision = Core::get(decision_fields, name, Value());
+    Value rich = Core::is_not_none(decision);
+    if (Core::truthy(rich)) {
+      Value raw_evidence = Value::object();
+      Value native_evidence = Value::object();
+      Value refusal = Core::eq(kind, Value("refusal"));
+      if (Core::truthy(refusal)) {
+        Core::set(raw_evidence, Value("status"), Value("refused"));
+        Core::set(native_evidence, Value("refused"), Value(true));
+      }
+      if (!Core::truthy(refusal)) {
+        Value is_boolean = Core::eq(kind, Value("noul"));
+        if (Core::truthy(is_boolean)) {
+          Value p = Core::get(answer, Value("noul"), Value());
+          Core::set(raw_evidence, Value("probability"), p);
+        }
+        if (!Core::truthy(is_boolean)) {
+          Value ps = Value::object();
+          Value value = Value(0);
+          Value distribution = Core::get(answer, Value("probabilities"), Value());
+          Value score = Core::eq(kind, Value("score"));
+          if (Core::truthy(score)) {
+            Value labels = Core::get(decision, Value("options"), Value());
+            ps = Value::array();
+            Value index = Value(0);
+            for (auto label : Core::iter(labels)) {
+              Value key = Core::string_format(Value("{}"), index);
+              Value p = Core::get(distribution, key, Value());
+              Core::append(ps, p);
+              index = Core::add(index, Value(1));
+            }
+            value = Core::get(answer, Value("score"), Value());
+          }
+          if (!Core::truthy(score)) {
+            ps = distribution;
+            value = Core::get(answer, Value("choice"), Value());
+          }
+          Core::set(raw_evidence, Value("probabilities"), ps);
+          Core::set(native_evidence, Value("value"), value);
+          Value confidence = Core::get(answer, Value("confidence"), Value());
+          Value has_confidence = Core::is_not_none(confidence);
+          if (Core::truthy(has_confidence)) {
+            Core::set(native_evidence, Value("confidence"), confidence);
+          }
+        }
+      }
+      Core::set(values, name, raw_evidence);
+      Core::set(native_state, name, native_evidence);
+      continue;
+    }
+    Value is_noul = Core::eq(kind, Value("noul"));
+    Value value = Core::get(answer, Value("choice"), Value());
+    if (Core::truthy(is_noul)) {
+      Value probability = Core::get(answer, Value("noul"), Value());
+      Value below = Core::lt(probability, threshold);
+      value = Core::not_(below);
+    }
+    Core::set(values, name, value);
+  }
+  Value content = Core::json_stringify(values);
+  Value result = Value::object();
+  Value trusted = Value::object();
+  Value provenance = Value::object();
+  Core::set(provenance, Value("source"), Value("native"));
+  Core::set(provenance, Value("provider"), Value("Typesafe"));
+  Value model = Core::get(raw, Value("model"), Value());
+  Core::set(provenance, Value("model"), model);
+  Core::set(trusted, Value("provenance"), provenance);
+  Core::set(trusted, Value("native"), native_state);
+  Value has_native = Core::truthy_value(native_state);
+  if (Core::truthy(has_native)) {
+    Core::set(result, Value("decisionContext"), trusted);
+  }
+  Core::set(result, Value("index"), Value(0));
+  Core::set(result, Value("content"), content);
+  Core::set(result, Value("finishReason"), Value("stop"));
+  Value results = Value::array();
+  Core::append(results, result);
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Value input = Core::get(usage, Value("input_tokens"), Value());
+  Value output = Core::get(usage, Value("output_tokens"), Value());
+  Value total = Core::add(input, output);
+  Value tokens = Value::object();
+  Core::set(tokens, Value("promptTokens"), input);
+  Core::set(tokens, Value("completionTokens"), output);
+  Core::set(tokens, Value("totalTokens"), total);
+  Value model_usage = Value::object();
+  model = Core::get(raw, Value("model"), Value());
+  Core::set(model_usage, Value("ai"), Value("Typesafe"));
+  Core::set(model_usage, Value("model"), model);
+  Core::set(model_usage, Value("tokens"), tokens);
+  Value typesafe_metadata = Value::object();
+  Core::set(typesafe_metadata, Value("answers"), answers);
+  Value metadata = Value::object();
+  Core::set(metadata, Value("typesafe"), typesafe_metadata);
+  Value response = Value::object();
+  Core::set(response, Value("results"), results);
+  Core::set(response, Value("modelUsage"), model_usage);
+  Core::set(response, Value("providerMetadata"), metadata);
+  return response;
 }
 
 Value Core::merge_usage_context(Value defaults, Value overrides) {
@@ -8375,30 +9166,6 @@ Value Core::merge_usage_context(Value defaults, Value overrides) {
     Core::set(merged, Value("attributes"), attributes);
   }
   return merged;
-}
-
-Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
-  axir_coverage_mark("provider_validate_chat_request");
-  Value canonical = Core::provider_normalize_profile(profile);
-  Value is_decisions = Core::eq(canonical, Value("openai-decisions"));
-  if (Core::truthy(is_decisions)) {
-    Core::decisions_build_chat_request(request, options);
-  }
-  Value is_typesafe = Core::eq(canonical, Value("typesafe"));
-  if (Core::truthy(is_typesafe)) {
-    Core::typesafe_build_chat_request(request, options);
-  }
-  return Value();
-}
-
-Value Core::decisions_response_context(Value payload, Value options) {
-  axir_coverage_mark("decisions_response_context");
-  Value empty = Value::object();
-  Value context = Core::map_merge(empty, payload);
-  Value snake = Core::get(options, Value("true_threshold"), Value(0.5));
-  Value threshold = Core::get(options, Value("trueThreshold"), snake);
-  Core::set(context, Value("trueThreshold"), threshold);
-  return context;
 }
 
 Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
@@ -8467,6 +9234,20 @@ Value Core::build_usage_event(Value operation, Value response, Value options, Va
   return event;
 }
 
+Value Core::decisions_response_context(Value payload, Value options, Value request) {
+  axir_coverage_mark("decisions_response_context");
+  Value empty = Value::object();
+  Value context = Core::map_merge(empty, payload);
+  Value snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), snake);
+  Core::set(context, Value("trueThreshold"), threshold);
+  Value format_snake = Core::get(request, Value("response_format"), Value());
+  Value format = Core::get(request, Value("responseFormat"), format_snake);
+  Value decision_fields = Core::get(format, Value("decisionFields"), Value());
+  Core::set(context, Value("decisionFields"), decision_fields);
+  return context;
+}
+
 Value Core::decisions_normalize_chat_response(Value raw, Value context) {
   axir_coverage_mark("decisions_normalize_chat_response");
   Value questions = Core::get(context, Value("questions"), Value());
@@ -8476,8 +9257,70 @@ Value Core::decisions_normalize_chat_response(Value raw, Value context) {
   Core::decisions_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
   Value answers = Core::get(raw, Value("answers"), Value());
   Value values = Value::object();
+  Value decision_fields = Core::get(context, Value("decisionFields"), Value());
+  Value native_state = Value::object();
   for (auto answer : Core::iter(answers)) {
+    Value name = Core::get(answer, Value("name"), Value());
     Value kind = Core::get(answer, Value("type"), Value());
+    Value decision = Core::get(decision_fields, name, Value());
+    Value rich = Core::is_not_none(decision);
+    if (Core::truthy(rich)) {
+      Value raw_evidence = Value::object();
+      Value native_evidence = Value::object();
+      Value refusal = Core::eq(kind, Value("refusal"));
+      if (Core::truthy(refusal)) {
+        Core::set(raw_evidence, Value("status"), Value("refused"));
+        Core::set(native_evidence, Value("refused"), Value(true));
+      }
+      if (!Core::truthy(refusal)) {
+        Value is_boolean = Core::eq(kind, Value("predicate"));
+        if (Core::truthy(is_boolean)) {
+          Value p = Core::get(answer, Value("probability"), Value());
+          Core::set(raw_evidence, Value("probability"), p);
+        }
+        if (!Core::truthy(is_boolean)) {
+          Value ps = Value::object();
+          Value value = Value(0);
+          Value distribution = Core::get(answer, Value("probabilities"), Value());
+          Value score = Core::eq(kind, Value("score"));
+          ps = Value::object();
+          for (auto entry : Core::iter(distribution)) {
+            Value key = Core::get(entry, Value("value"), Value());
+            Value p = Core::get(entry, Value("probability"), Value());
+            if (Core::truthy(score)) {
+              key = Core::string_format(Value("{}"), key);
+            }
+            Core::set(ps, key, p);
+          }
+          if (Core::truthy(score)) {
+            Value labels = Core::get(decision, Value("options"), Value());
+            Value ordered = Value::array();
+            Value index = Value(0);
+            for (auto label : Core::iter(labels)) {
+              Value key = Core::string_format(Value("{}"), index);
+              Value p = Core::get(ps, key, Value());
+              Core::append(ordered, p);
+              index = Core::add(index, Value(1));
+            }
+            ps = ordered;
+            value = Core::get(answer, Value("score"), Value());
+          }
+          if (!Core::truthy(score)) {
+            value = Core::get(answer, Value("choice"), Value());
+          }
+          Core::set(raw_evidence, Value("probabilities"), ps);
+          Core::set(native_evidence, Value("value"), value);
+          Value confidence = Core::get(answer, Value("confidence"), Value());
+          Value has_confidence = Core::is_not_none(confidence);
+          if (Core::truthy(has_confidence)) {
+            Core::set(native_evidence, Value("confidence"), confidence);
+          }
+        }
+      }
+      Core::set(values, name, raw_evidence);
+      Core::set(native_state, name, native_evidence);
+      continue;
+    }
     Value refusal = Core::eq(kind, Value("refusal"));
     if (Core::truthy(refusal)) {
       throw AxError("runtime", "OpenAI Decisions refused question");
@@ -8486,7 +9329,7 @@ Value Core::decisions_normalize_chat_response(Value raw, Value context) {
     if (Core::truthy(score)) {
       throw AxError("runtime", "OpenAI Decisions scoring requires the native client");
     }
-    Value name = Core::get(answer, Value("name"), Value());
+    name = Core::get(answer, Value("name"), Value());
     Value predicate = Core::eq(kind, Value("predicate"));
     Value value = Core::get(answer, Value("choice"), Value());
     if (Core::truthy(predicate)) {
@@ -8498,6 +9341,18 @@ Value Core::decisions_normalize_chat_response(Value raw, Value context) {
   }
   Value content = Core::json_stringify(values);
   Value result = Value::object();
+  Value trusted = Value::object();
+  Value provenance = Value::object();
+  Core::set(provenance, Value("source"), Value("native"));
+  Core::set(provenance, Value("provider"), Value("OpenAI Decisions"));
+  Value model = Core::get(raw, Value("model"), Value());
+  Core::set(provenance, Value("model"), model);
+  Core::set(trusted, Value("provenance"), provenance);
+  Core::set(trusted, Value("native"), native_state);
+  Value has_native = Core::truthy_value(native_state);
+  if (Core::truthy(has_native)) {
+    Core::set(result, Value("decisionContext"), trusted);
+  }
   Core::set(result, Value("index"), Value(0));
   Core::set(result, Value("content"), content);
   Core::set(result, Value("finishReason"), Value("stop"));
@@ -8534,7 +9389,7 @@ Value Core::decisions_normalize_chat_response(Value raw, Value context) {
   }
   Core::set(tokens, Value("reasoningTokens"), reasoning);
   Value model_usage = Value::object();
-  Value model = Core::get(raw, Value("model"), Value());
+  model = Core::get(raw, Value("model"), Value());
   Core::set(model_usage, Value("ai"), Value("OpenAI Decisions"));
   Core::set(model_usage, Value("model"), model);
   Core::set(model_usage, Value("tokens"), tokens);
@@ -8547,6 +9402,20 @@ Value Core::decisions_normalize_chat_response(Value raw, Value context) {
   Core::set(response, Value("modelUsage"), model_usage);
   Core::set(response, Value("providerMetadata"), metadata);
   return response;
+}
+
+Value Core::typesafe_response_context(Value payload, Value options, Value request) {
+  axir_coverage_mark("typesafe_response_context");
+  Value empty = Value::object();
+  Value context = Core::map_merge(empty, payload);
+  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
+  Core::set(context, Value("trueThreshold"), threshold);
+  Value format_snake = Core::get(request, Value("response_format"), Value());
+  Value format = Core::get(request, Value("responseFormat"), format_snake);
+  Value decision_fields = Core::get(format, Value("decisionFields"), Value());
+  Core::set(context, Value("decisionFields"), decision_fields);
+  return context;
 }
 
 Value Core::_openai_tool_call_to_provider_impl(Value call) {
@@ -8589,6 +9458,20 @@ Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
   return out;
 }
 
+Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
+  axir_coverage_mark("provider_validate_chat_request");
+  Value canonical = Core::provider_normalize_profile(profile);
+  Value is_decisions = Core::eq(canonical, Value("openai-decisions"));
+  if (Core::truthy(is_decisions)) {
+    Core::decisions_build_chat_request(request, options);
+  }
+  Value is_typesafe = Core::eq(canonical, Value("typesafe"));
+  if (Core::truthy(is_typesafe)) {
+    Core::typesafe_build_chat_request(request, options);
+  }
+  return Value();
+}
+
 Value Core::_openai_tool_spec_impl(Value fn) {
   axir_coverage_mark("_openai_tool_spec_impl");
   Value name = Core::get(fn, Value("name"), Value());
@@ -8605,31 +9488,6 @@ Value Core::_openai_tool_spec_impl(Value fn) {
   Core::set(out, Value("type"), Value("function"));
   Core::set(out, Value("function"), function);
   return out;
-}
-
-Value Core::provider_merge_headers(Value base, Value override) {
-  axir_coverage_mark("provider_merge_headers");
-  Value headers = Value::object();
-  Value groups = Value::array();
-  Core::append(groups, base);
-  Core::append(groups, override);
-  for (auto group : Core::iter(groups)) {
-    Value keys = Core::map_keys(group);
-    for (auto key : Core::iter(keys)) {
-      Value lower = Core::string_lower(key);
-      Value existing = Core::map_keys(headers);
-      for (auto name : Core::iter(existing)) {
-        Value existing_lower = Core::string_lower(name);
-        Value same = Core::eq(lower, existing_lower);
-        if (Core::truthy(same)) {
-          Core::map_delete(headers, name);
-        }
-      }
-      Value value = Core::get(group, key, Value());
-      Core::set(headers, key, value);
-    }
-  }
-  return headers;
 }
 
 Value Core::ai_merge_replay_metadata(Value previous, Value incoming) {
@@ -8836,6 +9694,31 @@ Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value
   return out;
 }
 
+Value Core::provider_merge_headers(Value base, Value override) {
+  axir_coverage_mark("provider_merge_headers");
+  Value headers = Value::object();
+  Value groups = Value::array();
+  Core::append(groups, base);
+  Core::append(groups, override);
+  for (auto group : Core::iter(groups)) {
+    Value keys = Core::map_keys(group);
+    for (auto key : Core::iter(keys)) {
+      Value lower = Core::string_lower(key);
+      Value existing = Core::map_keys(headers);
+      for (auto name : Core::iter(existing)) {
+        Value existing_lower = Core::string_lower(name);
+        Value same = Core::eq(lower, existing_lower);
+        if (Core::truthy(same)) {
+          Core::map_delete(headers, name);
+        }
+      }
+      Value value = Core::get(group, key, Value());
+      Core::set(headers, key, value);
+    }
+  }
+  return headers;
+}
+
 Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   axir_coverage_mark("_chat_result_to_completion");
   Value content = Core::get(result, Value("content"), Value(""));
@@ -8899,6 +9782,11 @@ Value Core::_chat_result_to_completion(Value result, Value fallback_index) {
   Value has_call_problems = Core::is_not_none(call_problems);
   if (Core::truthy(has_call_problems)) {
     Core::set(completion, Value("function_call_problems"), call_problems);
+  }
+  Value trusted = Core::get(result, Value("decisionContext"), Value());
+  Value has_trusted = Core::is_not_none(trusted);
+  if (Core::truthy(has_trusted)) {
+    Core::set(completion, Value("decisionContext"), trusted);
   }
   return completion;
 }
@@ -8987,8 +9875,14 @@ Value Core::chat_response_to_completion(Value response) {
   Value results = Core::get(response, Value("results"), empty_results);
   Value completions = Value::array();
   Value position = Value(0);
+  Value snake_model_usage = Core::get(response, Value("model_usage"), Value());
+  Value model_usage = Core::get(response, Value("modelUsage"), snake_model_usage);
+  Value has_model_usage = Core::is_not_none(model_usage);
   for (auto result : Core::iter(results)) {
     Value completion = Core::_chat_result_to_completion(result, position);
+    if (Core::truthy(has_model_usage)) {
+      Core::set(completion, Value("modelUsage"), model_usage);
+    }
     Core::append(completions, completion);
     Value next_position = Core::add(position, Value(1));
     position = next_position;
@@ -8997,7 +9891,6 @@ Value Core::chat_response_to_completion(Value response) {
   Value first = Core::list_get(completions, Value(0), empty_completion);
   Value content = Core::get(first, Value("content"), Value(""));
   Value calls = Core::get(first, Value("function_calls"), empty_results);
-  Value model_usage = Core::get(response, Value("model_usage"), Value());
   Value usage = Core::get(model_usage, Value("tokens"), Value());
   Value thought = Core::get(first, Value("thought"), Value());
   Value has_thought = Core::is_not_none(thought);
@@ -9008,6 +9901,14 @@ Value Core::chat_response_to_completion(Value response) {
   Core::set(out, Value("function_calls"), calls);
   Core::set(out, Value("results"), completions);
   Core::set(out, Value("usage"), usage);
+  if (Core::truthy(has_model_usage)) {
+    Core::set(out, Value("modelUsage"), model_usage);
+  }
+  Value trusted = Core::get(first, Value("decisionContext"), Value());
+  Value has_trusted = Core::is_not_none(trusted);
+  if (Core::truthy(has_trusted)) {
+    Core::set(out, Value("decisionContext"), trusted);
+  }
   if (Core::truthy(has_thought)) {
     Core::set(out, Value("thought"), thought);
   }
@@ -9154,18 +10055,6 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name,
   return response;
 }
 
-Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
-  axir_coverage_mark("ai_context_cache_expiry");
-  Value is_number = Core::type_is(provider_expire_time, Value("number"));
-  if (Core::truthy(is_number)) {
-    Value future = Core::gt(provider_expire_time, now);
-    if (Core::truthy(future)) {
-      return provider_expire_time;
-    }
-  }
-  return Value(0);
-}
-
 Value Core::_openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode) {
   axir_coverage_mark("_openai_normalize_stream_delta_impl");
   Value raw_is_object = Core::type_is(raw, Value("object"));
@@ -9211,6 +10100,18 @@ Value Core::_openai_normalize_stream_delta_impl(Value raw, Value state, Value ai
   Core::set(out, Value("remote_id"), remote_id);
   Core::set(out, Value("model_usage"), model_usage);
   return out;
+}
+
+Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
+  axir_coverage_mark("ai_context_cache_expiry");
+  Value is_number = Core::type_is(provider_expire_time, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value future = Core::gt(provider_expire_time, now);
+    if (Core::truthy(future)) {
+      return provider_expire_time;
+    }
+  }
+  return Value(0);
 }
 
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
@@ -9554,6 +10455,12 @@ Value Core::provider_resolve_profile(Value profile) {
   return resolved;
 }
 
+Value Core::provider_model_catalog_summary() {
+  axir_coverage_mark("provider_model_catalog_summary");
+  Value summary = Core::json_parse(Value("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"anthropic\",\"grok\",\"reka\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"));
+  return summary;
+}
+
 Value Core::_ai_append_thought_deltas_impl(Value existing, Value incoming) {
   axir_coverage_mark("_ai_append_thought_deltas_impl");
   for (auto block : Core::iter(incoming)) {
@@ -9601,12 +10508,6 @@ Value Core::_ai_append_thought_deltas_impl(Value existing, Value incoming) {
   return Value();
 }
 
-Value Core::provider_model_catalog_summary() {
-  axir_coverage_mark("provider_model_catalog_summary");
-  Value summary = Core::json_parse(Value("{\"catalogVersion\":\"provider-model-catalog-audit-v1\",\"deferredProviderIds\":[],\"descriptorCoveredProviderIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"meta\",\"meta-chat\",\"meta-messages\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\",\"openai-decisions\"],\"filterOptions\":[\"all\",\"text\",\"embeddings\",\"code\",\"audio\",\"image\"],\"nextMilestone\":\"Generated catalog provider clients match the active catalog\",\"providerCount\":51,\"providerNames\":[\"google-gemini\",\"webllm\",\"openai\",\"openai-decisions\",\"cohere\",\"mistral\",\"deepseek\",\"deepseek-responses\",\"openai-responses\",\"anthropic\",\"grok\",\"reka\",\"openai-compatible\",\"azure-openai\",\"meta\",\"meta-chat\",\"meta-messages\",\"together\",\"openrouter\",\"orcarouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\",\"typesafe\"],\"semantics\":{\"codeMatchesTextFilter\":true,\"dynamicProvidersMayHaveEmptyModels\":true,\"metadataClonedPerCall\":true,\"modelSort\":\"price-then-name\",\"providerSort\":\"cheapest-model-then-display-name\"},\"source\":\"src/ax/ai/catalog.ts\"}"));
-  return summary;
-}
-
 Value Core::_provider_model_catalog_registry() {
   axir_coverage_mark("_provider_model_catalog_registry");
   Value catalog = Core::json_parse(Value("{\"all\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-3.6-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"deprecatedOn\":\"2026-08-31\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":65536,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite-image\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"image\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"deprecatedOn\":\"2026-05-25\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"contextWindow\":65536,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-image\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"image\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":65536,\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":16384,\"name\":\"gemini-3.8-flash-lite-tts\",\"promptTokenCostPer1M\":1,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"contextWindow\":131072,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32768,\"name\":\"gemini-3-pro-image\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"image\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"contextWindow\":98304,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32768,\"name\":\"gemini-3.5-transcribe\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"operations\":[\"transcribe\"]},\"type\":\"audio\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":18,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":16384,\"name\":\"gemini-3.8-flash-tts\",\"promptTokenCostPer1M\":1,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":20,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":16384,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":1,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-live\",\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-live-extended-thinking\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-2b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-9b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"maxTokens\":4096,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":2048,\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"}],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.02,\"longContextCacheWriteTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":0.75,\"longContextPromptTokenCostPer1M\":0.2,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCacheWriteTokenCostPer1M\":5,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.4,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.8,\"longContextCompletionTokenCostPer1M\":30,\"longContextPromptTokenCostPer1M\":8,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2.1\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2.1-mini\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-transcribe\",\"provider\":\"openai\",\"supported\":{\"operations\":[\"transcribe\"],\"serviceTiers\":[]},\"type\":\"audio\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"gpt-6-luna\",\"displayName\":\"OpenAI Decisions\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0,\"cacheWriteTokenCostPer1M\":0,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"isDefault\":true,\"name\":\"gpt-6-luna\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-decisions\",\"type\":\"text\"}],\"name\":\"openai-decisions\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.02,\"longContextCacheWriteTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":0.75,\"longContextPromptTokenCostPer1M\":0.2,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCacheWriteTokenCostPer1M\":5,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.4,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.8,\"longContextCompletionTokenCostPer1M\":30,\"longContextPromptTokenCostPer1M\":8,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-sonnet-5\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.05,\"longContextCacheWriteTokenCostPer1M\":0.625,\"longContextCompletionTokenCostPer1M\":2.5,\"longContextPromptTokenCostPer1M\":0.5,\"longContextThreshold\":100000,\"maxTokens\":128000,\"name\":\"claude-haiku-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.05,\"longContextCacheWriteTokenCostPer1M\":0.625,\"longContextCompletionTokenCostPer1M\":2.5,\"longContextPromptTokenCostPer1M\":0.5,\"longContextThreshold\":100000,\"maxTokens\":128000,\"name\":\"claude-haiku-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"deprecatedOn\":\"2026-04-20\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"deprecatedOn\":\"2024-11-06\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-02-19\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2025-10-28\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2026-02-19\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2025-07-21\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-15\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":0.4,\"fastCacheWriteTokenCostPer1M\":10,\"fastCompletionTokenCostPer1M\":40,\"fastPromptTokenCostPer1M\":8,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"deprecatedOn\":\"2025-07-21\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.25,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5-1\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.25,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5-1\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"deprecatedOn\":\"2026-01-05\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"deprecatedOn\":\"2026-08-05\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-15\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"cacheReadTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":6,\"contextWindow\":500000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.5\",\"promptTokenCostPer1M\":2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-4.6\",\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":true,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3-contributor\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2-contributor\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.1\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":true,\"pdfInput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":false,\"textInput\":true,\"textOutput\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false,\"videoInput\":false},\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\"],\"output\":[\"image\"]},\"name\":\"muse-image-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"provider\":\"meta\",\"supported\":{\"imageOutput\":true,\"operations\":[\"chat\"]},\"type\":\"image\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":false,\"imageOutput\":false,\"pdfInput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":false,\"textInput\":false,\"textOutput\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false,\"videoInput\":false},\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"audio\"],\"output\":[\"text\"]},\"name\":\"muse-voice-transcribe-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\",\"transcribe\"]},\"type\":\"audio\"}],\"name\":\"meta\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Chat Completions\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":true,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3-contributor\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2-contributor\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.1\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"meta-chat\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Messages\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":true,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3-contributor\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2-contributor\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.1\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"meta-messages\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Typesafe\",\"isDynamic\":true,\"models\":[],\"name\":\"typesafe\"}],\"audio\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-3.6-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":16384,\"name\":\"gemini-3.8-flash-lite-tts\",\"promptTokenCostPer1M\":1,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"contextWindow\":98304,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32768,\"name\":\"gemini-3.5-transcribe\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"operations\":[\"transcribe\"]},\"type\":\"audio\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":18,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":16384,\"name\":\"gemini-3.8-flash-tts\",\"promptTokenCostPer1M\":1,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":false,\"output\":true},\"capabilities\":{\"audioInput\":false,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":20,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":16384,\"name\":\"gemini-3.1-flash-tts-preview\",\"promptTokenCostPer1M\":1,\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-live\",\"provider\":\"google-gemini\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-live-extended-thinking\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-live-preview\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":131072,\"isDefault\":false,\"maxTokens\":8192,\"name\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"audio\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-mini\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-audio-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-1.5\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2.1\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-2.1-mini\",\"provider\":\"openai\",\"supported\":{\"thinkingBudget\":true},\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-whisper\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":true},\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-realtime-translate\",\"provider\":\"openai\",\"type\":\"audio\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"isDefault\":false,\"name\":\"gpt-transcribe\",\"provider\":\"openai\",\"supported\":{\"operations\":[\"transcribe\"],\"serviceTiers\":[]},\"type\":\"audio\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-sonnet-5\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":false,\"imageOutput\":false,\"pdfInput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":false,\"textInput\":false,\"textOutput\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false,\"videoInput\":false},\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"audio\"],\"output\":[\"text\"]},\"name\":\"muse-voice-transcribe-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\",\"transcribe\"]},\"type\":\"audio\"}],\"name\":\"meta\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Chat Completions\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-chat\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Messages\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-messages\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-think-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"},{\"capabilities\":{\"audioInput\":true,\"audioOutput\":true,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-voice-fast-1.0\",\"provider\":\"grok\",\"type\":\"audio\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Typesafe\",\"isDynamic\":true,\"models\":[],\"name\":\"typesafe\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"gpt-6-luna\",\"displayName\":\"OpenAI Decisions\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-decisions\"}],\"code\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-sonnet-5\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-3.6-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API\",\"isDynamic\":false,\"models\":[],\"name\":\"meta\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Chat Completions\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-chat\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Messages\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-messages\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Typesafe\",\"isDynamic\":true,\"models\":[],\"name\":\"typesafe\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"gpt-6-luna\",\"displayName\":\"OpenAI Decisions\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-decisions\"}],\"embeddings\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.02,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"text-embedding-3-small\",\"promptTokenCostPer1M\":0.02,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-ada-002\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.13,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"text-embedding-3-large\",\"promptTokenCostPer1M\":0.13,\"provider\":\"openai\",\"type\":\"embeddings\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-3.6-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-embedding-001\",\"promptTokenCostPer1M\":0.15,\"provider\":\"google-gemini\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gemini-embedding-2\",\"promptTokenCostPer1M\":0.2,\"provider\":\"google-gemini\",\"type\":\"embeddings\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-english-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-light-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"embed-multilingual-v3.0\",\"promptTokenCostPer1M\":0.1,\"provider\":\"cohere\",\"type\":\"embeddings\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-sonnet-5\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API\",\"isDynamic\":false,\"models\":[],\"name\":\"meta\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Chat Completions\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-chat\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Messages\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-messages\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Typesafe\",\"isDynamic\":true,\"models\":[],\"name\":\"typesafe\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"gpt-6-luna\",\"displayName\":\"OpenAI Decisions\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-decisions\"}],\"image\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-3.6-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":65536,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite-image\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"image\"},{\"aliases\":[\"gemini-3.1-flash-image-preview\"],\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"contextWindow\":65536,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-image\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"image\"},{\"aliases\":[\"gemini-3-pro-image-preview\"],\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"contextWindow\":131072,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32768,\"name\":\"gemini-3-pro-image\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"image\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-sonnet-5\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":true,\"pdfInput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":false,\"textInput\":true,\"textOutput\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false,\"videoInput\":false},\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\"],\"output\":[\"image\"]},\"name\":\"muse-image-1.0\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"provider\":\"meta\",\"supported\":{\"imageOutput\":true,\"operations\":[\"chat\"]},\"type\":\"image\"}],\"name\":\"meta\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Chat Completions\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-chat\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Messages\",\"isDynamic\":false,\"models\":[],\"name\":\"meta-messages\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Typesafe\",\"isDynamic\":true,\"models\":[],\"name\":\"typesafe\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"gpt-6-luna\",\"displayName\":\"OpenAI Decisions\",\"isDynamic\":false,\"models\":[],\"name\":\"openai-decisions\"}],\"text\":[{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"gemini-embedding-2\",\"defaultModel\":\"gemini-3.6-flash\",\"displayName\":\"Google Gemini\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-thinking-exp-01-21\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-pro-exp-02-05\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0,\"currency\":\"usd\",\"deprecatedOn\":\"2026-08-31\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-robotics-er-1.6-preview\",\"promptTokenCostPer1M\":0,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.15,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.5-flash-8b\",\"promptTokenCostPer1M\":0.0375,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.5-flash\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.3,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash-lite\",\"promptTokenCostPer1M\":0.075,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-01\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-2.0-flash\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash-lite\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-lite-latest\",\"promptTokenCostPer1M\":0.1,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.1-flash-lite\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.025,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"deprecatedOn\":\"2026-05-25\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-3.1-flash-lite-preview\",\"promptTokenCostPer1M\":0.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.0-pro\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-2.5-flash\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash-lite\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":2.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-flash-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.05,\"cacheWriteTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gemini-3-flash-preview\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":3,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"nano-banana-2\",\"promptTokenCostPer1M\":0.5,\"provider\":\"google-gemini\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"isDeprecated\":true,\"name\":\"gemini-1.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":65536,\"name\":\"gemini-3.6-flash\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.7-flash\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"characterIsToken\":false,\"completionTokenCostPer1M\":7.5,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.8-flash\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.15,\"cacheWriteTokenCostPer1M\":1.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":9,\"contextWindow\":1048576,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":65536,\"name\":\"gemini-3.5-flash\",\"promptTokenCostPer1M\":1.5,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-2.5-pro\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.125,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":2.5,\"longContextThreshold\":200000,\"name\":\"gemini-pro-latest\",\"promptTokenCostPer1M\":1.25,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"characterIsToken\":false,\"completionTokenCostPer1M\":12,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":200000,\"name\":\"gemini-3.1-pro-preview\",\"promptTokenCostPer1M\":2,\"provider\":\"google-gemini\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"google-gemini\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"displayName\":\"WebLLM\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-2b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":8192,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"gemma-2-9b-it-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"maxTokens\":4096,\"name\":\"Llama-3.1-70B-Instruct-q4f16_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Llama-3.1-8B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Llama-3.2-1B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":2048,\"name\":\"Llama-3.2-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Mistral-7B-Instruct-v0.3-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":128000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Phi-3.5-mini-instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-0.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-1.5B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":2048,\"name\":\"Qwen2.5-3B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"contextWindow\":32768,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"Qwen2.5-7B-Instruct-q4f32_1-MLC\",\"promptTokenCostPer1M\":0,\"provider\":\"webllm\",\"type\":\"text\"}],\"name\":\"webllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"gpt-6-luna\",\"displayName\":\"OpenAI Decisions\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0,\"cacheWriteTokenCostPer1M\":0,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0,\"isDefault\":true,\"name\":\"gpt-6-luna\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-decisions\",\"type\":\"text\"}],\"name\":\"openai-decisions\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"mistral-small-latest\",\"displayName\":\"Mistral AI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-nemo-latest\",\"promptTokenCostPer1M\":0.15,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-codestral-mamba\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-7b\",\"promptTokenCostPer1M\":0.25,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.3,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mistral-nemo-latest\",\"promptTokenCostPer1M\":0.3,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"codestral-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"USD\",\"isDefault\":true,\"name\":\"mistral-small-latest\",\"promptTokenCostPer1M\":0.2,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.7,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"open-mixtral-8x7b\",\"promptTokenCostPer1M\":0.7,\"provider\":\"mistral\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":6,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"mistral-large-latest\",\"promptTokenCostPer1M\":2,\"provider\":\"mistral\",\"type\":\"text\"}],\"name\":\"mistral\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"deepseek-v4-flash\",\"displayName\":\"DeepSeek Responses\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"deepseek-chat\",\"deepseek-reasoner\"],\"cacheReadTokenCostPer1M\":0.0028,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.28,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":true,\"maxTokens\":384000,\"name\":\"deepseek-v4-flash\",\"promptTokenCostPer1M\":0.14,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.003625,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.87,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"maxTokens\":384000,\"name\":\"deepseek-v4-pro\",\"promptTokenCostPer1M\":0.435,\"provider\":\"deepseek-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":false,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"deepseek-responses\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-3-small\",\"defaultModel\":\"gpt-5-mini\",\"displayName\":\"OpenAI\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.02,\"longContextCacheWriteTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":0.75,\"longContextPromptTokenCostPer1M\":0.2,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-5-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCacheWriteTokenCostPer1M\":5,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.4,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.8,\"longContextCompletionTokenCostPer1M\":30,\"longContextPromptTokenCostPer1M\":8,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai\",\"supported\":{\"samplingWithoutReasoning\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai\",\"supported\":{\"structuredOutputModes\":[\"native\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"temperatureOne\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultEmbedModel\":\"text-embedding-ada-002\",\"defaultModel\":\"gpt-4o\",\"displayName\":\"OpenAI Responses\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.05,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-nano\",\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.02,\"longContextCacheWriteTokenCostPer1M\":0.25,\"longContextCompletionTokenCostPer1M\":0.75,\"longContextPromptTokenCostPer1M\":0.2,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-luna\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4o-mini\",\"promptTokenCostPer1M\":0.15,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.02,\"cacheWriteTokenCostPer1M\":0.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.2,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.04,\"longContextCompletionTokenCostPer1M\":1.8,\"longContextPromptTokenCostPer1M\":0.4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-luna\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-nano\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.2,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-3.5-turbo\",\"promptTokenCostPer1M\":0.5,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1-mini\",\"promptTokenCostPer1M\":0.4,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-mini\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":0.75,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":4.4,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o4-mini\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.1,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4.1\",\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":8,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o3\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.1-codex-max\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.25,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCacheWriteTokenCostPer1M\":5,\"longContextCompletionTokenCostPer1M\":15,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-sol\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":10,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"gpt-4o\",\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":12,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.4,\"longContextCompletionTokenCostPer1M\":18,\"longContextPromptTokenCostPer1M\":4,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-terra\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-chat-latest\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":14,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-codex\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":1.75,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"code\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.4\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":2.5,\"provider\":\"openai-responses\",\"supported\":{\"reasoningOffByDefault\":true,\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"chatgpt-4o-latest\",\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"gpt-5.6\"],\"cacheReadTokenCostPer1M\":0.4,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.8,\"longContextCompletionTokenCostPer1M\":30,\"longContextPromptTokenCostPer1M\":8,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-5.6-sol\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":30,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":1,\"longContextCompletionTokenCostPer1M\":45,\"longContextPromptTokenCostPer1M\":10,\"longContextThreshold\":272000,\"name\":\"gpt-5.5\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"openai-responses\",\"supported\":{\"samplingWithoutReasoning\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":30,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4-turbo\",\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1050000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":2,\"longContextCacheWriteTokenCostPer1M\":25,\"longContextCompletionTokenCostPer1M\":75,\"longContextPromptTokenCostPer1M\":20,\"longContextThreshold\":272000,\"maxTokens\":128000,\"name\":\"gpt-6-astra\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"o1\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":60,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-4\",\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":80,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o3-pro\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":20,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":120,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":15,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":168,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"gpt-5.2-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":21,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":180,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"longContextCompletionTokenCostPer1M\":270,\"longContextPromptTokenCostPer1M\":60,\"longContextThreshold\":272000,\"name\":\"gpt-5.5-pro\",\"notSupported\":{\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":30,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":600,\"currency\":\"usd\",\"isDefault\":false,\"isExpensive\":true,\"name\":\"o1-pro\",\"notSupported\":{\"frequencyPenalty\":true,\"presencePenalty\":true,\"temperature\":true,\"topP\":true},\"promptTokenCostPer1M\":150,\"provider\":\"openai-responses\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"openai-responses\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"claude-sonnet-5\",\"displayName\":\"Anthropic\",\"isDynamic\":false,\"models\":[{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.05,\"longContextCacheWriteTokenCostPer1M\":0.625,\"longContextCompletionTokenCostPer1M\":2.5,\"longContextPromptTokenCostPer1M\":0.5,\"longContextThreshold\":100000,\"maxTokens\":128000,\"name\":\"claude-haiku-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.01,\"cacheWriteTokenCostPer1M\":0.125,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":0.5,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"longContextCacheReadTokenCostPer1M\":0.05,\"longContextCacheWriteTokenCostPer1M\":0.625,\"longContextCompletionTokenCostPer1M\":2.5,\"longContextPromptTokenCostPer1M\":0.5,\"longContextThreshold\":100000,\"maxTokens\":128000,\"name\":\"claude-haiku-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":0.1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"deprecatedOn\":\"2026-04-20\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-3-haiku-20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.03,\"cacheWriteTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-haiku@20240307\",\"promptTokenCostPer1M\":0.25,\"provider\":\"anthropic\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.24,\"currency\":\"usd\",\"deprecatedOn\":\"2024-11-06\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-instant-1.2\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.08,\"cacheWriteTokenCostPer1M\":1,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"usd\",\"deprecatedOn\":\"2026-02-19\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku-latest\",\"promptTokenCostPer1M\":0.8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-haiku@20241022\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.1,\"cacheWriteTokenCostPer1M\":1.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":5,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-haiku-4-5@20251001\",\"promptTokenCostPer1M\":1,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":true,\"maxTokens\":128000,\"name\":\"claude-sonnet-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":2.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":10,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-sonnet-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":2,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2025-10-28\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet-v2@20241022\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":8192,\"name\":\"claude-3-5-sonnet@20240620\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2026-02-19\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet-latest\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-3-7-sonnet@20250219\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2025-07-21\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-3-sonnet-20240229\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-15\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5-20250929\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":200000,\"name\":\"claude-sonnet-4-5@20250929\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4-6\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.3,\"cacheWriteTokenCostPer1M\":3.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-sonnet-4@20250514\",\"promptTokenCostPer1M\":3,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":0.4,\"fastCacheWriteTokenCostPer1M\":10,\"fastCompletionTokenCostPer1M\":40,\"fastPromptTokenCostPer1M\":8,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.2,\"cacheWriteTokenCostPer1M\":5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":20,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":4,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5-20251101\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":64000,\"name\":\"claude-opus-4-5@20251101\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"notSupported\":{\"temperatureWithTopP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-6\",\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":3,\"fastCacheWriteTokenCostPer1M\":37.5,\"fastCompletionTokenCostPer1M\":150,\"fastPromptTokenCostPer1M\":30,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-7\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-4-8\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"fastCacheReadTokenCostPer1M\":1,\"fastCacheWriteTokenCostPer1M\":12.5,\"fastCompletionTokenCostPer1M\":50,\"fastPromptTokenCostPer1M\":10,\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.5,\"cacheWriteTokenCostPer1M\":6.25,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":25,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-opus-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":5,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"usd\",\"deprecatedOn\":\"2025-07-21\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-2.1\",\"promptTokenCostPer1M\":8,\"provider\":\"anthropic\",\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.25,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5-1\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"temperatureOne\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":0.25,\"cacheWriteTokenCostPer1M\":12.5,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":false,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":false},\"completionTokenCostPer1M\":50,\"contextWindow\":1000000,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":128000,\"name\":\"claude-fable-5-1\",\"notSupported\":{\"temperature\":true,\"topK\":true,\"topP\":true},\"promptTokenCostPer1M\":10,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputModes\":[\"native\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"deprecatedOn\":\"2026-01-05\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":4096,\"name\":\"claude-3-opus-latest\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":4096,\"name\":\"claude-3-opus@20240229\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"deprecatedOn\":\"2026-08-05\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":32000,\"name\":\"claude-opus-4-1-20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4-1@20250805\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"deprecatedOn\":\"2026-06-15\",\"isDefault\":false,\"isDeprecated\":true,\"maxTokens\":32000,\"name\":\"claude-opus-4-20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"cacheReadTokenCostPer1M\":1.5,\"cacheWriteTokenCostPer1M\":18.75,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":75,\"currency\":\"usd\",\"isDefault\":false,\"maxTokens\":32000,\"name\":\"claude-opus-4@20250514\",\"promptTokenCostPer1M\":15,\"provider\":\"anthropic\",\"supported\":{\"showThoughts\":true,\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"anthropic\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"grok-4.6\",\"displayName\":\"xAI Grok\",\"isDynamic\":false,\"models\":[{\"aliases\":[\"grok-4-1-fast-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-non-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4-1-fast-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.05,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4-1-fast-reasoning\",\"promptTokenCostPer1M\":0.2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":0.5,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini\",\"promptTokenCostPer1M\":0.3,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-multi-agent-0309\",\"grok-4.20-multi-agent-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-multi-agent\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-non-reasoning\",\"grok-4.20-non-reasoning-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-non-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.20-0309-reasoning\",\"grok-4.20-reasoning-latest\",\"grok-4.20\",\"grok-4.20-0309\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":2000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.20-reasoning\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.3-latest\",\"grok-latest\"],\"cacheReadTokenCostPer1M\":0.2,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":2.5,\"contextWindow\":1000000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.3\",\"promptTokenCostPer1M\":1.25,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":4,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-mini-fast\",\"promptTokenCostPer1M\":0.6,\"provider\":\"grok\",\"supported\":{\"thinkingBudget\":true},\"type\":\"text\"},{\"aliases\":[\"grok-4.5-latest\",\"grok-build-latest\"],\"cacheReadTokenCostPer1M\":0.3,\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"completionTokenCostPer1M\":6,\"contextWindow\":500000,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-4.5\",\"promptTokenCostPer1M\":2,\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3\",\"promptTokenCostPer1M\":3,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":25,\"currency\":\"USD\",\"isDefault\":false,\"name\":\"grok-3-fast\",\"promptTokenCostPer1M\":5,\"provider\":\"grok\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[\"standard\",\"priority\"],\"showThoughts\":false,\"structuredOutputs\":true,\"temperature\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true},\"currency\":\"USD\",\"isDefault\":true,\"name\":\"grok-4.6\",\"provider\":\"grok\",\"supported\":{\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"grok\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"command-r-plus\",\"displayName\":\"Cohere\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":0.6,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-light\",\"promptTokenCostPer1M\":0.3,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1.5,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"command-r\",\"promptTokenCostPer1M\":0.5,\"provider\":\"cohere\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"command-r-plus\",\"promptTokenCostPer1M\":3,\"provider\":\"cohere\",\"type\":\"text\"}],\"name\":\"cohere\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"defaultModel\":\"reka-core\",\"displayName\":\"Reka\",\"isDynamic\":false,\"models\":[{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":1,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-edge\",\"promptTokenCostPer1M\":0.4,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":2,\"currency\":\"usd\",\"isDefault\":false,\"name\":\"reka-flash\",\"promptTokenCostPer1M\":0.8,\"provider\":\"reka\",\"type\":\"text\"},{\"capabilities\":{\"audioInput\":false,\"audioOutput\":false,\"imageOutput\":false,\"serviceTiers\":[],\"showThoughts\":false,\"structuredOutputs\":false,\"temperature\":true,\"thinkingBudget\":false,\"thinkingLevels\":[],\"topP\":true},\"completionTokenCostPer1M\":15,\"currency\":\"usd\",\"isDefault\":true,\"name\":\"reka-core\",\"promptTokenCostPer1M\":3,\"provider\":\"reka\",\"type\":\"text\"}],\"name\":\"reka\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenAI Compatible\",\"isDynamic\":true,\"models\":[],\"name\":\"openai-compatible\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":true,\"thinkingLevels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"displayName\":\"Azure OpenAI\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-openai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":true,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3-contributor\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2-contributor\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.1\",\"provider\":\"meta\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"meta\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Chat Completions\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":true,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3-contributor\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2-contributor\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.1\",\"provider\":\"meta-chat\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"meta-chat\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"]},\"defaultModel\":\"muse-spark-1.3\",\"displayName\":\"Meta Model API Messages\",\"isDynamic\":false,\"models\":[{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":true,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.3-contributor\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"appliesTo\":[\"prompt\",\"completion\"],\"providerTraining\":\"allowed\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.2-contributor\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"},{\"audio\":{\"input\":true,\"output\":false},\"capabilities\":{\"audioInput\":true,\"audioOutput\":false,\"imageInput\":true,\"imageOutput\":false,\"pdfInput\":true,\"serviceTiers\":[],\"showThoughts\":true,\"structuredOutputs\":true,\"temperature\":true,\"textInput\":true,\"textOutput\":true,\"thinkingBudget\":true,\"thinkingLevels\":[\"minimal\",\"low\",\"medium\",\"high\",\"highest\"],\"topP\":true,\"videoInput\":true},\"contextWindow\":1048576,\"dataUse\":{\"providerTraining\":\"not-used\"},\"isDefault\":false,\"modalities\":{\"input\":[\"text\",\"image\",\"audio\",\"video\",\"pdf\"],\"output\":[\"text\"]},\"name\":\"muse-spark-1.1\",\"provider\":\"meta-messages\",\"supported\":{\"operations\":[\"chat\"],\"showThoughts\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"structuredOutputs\":true,\"thinkingBudget\":true},\"type\":\"text\"}],\"name\":\"meta-messages\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Together AI\",\"isDynamic\":true,\"models\":[],\"name\":\"together\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OpenRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"openrouter\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OrcaRouter\",\"isDynamic\":true,\"models\":[],\"name\":\"orcarouter\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Fireworks AI\",\"isDynamic\":true,\"models\":[],\"name\":\"fireworks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hugging Face Router\",\"isDynamic\":true,\"models\":[],\"name\":\"huggingface-router\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Amazon Bedrock\",\"isDynamic\":true,\"models\":[],\"name\":\"amazon-bedrock\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Azure AI Foundry\",\"isDynamic\":true,\"models\":[],\"name\":\"azure-foundry\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Vertex AI OpenAI Compatibility\",\"isDynamic\":true,\"models\":[],\"name\":\"vertex-ai\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Databricks Model Serving\",\"isDynamic\":true,\"models\":[],\"name\":\"databricks\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Model APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Groq\",\"isDynamic\":true,\"models\":[],\"name\":\"groq\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"flex\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cerebras Inference\",\"isDynamic\":true,\"models\":[],\"name\":\"cerebras\"},{\"capabilities\":{\"serviceTiers\":[\"standard\",\"priority\"],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"DeepInfra\",\"isDynamic\":true,\"models\":[],\"name\":\"deepinfra\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SambaNova Cloud\",\"isDynamic\":true,\"models\":[],\"name\":\"sambanova\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nebius AI Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"nebius\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Novita AI\",\"isDynamic\":true,\"models\":[],\"name\":\"novita\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Hyperbolic\",\"isDynamic\":true,\"models\":[],\"name\":\"hyperbolic\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SiliconFlow\",\"isDynamic\":true,\"models\":[],\"name\":\"siliconflow\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"FriendliAI\",\"isDynamic\":true,\"models\":[],\"name\":\"friendli\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Cloudflare Workers AI\",\"isDynamic\":true,\"models\":[],\"name\":\"cloudflare-workers-ai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Featherless AI\",\"isDynamic\":true,\"models\":[],\"name\":\"featherless\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Nscale\",\"isDynamic\":true,\"models\":[],\"name\":\"nscale\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"OVHcloud AI Endpoints\",\"isDynamic\":true,\"models\":[],\"name\":\"ovhcloud\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Scaleway Generative APIs\",\"isDynamic\":true,\"models\":[],\"name\":\"scaleway\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"NVIDIA NIM\",\"isDynamic\":true,\"models\":[],\"name\":\"nvidia-nim\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"RunPod vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"runpod-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"SageMaker vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"sagemaker-vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"vLLM\",\"isDynamic\":true,\"models\":[],\"name\":\"vllm\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Ollama\",\"isDynamic\":true,\"models\":[],\"name\":\"ollama\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LM Studio\",\"isDynamic\":true,\"models\":[],\"name\":\"lm-studio\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"llama.cpp Server\",\"isDynamic\":true,\"models\":[],\"name\":\"llama-cpp\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"LocalAI\",\"isDynamic\":true,\"models\":[],\"name\":\"localai\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Baseten Inference Engine\",\"isDynamic\":true,\"models\":[],\"name\":\"baseten-engine\"},{\"capabilities\":{\"serviceTiers\":[],\"thinking\":false,\"thinkingLevels\":[]},\"displayName\":\"Typesafe\",\"isDynamic\":true,\"models\":[],\"name\":\"typesafe\"}]}"));
@@ -9648,6 +10549,11 @@ Value Core::provider_model_catalog(Value options) {
 
 Value Core::_fold_chat_stream_chunk_impl(Value target, Value chunk) {
   axir_coverage_mark("_fold_chat_stream_chunk_impl");
+  Value trusted = Core::get(chunk, Value("decisionContext"), Value());
+  Value has_trusted = Core::is_not_none(trusted);
+  if (Core::truthy(has_trusted)) {
+    Core::set(target, Value("decisionContext"), trusted);
+  }
   Value content = Core::get(chunk, Value("content"), Value());
   Value content_text = Core::type_is(content, Value("string"));
   if (Core::truthy(content_text)) {
@@ -10540,6 +11446,52 @@ Value Core::router_embed_request(Value request, Value model, Value embed_model) 
   return out;
 }
 
+Value Core::provider_route_file_extractions(Value features, Value request) {
+  axir_coverage_mark("provider_route_file_extractions");
+  Value tasks = Value::array();
+  Value supports = Core::_provider_features_support(features, Value("files"));
+  if (Core::truthy(supports)) {
+    return tasks;
+  }
+  Value empty = Value::array();
+  Value snake_prompt = Core::get(request, Value("chat_prompt"), empty);
+  Value prompt = Core::get(request, Value("chatPrompt"), snake_prompt);
+  Value message_index = Value(0);
+  for (auto message : Core::iter(prompt)) {
+    Value role = Core::get(message, Value("role"), Value(""));
+    Value user = Core::eq(role, Value("user"));
+    Value content = Core::get(message, Value("content"), Value());
+    Value list = Core::type_is(content, Value("list"));
+    Value process = Core::and_(user, list);
+    if (Core::truthy(process)) {
+      Value part_index = Value(0);
+      for (auto part : Core::iter(content)) {
+        Value type = Core::get(part, Value("type"), Value(""));
+        Value file = Core::eq(type, Value("file"));
+        Value snake_text = Core::get(part, Value("extracted_text"), Value(""));
+        Value text = Core::get(part, Value("extractedText"), snake_text);
+        Value has_text = Core::truthy_value(text);
+        Value missing_text = Core::not_(has_text);
+        Value extract = Core::and_(file, missing_text);
+        if (Core::truthy(extract)) {
+          Value task = Value::object();
+          Value slot = Core::string_format(Value("{}:{}"), message_index, part_index);
+          Value data = Core::get(part, Value("data"), Value(""));
+          Value snake_mime = Core::get(part, Value("mime_type"), Value(""));
+          Value mime = Core::get(part, Value("mimeType"), snake_mime);
+          Core::set(task, Value("slot"), slot);
+          Core::set(task, Value("data"), data);
+          Core::set(task, Value("mime_type"), mime);
+          Core::append(tasks, task);
+        }
+        part_index = Core::add(part_index, Value(1));
+      }
+    }
+    message_index = Core::add(message_index, Value(1));
+  }
+  return tasks;
+}
+
 Value Core::router_embed_route(Value request, Value entries) {
   axir_coverage_mark("router_embed_route");
   Value snake = Core::get(request, Value("embed_model"), Value());
@@ -10586,52 +11538,6 @@ Value Core::router_embed_route(Value request, Value entries) {
   Value message = Core::string_format(Value("No service found for embed model key: {}"), key);
   Value error = Core::runtime_error(message);
   Core::raise_error(error);
-}
-
-Value Core::provider_route_file_extractions(Value features, Value request) {
-  axir_coverage_mark("provider_route_file_extractions");
-  Value tasks = Value::array();
-  Value supports = Core::_provider_features_support(features, Value("files"));
-  if (Core::truthy(supports)) {
-    return tasks;
-  }
-  Value empty = Value::array();
-  Value snake_prompt = Core::get(request, Value("chat_prompt"), empty);
-  Value prompt = Core::get(request, Value("chatPrompt"), snake_prompt);
-  Value message_index = Value(0);
-  for (auto message : Core::iter(prompt)) {
-    Value role = Core::get(message, Value("role"), Value(""));
-    Value user = Core::eq(role, Value("user"));
-    Value content = Core::get(message, Value("content"), Value());
-    Value list = Core::type_is(content, Value("list"));
-    Value process = Core::and_(user, list);
-    if (Core::truthy(process)) {
-      Value part_index = Value(0);
-      for (auto part : Core::iter(content)) {
-        Value type = Core::get(part, Value("type"), Value(""));
-        Value file = Core::eq(type, Value("file"));
-        Value snake_text = Core::get(part, Value("extracted_text"), Value(""));
-        Value text = Core::get(part, Value("extractedText"), snake_text);
-        Value has_text = Core::truthy_value(text);
-        Value missing_text = Core::not_(has_text);
-        Value extract = Core::and_(file, missing_text);
-        if (Core::truthy(extract)) {
-          Value task = Value::object();
-          Value slot = Core::string_format(Value("{}:{}"), message_index, part_index);
-          Value data = Core::get(part, Value("data"), Value(""));
-          Value snake_mime = Core::get(part, Value("mime_type"), Value(""));
-          Value mime = Core::get(part, Value("mimeType"), snake_mime);
-          Core::set(task, Value("slot"), slot);
-          Core::set(task, Value("data"), data);
-          Core::set(task, Value("mime_type"), mime);
-          Core::append(tasks, task);
-        }
-        part_index = Core::add(part_index, Value(1));
-      }
-    }
-    message_index = Core::add(message_index, Value(1));
-  }
-  return tasks;
 }
 
 Value Core::_provider_route_score(Value provider, Value requirements) {
@@ -21923,6 +22829,8 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Va
     Value response_format = Value::object();
     Core::set(response_format, Value("type"), Value("json_schema"));
     Core::set(response_format, Value("schema"), schema_wrap);
+    Value decisions = Core::_evidence_request_fields_impl(output_fields);
+    Core::set(response_format, Value("decisionFields"), decisions);
     Value annotations = Core::_signature_output_value_descriptions_impl(output_fields);
     Value has_annotations = Core::truthy_value(annotations);
     if (Core::truthy(has_annotations)) {
@@ -22355,6 +23263,192 @@ Value Core::_optimization_component_current_map(Value components) {
   return out;
 }
 
+Value Core::_evidence_decode_one_impl(Value typ, Value raw, Value context, Value path) {
+  axir_coverage_mark("_evidence_decode_one_impl");
+  Value object = Core::type_is(raw, Value("object"));
+  Value invalid = Core::not_(object);
+  if (Core::truthy(invalid)) {
+    Value error = Core::validation_error(Value("Decision evidence must be an object"));
+    Core::raise_error(error);
+  }
+  Value name = Core::get(typ, Value("name"), Value());
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value provenance = Core::get(context, Value("provenance"), Value());
+  Value source = Core::get(provenance, Value("source"), Value("elicited"));
+  Value native_state = Core::eq(source, Value("native"));
+  Value native_answers = Core::get(context, Value("native"), Value());
+  Value answer = Core::get(native_answers, path, Value());
+  Value status = Core::get(raw, Value("status"), Value());
+  Value missing_native = Core::is_none(answer);
+  missing_native = Core::and_(native_state, missing_native);
+  if (Core::truthy(missing_native)) {
+    Value error = Core::validation_error(Value("Missing native decision"));
+    Core::raise_error(error);
+  }
+  Value refused = Core::eq(status, Value("refused"));
+  if (Core::truthy(native_state)) {
+    refused = Core::get(answer, Value("refused"), Value(false));
+  }
+  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+  Value return_policy = Core::eq(policy, Value("return"));
+  Value keys = Core::map_keys(raw);
+  if (Core::truthy(refused)) {
+    Value key_count = Core::len(keys);
+    Value valid_shape = Core::eq(key_count, Value(1));
+    Value valid_status = Core::eq(status, Value("refused"));
+    valid_shape = Core::and_(valid_shape, valid_status);
+    Value invalid_shape = Core::not_(valid_shape);
+    if (Core::truthy(invalid_shape)) {
+      Value error = Core::validation_error(Value("Invalid refusal evidence shape"));
+      Core::raise_error(error);
+    }
+    Value throw_policy = Core::not_(return_policy);
+    if (Core::truthy(throw_policy)) {
+      Value error = Core::decision_refusal_error(path, provenance);
+      Core::raise_error(error);
+    }
+    Value out = Value::object();
+    Core::set(out, Value("status"), Value("refused"));
+    Core::set(out, Value("provenance"), provenance);
+    return out;
+  }
+  Value elicited = Core::not_(native_state);
+  Value require_status = Core::and_(return_policy, elicited);
+  Value answered_status = Core::eq(status, Value("answered"));
+  Value invalid_status = Core::not_(answered_status);
+  invalid_status = Core::and_(require_status, invalid_status);
+  if (Core::truthy(invalid_status)) {
+    Value error = Core::validation_error(Value("Invalid decision evidence status"));
+    Core::raise_error(error);
+  }
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value allowed = Value::array();
+  if (Core::truthy(is_boolean)) {
+    Core::append(allowed, Value("probability"));
+  }
+  if (!Core::truthy(is_boolean)) {
+    Core::append(allowed, Value("probabilities"));
+  }
+  if (Core::truthy(return_policy)) {
+    Core::append(allowed, Value("status"));
+  }
+  for (auto key : Core::iter(keys)) {
+    Value known = Core::contains(allowed, key);
+    Value unknown = Core::not_(known);
+    if (Core::truthy(unknown)) {
+      Value error = Core::validation_error(Value("Unexpected decision evidence key"));
+      Core::raise_error(error);
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("provenance"), provenance);
+  if (Core::truthy(is_boolean)) {
+    Value p = Core::get(raw, Value("probability"), Value());
+    p = Core::_evidence_probability_impl(p, path);
+    Value threshold = Core::get(evidence, Value("threshold"), Value(0.5));
+    Value value = Core::gte(p, threshold);
+    Core::set(out, Value("value"), value);
+    Core::set(out, Value("probability"), p);
+    Core::set(out, Value("threshold"), threshold);
+  }
+  if (!Core::truthy(is_boolean)) {
+    Value labels = Core::get(typ, Value("options"), Value());
+    Value ps = Core::get(raw, Value("probabilities"), Value());
+    Value valid_distribution = Core::type_is(ps, Value("object"));
+    if (Core::truthy(score)) {
+      valid_distribution = Core::type_is(ps, Value("list"));
+    }
+    Value invalid_distribution = Core::not_(valid_distribution);
+    if (Core::truthy(invalid_distribution)) {
+      Value error = Core::validation_error(Value("Invalid decision distribution shape"));
+      Core::raise_error(error);
+    }
+    Value count = Core::len(labels);
+    Value actual = Core::len(ps);
+    Value wrong_count = Core::ne(count, actual);
+    if (Core::truthy(wrong_count)) {
+      Value error = Core::validation_error(Value("Decision probabilities must cover exactly their declared options"));
+      Core::raise_error(error);
+    }
+    Value sum = Value(0);
+    Value mean = Value(0);
+    Value maximum = Value(-1);
+    Value choice = Value("");
+    Value index = Value(0);
+    for (auto label : Core::iter(labels)) {
+      Value p = Core::get(ps, label, Value());
+      if (Core::truthy(score)) {
+        p = Core::list_get(ps, index);
+      }
+      p = Core::_evidence_probability_impl(p, path);
+      sum = Core::add(sum, p);
+      Value part = Core::mul(index, p);
+      mean = Core::add(mean, part);
+      Value larger = Core::gt(p, maximum);
+      if (Core::truthy(larger)) {
+        choice = label;
+        maximum = p;
+      }
+      index = Core::add(index, Value(1));
+    }
+    Value difference = Core::add(sum, Value(-1));
+    Value low = Core::lt(difference, Value(-0.01000000000001));
+    Value high = Core::gt(difference, Value(0.01000000000001));
+    Value bad_sum = Core::or_(low, high);
+    if (Core::truthy(bad_sum)) {
+      Value error = Core::validation_error(Value("Decision probabilities must sum to one"));
+      Core::raise_error(error);
+    }
+    Value value = choice;
+    if (Core::truthy(score)) {
+      value = Core::div(mean, sum);
+    }
+    if (Core::truthy(native_state)) {
+      value = Core::get(answer, Value("value"), Value());
+    }
+    Value valid_value = Core::contains(labels, value);
+    if (Core::truthy(score)) {
+      valid_value = Core::type_is(value, Value("number"));
+      if (Core::truthy(valid_value)) {
+        Value finite = Core::math_is_finite(value);
+        low = Core::gte(value, Value(0));
+        Value maximum_score = Core::add(count, Value(-1));
+        high = Core::lte(value, maximum_score);
+        valid_value = Core::and_(low, high);
+        valid_value = Core::and_(valid_value, finite);
+      }
+    }
+    Value invalid_value = Core::not_(valid_value);
+    if (Core::truthy(invalid_value)) {
+      Value error = Core::validation_error(Value("Invalid decision value"));
+      Core::raise_error(error);
+    }
+    Value has_evidence = Core::is_not_none(evidence);
+    Value plain_score = Core::not_(has_evidence);
+    plain_score = Core::and_(score, plain_score);
+    if (Core::truthy(plain_score)) {
+      return value;
+    }
+    Core::set(out, Value("value"), value);
+    Core::set(out, Value("probabilities"), ps);
+    if (Core::truthy(score)) {
+      Core::set(out, Value("levels"), labels);
+    }
+    Value confidence = Core::get(answer, Value("confidence"), Value());
+    Value has_confidence = Core::is_not_none(confidence);
+    Value copy_confidence = Core::and_(native_state, has_confidence);
+    if (Core::truthy(copy_confidence)) {
+      confidence = Core::_evidence_probability_impl(confidence, path);
+      Core::set(out, Value("confidence"), confidence);
+    }
+  }
+  if (Core::truthy(return_policy)) {
+    Core::set(out, Value("status"), Value("answered"));
+  }
+  return out;
+}
+
 Value Core::_normalize_optimization_dataset(Value dataset) {
   axir_coverage_mark("_normalize_optimization_dataset");
   Value empty_list = Value::array();
@@ -22744,6 +23838,8 @@ Value Core::_parse_sample_outputs(Value gen, Value output_fields, Value response
       Value recovered = Core::_parse_json_string_fields(output_fields, output);
       validated = Core::_stream_json_validate_output_impl(output_fields, recovered);
     }
+    Value decision_context = Core::_evidence_context_impl(completion, gen);
+    validated = Core::_evidence_decode_values_impl(output_fields, validated, decision_context, Value(""));
     Core::set(parse_state, Value("parsed"), Value(true));
     Value processor_state = Value::object();
     Core::set(processor_state, Value("values"), validated);
@@ -22902,6 +23998,61 @@ Value Core::_stream_markdown_list_impl(Value input) {
   return items;
 }
 
+Value Core::_evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix) {
+  axir_coverage_mark("_evidence_decode_values_impl");
+  for (auto field : Core::iter(fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value typ = Core::get(field, Value("type"), Value());
+    Value value = Core::get(values, name, Value());
+    Value present = Core::is_not_none(value);
+    if (Core::truthy(present)) {
+      Value path = name;
+      Value qualified = Core::ne(prefix, Value(""));
+      if (Core::truthy(qualified)) {
+        path = Core::string_format(Value("{}.{}"), prefix, name);
+      }
+      Value decision = Core::_evidence_is_type_impl(typ);
+      Value children = Core::get(typ, Value("fields"), Value());
+      Value has_children = Core::is_not_none(children);
+      Value array = Core::get(typ, Value("is_array"), Value(false));
+      Value items = Value::array();
+      if (Core::truthy(array)) {
+        items = value;
+      }
+      if (!Core::truthy(array)) {
+        Core::append(items, value);
+      }
+      Value decoded = Value::array();
+      Value index = Value(0);
+      for (auto item : Core::iter(items)) {
+        Value item_path = path;
+        if (Core::truthy(array)) {
+          item_path = Core::string_format(Value("{}[{}]"), path, index);
+        }
+        if (Core::truthy(decision)) {
+          item = Core::_evidence_decode_one_impl(typ, item, context, item_path);
+        }
+        if (!Core::truthy(decision)) {
+          if (Core::truthy(has_children)) {
+            Value nested = Core::fields_from_map(children);
+            item = Core::_evidence_decode_values_impl(nested, item, context, item_path);
+          }
+        }
+        Core::append(decoded, item);
+        index = Core::add(index, Value(1));
+      }
+      if (Core::truthy(array)) {
+        Core::set(values, name, decoded);
+      }
+      if (!Core::truthy(array)) {
+        Value single = Core::list_get(decoded, Value(0));
+        Core::set(values, name, single);
+      }
+    }
+  }
+  return values;
+}
+
 Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value zone, Value probe) {
   axir_coverage_mark("_date_zone_resolve_impl");
   Value resolved = Value::object();
@@ -22964,6 +24115,28 @@ Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value z
   Core::raise_error(missing_error);
 }
 
+Value Core::_evidence_context_impl(Value response, Value client) {
+  axir_coverage_mark("_evidence_context_impl");
+  Value trusted = Core::get(response, Value("decisionContext"), Value());
+  Value found = Core::is_not_none(trusted);
+  if (Core::truthy(found)) {
+    return trusted;
+  }
+  Value usage = Core::get(response, Value("modelUsage"), Value());
+  Value provenance = Value::object();
+  Core::set(provenance, Value("source"), Value("elicited"));
+  Value provider = Core::get(usage, Value("ai"), Value("AI"));
+  Value model = Core::get(usage, Value("model"), Value());
+  Core::set(provenance, Value("provider"), provider);
+  Value found_model = Core::is_not_none(model);
+  if (Core::truthy(found_model)) {
+    Core::set(provenance, Value("model"), model);
+  }
+  Value context = Value::object();
+  Core::set(context, Value("provenance"), provenance);
+  return context;
+}
+
 Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
   axir_coverage_mark("_build_optimization_eval_row");
   Value out = Value::object();
@@ -23023,36 +24196,6 @@ Value Core::_stream_js_string_impl(Value value) {
     return joined;
   }
   return Value("[object Object]");
-}
-
-Value Core::_select_sample_index(Value samples, Value options) {
-  axir_coverage_mark("_select_sample_index");
-  Value picker_snake = Core::get(options, Value("result_picker"), Value());
-  Value picker = Core::get(options, Value("resultPicker"), picker_snake);
-  Value missing_picker = Core::is_none(picker);
-  Value sample_count = Core::len(samples);
-  Value single_or_empty = Core::lte(sample_count, Value(1));
-  Value use_default = Core::or_(missing_picker, single_or_empty);
-  if (Core::truthy(use_default)) {
-    return Value(0);
-  }
-  Value payload = Value::object();
-  Core::set(payload, Value("type"), Value("fields"));
-  Core::set(payload, Value("results"), samples);
-  Value selected = Core::object_call_method(picker, Value("call"), payload);
-  Value is_number = Core::type_is(selected, Value("number"));
-  Value not_number = Core::not_(is_number);
-  Value negative = Core::lt(selected, Value(0));
-  Value too_large = Core::gte(selected, sample_count);
-  Value out_of_bounds = Core::or_(negative, too_large);
-  Value invalid = Core::or_(not_number, out_of_bounds);
-  if (Core::truthy(invalid)) {
-    Value max_index = Core::add(sample_count, Value(-1));
-    Value message = Core::string_format(Value("Result picker returned invalid index: {}. Must be between 0 and {}"), selected, max_index);
-    Value error = Core::runtime_error(message);
-    Core::raise_error(error);
-  }
-  return selected;
 }
 
 Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
@@ -23149,6 +24292,36 @@ Value Core::chat_session_record_result(Value gen, Value state, Value call, Value
   return changed;
 }
 
+Value Core::_select_sample_index(Value samples, Value options) {
+  axir_coverage_mark("_select_sample_index");
+  Value picker_snake = Core::get(options, Value("result_picker"), Value());
+  Value picker = Core::get(options, Value("resultPicker"), picker_snake);
+  Value missing_picker = Core::is_none(picker);
+  Value sample_count = Core::len(samples);
+  Value single_or_empty = Core::lte(sample_count, Value(1));
+  Value use_default = Core::or_(missing_picker, single_or_empty);
+  if (Core::truthy(use_default)) {
+    return Value(0);
+  }
+  Value payload = Value::object();
+  Core::set(payload, Value("type"), Value("fields"));
+  Core::set(payload, Value("results"), samples);
+  Value selected = Core::object_call_method(picker, Value("call"), payload);
+  Value is_number = Core::type_is(selected, Value("number"));
+  Value not_number = Core::not_(is_number);
+  Value negative = Core::lt(selected, Value(0));
+  Value too_large = Core::gte(selected, sample_count);
+  Value out_of_bounds = Core::or_(negative, too_large);
+  Value invalid = Core::or_(not_number, out_of_bounds);
+  if (Core::truthy(invalid)) {
+    Value max_index = Core::add(sample_count, Value(-1));
+    Value message = Core::string_format(Value("Result picker returned invalid index: {}. Must be between 0 and {}"), selected, max_index);
+    Value error = Core::runtime_error(message);
+    Core::raise_error(error);
+  }
+  return selected;
+}
+
 Value Core::_filter_optimization_components(Value components, Value target) {
   axir_coverage_mark("_filter_optimization_components");
   Value out = Value::array();
@@ -23210,6 +24383,20 @@ Value Core::_filter_optimization_components(Value components, Value target) {
     Core::raise_error(error);
   }
   return out;
+}
+
+Value Core::_regex_class_atom(Value s) {
+  axir_coverage_mark("_regex_class_atom");
+  Value c = Core::none();
+  Value t1 = Core::_regex_take(s);
+  c = t1;
+  Value t2 = Core::eq(c, Value(92));
+  if (Core::truthy(t2)) {
+    Value t3 = Core::_regex_escaped(s, Value(true));
+    return t3;
+  }
+  Value t4 = Core::_regex_literal(c);
+  return t4;
 }
 
 Value Core::_forward_impl(Value gen, Value client, Value values, Value options) {
@@ -23404,6 +24591,8 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           Core::_validate_exact_output_keys(output_fields, structured_args, Value("output"));
           Value structured_recovered = Core::_parse_json_string_fields(output_fields, structured_args);
           Value structured_validated = Core::_stream_json_validate_output_impl(output_fields, structured_recovered);
+          Value decision_context = Core::_evidence_context_impl(response, client);
+          structured_validated = Core::_evidence_decode_values_impl(output_fields, structured_validated, decision_context, Value(""));
           Value structured_processed = Core::_apply_field_processors(gen, structured_validated);
           structured_stage = Value("assertion");
           Value structured_assertion_failure = Core::_run_assertions(gen, structured_processed);
@@ -23420,6 +24609,11 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           }
         } catch (const std::exception& e) {
           Value structured_validation_error = Core::exception_value(e);
+          Value refusal_message = Core::exception_message(structured_validation_error);
+          Value refusal = Core::string_starts_with(refusal_message, Value("Decision refused:"));
+          if (Core::truthy(refusal)) {
+            Core::raise_error(structured_validation_error);
+          }
           Value structured_retries_exhausted = Core::gte(attempt, validation_retries);
           if (Core::truthy(structured_retries_exhausted)) {
             Value structured_output_text = Core::_attempt_output_impl(response);
@@ -23481,6 +24675,11 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
         parsed_bundle = parsed;
       } catch (const std::exception& e) {
         Value validation_error = Core::exception_value(e);
+        Value refusal_message = Core::exception_message(validation_error);
+        Value refusal = Core::string_starts_with(refusal_message, Value("Decision refused:"));
+        if (Core::truthy(refusal)) {
+          Core::raise_error(validation_error);
+        }
         Value retries_exhausted = Core::gte(attempt, validation_retries);
         if (Core::truthy(retries_exhausted)) {
           Value output_text = Core::_attempt_output_impl(response);
@@ -23577,20 +24776,6 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
     }
   }
   throw AxError("runtime", "unreachable AxGen forward loop exit");
-}
-
-Value Core::_regex_class_atom(Value s) {
-  axir_coverage_mark("_regex_class_atom");
-  Value c = Core::none();
-  Value t1 = Core::_regex_take(s);
-  c = t1;
-  Value t2 = Core::eq(c, Value(92));
-  if (Core::truthy(t2)) {
-    Value t3 = Core::_regex_escaped(s, Value(true));
-    return t3;
-  }
-  Value t4 = Core::_regex_literal(c);
-  return t4;
 }
 
 Value Core::_date_offset_zone_minutes_impl(Value units, Value start, Value end) {
@@ -25484,12 +26669,6 @@ Value Core::_date_range_keyword_impl(Value units, Value at, Value end) {
   return Value(0);
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
 Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
   axir_coverage_mark("_ace_update_bullet_feedback");
   Value empty_map = Value::object();
@@ -25536,16 +26715,16 @@ Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value t
   return playbook;
 }
 
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
+}
+
 Value Core::_set_demos(Value gen, Value demos) {
   axir_coverage_mark("_set_demos");
   Core::set(gen, Value("demos"), demos);
   return gen;
-}
-
-Value Core::_render_examples(Value gen) {
-  axir_coverage_mark("_render_examples");
-  Value messages = Core::axgen_render_examples(gen);
-  return messages;
 }
 
 Value Core::_regex_alternative(Value s) {
@@ -25611,9 +26790,9 @@ Value Core::chat_session_has_queued_updates(Value state) {
   return Value(false);
 }
 
-Value Core::_render_demos(Value gen) {
-  axir_coverage_mark("_render_demos");
-  Value messages = Core::axgen_render_demos(gen);
+Value Core::_render_examples(Value gen) {
+  axir_coverage_mark("_render_examples");
+  Value messages = Core::axgen_render_examples(gen);
   return messages;
 }
 
@@ -25670,34 +26849,16 @@ Value Core::_date_strip_code_fence_impl(Value value) {
   return stripped;
 }
 
+Value Core::_render_demos(Value gen) {
+  axir_coverage_mark("_render_demos");
+  Value messages = Core::axgen_render_demos(gen);
+  return messages;
+}
+
 Value Core::_apply_field_processors(Value gen, Value output) {
   axir_coverage_mark("_apply_field_processors");
   Value processed = Core::axgen_apply_field_processors(gen, output);
   return processed;
-}
-
-Value Core::_run_assertions(Value gen, Value output) {
-  axir_coverage_mark("_run_assertions");
-  Value result = Core::axgen_run_assertions(gen, output);
-  Value status = Core::get(result, Value("status"), Value("pass"));
-  Value threw = Core::eq(status, Value("error"));
-  if (Core::truthy(threw)) {
-    Value thrown = Core::get(result, Value("error"), Value());
-    return thrown;
-  }
-  Value failed = Core::eq(status, Value("fail"));
-  if (Core::truthy(failed)) {
-    Value message = Core::get(result, Value("message"), Value());
-    Value has_message = Core::is_not_none(message);
-    if (Core::truthy(has_message)) {
-      Value assertion_error = Core::runtime_error(message);
-      Core::raise_error(assertion_error);
-    }
-    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
-    return message_less;
-  }
-  Value passed = Core::none();
-  return passed;
 }
 
 Value Core::_ace_dedupe_playbook(Value playbook) {
@@ -25758,6 +26919,30 @@ Value Core::chat_session_native_wait(Value state) {
     }
   }
   return Value(false);
+}
+
+Value Core::_run_assertions(Value gen, Value output) {
+  axir_coverage_mark("_run_assertions");
+  Value result = Core::axgen_run_assertions(gen, output);
+  Value status = Core::get(result, Value("status"), Value("pass"));
+  Value threw = Core::eq(status, Value("error"));
+  if (Core::truthy(threw)) {
+    Value thrown = Core::get(result, Value("error"), Value());
+    return thrown;
+  }
+  Value failed = Core::eq(status, Value("fail"));
+  if (Core::truthy(failed)) {
+    Value message = Core::get(result, Value("message"), Value());
+    Value has_message = Core::is_not_none(message);
+    if (Core::truthy(has_message)) {
+      Value assertion_error = Core::runtime_error(message);
+      Core::raise_error(assertion_error);
+    }
+    Value message_less = Core::runtime_error(Value("Assertion failed without message"));
+    return message_less;
+  }
+  Value passed = Core::none();
+  return passed;
 }
 
 Value Core::_regex_word(Value c) {
@@ -26117,12 +27302,6 @@ Value Core::chat_session_native_event(Value state, Value event) {
   return result;
 }
 
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_assertion_retry_messages");
-  Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
-  return updated_messages;
-}
-
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {
   axir_coverage_mark("_ace_prune_section_for_addition");
   Value candidate_index = Value(-1);
@@ -26204,10 +27383,10 @@ Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) 
   return out;
 }
 
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_assertion_retry_messages");
+  Value updated_messages = Core::_append_validation_retry_messages_impl(messages, response, error);
+  return updated_messages;
 }
 
 Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
@@ -26258,6 +27437,12 @@ Value Core::_date_native_offset_impl(Value units, Value index, Value mode) {
     cursor = Core::add(cursor, step);
   }
   return offset;
+}
+
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
 }
 
 Value Core::_regex_space(Value c) {
@@ -26384,24 +27569,6 @@ Value Core::_date_js_trim_impl(Value text) {
   Value slice_to = Core::_date_native_offset_impl(units, end, mode);
   Value trimmed = Core::string_slice(text, slice_from, slice_to);
   return trimmed;
-}
-
-Value Core::_parse_json_string_value(Value value) {
-  axir_coverage_mark("_parse_json_string_value");
-  Value is_string = Core::type_is(value, Value("string"));
-  Value not_string = Core::not_(is_string);
-  if (Core::truthy(not_string)) {
-    return value;
-  }
-  Value result = value;
-  try {
-    Value parsed = Core::json_parse(value);
-    result = parsed;
-  } catch (const std::exception& e) {
-    Value parse_error = Core::exception_value(e);
-    result = value;
-  }
-  return result;
 }
 
 Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now) {
@@ -26574,6 +27741,24 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
   return out;
 }
 
+Value Core::_parse_json_string_value(Value value) {
+  axir_coverage_mark("_parse_json_string_value");
+  Value is_string = Core::type_is(value, Value("string"));
+  Value not_string = Core::not_(is_string);
+  if (Core::truthy(not_string)) {
+    return value;
+  }
+  Value result = value;
+  try {
+    Value parsed = Core::json_parse(value);
+    result = parsed;
+  } catch (const std::exception& e) {
+    Value parse_error = Core::exception_value(e);
+    result = value;
+  }
+  return result;
+}
+
 Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
   axir_coverage_mark("_date_trim_bounds_impl");
   Value first = Core::_date_skip_space_impl(units, start, end);
@@ -26596,62 +27781,6 @@ Value Core::_date_trim_bounds_impl(Value units, Value start, Value end) {
   Core::set(bounds, Value("start"), first);
   Core::set(bounds, Value("end"), last);
   return bounds;
-}
-
-Value Core::_parse_json_string_for_field(Value field, Value value) {
-  axir_coverage_mark("_parse_json_string_for_field");
-  Value typ = Core::get(field, Value("type"), Value());
-  Value value_is_none = Core::is_none(value);
-  if (Core::truthy(value_is_none)) {
-    return value;
-  }
-  Value flexible = Core::_is_flexible_json_field(typ);
-  Value is_array = Core::get(typ, Value("is_array"), Value(false));
-  Value typ_fields = Core::get(typ, Value("fields"), Value());
-  Value has_typ_fields = Core::truthy_value(typ_fields);
-  if (Core::truthy(is_array)) {
-    Value value_is_list = Core::type_is(value, Value("list"));
-    Value not_list = Core::not_(value_is_list);
-    if (Core::truthy(not_list)) {
-      return value;
-    }
-    if (Core::truthy(flexible)) {
-      Value out = Value::array();
-      for (auto item : Core::iter(value)) {
-        Value parsed_item = Core::_parse_json_string_value(item);
-        Core::append(out, parsed_item);
-      }
-      return out;
-    }
-    if (Core::truthy(has_typ_fields)) {
-      Value rebuilt = Value::array();
-      for (auto item : Core::iter(value)) {
-        Value item_is_map = Core::type_is(item, Value("object"));
-        if (Core::truthy(item_is_map)) {
-          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
-          Core::append(rebuilt, parsed_obj);
-        }
-        if (!Core::truthy(item_is_map)) {
-          Core::append(rebuilt, item);
-        }
-      }
-      return rebuilt;
-    }
-    return value;
-  }
-  if (Core::truthy(flexible)) {
-    Value parsed_scalar = Core::_parse_json_string_value(value);
-    return parsed_scalar;
-  }
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_object = Core::eq(type_name, Value("object"));
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(has_typ_fields)) {
-      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
-      return parsed_obj2;
-    }
-  }
-  return value;
 }
 
 Value Core::_regex_member(Value n, Value c) {
@@ -26775,6 +27904,62 @@ Value Core::_regex_member(Value n, Value c) {
   return Value(false);
 }
 
+Value Core::_parse_json_string_for_field(Value field, Value value) {
+  axir_coverage_mark("_parse_json_string_for_field");
+  Value typ = Core::get(field, Value("type"), Value());
+  Value value_is_none = Core::is_none(value);
+  if (Core::truthy(value_is_none)) {
+    return value;
+  }
+  Value flexible = Core::_is_flexible_json_field(typ);
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  Value typ_fields = Core::get(typ, Value("fields"), Value());
+  Value has_typ_fields = Core::truthy_value(typ_fields);
+  if (Core::truthy(is_array)) {
+    Value value_is_list = Core::type_is(value, Value("list"));
+    Value not_list = Core::not_(value_is_list);
+    if (Core::truthy(not_list)) {
+      return value;
+    }
+    if (Core::truthy(flexible)) {
+      Value out = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value parsed_item = Core::_parse_json_string_value(item);
+        Core::append(out, parsed_item);
+      }
+      return out;
+    }
+    if (Core::truthy(has_typ_fields)) {
+      Value rebuilt = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value item_is_map = Core::type_is(item, Value("object"));
+        if (Core::truthy(item_is_map)) {
+          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
+          Core::append(rebuilt, parsed_obj);
+        }
+        if (!Core::truthy(item_is_map)) {
+          Core::append(rebuilt, item);
+        }
+      }
+      return rebuilt;
+    }
+    return value;
+  }
+  if (Core::truthy(flexible)) {
+    Value parsed_scalar = Core::_parse_json_string_value(value);
+    return parsed_scalar;
+  }
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_object = Core::eq(type_name, Value("object"));
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(has_typ_fields)) {
+      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
+      return parsed_obj2;
+    }
+  }
+  return value;
+}
+
 Value Core::chat_session_boundary_action(Value state) {
   axir_coverage_mark("chat_session_boundary_action");
   Value action = Value::object();
@@ -26886,6 +28071,23 @@ Value Core::_date_space_impl(Value unit) {
   return blank;
 }
 
+Value Core::_stream_text_state_impl() {
+  axir_coverage_mark("_stream_text_state_impl");
+  Value xstate = Value::object();
+  Value prev_fields = Value::array();
+  Core::set(xstate, Value("prev_fields"), prev_fields);
+  Value none = Core::none();
+  Core::set(xstate, Value("curr_field"), none);
+  Core::set(xstate, Value("curr_field_index"), none);
+  Core::set(xstate, Value("in_assumed_field"), Value(false));
+  Value extracted = Value::array();
+  Core::set(xstate, Value("extracted_fields"), extracted);
+  Value streamed = Value::object();
+  Core::set(xstate, Value("streamed_index"), streamed);
+  Core::set(xstate, Value("s"), Value(-1));
+  return xstate;
+}
+
 Value Core::_parse_json_string_fields(Value output_fields, Value values) {
   axir_coverage_mark("_parse_json_string_fields");
   Value values_is_map = Core::type_is(values, Value("object"));
@@ -26903,23 +28105,6 @@ Value Core::_parse_json_string_fields(Value output_fields, Value values) {
     }
   }
   return values;
-}
-
-Value Core::_stream_text_state_impl() {
-  axir_coverage_mark("_stream_text_state_impl");
-  Value xstate = Value::object();
-  Value prev_fields = Value::array();
-  Core::set(xstate, Value("prev_fields"), prev_fields);
-  Value none = Core::none();
-  Core::set(xstate, Value("curr_field"), none);
-  Core::set(xstate, Value("curr_field_index"), none);
-  Core::set(xstate, Value("in_assumed_field"), Value(false));
-  Value extracted = Value::array();
-  Core::set(xstate, Value("extracted_fields"), extracted);
-  Value streamed = Value::object();
-  Core::set(xstate, Value("streamed_index"), streamed);
-  Core::set(xstate, Value("s"), Value(-1));
-  return xstate;
 }
 
 Value Core::chat_session_mark_submitted(Value state, Value ids) {
@@ -26948,26 +28133,6 @@ Value Core::_date_is_line_terminator_impl(Value unit) {
   return terminator;
 }
 
-Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
-  axir_coverage_mark("_parse_json_string_for_fields");
-  Value values_is_map = Core::type_is(values, Value("object"));
-  Value not_map = Core::not_(values_is_map);
-  if (Core::truthy(not_map)) {
-    return values;
-  }
-  Value nested_fields = Core::fields_from_map(fields_map);
-  for (auto field : Core::iter(nested_fields)) {
-    Value name = Core::get(field, Value("name"), Value());
-    Value has_key = Core::map_contains(values, name);
-    if (Core::truthy(has_key)) {
-      Value value = Core::get(values, name, Value());
-      Value parsed = Core::_parse_json_string_for_field(field, value);
-      Core::set(values, name, parsed);
-    }
-  }
-  return values;
-}
-
 Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_streamed) {
   axir_coverage_mark("_stream_text_note_field_impl");
   Value name = Core::get(field, Value("name"), Value(""));
@@ -26990,6 +28155,26 @@ Value Core::_stream_text_note_field_impl(Value xstate, Value field, Value init_s
     Core::set(xstate, Value("streamed_index"), streamed);
   }
   return Value();
+}
+
+Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
+  axir_coverage_mark("_parse_json_string_for_fields");
+  Value values_is_map = Core::type_is(values, Value("object"));
+  Value not_map = Core::not_(values_is_map);
+  if (Core::truthy(not_map)) {
+    return values;
+  }
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto field : Core::iter(nested_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value has_key = Core::map_contains(values, name);
+    if (Core::truthy(has_key)) {
+      Value value = Core::get(values, name, Value());
+      Value parsed = Core::_parse_json_string_for_field(field, value);
+      Core::set(values, name, parsed);
+    }
+  }
+  return values;
 }
 
 Value Core::chat_session_queue_update(Value state, Value update) {
@@ -27030,59 +28215,6 @@ Value Core::_date_ascii_letter_impl(Value unit) {
   Value lower = Core::and_(lower_low, lower_high);
   Value letter = Core::or_(upper, lower);
   return letter;
-}
-
-Value Core::_validate_exact_output_keys(Value fields, Value values, Value context) {
-  axir_coverage_mark("_validate_exact_output_keys");
-  Value is_object = Core::type_is(values, Value("object"));
-  Value not_object = Core::not_(is_object);
-  if (Core::truthy(not_object)) {
-    Value object_message = Core::string_format(Value("{} must be one JSON object"), context);
-    Value object_error = Core::validation_error(object_message);
-    Core::raise_error(object_error);
-  }
-  Value keys = Core::map_keys(values);
-  for (auto key : Core::iter(keys)) {
-    Value known = Value(false);
-    for (auto field : Core::iter(fields)) {
-      Value field_name = Core::get(field, Value("name"), Value());
-      Value matches = Core::eq(field_name, key);
-      if (Core::truthy(matches)) {
-        known = Value(true);
-      }
-    }
-    Value unknown = Core::not_(known);
-    if (Core::truthy(unknown)) {
-      Value unknown_message = Core::string_format(Value("Unexpected field '{}' in {}. Use only the exact declared wire keys."), key, context);
-      Value unknown_error = Core::validation_error(unknown_message);
-      Core::raise_error(unknown_error);
-    }
-  }
-  for (auto field : Core::iter(fields)) {
-    Value field_name = Core::get(field, Value("name"), Value());
-    Value has_value = Core::map_contains(values, field_name);
-    if (Core::truthy(has_value)) {
-      Value typ = Core::get(field, Value("type"), Value());
-      Value nested_map = Core::get(typ, Value("fields"), Value());
-      Value has_nested = Core::truthy_value(nested_map);
-      if (Core::truthy(has_nested)) {
-        Value nested_fields = Core::fields_from_map(nested_map);
-        Value field_value = Core::get(values, field_name, Value());
-        Value child_context = Core::string_format(Value("{}.{}"), context, field_name);
-        Value array_snake = Core::get(typ, Value("is_array"), Value(false));
-        Value is_array = Core::get(typ, Value("isArray"), array_snake);
-        if (Core::truthy(is_array)) {
-          for (auto item : Core::iter(field_value)) {
-            Core::_validate_exact_output_keys(nested_fields, item, child_context);
-          }
-        }
-        if (!Core::truthy(is_array)) {
-          Core::_validate_exact_output_keys(nested_fields, field_value, child_context);
-        }
-      }
-    }
-  }
-  return Value();
 }
 
 Value Core::_stream_text_extract_impl(Value xstate, Value values, Value content, Value fields, Value options) {
@@ -27247,6 +28379,59 @@ Value Core::_date_ascii_matches_impl(Value units, Value at, Value end, Value wor
     index = Core::add(index, Value(1));
   }
   return Value(true);
+}
+
+Value Core::_validate_exact_output_keys(Value fields, Value values, Value context) {
+  axir_coverage_mark("_validate_exact_output_keys");
+  Value is_object = Core::type_is(values, Value("object"));
+  Value not_object = Core::not_(is_object);
+  if (Core::truthy(not_object)) {
+    Value object_message = Core::string_format(Value("{} must be one JSON object"), context);
+    Value object_error = Core::validation_error(object_message);
+    Core::raise_error(object_error);
+  }
+  Value keys = Core::map_keys(values);
+  for (auto key : Core::iter(keys)) {
+    Value known = Value(false);
+    for (auto field : Core::iter(fields)) {
+      Value field_name = Core::get(field, Value("name"), Value());
+      Value matches = Core::eq(field_name, key);
+      if (Core::truthy(matches)) {
+        known = Value(true);
+      }
+    }
+    Value unknown = Core::not_(known);
+    if (Core::truthy(unknown)) {
+      Value unknown_message = Core::string_format(Value("Unexpected field '{}' in {}. Use only the exact declared wire keys."), key, context);
+      Value unknown_error = Core::validation_error(unknown_message);
+      Core::raise_error(unknown_error);
+    }
+  }
+  for (auto field : Core::iter(fields)) {
+    Value field_name = Core::get(field, Value("name"), Value());
+    Value has_value = Core::map_contains(values, field_name);
+    if (Core::truthy(has_value)) {
+      Value typ = Core::get(field, Value("type"), Value());
+      Value nested_map = Core::get(typ, Value("fields"), Value());
+      Value has_nested = Core::truthy_value(nested_map);
+      if (Core::truthy(has_nested)) {
+        Value nested_fields = Core::fields_from_map(nested_map);
+        Value field_value = Core::get(values, field_name, Value());
+        Value child_context = Core::string_format(Value("{}.{}"), context, field_name);
+        Value array_snake = Core::get(typ, Value("is_array"), Value(false));
+        Value is_array = Core::get(typ, Value("isArray"), array_snake);
+        if (Core::truthy(is_array)) {
+          for (auto item : Core::iter(field_value)) {
+            Core::_validate_exact_output_keys(nested_fields, item, child_context);
+          }
+        }
+        if (!Core::truthy(is_array)) {
+          Core::_validate_exact_output_keys(nested_fields, field_value, child_context);
+        }
+      }
+    }
+  }
+  return Value();
 }
 
 Value Core::chat_session_record_unresolved(Value gen, Value state) {
@@ -27492,23 +28677,6 @@ Value Core::_date_digits_impl(Value units, Value at, Value count, Value end) {
   return value;
 }
 
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
-  Value background = Core::eq(execution, Value("background"));
-  if (Core::truthy(background)) {
-    Core::set(spec, Value("execution"), execution);
-  }
-  return spec;
-}
-
 Value Core::chat_session_transition(Value state, Value event) {
   axir_coverage_mark("chat_session_transition");
   Value type = Core::get(event, Value("type"), Value());
@@ -27628,23 +28796,21 @@ Value Core::chat_session_transition(Value state, Value event) {
   return action;
 }
 
-Value Core::_function_call_mode_impl(Value mode) {
-  axir_coverage_mark("_function_call_mode_impl");
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  Value execution = Core::get(fn, Value("execution"), Value("blocking"));
+  Value background = Core::eq(execution, Value("background"));
+  if (Core::truthy(background)) {
+    Core::set(spec, Value("execution"), execution);
   }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return Value("auto");
+  return spec;
 }
 
 Value Core::_date_expect_unit_impl(Value units, Value at, Value end, Value expected) {
@@ -27664,6 +28830,25 @@ Value Core::_regex_push(Value stack, Value top, Value value) {
   Core::set(stack, t1, value);
   Value t2 = Core::add(top, Value(1));
   return t2;
+}
+
+Value Core::_function_call_mode_impl(Value mode) {
+  axir_coverage_mark("_function_call_mode_impl");
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
+  }
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return Value("auto");
 }
 
 Value Core::_date_scan_date_impl(Value units, Value at) {
@@ -27705,13 +28890,6 @@ Value Core::_regex_task(Value n, Value next) {
   return t1;
 }
 
-Value Core::_response_function_calls_impl(Value response) {
-  axir_coverage_mark("_response_function_calls_impl");
-  Value empty = Value::array();
-  Value calls = Core::get(response, Value("function_calls"), empty);
-  return calls;
-}
-
 Value Core::_regex_frame(Value todo, Value st) {
   axir_coverage_mark("_regex_frame");
   Value t1 = Value::object();
@@ -27720,40 +28898,11 @@ Value Core::_regex_frame(Value todo, Value st) {
   return t1;
 }
 
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  axir_coverage_mark("_append_tool_call_messages_impl");
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
-  }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Value thought = Core::get(response, Value("thought"), Value());
-  Value has_thought = Core::is_not_none(thought);
-  if (Core::truthy(has_thought)) {
-    Core::set(message, Value("thought"), thought);
-  }
-  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
-  Value has_thought_blocks = Core::is_not_none(thought_blocks);
-  if (Core::truthy(has_thought_blocks)) {
-    Core::set(message, Value("thought_blocks"), thought_blocks);
-  }
-  Value images = Core::get(response, Value("images"), Value());
-  Value has_images = Core::is_not_none(images);
-  if (Core::truthy(has_images)) {
-    Core::set(message, Value("images"), images);
-  }
-  Value phase = Core::get(response, Value("phase"), Value());
-  Value has_phase = Core::is_not_none(phase);
-  if (Core::truthy(has_phase)) {
-    Core::set(message, Value("phase"), phase);
-  }
-  Core::append(messages, message);
-  return messages;
+Value Core::_response_function_calls_impl(Value response) {
+  axir_coverage_mark("_response_function_calls_impl");
+  Value empty = Value::array();
+  Value calls = Core::get(response, Value("function_calls"), empty);
+  return calls;
 }
 
 Value Core::_regex_search(Value n, Value u, Value initial, Value d) {
@@ -28254,6 +29403,42 @@ Value Core::_regex_search(Value n, Value u, Value initial, Value d) {
   return t225;
 }
 
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  axir_coverage_mark("_append_tool_call_messages_impl");
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Value thought = Core::get(response, Value("thought"), Value());
+  Value has_thought = Core::is_not_none(thought);
+  if (Core::truthy(has_thought)) {
+    Core::set(message, Value("thought"), thought);
+  }
+  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
+  Value has_thought_blocks = Core::is_not_none(thought_blocks);
+  if (Core::truthy(has_thought_blocks)) {
+    Core::set(message, Value("thought_blocks"), thought_blocks);
+  }
+  Value images = Core::get(response, Value("images"), Value());
+  Value has_images = Core::is_not_none(images);
+  if (Core::truthy(has_images)) {
+    Core::set(message, Value("images"), images);
+  }
+  Value phase = Core::get(response, Value("phase"), Value());
+  Value has_phase = Core::is_not_none(phase);
+  if (Core::truthy(has_phase)) {
+    Core::set(message, Value("phase"), phase);
+  }
+  Core::append(messages, message);
+  return messages;
+}
+
 Value Core::_date_scan_datetime_impl(Value units, Value start, Value end) {
   axir_coverage_mark("_date_scan_datetime_impl");
   Value none = Core::none();
@@ -28555,18 +29740,6 @@ Value Core::_ace_normalize_curator_operations(Value operations) {
   return empty_list;
 }
 
-Value Core::_tool_result_message_impl(Value call, Value result_text) {
-  axir_coverage_mark("_tool_result_message_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("name"), name);
-  Core::set(message, Value("result"), result_text);
-  return message;
-}
-
 Value Core::chat_session_tool_argument_error(Value name, Value schema, Value arguments) {
   axir_coverage_mark("chat_session_tool_argument_error");
   Value errors = Core::chat_session_tool_argument_errors(schema, arguments);
@@ -28631,6 +29804,18 @@ Value Core::chat_session_tool_argument_error(Value name, Value schema, Value arg
   Value joined = Core::string_join(Value("\n"), bullets);
   Value text = Core::string_format(Value("Errors In Function Arguments: Fix the following invalid arguments to '{}'\n{}"), name, joined);
   return text;
+}
+
+Value Core::_tool_result_message_impl(Value call, Value result_text) {
+  axir_coverage_mark("_tool_result_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("name"), name);
+  Core::set(message, Value("result"), result_text);
+  return message;
 }
 
 Value Core::_stream_text_missed_fields_impl(Value values, Value content, Value fields) {
@@ -29260,36 +30445,6 @@ Value Core::_parse_output_fields_impl(Value content, Value fields) {
   return output;
 }
 
-Value Core::_signature_has_complex_fields(Value signature, Value options) {
-  axir_coverage_mark("_signature_has_complex_fields");
-  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
-  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
-  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
-  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
-  Value forced = Core::or_(option_forced, signature_forced);
-  if (Core::truthy(forced)) {
-    return Value(true);
-  }
-  Value output_fields = Core::get(signature, Value("output_fields"), Value());
-  for (auto field : Core::iter(output_fields)) {
-    Value field_type = Core::get(field, Value("type"), Value());
-    Value type_name = Core::get(field_type, Value("name"), Value());
-    Value is_object = Core::eq(type_name, Value("object"));
-    if (Core::truthy(is_object)) {
-      return Value(true);
-    }
-    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
-    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
-    Value nested_fields = Core::get(field_type, Value("fields"), Value());
-    Value has_nested_fields = Core::truthy_value(nested_fields);
-    Value object_array = Core::and_(is_array, has_nested_fields);
-    if (Core::truthy(object_array)) {
-      return Value(true);
-    }
-  }
-  return Value(false);
-}
-
 Value Core::_date_js_json_impl(Value value) {
   axir_coverage_mark("_date_js_json_impl");
   Value is_null = Core::is_none(value);
@@ -29358,26 +30513,38 @@ Value Core::_stream_text_extract_values_impl(Value content, Value fields, Value 
   return values;
 }
 
-Value Core::_caller_function_call_impl(Value options) {
-  axir_coverage_mark("_caller_function_call_impl");
-  Value requested_snake = Core::get(options, Value("function_call"), Value());
-  Value requested = Core::get(options, Value("functionCall"), requested_snake);
-  Value has_requested = Core::is_not_none(requested);
-  if (Core::truthy(has_requested)) {
-    return requested;
+Value Core::_signature_has_complex_fields(Value signature, Value options) {
+  axir_coverage_mark("_signature_has_complex_fields");
+  Value option_forced_snake = Core::get(options, Value("force_structured"), Value(false));
+  Value option_forced = Core::get(options, Value("forceStructured"), option_forced_snake);
+  Value signature_forced_snake = Core::get(signature, Value("force_structured"), Value(false));
+  Value signature_forced = Core::get(signature, Value("forceStructured"), signature_forced_snake);
+  Value forced = Core::or_(option_forced, signature_forced);
+  if (Core::truthy(forced)) {
+    return Value(true);
   }
-  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
-  Value mode = Core::get(options, Value("functionCallMode"), mode_snake);
-  Value is_required = Core::eq(mode, Value("required"));
-  Value is_none = Core::eq(mode, Value("none"));
-  Value is_named = Core::type_is(mode, Value("object"));
-  Value required_or_none = Core::or_(is_required, is_none);
-  Value routed = Core::or_(required_or_none, is_named);
-  if (Core::truthy(routed)) {
-    return mode;
+  Value output_fields = Core::get(signature, Value("output_fields"), Value());
+  Value decisions = Core::_evidence_has_fields_impl(output_fields);
+  if (Core::truthy(decisions)) {
+    return Value(true);
   }
-  Value none = Core::none();
-  return none;
+  for (auto field : Core::iter(output_fields)) {
+    Value field_type = Core::get(field, Value("type"), Value());
+    Value type_name = Core::get(field_type, Value("name"), Value());
+    Value is_object = Core::eq(type_name, Value("object"));
+    if (Core::truthy(is_object)) {
+      return Value(true);
+    }
+    Value is_array_snake = Core::get(field_type, Value("is_array"), Value(false));
+    Value is_array = Core::get(field_type, Value("isArray"), is_array_snake);
+    Value nested_fields = Core::get(field_type, Value("fields"), Value());
+    Value has_nested_fields = Core::truthy_value(nested_fields);
+    Value object_array = Core::and_(is_array, has_nested_fields);
+    if (Core::truthy(object_array)) {
+      return Value(true);
+    }
+  }
+  return Value(false);
 }
 
 Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value start, Value end, Value xstate, Value held, Value complete) {
@@ -29457,14 +30624,26 @@ Value Core::_stream_text_yield_delta_impl(Value content, Value field, Value star
   return none;
 }
 
-Value Core::_function_call_forces_tool_impl(Value choice) {
-  axir_coverage_mark("_function_call_forces_tool_impl");
-  Value is_required = Core::eq(choice, Value("required"));
-  if (Core::truthy(is_required)) {
-    return Value(true);
+Value Core::_caller_function_call_impl(Value options) {
+  axir_coverage_mark("_caller_function_call_impl");
+  Value requested_snake = Core::get(options, Value("function_call"), Value());
+  Value requested = Core::get(options, Value("functionCall"), requested_snake);
+  Value has_requested = Core::is_not_none(requested);
+  if (Core::truthy(has_requested)) {
+    return requested;
   }
-  Value is_named = Core::type_is(choice, Value("object"));
-  return is_named;
+  Value mode_snake = Core::get(options, Value("function_call_mode"), Value());
+  Value mode = Core::get(options, Value("functionCallMode"), mode_snake);
+  Value is_required = Core::eq(mode, Value("required"));
+  Value is_none = Core::eq(mode, Value("none"));
+  Value is_named = Core::type_is(mode, Value("object"));
+  Value required_or_none = Core::or_(is_required, is_none);
+  Value routed = Core::or_(required_or_none, is_named);
+  if (Core::truthy(routed)) {
+    return mode;
+  }
+  Value none = Core::none();
+  return none;
 }
 
 Value Core::_date_js_json_string_impl(Value text) {
@@ -29590,6 +30769,16 @@ Value Core::_date_js_json_string_impl(Value text) {
   return out;
 }
 
+Value Core::_function_call_forces_tool_impl(Value choice) {
+  axir_coverage_mark("_function_call_forces_tool_impl");
+  Value is_required = Core::eq(choice, Value("required"));
+  if (Core::truthy(is_required)) {
+    return Value(true);
+  }
+  Value is_named = Core::type_is(choice, Value("object"));
+  return is_named;
+}
+
 Value Core::_function_call_names_output_impl(Value choice) {
   axir_coverage_mark("_function_call_names_output_impl");
   Value is_named = Core::type_is(choice, Value("object"));
@@ -29604,6 +30793,38 @@ Value Core::_function_call_names_output_impl(Value choice) {
   Value legacy = Core::eq(name, Value("__finalResult"));
   Value reserved = Core::or_(canonical, legacy);
   return reserved;
+}
+
+Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
+  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
+  Value empty_list = Value::array();
+  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
+  Value candidates = Value::array();
+  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
+  if (Core::truthy(tags_is_list)) {
+    candidates = raw_bullet_tags;
+  }
+  if (!Core::truthy(tags_is_list)) {
+    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
+    if (Core::truthy(tags_is_object)) {
+      Core::append(candidates, raw_bullet_tags);
+    }
+  }
+  Value normalized = Value::array();
+  for (auto tag : Core::iter(candidates)) {
+    Value tag_is_object = Core::type_is(tag, Value("object"));
+    if (Core::truthy(tag_is_object)) {
+      Value tag_id = Core::get(tag, Value("id"), Value());
+      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
+      Value tag_value = Core::get(tag, Value("tag"), Value());
+      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
+      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
+      if (Core::truthy(valid_tag_shape)) {
+        Core::append(normalized, tag);
+      }
+    }
+  }
+  return normalized;
 }
 
 Value Core::_append_structured_output_retry_messages_impl(Value messages, Value response, Value call, Value error, Value stage) {
@@ -29642,38 +30863,6 @@ Value Core::_append_structured_output_retry_messages_impl(Value messages, Value 
   Core::set(correction, Value("content"), correction_text);
   Core::append(with_call, correction);
   return with_call;
-}
-
-Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
-  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
-  Value empty_list = Value::array();
-  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
-  Value candidates = Value::array();
-  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
-  if (Core::truthy(tags_is_list)) {
-    candidates = raw_bullet_tags;
-  }
-  if (!Core::truthy(tags_is_list)) {
-    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
-    if (Core::truthy(tags_is_object)) {
-      Core::append(candidates, raw_bullet_tags);
-    }
-  }
-  Value normalized = Value::array();
-  for (auto tag : Core::iter(candidates)) {
-    Value tag_is_object = Core::type_is(tag, Value("object"));
-    if (Core::truthy(tag_is_object)) {
-      Value tag_id = Core::get(tag, Value("id"), Value());
-      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
-      Value tag_value = Core::get(tag, Value("tag"), Value());
-      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
-      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
-      if (Core::truthy(valid_tag_shape)) {
-        Core::append(normalized, tag);
-      }
-    }
-  }
-  return normalized;
 }
 
 Value Core::_stream_text_values_impl(Value fields, Value content, Value values, Value xstate, Value held, Value complete) {
@@ -30275,6 +31464,8 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
               Core::_validate_exact_output_keys(output_fields, structured_args, Value("output"));
               Value structured_recovered = Core::_parse_json_string_fields(output_fields, structured_args);
               Value structured_validated = Core::_stream_json_validate_output_impl(output_fields, structured_recovered);
+              Value decision_context = Core::_evidence_context_impl(response, client);
+              structured_validated = Core::_evidence_decode_values_impl(output_fields, structured_validated, decision_context, Value(""));
               Value structured_processed = Core::_apply_field_processors(gen, structured_validated);
               structured_stage = Value("assertion");
               Value structured_failure = Core::_run_assertions(gen, structured_processed);
@@ -30317,6 +31508,8 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           if (!Core::truthy(has_calls)) {
             Value feedback = Value::array();
             for (auto final_state : Core::iter(states)) {
+              Value decision_context = Core::_evidence_context_impl(response, client);
+              Core::set(config, Value("decision_context"), decision_context);
               Value finalized = Core::_stream_finalize_impl(gen, config, ctx, final_state);
               Value final_failure = Core::get(finalized, Value("failure"), Value());
               Value has_final_failure = Core::is_not_none(final_failure);
@@ -30360,6 +31553,11 @@ Value Core::_streaming_forward_impl(Value gen, Value client, Value values, Value
           if (Core::truthy(is_fatal)) {
             Value fatal_failure = Core::_generate_failed_impl(attempt_error);
             Core::raise_error(fatal_failure);
+          }
+          Value refusal_message = Core::exception_message(attempt_error);
+          Value decision_refusal = Core::string_starts_with(refusal_message, Value("Decision refused:"));
+          if (Core::truthy(decision_refusal)) {
+            Core::raise_error(attempt_error);
           }
           Value aborted = Core::exception_is_aborted(attempt_error);
           if (Core::truthy(aborted)) {
@@ -31787,15 +32985,6 @@ Value Core::_stream_json_validate_impl(Value fields, Value values, Value allow_m
   return Value();
 }
 
-Value Core::_parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode) {
-  axir_coverage_mark("_parse_text_contract_output_impl");
-  Value out = Value::object();
-  Value values = Core::_stream_text_extract_values_impl(content, output_fields, strict_mode);
-  Core::set(out, Value("values"), values);
-  Core::set(out, Value("extracted"), Value(true));
-  return out;
-}
-
 Value Core::_stream_json_validate_value_impl(Value field, Value value, Value allow_missing) {
   axir_coverage_mark("_stream_json_validate_value_impl");
   Value typ = Core::get(field, Value("type"), Value());
@@ -31887,6 +33076,15 @@ Value Core::_stream_json_validate_value_impl(Value field, Value value, Value all
   return value;
 }
 
+Value Core::_parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode) {
+  axir_coverage_mark("_parse_text_contract_output_impl");
+  Value out = Value::object();
+  Value values = Core::_stream_text_extract_values_impl(content, output_fields, strict_mode);
+  Core::set(out, Value("values"), values);
+  Core::set(out, Value("extracted"), Value(true));
+  return out;
+}
+
 Value Core::_generate_failed_impl(Value error) {
   axir_coverage_mark("_generate_failed_impl");
   Value aborted = Core::exception_is_aborted(error);
@@ -31894,6 +33092,10 @@ Value Core::_generate_failed_impl(Value error) {
     return error;
   }
   Value text = Core::exception_message(error);
+  Value decision_refusal = Core::string_starts_with(text, Value("Decision refused:"));
+  if (Core::truthy(decision_refusal)) {
+    return error;
+  }
   Value message = Core::add(Value("Generate failed: "), text);
   Value wrapped = Core::exception_generate(error, message);
   return wrapped;
@@ -31932,31 +33134,6 @@ Value Core::_attempt_output_impl(Value response) {
   }
   Value joined = Core::string_join(Value("\n---\n"), contents);
   return joined;
-}
-
-Value Core::_max_tokens_error_impl(Value response) {
-  axir_coverage_mark("_max_tokens_error_impl");
-  Value empty_results = Value::array();
-  Value completions = Core::get(response, Value("results"), empty_results);
-  Value count = Core::len(completions);
-  Value single = Core::eq(count, Value(0));
-  if (Core::truthy(single)) {
-    completions = Value::array();
-    Core::append(completions, response);
-  }
-  for (auto completion : Core::iter(completions)) {
-    Value finish_snake = Core::get(completion, Value("finish_reason"), Value());
-    Value finish = Core::get(completion, Value("finishReason"), finish_snake);
-    Value cut = Core::eq(finish, Value("length"));
-    if (Core::truthy(cut)) {
-      Value content = Core::get(completion, Value("content"), Value(""));
-      Value message = Core::add(Value("Max tokens reached before completion\nContent: "), content);
-      Value error = Core::runtime_error(message);
-      return error;
-    }
-  }
-  Value none = Core::none();
-  return none;
 }
 
 Value Core::_stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing) {
@@ -32016,6 +33193,31 @@ Value Core::_stream_json_validate_nested_impl(Value parent, Value object, Value 
   return Value();
 }
 
+Value Core::_max_tokens_error_impl(Value response) {
+  axir_coverage_mark("_max_tokens_error_impl");
+  Value empty_results = Value::array();
+  Value completions = Core::get(response, Value("results"), empty_results);
+  Value count = Core::len(completions);
+  Value single = Core::eq(count, Value(0));
+  if (Core::truthy(single)) {
+    completions = Value::array();
+    Core::append(completions, response);
+  }
+  for (auto completion : Core::iter(completions)) {
+    Value finish_snake = Core::get(completion, Value("finish_reason"), Value());
+    Value finish = Core::get(completion, Value("finishReason"), finish_snake);
+    Value cut = Core::eq(finish, Value("length"));
+    if (Core::truthy(cut)) {
+      Value content = Core::get(completion, Value("content"), Value(""));
+      Value message = Core::add(Value("Max tokens reached before completion\nContent: "), content);
+      Value error = Core::runtime_error(message);
+      return error;
+    }
+  }
+  Value none = Core::none();
+  return none;
+}
+
 Value Core::_strict_mode_option_impl(Value base_options, Value options) {
   axir_coverage_mark("_strict_mode_option_impl");
   Value empty = Value::object();
@@ -32027,6 +33229,27 @@ Value Core::_strict_mode_option_impl(Value base_options, Value options) {
   Value strict = Core::get(call_options, Value("strictMode"), call_snake);
   Value strict_mode = Core::truthy_value(strict);
   return strict_mode;
+}
+
+Value Core::_stream_json_select_fields_impl(Value fields, Value values) {
+  axir_coverage_mark("_stream_json_select_fields_impl");
+  Value out = Value::object();
+  Value keys = Core::map_keys(values);
+  for (auto key : Core::iter(keys)) {
+    Value declared = Value(false);
+    for (auto field : Core::iter(fields)) {
+      Value name = Core::get(field, Value("name"), Value(""));
+      Value same = Core::eq(name, key);
+      if (Core::truthy(same)) {
+        declared = Value(true);
+      }
+    }
+    if (Core::truthy(declared)) {
+      Value value = Core::get(values, key, Value());
+      Core::set(out, key, value);
+    }
+  }
+  return out;
 }
 
 Value Core::_feedback_message_impl(Value text) {
@@ -32058,28 +33281,27 @@ Value Core::_caching_function_option_impl(Value gen, Value options) {
   return cache_fn;
 }
 
-Value Core::_stream_json_select_fields_impl(Value fields, Value values) {
-  axir_coverage_mark("_stream_json_select_fields_impl");
-  Value out = Value::object();
-  Value keys = Core::map_keys(values);
-  for (auto key : Core::iter(keys)) {
-    Value declared = Value(false);
-    for (auto field : Core::iter(fields)) {
-      Value name = Core::get(field, Value("name"), Value(""));
-      Value same = Core::eq(name, key);
-      if (Core::truthy(same)) {
-        declared = Value(true);
-      }
-    }
-    if (Core::truthy(declared)) {
-      Value value = Core::get(values, key, Value());
-      Core::set(out, key, value);
-    }
+Value Core::_stream_json_nested_fields_impl(Value fields_map) {
+  axir_coverage_mark("_stream_json_nested_fields_impl");
+  Value out = Value::array();
+  Value nested_fields = Core::fields_from_map(fields_map);
+  for (auto nested : Core::iter(nested_fields)) {
+    Value name = Core::get(nested, Value("name"), Value(""));
+    Value typ = Core::get(nested, Value("type"), Value());
+    Value optional = Core::_stream_field_flag_impl(nested, Value("is_optional"), Value("isOptional"));
+    Value internal = Core::_stream_field_flag_impl(nested, Value("is_internal"), Value("isInternal"));
+    Value field = Value::object();
+    Core::set(field, Value("name"), name);
+    Core::set(field, Value("title"), name);
+    Core::set(field, Value("type"), typ);
+    Core::set(field, Value("is_optional"), optional);
+    Core::set(field, Value("is_internal"), internal);
+    Core::append(out, field);
   }
   return out;
 }
 
-Value Core::_cache_key_impl(Value gen, Value values) {
+Value Core::_cache_key_impl(Value gen, Value values, Value options) {
   axir_coverage_mark("_cache_key_impl");
   Value signature = Core::get(gen, Value("signature"), Value());
   Value description = Core::get(signature, Value("description"), Value(""));
@@ -32105,31 +33327,43 @@ Value Core::_cache_key_impl(Value gen, Value values) {
     Value output_line = Core::string_format(Value("output {} {} {}"), output_name, output_label, output_optional);
     Core::append(lines, output_line);
   }
+  Value decisions = Core::_evidence_has_fields_impl(output_fields);
+  if (Core::truthy(decisions)) {
+    Value full_signature = Core::signature_to_string(signature);
+    Core::append(lines, full_signature);
+    Value identity = Value::object();
+    Value instruction = Core::get(gen, Value("instruction"), Value());
+    Value examples = Core::get(gen, Value("examples"), Value());
+    Value demos = Core::get(gen, Value("demos"), Value());
+    Value service = Core::get(options, Value("_evidence_cache_identity"), Value());
+    Core::set(identity, Value("instruction"), instruction);
+    Core::set(identity, Value("examples"), examples);
+    Core::set(identity, Value("demos"), demos);
+    Core::set(identity, Value("service"), service);
+    Value call = Value::object();
+    Value keys = Value::array();
+    Core::append(keys, Value("model"));
+    Core::append(keys, Value("model_config"));
+    Core::append(keys, Value("modelConfig"));
+    Core::append(keys, Value("sampleCount"));
+    Core::append(keys, Value("sample_count"));
+    Core::append(keys, Value("thinkingTokenBudget"));
+    Core::append(keys, Value("showThoughts"));
+    Core::append(keys, Value("serviceTier"));
+    Core::append(keys, Value("structuredOutputMode"));
+    for (auto key : Core::iter(keys)) {
+      Value v = Core::get(options, key, Value());
+      Core::set(call, key, v);
+    }
+    Core::set(identity, Value("call"), call);
+    Value identity_json = Core::json_stable_stringify(identity);
+    Core::append(lines, identity_json);
+  }
   Value inputs_json = Core::json_stable_stringify(inputs);
   Core::append(lines, inputs_json);
   Value text = Core::string_join(Value("\n"), lines);
   Value key = Core::crypto_sha256_hex(text);
   return key;
-}
-
-Value Core::_stream_json_nested_fields_impl(Value fields_map) {
-  axir_coverage_mark("_stream_json_nested_fields_impl");
-  Value out = Value::array();
-  Value nested_fields = Core::fields_from_map(fields_map);
-  for (auto nested : Core::iter(nested_fields)) {
-    Value name = Core::get(nested, Value("name"), Value(""));
-    Value typ = Core::get(nested, Value("type"), Value());
-    Value optional = Core::_stream_field_flag_impl(nested, Value("is_optional"), Value("isOptional"));
-    Value internal = Core::_stream_field_flag_impl(nested, Value("is_internal"), Value("isInternal"));
-    Value field = Value::object();
-    Core::set(field, Value("name"), name);
-    Core::set(field, Value("title"), name);
-    Core::set(field, Value("type"), typ);
-    Core::set(field, Value("is_optional"), optional);
-    Core::set(field, Value("is_internal"), internal);
-    Core::append(out, field);
-  }
-  return out;
 }
 
 Value Core::_stream_json_flexible_impl(Value field) {
@@ -32146,21 +33380,6 @@ Value Core::_stream_json_flexible_impl(Value field) {
   Value open_object = Core::not_(has_nested);
   Value flexible = Core::and_(is_object, open_object);
   return flexible;
-}
-
-Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
-  axir_coverage_mark("_cache_store_impl");
-  Value no_cache = Core::is_none(cache_fn);
-  if (Core::truthy(no_cache)) {
-    return Value();
-  }
-  try {
-    Core::axgen_cache_write(cache_fn, key, output);
-  } catch (const std::exception& e) {
-    Value cache_write_error = Core::exception_value(e);
-    // empty
-  }
-  return Value();
 }
 
 Value Core::_stream_json_string_value_impl(Value field, Value value) {
@@ -32182,16 +33401,6 @@ Value Core::_stream_json_string_value_impl(Value field, Value value) {
     Core::raise_error(invalid);
   }
   return parsed;
-}
-
-Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
-  axir_coverage_mark("_cache_store_streamed_impl");
-  Value output_count = Core::len(output);
-  Value yielded = Core::gt(output_count, Value(0));
-  if (Core::truthy(yielded)) {
-    Core::_cache_store_impl(cache_fn, key, output);
-  }
-  return Value();
 }
 
 Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
@@ -32246,6 +33455,31 @@ Value Core::_stream_json_strings_for_field_impl(Value field, Value value) {
   return value;
 }
 
+Value Core::_cache_store_impl(Value cache_fn, Value key, Value output) {
+  axir_coverage_mark("_cache_store_impl");
+  Value no_cache = Core::is_none(cache_fn);
+  if (Core::truthy(no_cache)) {
+    return Value();
+  }
+  try {
+    Core::axgen_cache_write(cache_fn, key, output);
+  } catch (const std::exception& e) {
+    Value cache_write_error = Core::exception_value(e);
+    // empty
+  }
+  return Value();
+}
+
+Value Core::_cache_store_streamed_impl(Value cache_fn, Value key, Value output) {
+  axir_coverage_mark("_cache_store_streamed_impl");
+  Value output_count = Core::len(output);
+  Value yielded = Core::gt(output_count, Value(0));
+  if (Core::truthy(yielded)) {
+    Core::_cache_store_impl(cache_fn, key, output);
+  }
+  return Value();
+}
+
 Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors) {
   axir_coverage_mark("_cache_lookup_impl");
   Value lookup = Value::object();
@@ -32255,7 +33489,7 @@ Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ign
   Core::set(lookup, Value("hit"), Value(false));
   Value use_cache = Core::is_not_none(cache_fn);
   if (Core::truthy(use_cache)) {
-    Value cache_key = Core::_cache_key_impl(gen, values);
+    Value cache_key = Core::_cache_key_impl(gen, values, options);
     Core::set(lookup, Value("key"), cache_key);
     Value cached = Core::none();
     if (Core::truthy(ignore_read_errors)) {
@@ -32276,41 +33510,6 @@ Value Core::_cache_lookup_impl(Value gen, Value values, Value options, Value ign
     }
   }
   return lookup;
-}
-
-Value Core::_cache_lookup_option_impl(Value options) {
-  axir_coverage_mark("_cache_lookup_option_impl");
-  Value empty = Value::object();
-  Value call_options = Core::map_merge(empty, options);
-  Value lookup = Core::get(call_options, Value("_ax_cache_lookup"), Value());
-  return lookup;
-}
-
-Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates) {
-  axir_coverage_mark("_apply_control_updates_impl");
-  Value steers = Value::array();
-  for (auto update : Core::iter(updates)) {
-    Value kind = Core::get(update, Value("type"), Value(""));
-    Value is_steer = Core::eq(kind, Value("steer"));
-    if (Core::truthy(is_steer)) {
-      Value text = Core::get(update, Value("text"), Value(""));
-      Value message = Value::object();
-      Core::set(message, Value("role"), Value("user"));
-      Core::set(message, Value("content"), text);
-      Core::append(messages, message);
-      Core::append(steers, message);
-    }
-    if (!Core::truthy(is_steer)) {
-      Value level = Core::get(update, Value("level"), Value());
-      Core::set(runtime_options, Value("thinkingTokenBudget"), level);
-    }
-  }
-  Value steer_count = Core::len(steers);
-  Value has_steers = Core::gt(steer_count, Value(0));
-  if (Core::truthy(has_steers)) {
-    Core::axgen_memory_add_request(gen, steers);
-  }
-  return messages;
 }
 
 Value Core::_stream_json_strings_for_fields_impl(Value fields_map, Value values) {
@@ -32357,6 +33556,89 @@ Value Core::_stream_json_strings_impl(Value fields, Value values, Value partial)
   return Value();
 }
 
+Value Core::_cache_lookup_option_impl(Value options) {
+  axir_coverage_mark("_cache_lookup_option_impl");
+  Value empty = Value::object();
+  Value call_options = Core::map_merge(empty, options);
+  Value lookup = Core::get(call_options, Value("_ax_cache_lookup"), Value());
+  return lookup;
+}
+
+Value Core::_apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates) {
+  axir_coverage_mark("_apply_control_updates_impl");
+  Value steers = Value::array();
+  for (auto update : Core::iter(updates)) {
+    Value kind = Core::get(update, Value("type"), Value(""));
+    Value is_steer = Core::eq(kind, Value("steer"));
+    if (Core::truthy(is_steer)) {
+      Value text = Core::get(update, Value("text"), Value(""));
+      Value message = Value::object();
+      Core::set(message, Value("role"), Value("user"));
+      Core::set(message, Value("content"), text);
+      Core::append(messages, message);
+      Core::append(steers, message);
+    }
+    if (!Core::truthy(is_steer)) {
+      Value level = Core::get(update, Value("level"), Value());
+      Core::set(runtime_options, Value("thinkingTokenBudget"), level);
+    }
+  }
+  Value steer_count = Core::len(steers);
+  Value has_steers = Core::gt(steer_count, Value(0));
+  if (Core::truthy(has_steers)) {
+    Core::axgen_memory_add_request(gen, steers);
+  }
+  return messages;
+}
+
+Value Core::_stream_state_impl(Value index) {
+  axir_coverage_mark("_stream_state_impl");
+  Value state = Value::object();
+  Core::set(state, Value("index"), index);
+  Core::set(state, Value("content"), Value(""));
+  Value values = Value::object();
+  Core::set(state, Value("values"), values);
+  Value xstate = Core::_stream_text_state_impl();
+  Core::set(state, Value("xstate"), xstate);
+  Core::set(state, Value("last_parse_length"), Value(0));
+  return state;
+}
+
+Value Core::_stream_merge_value_impl(Value base, Value has_base, Value delta) {
+  axir_coverage_mark("_stream_merge_value_impl");
+  Value delta_is_list = Core::type_is(delta, Value("list"));
+  Value base_is_list = Core::type_is(base, Value("list"));
+  Value missing = Core::not_(has_base);
+  Value both_lists = Core::and_(base_is_list, delta_is_list);
+  Value list_start = Core::and_(missing, delta_is_list);
+  Value join_lists = Core::or_(both_lists, list_start);
+  if (Core::truthy(join_lists)) {
+    Value joined = Value::array();
+    if (Core::truthy(both_lists)) {
+      for (auto old_item : Core::iter(base)) {
+        Core::append(joined, old_item);
+      }
+    }
+    for (auto new_item : Core::iter(delta)) {
+      Core::append(joined, new_item);
+    }
+    return joined;
+  }
+  Value delta_is_string = Core::type_is(delta, Value("string"));
+  Value base_is_string = Core::type_is(base, Value("string"));
+  Value string_base = Core::or_(missing, base_is_string);
+  Value join_strings = Core::and_(string_base, delta_is_string);
+  if (Core::truthy(join_strings)) {
+    Value prefix = Value("");
+    if (Core::truthy(base_is_string)) {
+      prefix = base;
+    }
+    Value text = Core::add(prefix, delta);
+    return text;
+  }
+  return delta;
+}
+
 Value Core::_structured_output_render_options_impl(Value selection) {
   axir_coverage_mark("_structured_output_render_options_impl");
   Value render_options = Value::object();
@@ -32374,19 +33656,6 @@ Value Core::_structured_output_render_options_impl(Value selection) {
   }
   Core::set(render_options, Value("extra_functions"), extra_functions);
   return render_options;
-}
-
-Value Core::_stream_state_impl(Value index) {
-  axir_coverage_mark("_stream_state_impl");
-  Value state = Value::object();
-  Core::set(state, Value("index"), index);
-  Core::set(state, Value("content"), Value(""));
-  Value values = Value::object();
-  Core::set(state, Value("values"), values);
-  Value xstate = Core::_stream_text_state_impl();
-  Core::set(state, Value("xstate"), xstate);
-  Core::set(state, Value("last_parse_length"), Value(0));
-  return state;
 }
 
 Value Core::_completion_function_call_problems(Value response) {
@@ -32449,41 +33718,6 @@ Value Core::_completion_function_call_problems(Value response) {
   Core::set(out, Value("unnamed"), unnamed);
   Core::set(out, Value("call"), call_problem);
   return out;
-}
-
-Value Core::_stream_merge_value_impl(Value base, Value has_base, Value delta) {
-  axir_coverage_mark("_stream_merge_value_impl");
-  Value delta_is_list = Core::type_is(delta, Value("list"));
-  Value base_is_list = Core::type_is(base, Value("list"));
-  Value missing = Core::not_(has_base);
-  Value both_lists = Core::and_(base_is_list, delta_is_list);
-  Value list_start = Core::and_(missing, delta_is_list);
-  Value join_lists = Core::or_(both_lists, list_start);
-  if (Core::truthy(join_lists)) {
-    Value joined = Value::array();
-    if (Core::truthy(both_lists)) {
-      for (auto old_item : Core::iter(base)) {
-        Core::append(joined, old_item);
-      }
-    }
-    for (auto new_item : Core::iter(delta)) {
-      Core::append(joined, new_item);
-    }
-    return joined;
-  }
-  Value delta_is_string = Core::type_is(delta, Value("string"));
-  Value base_is_string = Core::type_is(base, Value("string"));
-  Value string_base = Core::or_(missing, base_is_string);
-  Value join_strings = Core::and_(string_base, delta_is_string);
-  if (Core::truthy(join_strings)) {
-    Value prefix = Value("");
-    if (Core::truthy(base_is_string)) {
-      prefix = base;
-    }
-    Value text = Core::add(prefix, delta);
-    return text;
-  }
-  return delta;
 }
 
 Value Core::_stream_commit_delta_impl(Value committed, Value current, Value delta) {
@@ -32587,27 +33821,6 @@ Value Core::_check_completion_function_calls(Value response, Value options) {
   return Value();
 }
 
-Value Core::_include_optional_render_option_impl(Value render_options, Value options) {
-  axir_coverage_mark("_include_optional_render_option_impl");
-  Value snake = Core::get(options, Value("include_optional_input_fields_in_system_prompt"), Value());
-  Value value = Core::get(options, Value("includeOptionalInputFieldsInSystemPrompt"), snake);
-  Value given = Core::is_not_none(value);
-  if (Core::truthy(given)) {
-    Value flag = Core::truthy_value(value);
-    Core::set(render_options, Value("include_optional_input_fields_in_system_prompt"), flag);
-  }
-  return Value();
-}
-
-Value Core::_memory_cleanup_option_impl(Value options) {
-  axir_coverage_mark("_memory_cleanup_option_impl");
-  Value disabled_snake = Core::get(options, Value("disable_memory_cleanup"), Value(false));
-  Value disabled_value = Core::get(options, Value("disableMemoryCleanup"), disabled_snake);
-  Value disabled = Core::truthy_value(disabled_value);
-  Value cleanup = Core::not_(disabled);
-  return cleanup;
-}
-
 Value Core::_stream_run_state_impl(Value sink, Value buffered, Value thought_field) {
   axir_coverage_mark("_stream_run_state_impl");
   Value run = Value::object();
@@ -32623,32 +33836,6 @@ Value Core::_stream_run_state_impl(Value sink, Value buffered, Value thought_fie
   return run;
 }
 
-Value Core::_settle_failed_attempts_impl(Value messages, Value failed, Value cleanup) {
-  axir_coverage_mark("_settle_failed_attempts_impl");
-  Value failed_count = Core::len(failed);
-  Value none_failed = Core::eq(failed_count, Value(0));
-  if (Core::truthy(none_failed)) {
-    return messages;
-  }
-  Value settled = Value::array();
-  for (auto message : Core::iter(messages)) {
-    Core::append(settled, message);
-  }
-  for (auto failed_message : Core::iter(failed)) {
-    Value keep = Core::not_(cleanup);
-    Value role = Core::get(failed_message, Value("role"), Value(""));
-    Value is_result = Core::eq(role, Value("function"));
-    keep = Core::or_(keep, is_result);
-    Value calls = Core::get(failed_message, Value("function_calls"), Value());
-    Value has_calls = Core::truthy_value(calls);
-    keep = Core::or_(keep, has_calls);
-    if (Core::truthy(keep)) {
-      Core::append(settled, failed_message);
-    }
-  }
-  return settled;
-}
-
 Value Core::_stream_run_new_version_impl(Value run, Value version) {
   axir_coverage_mark("_stream_run_new_version_impl");
   Core::set(run, Value("current_version"), version);
@@ -32657,6 +33844,18 @@ Value Core::_stream_run_new_version_impl(Value run, Value version) {
   Core::set(run, Value("output_emitted"), Value(false));
   Value cleared_buffer = Value::array();
   Core::set(run, Value("buffer"), cleared_buffer);
+  return Value();
+}
+
+Value Core::_include_optional_render_option_impl(Value render_options, Value options) {
+  axir_coverage_mark("_include_optional_render_option_impl");
+  Value snake = Core::get(options, Value("include_optional_input_fields_in_system_prompt"), Value());
+  Value value = Core::get(options, Value("includeOptionalInputFieldsInSystemPrompt"), snake);
+  Value given = Core::is_not_none(value);
+  if (Core::truthy(given)) {
+    Value flag = Core::truthy_value(value);
+    Core::set(render_options, Value("include_optional_input_fields_in_system_prompt"), flag);
+  }
   return Value();
 }
 
@@ -32747,6 +33946,41 @@ Value Core::_stream_yield_impl(Value run, Value version, Value index, Value delt
   return Value();
 }
 
+Value Core::_memory_cleanup_option_impl(Value options) {
+  axir_coverage_mark("_memory_cleanup_option_impl");
+  Value disabled_snake = Core::get(options, Value("disable_memory_cleanup"), Value(false));
+  Value disabled_value = Core::get(options, Value("disableMemoryCleanup"), disabled_snake);
+  Value disabled = Core::truthy_value(disabled_value);
+  Value cleanup = Core::not_(disabled);
+  return cleanup;
+}
+
+Value Core::_settle_failed_attempts_impl(Value messages, Value failed, Value cleanup) {
+  axir_coverage_mark("_settle_failed_attempts_impl");
+  Value failed_count = Core::len(failed);
+  Value none_failed = Core::eq(failed_count, Value(0));
+  if (Core::truthy(none_failed)) {
+    return messages;
+  }
+  Value settled = Value::array();
+  for (auto message : Core::iter(messages)) {
+    Core::append(settled, message);
+  }
+  for (auto failed_message : Core::iter(failed)) {
+    Value keep = Core::not_(cleanup);
+    Value role = Core::get(failed_message, Value("role"), Value(""));
+    Value is_result = Core::eq(role, Value("function"));
+    keep = Core::or_(keep, is_result);
+    Value calls = Core::get(failed_message, Value("function_calls"), Value());
+    Value has_calls = Core::truthy_value(calls);
+    keep = Core::or_(keep, has_calls);
+    if (Core::truthy(keep)) {
+      Core::append(settled, failed_message);
+    }
+  }
+  return settled;
+}
+
 Value Core::_function_result_text_impl(Value result, Value options) {
   axir_coverage_mark("_function_result_text_impl");
   Value empty_map = Value::object();
@@ -32787,44 +34021,6 @@ Value Core::_function_result_text_impl(Value result, Value options) {
     return Value("done");
   }
   return text;
-}
-
-Value Core::_run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options) {
-  axir_coverage_mark("_run_tool_calls_impl");
-  for (auto call : Core::iter(calls)) {
-    Value tool_ok = Value(false);
-    Value tool_result = Core::none();
-    try {
-      Value executed = Core::_execute_tool_call(functions, call, options);
-      tool_result = executed;
-      tool_ok = Value(true);
-    } catch (const std::exception& e) {
-      Value tool_error = Core::exception_value(e);
-      Value tool_error_message = Core::_tool_error_message_impl(call, tool_error);
-      Core::append(messages, tool_error_message);
-      Value tool_error_text = Core::get(tool_error_message, Value("result"), Value(""));
-      Core::axgen_memory_add_function_result(gen, call, tool_error_text, Value(false), tool_error_text);
-      Core::axgen_record_function_call(gen, call, tool_error_message, Value("error"));
-    }
-    if (Core::truthy(tool_ok)) {
-      Value tool_text = Value("");
-      try {
-        Value formatted_text = Core::_function_result_text_impl(tool_result, options);
-        tool_text = formatted_text;
-      } catch (const std::exception& e) {
-        Value format_error = Core::exception_value(e);
-        Value format_error_message = Core::_tool_error_message_impl(call, format_error);
-        Core::axgen_record_function_call(gen, call, format_error_message, Value("error"));
-        Value format_failure = Core::_generate_failed_impl(format_error);
-        Core::raise_error(format_failure);
-      }
-      Value tool_message = Core::_tool_result_message_impl(call, tool_text);
-      Core::append(messages, tool_message);
-      Core::axgen_memory_add_function_result(gen, call, tool_text, Value(true), tool_text);
-      Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
-    }
-  }
-  return messages;
 }
 
 Value Core::_stream_marker_incomplete_impl(Value marker) {
@@ -32875,6 +34071,44 @@ Value Core::_stream_apply_structured_impl(Value state, Value fields, Value parse
     Core::append(deltas, visible);
   }
   return deltas;
+}
+
+Value Core::_run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options) {
+  axir_coverage_mark("_run_tool_calls_impl");
+  for (auto call : Core::iter(calls)) {
+    Value tool_ok = Value(false);
+    Value tool_result = Core::none();
+    try {
+      Value executed = Core::_execute_tool_call(functions, call, options);
+      tool_result = executed;
+      tool_ok = Value(true);
+    } catch (const std::exception& e) {
+      Value tool_error = Core::exception_value(e);
+      Value tool_error_message = Core::_tool_error_message_impl(call, tool_error);
+      Core::append(messages, tool_error_message);
+      Value tool_error_text = Core::get(tool_error_message, Value("result"), Value(""));
+      Core::axgen_memory_add_function_result(gen, call, tool_error_text, Value(false), tool_error_text);
+      Core::axgen_record_function_call(gen, call, tool_error_message, Value("error"));
+    }
+    if (Core::truthy(tool_ok)) {
+      Value tool_text = Value("");
+      try {
+        Value formatted_text = Core::_function_result_text_impl(tool_result, options);
+        tool_text = formatted_text;
+      } catch (const std::exception& e) {
+        Value format_error = Core::exception_value(e);
+        Value format_error_message = Core::_tool_error_message_impl(call, format_error);
+        Core::axgen_record_function_call(gen, call, format_error_message, Value("error"));
+        Value format_failure = Core::_generate_failed_impl(format_error);
+        Core::raise_error(format_failure);
+      }
+      Value tool_message = Core::_tool_result_message_impl(call, tool_text);
+      Core::append(messages, tool_message);
+      Core::axgen_memory_add_function_result(gen, call, tool_text, Value(true), tool_text);
+      Core::axgen_record_function_call(gen, call, tool_result, Value("ok"));
+    }
+  }
+  return messages;
 }
 
 Value Core::_stream_feedback_text_impl(Value result) {
@@ -33127,6 +34361,10 @@ Value Core::_stream_chunk_content_impl(Value gen, Value config, Value state, Val
   Core::set(state, Value("content"), content);
   Value empty_fields = Value::array();
   Value fields = Core::get(config, Value("fields"), empty_fields);
+  Value decisions = Core::_evidence_has_fields_impl(fields);
+  if (Core::truthy(decisions)) {
+    return deltas;
+  }
   Value empty_held = Value::array();
   Value held = Core::get(config, Value("held"), empty_held);
   Value structured = Core::get(config, Value("structured"), Value(false));
@@ -33250,6 +34488,11 @@ Value Core::_stream_finalize_impl(Value gen, Value config, Value ctx, Value stat
         Core::_stream_json_strings_impl(fields, final_json, Value(false));
       }
       Core::_stream_json_validate_impl(fields, final_json, Value(false), strict_json);
+      Value decision_context = Core::get(config, Value("decision_context"), Value());
+      Value decisions = Core::_evidence_has_fields_impl(fields);
+      if (Core::truthy(decisions)) {
+        final_json = Core::_evidence_decode_values_impl(fields, final_json, decision_context, Value(""));
+      }
       Value no_marker = Core::none();
       Value final_deltas = Core::_stream_apply_structured_impl(state, fields, final_json, no_marker, held);
       Core::_stream_emit_deltas_impl(ctx, index, final_deltas);
@@ -33466,6 +34709,10 @@ Value Core::_stream_json_type_error_impl(Value field, Value value, Value detail)
 Value Core::_stream_json_coerce_scalar_impl(Value field, Value value) {
   axir_coverage_mark("_stream_json_coerce_scalar_impl");
   Value typ = Core::get(field, Value("type"), Value());
+  Value decision = Core::_evidence_is_type_impl(typ);
+  if (Core::truthy(decision)) {
+    return value;
+  }
   Value name = Core::get(typ, Value("name"), Value("string"));
   Value is_boolean_value = Core::type_is(value, Value("boolean"));
   Value is_number_type = Core::eq(name, Value("number"));
@@ -53083,7 +54330,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options, request) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options, request) : response_context);
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
@@ -56086,6 +57333,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   // As in TS, the cache is read before the run's span and metrics, so a hit
   // records neither; a read error propagates. A miss hands the lookup to the
   // run, which then only stores.
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_evidence_cache_identity", std::to_string(reinterpret_cast<std::uintptr_t>(&client)));
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
   // A stored output's audio outputs are rendered, as TS does.
   if (Core::truthy(Core::get(lookup, "hit", false))) return Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
@@ -56173,6 +57422,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   // As in TS, the cache is read before the run's span and metrics, and a
   // read error is ignored: a hit is one {version 0, index 0} delta with no
   // telemetry. A miss hands the lookup to the run, which then only stores.
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_evidence_cache_identity", std::to_string(reinterpret_cast<std::uintptr_t>(&client)));
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
   if (Core::truthy(Core::get(lookup, "hit", false))) {
     // A stored output's audio outputs are rendered, as TS does.

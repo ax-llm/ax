@@ -1,6 +1,6 @@
 ---
 name: "ax-rust-typesafe"
-description: "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class signatures, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
+description: "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation."
 version: "25.2.1"
 ---
 # Typesafe / Jev For Rust
@@ -10,7 +10,7 @@ This skill helps an agent write Rust code with the generated Ax package `axllm`.
 ## When To Use
 
 - Use Jev for typed decisions with ordinary Ax signatures.
-- Use native questions for probabilities, rich criteria, structured state, or scoring.
+- Retain probabilities and scores through evidence-bearing AxGen signatures; use native questions for advanced criteria or structured state.
 - Compose a separate generative program for prose or tools.
 
 ## Package Facts
@@ -31,9 +31,19 @@ let mut model = ai("typesafe", json!({"api_key": api_key, "trueThreshold": 0.9})
 let decision = ax("ticket:string -> urgent:boolean(true \"Core task blocked\", false \"Routine request\"), team:class \"support, billing, engineering\"")?.forward(&mut model, json!({"ticket": ticket}))?;
 ```
 
+## Decision evidence
+
+Add (evidence) to boolean/class/score signature outputs to retain probabilities, values, provenance, and native class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
+
+Native selected classes and continuous scores are preserved, even when they differ from argmax or a weighted mean. Generative providers elicit probabilities, derive values locally, omit confidence, and use provenance.source=elicited. Ax attaches actual provider/model provenance. The result shape does not make confidence or calibration comparable across models.
+
+By default a decision refusal raises a terminal AxDecisionRefusalError without correction retries. Use (evidence, refusal return) for an answered/refused union. Generated-language error envelopes retain the decision error type. Arrays, optional fields and nested evidence work with generative models; native providers require flat required scalar fields. Streaming emits only complete evidence. Label-only examples never manufacture distributions.
+
+For reranking, evaluate query/document pairs with the same score rubric, retain candidate IDs outside the model, and sort by relevance.value. Runnable decision-evidence examples are under src/examples/rust/generation/.
+
 ## Typesafe / Jev
 
-The typesafe provider supports required boolean and class outputs. Numeric bounds never define a Score rubric; numbers, freeform strings, optional outputs, arrays, nesting, media, tools, and sampling controls are rejected before transport.
+The typesafe provider supports required boolean, class, and ordered rubric score outputs. Use score "Low, Medium, High" to declare a rubric. Numeric bounds never define a Score rubric; ordinary numbers, freeform strings, optional outputs, arrays, nesting, media, tools, and sampling controls are rejected before transport.
 
 Set provider trueThreshold (or true_threshold) to a finite value in [0,1], default 0.5. Boolean conversion uses noul >= threshold; this policy is local and never sent. Choice returns the selected label without a confidence cutoff.
 

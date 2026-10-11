@@ -9,6 +9,7 @@ import type {
 } from '../../ai/types.js';
 import type { AxAIMemory } from '../../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from '../asserts.js';
+import type { AxDecisionContext } from '../decision.js';
 import type { extractionState } from '../extract.js';
 import type { AxFieldProcessor } from '../fieldProcessor.js';
 import type { SignatureToolCallingManager } from '../signatureToolCalling.js';
@@ -39,6 +40,7 @@ export interface AxResponseHandlerArgs<T> {
 }
 
 export type InternalAxGenState = {
+  decisionContext?: AxDecisionContext;
   index: number;
   values: Record<string, any>;
   content: string;

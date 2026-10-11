@@ -243,6 +243,7 @@ def _nested_field(name, item):
             pattern=item.get("pattern"),
             pattern_description=item.get("patternDescription", item.get("pattern_description")),
             value_descriptions=item.get("valueDescriptions", item.get("value_descriptions")),
+            evidence=item.get("evidence"),
             format=item.get("format"),
             description=item.get("description"),
         )
@@ -275,3 +276,11 @@ def _valid_url_shape(value):
 
 
 # AXIR_CORE_SCHEMA_FUNCTIONS
+
+
+def _core_math_is_finite(value):
+    import math
+    return math.isfinite(value)
+
+
+def _core_add(a, b): return a + b

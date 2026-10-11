@@ -25,7 +25,7 @@ public final class AxSignature {
   public String getDescription() { return description; }
 
   public boolean hasComplexFields() {
-    if (forceStructured) return true;
+    if (forceStructured || Core.truthy(Core._evidence_has_fields_impl(outputs))) return true;
     for (Field field : outputs) {
       if ("object".equals(field.type.name) || field.type.fields != null) return true;
     }
@@ -36,7 +36,7 @@ public final class AxSignature {
 
   public java.util.Map<String, Object> toJsonSchema(String target, java.util.Map<String, Object> options) {
     List<Field> fields = "inputs".equals(target) ? inputs : outputs;
-    return Core.asMap(Core.to_json_schema(fields, "Schema", options == null ? java.util.Map.of() : options));
+    return Core.asMap(Core.to_json_schema(fields, "Schema", Core.asMap(Core.mapMerge(java.util.Map.of("decisionMode", "result"), options))));
   }
 
   public static final class Builder {

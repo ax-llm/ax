@@ -161,7 +161,7 @@ const (
 	IntrinsicAgentStageTraces          CoreIntrinsic = "intrinsic.agent.stage_traces"
 	IntrinsicAgentClarificationErr     CoreIntrinsic = "intrinsic.agent.clarification_error"
 	IntrinsicAgentRuntimeCreate        CoreIntrinsic = "intrinsic.agent.runtime.create_session"
-	IntrinsicAgentRuntimeExecutable        CoreIntrinsic = "intrinsic.agent.runtime.is_executable"
+	IntrinsicAgentRuntimeExecutable    CoreIntrinsic = "intrinsic.agent.runtime.is_executable"
 	IntrinsicAgentRuntimeExecute       CoreIntrinsic = "intrinsic.agent.runtime.execute"
 	IntrinsicAgentRuntimeInspect       CoreIntrinsic = "intrinsic.agent.runtime.inspect"
 	IntrinsicAgentRuntimeExport        CoreIntrinsic = "intrinsic.agent.runtime.export_state"
@@ -181,6 +181,7 @@ const (
 	IntrinsicURLEncodeComponent        CoreIntrinsic = "intrinsic.url.encode_component"
 	IntrinsicSignatureError            CoreIntrinsic = "intrinsic.error.signature"
 	IntrinsicValidationError           CoreIntrinsic = "intrinsic.error.validation"
+	IntrinsicDecisionRefusalError      CoreIntrinsic = "intrinsic.error.decision_refusal"
 	IntrinsicListGet                   CoreIntrinsic = "intrinsic.list.get"
 	IntrinsicFieldItem                 CoreIntrinsic = "intrinsic.field.item"
 	IntrinsicNestedFields              CoreIntrinsic = "intrinsic.fields.from_map"
@@ -332,7 +333,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentStageTraces:          "_core_agent_stage_traces",
 	IntrinsicAgentClarificationErr:     "_core_agent_clarification_error",
 	IntrinsicAgentRuntimeCreate:        "_core_agent_runtime_create_session",
-	IntrinsicAgentRuntimeExecutable:        "_core_agent_runtime_is_executable",
+	IntrinsicAgentRuntimeExecutable:    "_core_agent_runtime_is_executable",
 	IntrinsicAgentRuntimeExecute:       "_core_agent_runtime_execute",
 	IntrinsicAgentRuntimeInspect:       "_core_agent_runtime_inspect",
 	IntrinsicAgentRuntimeExport:        "_core_agent_runtime_export_state",
@@ -352,6 +353,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicURLEncodeComponent:        "_core_url_encode_component",
 	IntrinsicSignatureError:            "_core_signature_error",
 	IntrinsicValidationError:           "_core_validation_error",
+	IntrinsicDecisionRefusalError:      "_core_decision_refusal_error",
 	IntrinsicListGet:                   "_core_list_get",
 	IntrinsicFieldItem:                 "_core_field_item",
 	IntrinsicNestedFields:              "_core_fields_from_map",
@@ -465,6 +467,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.description.append":                    true,
 	"intrinsic.error.signature":                       true,
 	"intrinsic.error.validation":                      true,
+	"intrinsic.error.decision_refusal":                true,
 	"intrinsic.list.get":                              true,
 	"intrinsic.field.item":                            true,
 	"intrinsic.fields.from_map":                       true,
@@ -530,7 +533,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.stage_traces":                    true,
 	"intrinsic.agent.clarification_error":             true,
 	"intrinsic.agent.runtime.create_session":          true,
-	"intrinsic.agent.runtime.is_executable":          true,
+	"intrinsic.agent.runtime.is_executable":           true,
 	"intrinsic.agent.runtime.execute":                 true,
 	"intrinsic.agent.runtime.inspect":                 true,
 	"intrinsic.agent.runtime.export_state":            true,
@@ -834,7 +837,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.stage_traces":                  intrinsicInfo("intrinsic.agent.stage_traces", 1, 1, true, "list<json>"),
 	"intrinsic.agent.clarification_error":           intrinsicInfo("intrinsic.agent.clarification_error", 2, 2, true, "error"),
 	"intrinsic.agent.runtime.create_session":        intrinsicInfo("intrinsic.agent.runtime.create_session", 3, 3, true, "json"),
-	"intrinsic.agent.runtime.is_executable":        intrinsicInfo("intrinsic.agent.runtime.is_executable", 1, 1, false, "bool"),
+	"intrinsic.agent.runtime.is_executable":         intrinsicInfo("intrinsic.agent.runtime.is_executable", 1, 1, false, "bool"),
 	"intrinsic.agent.runtime.execute":               intrinsicInfo("intrinsic.agent.runtime.execute", 3, 3, true, "json"),
 	"intrinsic.agent.runtime.inspect":               intrinsicInfo("intrinsic.agent.runtime.inspect", 2, 2, true, "json"),
 	"intrinsic.agent.runtime.export_state":          intrinsicInfo("intrinsic.agent.runtime.export_state", 2, 2, true, "json"),

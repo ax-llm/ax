@@ -121,7 +121,7 @@
         ]
       },
       "audio": [
-        "# Realtime audio over WebSocket — pip install axllm[realtime]",
+        "# Realtime audio over WebSocket \u2014 pip install axllm[realtime]",
         "client = OpenAIResponsesClient(model=\"gpt-realtime-2\", api_key=os.environ[\"OPENAI_APIKEY\"])",
         "request = {\"model\": \"gpt-realtime-2\", \"chat_prompt\": [{\"role\": \"user\", \"content\": \"Say hello.\"}], \"audio\": {\"output\": {\"voice\": \"alloy\"}}}",
         "final = client.realtime_chat(request)  # one merged turn: transcript + base64 PCM audio",
@@ -226,7 +226,25 @@
       "pb.evolve(examples, metric)   # grow a playbook offline from examples",
       "pb.update({\"example\": ex, \"prediction\": pred, \"feedback\": \"...\"})  # refine online",
       "pb.apply_to(program)"
-    ]
+    ],
+    "decisionEvidenceExample": {
+      "sourcePath": "src/examples/python/generation/decision-evidence.py",
+      "code": [
+        "import json",
+        "import os",
+        "from axllm import ai, ax",
+        "",
+        "model = ai(\"openai-decisions\", api_key=os.getenv(\"OPENAI_API_KEY\") or os.environ[\"OPENAI_APIKEY\"])",
+        "judge = ax('query:string, document:string -> relevant:boolean(evidence, threshold 0.7), relevance:score \"Irrelevant, Related, Partial answer, Direct answer\"(evidence)')",
+        "query = \"How do I request a refund?\"",
+        "candidates = [{'id': 'refund', 'text': 'Request a refund within 30 days through your account billing page.'}, {'id': 'password', 'text': 'Reset your password using the sign-in page.'}]",
+        "ranked = [{\"id\": item[\"id\"], **judge.forward(model, {\"query\": query, \"document\": item[\"text\"]})} for item in candidates]",
+        "ranked.sort(key=lambda item: item[\"relevance\"][\"value\"], reverse=True)",
+        "print(json.dumps(ranked, indent=2))"
+      ],
+      "fence": "python",
+      "requiresCredentials": true
+    }
   },
   "snippetGroups": {
     "ai": {

@@ -269,7 +269,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
     if (raw == null) raw = requestJsonRetried(operationPath("chat", modelName), payload, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat", activeCancellation(), options);
-    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("openai-decisions") ? Core.decisions_response_context(payload, options) : profile.equals("typesafe") ? Core.typesafe_response_context(payload, options) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
+    return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName, profile.equals("openai-decisions") ? Core.decisions_response_context(payload, options, request) : profile.equals("typesafe") ? Core.typesafe_response_context(payload, options, request) : Core.provider_response_context(payload, request.getOrDefault("model_config", Map.of()), options)));
   }
 
   @Override public void validateChatRequest(Map<String, Object> request) {

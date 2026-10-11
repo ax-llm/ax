@@ -115,9 +115,9 @@ bounds still describe validation constraints; Typesafe Score rubrics remain nati
 The same descriptions, validation, serialization, schemas, and prompt semantics
 are generated for Python, Java, C++, Go, and Rust.
 
-For Jev, use these descriptions for boolean/class criteria. Full structured
-criteria, native probabilities, and Score rubrics use the separate native
-client; see the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md).
+For Jev, use these descriptions for boolean/class criteria. Add `.withEvidence()`
+to retain probabilities in AxGen and use `f.score(levels)` for ordered rubrics.
+Full structured criteria use the separate native client; see the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md).
 The adapter's `trueThreshold` is provider-wide conversion policy, not a field modifier.
 
 ### Existing modifier rules
@@ -478,3 +478,11 @@ Fetch these for full working code:
 - [Fluent Signature](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-signature-example.ts) — native fluent f() API
 - [Structured Output](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/structured_output.ts) — structured output with validation
 - [Debug Schema](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/debug_schema.ts) — JSON schema validation
+
+## Evidence fields
+
+Boolean and class fields can opt in with `.withEvidence()` or `(evidence)`.
+A rubric `score "Low, Medium, High"` returns a continuous zero-based index;
+add `(evidence)` to keep ordered probabilities and provenance. Boolean
+`threshold 0.7` applies locally to evidence fields only. `refusal return` adds
+a tagged answered/refused union. See [decision evidence](ax-typesafe.md#decision-evidence-and-reranking).

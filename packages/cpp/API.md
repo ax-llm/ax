@@ -871,6 +871,16 @@ Evaluator callback boundary used by generated optimizers.
 
 Handle target-native errors and dynamic values at Ax host boundaries.
 
+### `AxDecisionRefusalError`
+
+Terminal decision-field refusal; retains field path and provider provenance.
+
+- Canonical Ax concept: `AxDecisionRefusalError`
+- Kind: `type`
+- Form: `AxDecisionRefusalError`
+- Returns: `error`
+- Important options: fieldPath, provenance
+
 ### `axllm::AxGenerateError`
 
 Generation boundary failure retaining the original cause; cancellation propagates unchanged.

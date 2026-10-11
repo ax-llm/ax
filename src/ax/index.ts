@@ -772,6 +772,16 @@ import type {
   AxTypedExample,
 } from './dsp/common_types.js';
 import type { AxDateRange } from './dsp/datetime.js';
+import {
+  type AxBooleanEvidence,
+  type AxClassEvidence,
+  type AxDecisionProvenance,
+  type AxDecisionRefusal,
+  AxDecisionRefusalError,
+  type AxDecisionResult,
+  type AxEvidenceOptions,
+  type AxScoreEvidence,
+} from './dsp/decision.js';
 import { AxEvalUtil } from './dsp/eval.js';
 import { type AxEvaluateArgs, AxTestPrompt } from './dsp/evaluate.js';
 import type {
@@ -1816,6 +1826,7 @@ export type {
   AxBalancerStatsStore,
   AxBaseAIArgs,
   AxBestOfNOptions,
+  AxBooleanEvidence,
   AxBootstrapOptimizerOptions,
   AxChatAudioConfig,
   AxChatAudioOutput,
@@ -1831,6 +1842,7 @@ export type {
   AxCheckpointLoadFn,
   AxCheckpointSaveFn,
   AxCitation,
+  AxClassEvidence,
   AxCodeExecutionResult,
   AxCodeRuntime,
   AxCodeSession,
@@ -1857,6 +1869,9 @@ export type {
   AxDateRange,
   AxDateRangeValue,
   AxDebugChatResponseUsage,
+  AxDecisionProvenance,
+  AxDecisionRefusal,
+  AxDecisionResult,
   AxDiscoveryTurnSummary,
   AxDockerContainer,
   AxEmbedRequest,
@@ -1913,6 +1928,7 @@ export type {
   AxEventTrust,
   AxEventValue,
   AxEvidenceDescriptor,
+  AxEvidenceOptions,
   AxExample,
   AxExamples,
   AxExecutorModelPolicy,
@@ -2223,6 +2239,7 @@ export type {
   AxRuntimePrimitiveSignature,
   AxRuntimePrimitiveStage,
   AxSamplePickerOptions,
+  AxScoreEvidence,
   AxSelfTuningConfig,
   AxSerializedOptimizedProgram,
   AxServiceTier,
@@ -2362,6 +2379,7 @@ export {
   AxBootstrapFewShot,
   AxContentProcessingError,
   AxContextMetricsCollector,
+  AxDecisionRefusalError,
   AxDefaultCostTracker,
   AxDockerSession,
   AxEmbeddingAdapter,

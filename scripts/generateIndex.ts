@@ -23,6 +23,9 @@ interface ExportInfo {
  * Checks if a symbol name starts with the expected prefixes (ax or Ax) or is a special case
  */
 const internalExportNames = new Set([
+  'AxNativeDecision',
+  'AxDecisionContext',
+  'AxDecisionField',
   // Renamed when the GPT-5.6 reasoning surfaces were split; the old single name
   // is kept so this list still covers what it was written to cover.
   'AxAIOpenAIReasoningEffort',
@@ -211,10 +214,7 @@ function processDeclaration(
 function processVariableStatement(node: ts.VariableStatement): ExportInfo[] {
   const exports: ExportInfo[] = [];
   // Check if the variable statement has an export modifier
-  if (
-    !node.modifiers ||
-    !node.modifiers.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-  ) {
+  if (!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
     return exports;
   }
 

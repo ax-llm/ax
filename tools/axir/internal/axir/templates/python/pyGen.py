@@ -43,6 +43,7 @@ from .schema import AxValidationError, _core_field_item, _core_url_valid, strip_
 from .signature import AxSignature, _core_string_replace, _js_date_prompt_text, _js_json_dumps, _js_number_text, _js_format, _js_text
 from .mcp import resolve_execution_context
 # AXIR_CORE_IMPORTS
+from .signature import _evidence_has_fields_impl, _evidence_example_values_impl
 
 
 class _StreamingConsumerStopped(AxAIServiceAbortedError):
@@ -574,6 +575,7 @@ class AxGen:
         # As in TS, the cache is read before the run's span and metrics, so a
         # stored output records neither.
         run_options = _strip_runtime_hooks(options) or {}
+        run_options["_evidence_cache_identity"] = {"instance": id(client), "provider": getattr(client, "name", type(client).__name__), "model": getattr(client, "model", None), "config": getattr(client, "model_config", None)}
         lookup = _cache_lookup_impl(self, values, run_options, False)
         if lookup.get("hit"):
             # A stored output's audio outputs are rendered, as TS does.
@@ -721,6 +723,7 @@ class AxGen:
         # the cache is read before the run's span and metrics, a read error
         # is ignored, and a stored output arrives as one delta.
         run_options = _strip_runtime_hooks(options) or {}
+        run_options["_evidence_cache_identity"] = {"instance": id(client), "provider": getattr(client, "name", type(client).__name__), "model": getattr(client, "model", None), "config": getattr(client, "model_config", None)}
         lookup = _cache_lookup_impl(self, values, run_options, True)
         if lookup.get("hit"):
             # A stored output's audio outputs are rendered, as TS does.
@@ -1440,6 +1443,8 @@ def _core_axgen_fields_for(gen, kind):
 def _core_axgen_format_values(gen, values, kind):
     values = values or {}
     fields = _core_axgen_fields_for(gen, kind)
+    if kind == 'output' and _evidence_has_fields_impl(fields):
+        return _js_json_dumps(_evidence_example_values_impl(fields, values))
     lines = []
     for field in fields:
         name = _core_get(field, "name")
@@ -1729,3 +1734,12 @@ def _core_axgen_record_function_call(gen, call, result, status):
 
 
 # AXIR_CORE_GEN_FUNCTIONS
+
+class AxDecisionRefusalError(RuntimeError):
+    """Terminal refusal of a signature decision field."""
+    def __init__(self, field_path, provenance):
+        self.field_path, self.provenance = field_path, provenance
+        super().__init__(f"Decision refused: {field_path}")
+
+def _core_decision_refusal_error(path, provenance):
+    return AxDecisionRefusalError(path, provenance)

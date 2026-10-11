@@ -91,8 +91,11 @@ for await (const chunk of gen.streamingForward(llm, { question: 'Tell a story' }
 ## Forward Options Quick Reference
 
 Provider capabilities determine which outputs and options apply. Typesafe/Jev
-supports required boolean/class signatures; use its separate native client for
-Score and full probabilities, and a generative provider for prose or tools. See
+and OpenAI Decisions support required boolean/class/rubric score signatures.
+Use `(evidence)` or `.withEvidence()` for probabilities, scores, and native
+confidence through AxGen; provenance distinguishes native and elicited evidence.
+Use native clients for advanced request shapes, and generative providers for
+prose or tools. See
 the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
 before applying the general generation options below to Jev.
 

@@ -6,6 +6,7 @@ import {
   type AxStreamingAssertion,
   assertStreamingAssertions,
 } from '../asserts.js';
+import { hasDecisionFields } from '../decision.js';
 import { ValidationError } from '../errors.js';
 import { streamingExtractValues, streamValues } from '../extract.js';
 import {
@@ -60,6 +61,29 @@ export async function* processStreamingResponse<OUT extends AxGenOut>({
       }
 
       aggregatedCitations.push(...collectResultCitations(v.results));
+      if (hasDecisionFields(args.signature.getOutputFields())) {
+        for (const state of states) {
+          const native = v.results.find(
+            (r) => r.index === state.index
+          )?.decisionContext;
+          state.decisionContext =
+            native ??
+            (state.decisionContext?.provenance.source === 'native'
+              ? state.decisionContext
+              : {
+                  provenance: {
+                    source: 'elicited',
+                    provider: v.modelUsage?.ai ?? args.ai.getName(),
+                    model:
+                      v.modelUsage?.model ??
+                      state.decisionContext?.provenance.model ??
+                      String(
+                        args.model ?? args.ai.getLastUsedChatModel?.() ?? ''
+                      ),
+                  },
+                });
+        }
+      }
 
       for (const result of v.results) {
         if (result.finishReason === 'error') {
@@ -188,6 +212,8 @@ async function* processStreamingResult<OUT extends AxGenOut>({
 
   if (result.functionCalls && result.functionCalls.length > 0) {
     mergeFunctionCalls(state.functionCalls, result.functionCalls);
+    if (hasDecisionFields(signature.getOutputFields()) && result.content)
+      state.content += result.content;
     mem?.updateResult(
       {
         name: result.name,
@@ -219,6 +245,8 @@ async function* processStreamingResult<OUT extends AxGenOut>({
         `Max tokens reached before completion\nContent: ${state.content}`
       );
     }
+
+    if (hasDecisionFields(signature.getOutputFields())) return;
 
     if (signature.hasComplexFields() || strictStructuredJson) {
       const accumulator = getOrCreateStructuredAccumulator(state);

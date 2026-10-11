@@ -249,6 +249,7 @@ class FieldType:
     pattern: str | None = None
     pattern_description: str | None = None
     value_descriptions: dict[str, str] | None = None
+    evidence: dict[str, Any] | None = None
     format: str | None = None
     language: str | None = None
     description: str | None = None
@@ -293,6 +294,13 @@ class FluentField:
         clone = self._clone()
         clone.type.value_descriptions = copy.deepcopy(descriptions)
         _signature_validate_value_descriptions_impl(clone.type, clone.type.name)
+        return clone
+
+    def with_evidence(self, *, threshold: float | None = None, on_refusal: str = "throw"):
+        clone = self._clone()
+        clone.type.evidence = {"onRefusal": on_refusal}
+        if threshold is not None: clone.type.evidence["threshold"] = threshold
+        _evidence_validate_type_impl(clone.type)
         return clone
 
     def optional(self):
@@ -419,6 +427,12 @@ class FluentFactory:
 
     def string(self, description: str | None = None): return FluentField("string", description)
     def number(self, description: str | None = None): return FluentField("number", description)
+    def score(self, levels: list[str], description: str | None = None):
+        item = FluentField("score", description)
+        item.type.options = list(levels)
+        _evidence_validate_type_impl(item.type)
+        return item
+
     def boolean(self, description: str | None = None): return FluentField("boolean", description)
     def json(self, description: str | None = None): return FluentField("json", description)
     def object(self, fields: dict[str, FluentField] | None = None, description: str | None = None): return FluentField("object", description, fields=fields)
@@ -464,12 +478,12 @@ class AxSignature:
     def get_description(self): return self.description
 
     def has_complex_fields(self) -> bool:
-        return self.force_structured or any(field.type.name == "object" or field.type.fields for field in self.output_fields)
+        return self.force_structured or _evidence_has_fields_impl(self.output_fields) or any(field.type.name == "object" or field.type.fields for field in self.output_fields)
 
     def to_json_schema(self, target: str = "outputs", options: dict[str, Any] | None = None):
         from .schema import to_json_schema
         fields = self.input_fields if target == "inputs" else self.output_fields
-        return to_json_schema(fields, options=options)
+        return to_json_schema(fields, options={"decisionMode":"result", **(options or {})})
 
     def toJSONSchema(self, target: str = "outputs", options: dict[str, Any] | None = None):
         return self.to_json_schema(target, options)
@@ -881,6 +895,7 @@ def _core_record_new(name, values):
             pattern=values.get("pattern"),
             pattern_description=values.get("pattern_description", values.get("patternDescription")),
             value_descriptions=values.get("value_descriptions", values.get("valueDescriptions")),
+            evidence=values.get("evidence"),
             format=values.get("format"),
             language=values.get("language"),
             description=values.get("description"),
@@ -925,6 +940,16 @@ def _title(name: str) -> str:
 
 
 # BEGIN AXIR CORE EMITTED FUNCTIONS
+def _evidence_is_type_impl(typ: FieldType) -> bool:
+    _core_coverage_mark("_evidence_is_type_impl")
+    evidence = _core_get(typ, "evidence", None)
+    present = _core_is_not_none(evidence)
+    name = _core_get(typ, "name", None)
+    score = _core_eq(name, "score")
+    result = _core_or(present, score)
+    return result
+
+
 def _signature_value_keys_impl(typ: FieldType) -> list[Any]:
     _core_coverage_mark("_signature_value_keys_impl")
     empty_keys = []
@@ -939,6 +964,29 @@ def _signature_value_keys_impl(typ: FieldType) -> list[Any]:
     else:
         pass
     return keys
+
+
+def _evidence_has_fields_impl(fields: list[Any]) -> bool:
+    _core_coverage_mark("_evidence_has_fields_impl")
+    for field in fields:
+        typ = _core_get(field, "type", None)
+        decision = _evidence_is_type_impl(typ)
+        if decision:
+            return True
+        else:
+            pass
+        children = _core_get(typ, "fields", None)
+        present = _core_is_not_none(children)
+        if present:
+            nested = _core_fields_from_map(children)
+            decision = _evidence_has_fields_impl(nested)
+            if decision:
+                return True
+            else:
+                pass
+        else:
+            pass
+    return False
 
 
 def parse_signature(signature: str) -> AxSignature:
@@ -999,6 +1047,106 @@ def _signature_validate_value_descriptions_impl(typ: FieldType, field_name: str)
 def validate_signature(signature: AxSignature) -> None:
     _core_coverage_mark("validate_signature")
     _signature_validate_impl(signature)
+    return None
+
+
+def _evidence_validate_type_impl(typ: FieldType) -> None:
+    _core_coverage_mark("_evidence_validate_type_impl")
+    name = _core_get(typ, "name", None)
+    evidence = _core_get(typ, "evidence", None)
+    present = _core_is_not_none(evidence)
+    if present:
+        supported = []
+        supported.append("boolean")
+        supported.append("class")
+        supported.append("score")
+        valid = _core_contains(supported, name)
+        object = _core_type_is(evidence, "object")
+        valid = _core_and(valid, object)
+        invalid = _core_not(valid)
+        if invalid:
+            raise RuntimeError("Evidence requires a boolean, class or score field")
+        else:
+            pass
+        keys = _core_map_keys(evidence)
+        allowed = []
+        allowed.append("threshold")
+        allowed.append("onRefusal")
+        for key in keys:
+            known = _core_contains(allowed, key)
+            unknown = _core_not(known)
+            if unknown:
+                raise RuntimeError("Unknown evidence option")
+            else:
+                pass
+        threshold = _core_get(evidence, "threshold", None)
+        has_threshold = _core_is_not_none(threshold)
+        if has_threshold:
+            is_boolean = _core_eq(name, "boolean")
+            number = _core_type_is(threshold, "number")
+            valid = _core_and(is_boolean, number)
+            if valid:
+                finite = _core_math_is_finite(threshold)
+                low = _core_gte(threshold, 0)
+                high = _core_lte(threshold, 1)
+                range = _core_and(low, high)
+                valid = _core_and(finite, range)
+            else:
+                pass
+            invalid = _core_not(valid)
+            if invalid:
+                raise RuntimeError("threshold requires a boolean field and a finite value in [0, 1]")
+            else:
+                pass
+        else:
+            pass
+        policy = _core_get(evidence, "onRefusal", "throw")
+        throw_policy = _core_eq(policy, "throw")
+        return_policy = _core_eq(policy, "return")
+        valid = _core_or(throw_policy, return_policy)
+        invalid = _core_not(valid)
+        if invalid:
+            raise RuntimeError("onRefusal must be throw or return")
+        else:
+            pass
+    else:
+        pass
+    score = _core_eq(name, "score")
+    if score:
+        labels = _core_get(typ, "options", None)
+        list = _core_type_is(labels, "list")
+        invalid = _core_not(list)
+        if invalid:
+            raise RuntimeError("Score requires 2-10 distinct, nonempty ordered rubric labels")
+        else:
+            pass
+        count = _core_len(labels)
+        low = _core_lt(count, 2)
+        high = _core_gt(count, 10)
+        invalid = _core_or(low, high)
+        if invalid:
+            raise RuntimeError("Score requires 2-10 distinct, nonempty ordered rubric labels")
+        else:
+            pass
+        seen = []
+        for label in labels:
+            string = _core_type_is(label, "string")
+            invalid = _core_not(string)
+            if invalid:
+                raise RuntimeError("Score labels must be strings")
+            else:
+                pass
+            trimmed = str(label).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            empty = _core_eq(trimmed, "")
+            duplicate = _core_contains(seen, label)
+            invalid = _core_or(empty, duplicate)
+            if invalid:
+                raise RuntimeError("Score requires distinct, nonempty ordered rubric labels")
+            else:
+                pass
+            seen.append(label)
+    else:
+        pass
     return None
 
 
@@ -1179,6 +1327,67 @@ def _signature_parse_class_descriptions_impl(raw: str, field_name: str) -> Any:
     return descriptions
 
 
+def _evidence_parse_options_impl(raw: str) -> Any:
+    _core_coverage_mark("_evidence_parse_options_impl")
+    parts = _core_string_split_top_level(raw, ",")
+    evidence = {}
+    seen = []
+    remaining = []
+    for part in parts:
+        part = str(part).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        words = _core_string_words(part)
+        token = _core_list_get(words, 0, "")
+        e = _core_eq(token, "evidence")
+        t = _core_eq(token, "threshold")
+        r = _core_eq(token, "refusal")
+        modifier = _core_or(e, t)
+        modifier = _core_or(modifier, r)
+        if modifier:
+            duplicate = _core_contains(seen, token)
+            if duplicate:
+                raise RuntimeError("Duplicate evidence modifier")
+            else:
+                pass
+            seen.append(token)
+            count = _core_len(words)
+            arg = _core_list_get(words, 1, "")
+            if e:
+                bad = _core_ne(count, 1)
+                if bad:
+                    raise RuntimeError("evidence does not take an argument")
+                else:
+                    pass
+            else:
+                bad = _core_ne(count, 2)
+                if bad:
+                    raise RuntimeError("Evidence modifier requires one argument")
+                else:
+                    pass
+                if t:
+                    number = _core_json_parse(arg)
+                    evidence["threshold"] = number
+                else:
+                    evidence["onRefusal"] = arg
+        else:
+            remaining.append(part)
+    has_evidence = _core_contains(seen, "evidence")
+    has_policy = _core_truthy(seen)
+    missing_evidence = _core_not(has_evidence)
+    invalid = _core_and(has_policy, missing_evidence)
+    if invalid:
+        raise RuntimeError("threshold and refusal require the evidence modifier")
+    else:
+        pass
+    out = {}
+    if has_evidence:
+        out["evidence"] = evidence
+    else:
+        pass
+    rest = _core_string_join(", ", remaining)
+    out["rest"] = rest
+    return out
+
+
 def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
     _core_coverage_mark("_signature_parse_fields_impl")
     parts = _core_string_split_top_level(text, ",")
@@ -1219,6 +1428,32 @@ def _signature_render_value_descriptions_impl(typ: FieldType) -> list[Any]:
             entries.append(entry)
         else:
             pass
+    return entries
+
+
+def _evidence_render_entries_impl(typ: FieldType) -> list[Any]:
+    _core_coverage_mark("_evidence_render_entries_impl")
+    entries = []
+    evidence = _core_get(typ, "evidence", None)
+    present = _core_is_not_none(evidence)
+    if present:
+        entries.append("evidence")
+        threshold = _core_get(evidence, "threshold", None)
+        present = _core_is_not_none(threshold)
+        if present:
+            entry = _core_string_format("threshold {}", threshold)
+            entries.append(entry)
+        else:
+            pass
+        policy = _core_get(evidence, "onRefusal", None)
+        present = _core_is_not_none(policy)
+        if present:
+            entry = _core_string_format("refusal {}", policy)
+            entries.append(entry)
+        else:
+            pass
+    else:
+        pass
     return entries
 
 
@@ -1349,6 +1584,7 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         type_pattern = _core_get(field_type, "pattern", None)
         type_pattern_description = _core_get(field_type, "pattern_description", None)
         type_value_descriptions = _core_get(field_type, "value_descriptions", None)
+        type_evidence = _core_get(field_type, "evidence", None)
         type_format = _core_get(field_type, "format", None)
         type_language = _core_get(field_type, "language", None)
         type_attrs["name"] = type_name
@@ -1362,6 +1598,7 @@ def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, par
         type_attrs["pattern"] = type_pattern
         type_attrs["pattern_description"] = type_pattern_description
         type_attrs["value_descriptions"] = type_value_descriptions
+        type_attrs["evidence"] = type_evidence
         type_attrs["format"] = type_format
         type_attrs["language"] = type_language
         type_attrs["description"] = description
@@ -1474,6 +1711,7 @@ def _signature_parse_base_type_impl(raw: str) -> Any:
     types.append("number")
     types.append("object")
     types.append("class")
+    types.append("score")
     types.append("image")
     types.append("audio")
     types.append("file")
@@ -1548,13 +1786,10 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
     else:
         pass
     is_class = _core_eq(type_name, "class")
-    if is_class:
+    is_score = _core_eq(type_name, "score")
+    is_enum = _core_or(is_class, is_score)
+    if is_enum:
         input = _core_eq(section, "input")
-        if input:
-            error = _core_signature_error("Input field cannot use the \"class\" type")
-            raise error
-        else:
-            pass
         bag = _core_string_starts_with(rest, "(")
         if bag:
             message = _core_string_format("Field \"{}\": constraints are not supported on class fields", field_name)
@@ -1581,6 +1816,14 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
             quoted_value = _core_get(quoted, "value", None)
             option_text = _core_string_replace(quoted_value, "|", ",")
             options = _core_string_split_trim_nonempty(option_text, ",")
+            if is_score:
+                raw_options = _core_string_split_top_level(option_text, ",")
+                options = []
+                for option in raw_options:
+                    option = str(option).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                    options.append(option)
+            else:
+                pass
             option_count = _core_len(options)
             empty_options = _core_eq(option_count, 0)
             if empty_options:
@@ -1589,7 +1832,7 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
             else:
                 pass
             attrs = {}
-            attrs["name"] = "class"
+            attrs["name"] = type_name
             attrs["is_array"] = is_array
             attrs["options"] = options
             quoted_rest = _core_get(quoted, "rest", None)
@@ -1605,12 +1848,29 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
                 else:
                     pass
                 group_text = _core_get(group, "group", None)
-                descriptions = _signature_parse_class_descriptions_impl(group_text, field_name)
-                attrs["value_descriptions"] = descriptions
+                policy = _evidence_parse_options_impl(group_text)
+                evidence = _core_get(policy, "evidence", None)
+                attrs["evidence"] = evidence
+                description_text = _core_get(policy, "rest", "")
+                has_description_text = _core_ne(description_text, "")
+                if has_description_text:
+                    descriptions = _signature_parse_class_descriptions_impl(description_text, field_name)
+                    attrs["value_descriptions"] = descriptions
+                else:
+                    pass
                 quoted_rest = _core_get(group, "rest", None)
             else:
                 pass
+            quoted_rest = str(quoted_rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            suffix_array = _core_string_starts_with(quoted_rest, "[]")
+            if suffix_array:
+                attrs["is_array"] = True
+                quoted_rest = _core_string_slice(quoted_rest, 2)
+                quoted_rest = str(quoted_rest).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+            else:
+                pass
             typ = _core_record_new("FieldType", attrs)
+            _evidence_validate_type_impl(typ)
             _signature_validate_value_descriptions_impl(typ, field_name)
             out = {}
             out["type"] = typ
@@ -1721,6 +1981,69 @@ def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> 
     return out
 
 
+def _evidence_request_fields_impl(fields: list[Any]) -> Any:
+    _core_coverage_mark("_evidence_request_fields_impl")
+    out = {}
+    for field in fields:
+        typ = _core_get(field, "type", None)
+        decision = _evidence_is_type_impl(typ)
+        if decision:
+            entry = {}
+            name = _core_get(typ, "name", None)
+            labels = _core_get(typ, "options", None)
+            evidence = _core_get(typ, "evidence", None)
+            array = _core_get(typ, "is_array", False)
+            optional = _core_get(field, "is_optional", False)
+            entry["type"] = name
+            entry["options"] = labels
+            entry["evidence"] = evidence
+            entry["isArray"] = array
+            entry["isOptional"] = optional
+            key = _core_get(field, "name", None)
+            out[key] = entry
+        else:
+            pass
+    return out
+
+
+def _evidence_placeholder_impl(typ: FieldType) -> Any:
+    _core_coverage_mark("_evidence_placeholder_impl")
+    name = _core_get(typ, "name", None)
+    is_boolean = _core_eq(name, "boolean")
+    score = _core_eq(name, "score")
+    out = {}
+    if is_boolean:
+        out["probability"] = "<probability of true, 0 to 1>"
+    else:
+        labels = _core_get(typ, "options", None)
+        ps = {}
+        if score:
+            ps = []
+        else:
+            pass
+        for label in labels:
+            if score:
+                ps.append("<probability, 0 to 1>")
+            else:
+                ps[label] = "<probability, 0 to 1>"
+        out["probabilities"] = ps
+    evidence = _core_get(typ, "evidence", None)
+    policy = _core_get(evidence, "onRefusal", "throw")
+    return_policy = _core_eq(policy, "return")
+    if return_policy:
+        out["status"] = "answered"
+    else:
+        pass
+    array = _core_get(typ, "is_array", False)
+    if array:
+        wrapped = []
+        wrapped.append(out)
+        return wrapped
+    else:
+        pass
+    return out
+
+
 def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name: str, raw: str) -> Any:
     _core_coverage_mark("_signature_parse_modifier_bag_impl")
     text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
@@ -1731,8 +2054,23 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
         raise error
     else:
         pass
-    parts = _core_string_split_top_level(raw, ",")
     attrs = {}
+    attrs["name"] = type_name
+    decision_options = _evidence_parse_options_impl(raw)
+    evidence = _core_get(decision_options, "evidence", None)
+    attrs["evidence"] = evidence
+    raw = _core_get(decision_options, "rest", "")
+    empty_decision_bag = _core_eq(raw, "")
+    if empty_decision_bag:
+        out = {}
+        out["attrs"] = attrs
+        out["is_cached"] = False
+        typ = _core_record_new("FieldType", attrs)
+        _evidence_validate_type_impl(typ)
+        return out
+    else:
+        pass
+    parts = _core_string_split_top_level(raw, ",")
     seen = []
     state = {}
     state["is_cached"] = False
@@ -2024,6 +2362,72 @@ def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name:
     return out
 
 
+def _evidence_example_values_impl(fields: list[Any], values: Any) -> Any:
+    _core_coverage_mark("_evidence_example_values_impl")
+    empty = {}
+    out = _core_map_merge(empty, values)
+    for field in fields:
+        name = _core_get(field, "name", None)
+        typ = _core_get(field, "type", None)
+        value = _core_get(out, name, None)
+        present = _core_is_not_none(value)
+        if present:
+            decision = _evidence_is_type_impl(typ)
+            children = _core_get(typ, "fields", None)
+            has_children = _core_is_not_none(children)
+            array = _core_get(typ, "is_array", False)
+            items = []
+            if array:
+                items = value
+            else:
+                items.append(value)
+            converted = []
+            for item in items:
+                object = _core_type_is(item, "object")
+                if object:
+                    if decision:
+                        raw = {}
+                        status = _core_get(item, "status", None)
+                        refused = _core_eq(status, "refused")
+                        if refused:
+                            raw["status"] = "refused"
+                        else:
+                            type_name = _core_get(typ, "name", None)
+                            is_boolean = _core_eq(type_name, "boolean")
+                            key = "probabilities"
+                            if is_boolean:
+                                key = "probability"
+                            else:
+                                pass
+                            probabilities = _core_get(item, key, None)
+                            raw[key] = probabilities
+                            evidence = _core_get(typ, "evidence", None)
+                            policy = _core_get(evidence, "onRefusal", None)
+                            return_policy = _core_eq(policy, "return")
+                            if return_policy:
+                                raw["status"] = "answered"
+                            else:
+                                pass
+                        item = raw
+                    else:
+                        if has_children:
+                            nested = _core_fields_from_map(children)
+                            item = _evidence_example_values_impl(nested, item)
+                        else:
+                            pass
+                else:
+                    pass
+                converted.append(item)
+            if array:
+                out[name] = converted
+            else:
+                single = _core_list_get(converted, 0)
+                out[name] = single
+        else:
+            pass
+    return out
+
+
 def _signature_parse_object_fields_impl(raw: str, section: str, parent: str) -> Any:
     _core_coverage_mark("_signature_parse_object_fields_impl")
     text = str(raw).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
@@ -2098,6 +2502,9 @@ def _signature_escape_string_impl(value: str) -> str:
 def _signature_render_modifier_bag_impl(typ: FieldType, is_cached: bool) -> str:
     _core_coverage_mark("_signature_render_modifier_bag_impl")
     entries = _signature_render_value_descriptions_impl(typ)
+    evidence_entries = _evidence_render_entries_impl(typ)
+    for entry in evidence_entries:
+        entries.append(entry)
     min_length = _core_get(typ, "min_length", None)
     minimum = _core_get(typ, "minimum", None)
     min = _core_coalesce(min_length, minimum)
@@ -2177,11 +2584,14 @@ def _signature_render_type_impl(typ: FieldType, is_cached: bool) -> str:
     type_name = _core_get(typ, "name", None)
     is_array = _core_get(typ, "is_array", False)
     is_class = _core_eq(type_name, "class")
+    is_score = _core_eq(type_name, "score")
+    is_class = _core_or(is_class, is_score)
     if is_class:
         state = {}
-        state["value"] = "class"
+        state["value"] = type_name
         if is_array:
-            state["value"] = "class[]"
+            array_name = _core_string_format("{}[]", type_name)
+            state["value"] = array_name
         else:
             pass
         options = _core_get(typ, "options", None)
@@ -2189,6 +2599,9 @@ def _signature_render_type_impl(typ: FieldType, is_cached: bool) -> str:
         class_name = _core_get(state, "value", None)
         result = _core_string_format("{} \"{}\"", class_name, joined)
         entries = _signature_render_value_descriptions_impl(typ)
+        evidence_entries = _evidence_render_entries_impl(typ)
+        for entry in evidence_entries:
+            entries.append(entry)
         has_entries = _core_truthy(entries)
         if has_entries:
             body = _core_string_join(", ", entries)
@@ -2322,11 +2735,13 @@ def _signature_validate_field_shape_impl(field: Field, output: bool, nested: boo
         pass
     typ = _core_get(field, "type", None)
     _signature_validate_value_descriptions_impl(typ, name)
+    _evidence_validate_type_impl(typ)
     type_name = _core_get(typ, "name", None)
     valid_types = []
     valid_types.append("audio")
     valid_types.append("boolean")
     valid_types.append("class")
+    valid_types.append("score")
     valid_types.append("code")
     valid_types.append("date")
     valid_types.append("dateRange")
@@ -2364,6 +2779,9 @@ def _signature_validate_field_shape_impl(field: Field, output: bool, nested: boo
     top_level = _core_not(nested)
     input_class_base = _core_and(is_class, is_input)
     input_class = _core_and(input_class_base, top_level)
+    input_evidence = _core_get(typ, "evidence", None)
+    plain_class = _core_is_none(input_evidence)
+    input_class = _core_and(input_class, plain_class)
     if input_class:
         error = _core_signature_error("Input field cannot use the \"class\" type")
         raise error
@@ -2471,3 +2889,10 @@ def _signature_validate_impl(signature: AxSignature) -> None:
     return None
 
 # END AXIR CORE EMITTED FUNCTIONS
+
+
+def _core_gte(a, b): return a >= b
+def _core_lte(a, b): return a <= b
+def _core_math_is_finite(value):
+    import math
+    return math.isfinite(value)

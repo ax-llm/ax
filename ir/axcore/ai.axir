@@ -984,6 +984,9 @@ module @ax.ai version "0.1" {
       core.if %has_call_problems {
         core.set %completion["function_call_problems"] = %call_problems
       }
+      %trusted = core.get %result["decisionContext"]
+      %has_trusted = core.call intrinsic.is_not_none(%trusted)
+      core.if %has_trusted { core.set %completion["decisionContext"] = %trusted }
       core.return %completion
     }
   }
@@ -1004,8 +1007,12 @@ module @ax.ai version "0.1" {
       %results = core.get %response["results"] default %empty_results
       %completions = core.list
       %position = core.const 0
+      %snake_model_usage = core.get %response["model_usage"]
+      %model_usage = core.get %response["modelUsage"] default %snake_model_usage
+      %has_model_usage = core.call intrinsic.is_not_none(%model_usage)
       core.for %result in %results {
         %completion = core.call @chat_result_to_completion(%result, %position)
+        core.if %has_model_usage { core.set %completion["modelUsage"] = %model_usage }
         core.append %completions, %completion
         %next_position = core.call intrinsic.add(%position, 1)
         %position = core.let %next_position
@@ -1014,7 +1021,6 @@ module @ax.ai version "0.1" {
       %first = core.call intrinsic.list.get(%completions, 0, %empty_completion)
       %content = core.get %first["content"] default ""
       %calls = core.get %first["function_calls"] default %empty_results
-      %model_usage = core.get %response["model_usage"]
       %usage = core.get %model_usage["tokens"]
       %thought = core.get %first["thought"]
       %has_thought = core.call intrinsic.is_not_none(%thought)
@@ -1025,6 +1031,10 @@ module @ax.ai version "0.1" {
       core.set %out["function_calls"] = %calls
       core.set %out["results"] = %completions
       core.set %out["usage"] = %usage
+      core.if %has_model_usage { core.set %out["modelUsage"] = %model_usage }
+      %trusted = core.get %first["decisionContext"]
+      %has_trusted = core.call intrinsic.is_not_none(%trusted)
+      core.if %has_trusted { core.set %out["decisionContext"] = %trusted }
       core.if %has_thought {
         core.set %out["thought"] = %thought
       }
@@ -1392,6 +1402,9 @@ module @ax.ai version "0.1" {
     tag "src/ax/dsp/response/streaming.ts"
     type signature = "(json, json) -> void"
     body @entry(%target: json, %chunk: json) {
+      %trusted = core.get %chunk["decisionContext"]
+      %has_trusted = core.call intrinsic.is_not_none(%trusted)
+      core.if %has_trusted { core.set %target["decisionContext"] = %trusted }
       %content = core.get %chunk["content"]
       %content_text = core.type_is %content type "string"
       core.if %content_text {

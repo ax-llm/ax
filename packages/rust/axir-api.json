@@ -1180,6 +1180,19 @@
       "symbols": [
         {
           "target_name": "rust",
+          "canonical_name": "AxDecisionRefusalError",
+          "public_name": "AxError (error_type: AxDecisionRefusalError)",
+          "kind": "type",
+          "description": "Terminal decision-field refusal; retains field path and provider provenance.",
+          "form": "AxError (error_type: AxDecisionRefusalError)",
+          "important_options": [
+            "fieldPath",
+            "provenance"
+          ],
+          "returns": "error"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "AxGenerateError",
           "public_name": "AxGenerateError",
           "kind": "type",

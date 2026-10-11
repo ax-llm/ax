@@ -1,6 +1,6 @@
 ---
 name: ax-typesafe
-description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class signatures with value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
+description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
 version: "25.2.1"
 ---
 
@@ -18,17 +18,77 @@ Use their generated `ax-<language>-typesafe` skills for native syntax and types.
 | Need | Interface | Result |
 |---|---|---|
 | Required booleans and fixed classes | `ai({ name: 'typesafe', ... })` with `ax(...).forward()` | Ordinary signature-shaped values |
-| Probabilities, structured criteria/state, or scoring | `typesafe(...).systemOne(...)` | Native answers, model, and usage |
+| Probabilities, confidence, and rubric scoring | `ax(...)` with evidence fields | Typed evidence in normal program results |
+| Advanced structured criteria/state | `typesafe(...).systemOne(...)` | Native request features |
 | Decisions followed by prose or tool use | A Typesafe decision step followed by a generative provider | Explicitly composed program results |
 
 A `reply:string` output requests freeform text and is unsupported by Typesafe.
 An output `team:class "support, billing"` returns one of those two strings.
 Numbers, even with `min`/`max` bounds, do not define native scoring rubrics.
 
+
+## Decision evidence and reranking
+
+Use signature fields to access decision metadata with Jev, OpenAI Decisions,
+or a generative provider:
+
+```text
+query:string, document:string ->
+  relevant:boolean(evidence, threshold 0.7),
+  category:class "support, billing"(evidence),
+  relevance:score "Irrelevant, Related, Partial answer, Direct answer"(evidence)
+```
+
+Boolean evidence contains `value`, `probability`, `threshold`, and `provenance`.
+Class evidence contains `value`, a complete label-to-probability map, and
+`provenance`. Score evidence contains a continuous `value` from zero to the last
+rubric index, ordered `levels`, ordered `probabilities`, and `provenance`.
+Native class and score results can also contain the provider's `confidence`.
+A score without `(evidence)` returns only its numeric value. Existing scalar
+boolean and class fields keep their existing behavior.
+
+Ax preserves a native provider's selected class, continuous score, probabilities,
+and confidence. A native value can differ from the probability argmax or weighted
+mean. With generative models, Ax requests probabilities, derives the boolean or
+class locally, and calculates a score as the probability-weighted rubric index.
+It preserves the supplied probabilities and never invents confidence.
+
+`provenance.source` distinguishes `native` from `elicited`; `provider` and, when
+available, `model` describe the actual response. These fields come from Ax, not
+generated output. The common result shape does not make probabilities or
+confidence equally calibrated across providers or models. Evaluate thresholds
+and ranking quality on your own data. A score's meaning depends on its declared
+rubric; it is not a probability of correctness.
+
+For reranking, evaluate each query/document pair, retain the candidate ID in your
+application, and sort by `relevance.value` within the same rubric and model.
+Ordinary Ax processors, assertions, result selection, traces, and caches receive
+the decoded result. Streaming waits for complete evidence before emitting it.
+
+```typescript
+const judge = ax(f().input('query', f.string()).input('document', f.string())
+  .output('relevance', f.score(['Irrelevant', 'Related', 'Partial answer', 'Direct answer']).withEvidence())
+  .build());
+const result = await judge.forward(model, { query, document });
+console.log(result.relevance.value, result.relevance.probabilities);
+```
+
+Use `boolean(evidence, refusal return)` (or an evidence field with `refusal return`)
+to receive `{status: "answered", ...evidence}` or `{status: "refused", provenance}`.
+By default, a refusal raises `AxDecisionRefusalError` and stops correction retries.
+
+Generative providers support nested, optional, and array evidence fields. Native
+Jev and OpenAI Decisions signatures require flat, required scalar fields; Ax
+rejects unsupported shapes before transport. For advanced structured criteria
+or native request features, the direct provider client remains available.
+Label-only examples are accepted without manufactured distributions. Examples
+containing actual evidence preserve it while omitting runtime-owned result metadata
+from the inference demonstration.
+
 ## Boolean and Class Signatures
 
 ```typescript
-import { ai, ax } from '@ax-llm/ax';
+import { ai, ax, f } from '@ax-llm/ax';
 
 const apiKey = process.env.TYPESAFE_API_KEY ?? process.env.TYPESAFE_APIKEY;
 if (!apiKey) throw new Error('Set a Typesafe API key.');
@@ -72,11 +132,12 @@ The same signature works with conventional providers: Ax renders the base
 description plus `value: description` lines in the prompt and JSON schema.
 Annotations survive serialization and do not change inferred types or allowed
 values. Use the [signature skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-signature.md)
-for the complete syntax. Structured JSON criteria and numeric rubrics belong
-in native requests below, rather than encoded JSON inside a quoted description.
+for the complete syntax. Declare ordered label rubrics with `score` fields.
+Structured JSON criteria and custom numeric rubric entries use native requests
+below, rather than encoded JSON inside a quoted description.
 
 The adapter sends the normal Ax prompt as native state and batches the outputs
-in one request. Required boolean/class outputs are supported; optional, array,
+in one request. Required boolean/class/rubric score outputs are supported; optional, array,
 nested, numeric, and freeform outputs fail before network access. Media, tools,
 multiple completion samples, and generation controls such as `temperature` or
 `maxTokens` are unsupported. There is no token streaming; Ax's

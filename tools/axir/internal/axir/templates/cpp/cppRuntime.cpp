@@ -1952,6 +1952,7 @@ Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(v
 Value Core::json_pretty(Value value) { return Value(pretty_stringify(value)); }
 Value Core::signature_error(Value message) { return Value(Object{{"__error", "signature"}, {"message", str(message)}}); }
 Value Core::validation_error(Value message) { return Value(Object{{"__error", "validation"}, {"message", str(message)}}); }
+Value Core::decision_refusal_error(Value path, Value provenance) { return object({{"__error","decision"},{"__type","AxDecisionRefusalError"},{"message","Decision refused: " + str(path)},{"payload",object({{"fieldPath",path},{"provenance",provenance}})}}); }
 Value Core::runtime_error(Value message) { return Value(Object{{"__error", "runtime"}, {"message", str(message)}}); }
 static Value ai_error_object(const std::string& type, Value message, Value status = Value(), Value code = Value(), Value response_body = Value(), Value request = Value(), Value retryable = Value(false)) {
   Object out;
@@ -1987,6 +1988,9 @@ Value Core::exception_value(const std::exception& error) {
       out["request"] = Value(std::move(request));
     }
     if (const AxError* cause = ax->cause()) out["cause"] = exception_value(*cause);
+    if (const auto* decision = dynamic_cast<const AxDecisionRefusalError*>(ax)) {
+      out["payload"] = object({{"fieldPath", decision->field_path}, {"provenance", decision->provenance}});
+    }
     if (const auto* clarification = dynamic_cast<const AxAgentClarificationError*>(ax)) {
       out["clarification"] = clarification->clarification;
       out["state"] = clarification->state;
@@ -2111,6 +2115,7 @@ AxError Core::as_error(Value error) {
   return AxError("runtime", str(error));
 }
 [[noreturn]] void Core::raise_error(Value error) {
+  if (str(get_key(error,"__type")) == "AxDecisionRefusalError") { Value payload=get_key(error,"payload"); throw AxDecisionRefusalError(str(get_key(payload,"fieldPath")),get_key(payload,"provenance")); }
   if (str(get_key(error, "__type")) == "AxGenerateError") throw AxGenerateError(as_error(error));
   if (truthy(exception_is_aborted(error))) {
     std::string message = str(get_key(error, "message"));
@@ -2999,6 +3004,7 @@ static std::string prompt_field_type_text(Value typ) {
   return Core::truthy(get_key(typ, "isArray")) ? "json array of " + base + " items" : base;
 }
 static bool prompt_complex(Value sig) {
+  if (Core::truthy(Core::_evidence_has_fields_impl(get_key(sig, "outputs")))) return true;
   for (const auto& field : array_ref(get_key(sig, "outputs"))) {
     Value typ = get_key(field, "type");
     if (str(get_key(typ, "name")) == "object" || !object_ref(get_key(typ, "fields")).empty()) return true;
@@ -3043,6 +3049,7 @@ static std::string prompt_render_output_fields(const Array& fields, const Object
   return joined;
 }
 static Value prompt_output_type_placeholder(Value typ) {
+  if (Core::truthy(Core::_evidence_is_type_impl(typ))) return Core::_evidence_placeholder_impl(typ);
   std::string name = str(get_key(typ, "name"));
   Value value("<string>");
   if (name == "number") value = Value(0);
@@ -3289,6 +3296,8 @@ static std::string axgen_value_text(Value value) {
   return value.is_string() ? str(value) : stringify(value);
 }
 static std::string axgen_format_values(Value gen, Value values, const std::string& kind) {
+  Value fields=Core::get(Core::get(gen,"signature"),kind+"_fields",Value::array());
+  if(kind=="output" && Core::truthy(Core::_evidence_has_fields_impl(fields))) return stringify(Core::_evidence_example_values_impl(fields,values));
   std::vector<std::string> lines;
   for (const auto& field : array_ref(Core::get(Core::get(gen, "signature"), kind + "_fields", Value::array()))) {
     std::string name = str(get_key(field, "name"));
@@ -5391,7 +5400,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   std::string endpoint = operation_path("chat", model);
   Value raw = context_cache_chat(request, options, payload, model, endpoint);
   if (raw.is_null()) raw = request_json_retried(endpoint, payload, operation_method("chat"), options);
-  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options) : response_context);
+  return Core::provider_normalize_chat_response(profile_, raw, name_, model, profile_ == "openai-decisions" ? Core::decisions_response_context(payload, options, request) : profile_ == "typesafe" ? Core::typesafe_response_context(payload, options, request) : response_context);
 }
 
 void OpenAICompatibleClient::validate_chat_request(Value request) const {
@@ -8394,6 +8403,8 @@ Value AxGen::forward(AIClient& client, Value values, Value options, const AxRunt
   // As in TS, the cache is read before the run's span and metrics, so a hit
   // records neither; a read error propagates. A miss hands the lookup to the
   // run, which then only stores.
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_evidence_cache_identity", std::to_string(reinterpret_cast<std::uintptr_t>(&client)));
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(false));
   // A stored output's audio outputs are rendered, as TS does.
   if (Core::truthy(Core::get(lookup, "hit", false))) return Core::_render_audio_outputs_impl(state_, Core::client_ref(client), Core::get(lookup, "value"), options);
@@ -8481,6 +8492,8 @@ Value AxGen::streaming_forward(AIClient& client, Value values, Value options, Ax
   // As in TS, the cache is read before the run's span and metrics, and a
   // read error is ignored: a hit is one {version 0, index 0} delta with no
   // telemetry. A miss hands the lookup to the run, which then only stores.
+  options = Core::map_merge(Value::object(), options);
+  Core::set(options, "_evidence_cache_identity", std::to_string(reinterpret_cast<std::uintptr_t>(&client)));
   Value lookup = Core::_cache_lookup_impl(state_, values, options, Value(true));
   if (Core::truthy(Core::get(lookup, "hit", false))) {
     // A stored output's audio outputs are rendered, as TS does.

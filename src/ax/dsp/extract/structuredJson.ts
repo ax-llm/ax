@@ -1,3 +1,4 @@
+import { isDecisionField } from '../decision.js';
 import {
   createInvalidJsonError,
   createRequiredFieldMissingError,
@@ -239,6 +240,7 @@ function coerceStructuredValue(
       detail
     );
 
+  if (isDecisionField(field)) return value;
   switch (field.type?.name) {
     case 'number': {
       if (typeof value === 'number') return value;
@@ -397,6 +399,7 @@ function validateNestedObjectFields(
       description: fieldType.description,
       type: {
         name: fieldType.type,
+        evidence: fieldType.evidence,
         isArray: fieldType.isArray,
         options: fieldType.options as string[] | undefined,
         fields: fieldType.fields,

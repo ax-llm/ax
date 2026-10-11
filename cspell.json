@@ -6,9 +6,7 @@
       "addWords": true
     }
   ],
-  "dictionaries": [
-    "project-words"
-  ],
+  "dictionaries": ["project-words"],
   "ignorePaths": [
     "CHANGELOG.md",
     "node_modules",
@@ -25,6 +23,7 @@
     "parallelizable",
     "reconvergence",
     "reconverging",
+    "reranking",
     "scalarizes",
     "topo",
     "unproduced"

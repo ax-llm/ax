@@ -132,7 +132,7 @@
         ]
       },
       "audio": [
-        "// Realtime audio over WebSocket — build with -DAXLLM_ENABLE_REALTIME=ON",
+        "// Realtime audio over WebSocket \u2014 build with -DAXLLM_ENABLE_REALTIME=ON",
         "axllm::OpenAIResponsesClient client(axllm::object({{\"model\", \"gpt-realtime-2\"}, {\"api_key\", std::getenv(\"OPENAI_APIKEY\")}}));",
         "axllm::Value request = axllm::object({{\"model\", \"gpt-realtime-2\"}, {\"chat_prompt\", axllm::array({axllm::object({{\"role\", \"user\"}, {\"content\", \"Say hello.\"}})})}, {\"audio\", axllm::object({{\"output\", axllm::object({{\"voice\", \"alloy\"}})}})}});",
         "axllm::Value result = client.realtime_chat(request, nullptr);  // one merged turn: transcript + base64 PCM audio",
@@ -228,7 +228,34 @@
       "pb.evolve(examples, metric);   // grow a playbook offline from examples",
       "auto rendered = pb.render();   // the playbook is now applied to the program",
       "auto state = pb.to_json();     // persist; restore later with playbook(...).load(state)"
-    ]
+    ],
+    "decisionEvidenceExample": {
+      "sourcePath": "src/examples/cpp/generation/decision-evidence.cpp",
+      "code": [
+        "#include \"axllm/axllm.hpp\"",
+        "#include <algorithm>",
+        "#include <cstdlib>",
+        "#include <iostream>",
+        "#include <stdexcept>",
+        "using namespace axllm;",
+        "",
+        "int main() {",
+        "  const char* key=std::getenv(\"OPENAI_API_KEY\"); if(!key)key=std::getenv(\"OPENAI_APIKEY\"); if(!key)throw std::runtime_error(\"Set OPENAI_API_KEY or OPENAI_APIKEY\");",
+        "  auto model=ai(\"openai-decisions\",object({{\"api_key\",key}}));",
+        "  auto judge=ax(\"query:string, document:string -> relevant:boolean(evidence, threshold 0.7), relevance:score \\\"Irrelevant, Related, Partial answer, Direct answer\\\"(evidence)\");",
+        "  std::vector<Value> ranked;",
+        "  for(auto item: std::vector<std::pair<std::string,std::string>>{{\"refund\",\"Request a refund within 30 days through your account billing page.\"},{\"password\",\"Reset your password using the sign-in page.\"}}) {",
+        "    auto result=judge.forward(*model,object({{\"query\",\"How do I request a refund?\"},{\"document\",item.second}}));",
+        "    Core::set(result,\"id\",item.first); ranked.push_back(result);",
+        "  }",
+        "  std::stable_sort(ranked.begin(),ranked.end(),[](Value a,Value b){return Core::number(Core::get(Core::get(a,\"relevance\"),\"value\"))>Core::number(Core::get(Core::get(b,\"relevance\"),\"value\"));});",
+        "  Value output=Value::array(); for(auto result:ranked)Core::append(output,result);",
+        "  std::cout<<stringify(output)<<\"\\n\";",
+        "}"
+      ],
+      "fence": "cpp",
+      "requiresCredentials": true
+    }
   },
   "snippetGroups": {
     "ai": {

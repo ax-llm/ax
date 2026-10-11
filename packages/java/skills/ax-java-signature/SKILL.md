@@ -83,9 +83,19 @@ var output = program.forward(client, inputs);
 
 Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/java/subsystems/s/.
 
+## Decision evidence
+
+Add (evidence) to boolean/class/score signature outputs to retain probabilities, values, provenance, and native class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
+
+Native selected classes and continuous scores are preserved, even when they differ from argmax or a weighted mean. Generative providers elicit probabilities, derive values locally, omit confidence, and use provenance.source=elicited. Ax attaches actual provider/model provenance. The result shape does not make confidence or calibration comparable across models.
+
+By default a decision refusal raises a terminal AxDecisionRefusalError without correction retries. Use (evidence, refusal return) for an answered/refused union. Generated-language error envelopes retain the decision error type. Arrays, optional fields and nested evidence work with generative models; native providers require flat required scalar fields. Streaming emits only complete evidence. Label-only examples never manufacture distributions.
+
+For reranking, evaluate query/document pairs with the same score rubric, retain candidate IDs outside the model, and sort by relevance.value. Runnable decision-evidence examples are under src/examples/java/generation/.
+
 ## Typesafe / Jev
 
-The typesafe provider supports required boolean and class outputs. Numeric bounds never define a Score rubric; numbers, freeform strings, optional outputs, arrays, nesting, media, tools, and sampling controls are rejected before transport.
+The typesafe provider supports required boolean, class, and ordered rubric score outputs. Use score "Low, Medium, High" to declare a rubric. Numeric bounds never define a Score rubric; ordinary numbers, freeform strings, optional outputs, arrays, nesting, media, tools, and sampling controls are rejected before transport.
 
 Set provider trueThreshold (or true_threshold) to a finite value in [0,1], default 0.5. Boolean conversion uses noul >= threshold; this policy is local and never sent. Choice returns the selected label without a confidence cutoff.
 
@@ -103,9 +113,9 @@ Runnable signature, native criteria/scoring, and two-program hybrid examples are
 
 ## OpenAI Decisions
 
-The openai-decisions provider uses /v1/decisions with gpt-6-luna by default. Required boolean fields become predicates; required class fields become choices. trueThreshold (or true_threshold) defaults to 0.5, is finite in [0,1], and uses an inclusive comparison. Field value descriptions become criteria instructions or choice descriptions. Raw answers remain in providerMetadata.openaiDecisions.answers; usage uses existing program APIs.
+The openai-decisions provider uses /v1/decisions with gpt-6-luna by default. Required boolean fields become predicates; required class fields become choices; score fields become labelled native rubrics. Use normal AxGen signatures with (evidence) to retain probabilities, provider-selected values, native confidence, and trusted provenance; use (evidence, refusal return) for an answered/refused union. See the Typesafe/Jev skill for decision evidence and reranking across both providers. trueThreshold (or true_threshold) defaults to 0.5, is finite in [0,1], and uses an inclusive comparison. Field value descriptions become criteria instructions or choice descriptions. Raw answers remain in providerMetadata.openaiDecisions.answers; usage uses existing program APIs.
 
-Use `Ax.openaiDecisions` for native JSON requests and responses. Its create operation (Go: Create) accepts input and an ordered questions array. Each question has string instructions and an optional unique string name; unnamed answers retain name: null. Predicate returns probability. Choice requires 2-255 string or boolean choices and returns choice, confidence, and probabilities. Score requires 2-10 explicitly labelled levels and returns a fractional zero-based score, confidence, and probabilities. Handle type: refusal before accessing answer values. Preserve full model, answer order, and usage.
+Use `Ax.openaiDecisions` for explicit provider request shapes and native JSON input. Its create operation (Go: Create) accepts input and an ordered questions array. Each question has string instructions and an optional unique string name; unnamed answers retain name: null. Predicate returns probability. Choice requires 2-255 string or boolean choices and returns choice, confidence, and probabilities. Score requires 2-10 explicitly labelled levels and returns a fractional zero-based score, confidence, and probabilities. Handle type: refusal before accessing answer values. Preserve full model, answer order, and usage.
 
 Core validates response names, kinds, rubric membership, finite bounds, and distributions summing to one within an inclusive 0.01 tolerance. Probabilities are never normalized. Native input is text or user messages containing input_text and inline input_image data URLs (up to 128 images). Hosted image URLs, audio, non-user roles, and tool items are rejected. Signature prompt/history becomes role-labelled text evidence in one user message. Numeric bounds never define a score rubric; optional, numeric, nested, array, freeform, tool, and sampling requests are rejected before transport.
 

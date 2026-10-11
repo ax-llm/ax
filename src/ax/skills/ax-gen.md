@@ -360,8 +360,9 @@ Rules:
 In TypeScript, providers advertising `requiresStructuredOutput` (such as
 Typesafe) automatically receive a schema for scalar-only signatures too.
 Ax renders JSON instructions/examples and parses the resulting object without
-changing the program's signature. Typesafe accepts required boolean and class
-outputs; numeric scoring uses the provider-specific native client. Boolean/class
+changing the program's signature. Typesafe and OpenAI Decisions accept required
+boolean, class, and ordered rubric score outputs. Add `(evidence)` or
+`.withEvidence()` to retain probabilities and native values in AxGen. Boolean/class
 value descriptions map to native criteria, while conventional providers receive
 readable descriptions in prompts and schemas. See the
 [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)
@@ -619,3 +620,12 @@ required properties and argument types before their handlers start. Invalid
 arguments enter the correction loop; exhausting the step limit fails the run.
 This does not establish support for every JSON Schema constraint. Generated
 session parity remains open; see `docs/COMPILER.md`.
+
+## Decision model outputs
+
+Use boolean/class `.withEvidence()` or a rubric `f.score(levels).withEvidence()`
+to retain probabilities and native confidence through `forward()`. String equivalents
+are `boolean(evidence)` and `score "Low, Medium, High"(evidence)`. See
+[decision evidence](ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
+provenance, refusal policy, and reranking. These are normal program outputs;
+processors, assertions, result selection, traces, and caches receive decoded evidence.

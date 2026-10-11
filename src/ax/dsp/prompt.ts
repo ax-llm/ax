@@ -13,6 +13,7 @@ import {
   formatDateTimeRange,
   formatDateWithTimezone,
 } from './datetime.js';
+import { decisionExampleValues, hasDecisionFields } from './decision.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
 import type { AxFieldValue } from './types.js';
@@ -902,7 +903,10 @@ export class AxPromptTemplate {
                 type: 'function',
                 function: {
                   name: this.structuredOutputFunctionName,
-                  params: outputValues,
+                  params: decisionExampleValues(
+                    this.sig.getOutputFields(),
+                    outputValues
+                  ),
                 },
               },
             ],
@@ -925,7 +929,11 @@ export class AxPromptTemplate {
             outputValues[field.name] = (item as any)[field.name];
           }
         }
-        outputContent = JSON.stringify(outputValues, null, 2);
+        outputContent = JSON.stringify(
+          decisionExampleValues(this.sig.getOutputFields(), outputValues),
+          null,
+          2
+        );
       } else {
         // For plain text outputs, render as field: value pairs
         const outputItems = this.sig
@@ -1350,9 +1358,10 @@ const renderOutputFields = (
     }
 
     const nested = describeNestedFieldValues(field.type?.fields, field.name);
-    return [`${name}: (${requiredMsg})${description}`.trim(), ...nested].join(
-      '\n'
-    );
+    return [
+      `${name}: (${requiredMsg})${description}${hasDecisionFields([field]) ? '. Provide only the requested evidence keys. Values, thresholds, confidence and provenance are attached by Ax. Some demonstrations contain labels only; infer evidence when answering.' : ''}`.trim(),
+      ...nested,
+    ].join('\n');
   });
 
   return rows.join('\n');
@@ -1370,6 +1379,25 @@ const renderOutputJsonShape = (fields: readonly AxField[]): string =>
 
 const renderNestedTypePlaceholder = (type: Readonly<AxFieldType>): unknown => {
   const value = (() => {
+    if (type.evidence !== undefined || type.type === 'score')
+      return {
+        ...(type.evidence?.onRefusal === 'return'
+          ? { status: 'answered' }
+          : {}),
+        ...(type.type === 'boolean'
+          ? { probability: '<probability of true, 0 to 1>' }
+          : {
+              probabilities:
+                type.type === 'score'
+                  ? type.options?.map(() => '<probability, 0 to 1>')
+                  : Object.fromEntries(
+                      (type.options ?? []).map((label) => [
+                        label,
+                        '<probability, 0 to 1>',
+                      ])
+                    ),
+            }),
+      };
     switch (type.type) {
       case 'number':
         return 0;
@@ -1422,6 +1450,7 @@ const renderOutputTypePlaceholder = (
     isArray: type.isArray,
     fields: type.fields,
     options: type.options,
+    evidence: type.evidence,
   });
 };
 
@@ -1493,6 +1522,15 @@ function formatObjectStructure(
 }
 
 export const toFieldType = (type: Readonly<AxField['type']>) => {
+  if (type && (type.evidence !== undefined || type.name === 'score')) {
+    const hint =
+      type.name === 'boolean'
+        ? 'probability of true'
+        : type.name === 'score'
+          ? `probabilities over rubric levels, in this order: ${type.options?.join(', ')}`
+          : 'probabilities for every class';
+    return `${type.isArray ? 'array of ' : ''}decision evidence objects (${hint}; probabilities must sum to one for classes and scores)`;
+  }
   const baseType = (() => {
     switch (type?.name) {
       case 'string':
