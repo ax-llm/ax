@@ -1,7 +1,7 @@
 ---
 name: "ax-python-llm"
 description: "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.2.1"
+version: "25.3.0"
 ---
 # Ax LLM Quick Reference For Python
 

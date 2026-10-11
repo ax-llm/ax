@@ -6,112 +6,112 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/SKILL.md",
-      "digest": "sha256:0f9e29cda39f9c4e1e98398daea7a159a5159c48fb7b404fd48c2dd8070fac1c"
+      "digest": "sha256:db345d59b6d25ee27092a4a96495dbca780403520bcfbb1e4a6c8c4cddc5b229"
     },
     {
       "name": "ax-rust-ai",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:8a51750ad21fa8c8afea3c3d43a7b3f01ce8351d7923de256a556283fff66cb7"
+      "digest": "sha256:62ff97a0d9c86ab1b0667131ca635ddb045e0c3d945a8a1232310aaffb927a84"
     },
     {
       "name": "ax-rust-typesafe",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-rust-typesafe/SKILL.md",
-      "digest": "sha256:d1009d91797815c5e4ce0fb719a838a918bfab53c196e41ddbba157a3195471f"
+      "digest": "sha256:3851cc1b5eafb06b73e5cb30e1a380d1e61be63a8f453320d4ec643536c30034"
     },
     {
       "name": "ax-rust-audio",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-rust-audio/SKILL.md",
-      "digest": "sha256:0828e5835d951ec95b9c1d93d6c60d96d5a302b3676d1fe2654acf4298de69b5"
+      "digest": "sha256:5936bc7fa00615541f9760e64fb1fc3f3ffa7a3b030999f3db01228d0df0b0ac"
     },
     {
       "name": "ax-rust-signature",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-rust-signature/SKILL.md",
-      "digest": "sha256:2c7acdcd95a6348f59e12626b889d48838e2b073c09a3927fdc76b7d538e14cc"
+      "digest": "sha256:60a5acd802a83d8736cd02ba804c2fe36265668c8be66184c908cec5d8ee5a09"
     },
     {
       "name": "ax-rust-gen",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-rust-gen/SKILL.md",
-      "digest": "sha256:999843fefb17b06bb568b18e8add2b8f6308fa29be67527fd8dcb548eb77ca49"
+      "digest": "sha256:ad59bfaf2a57df87267b1419ef57ebef9aff00d58de8e7e0c20e0523e66d1a22"
     },
     {
       "name": "ax-rust-flow",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-rust-flow/SKILL.md",
-      "digest": "sha256:d1b9b8a230a0c4f6cee71622e64044e4e77d5b7e9d8ba6ccd210f093fb8faa4e"
+      "digest": "sha256:f3acc5eb7bc0da1fa66fa626e182ac8bb4f1fd9e8eb749647345bf5f381d9d37"
     },
     {
       "name": "ax-rust-agent",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:cf00c11aa783678702713d7c538baeaeb021e4bda11e0e683850263ca13a931f"
+      "digest": "sha256:21b60fb410f6a01c1bcd72da03ff28008100b4f75c19a947fd1d2947a8d5f47d"
     },
     {
       "name": "ax-rust-agent-rlm",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles.",
       "url": "ax-rust-agent-rlm/SKILL.md",
-      "digest": "sha256:d6d6bc50e5c134436e498153bfe47680f0c98b330ffcbaf60fc9bc19e38ad3b8"
+      "digest": "sha256:31a57e9c1d0618822d1b23f8912f193f1a6b1c653315e5233848d9273cc69fa4"
     },
     {
       "name": "ax-rust-agent-memory-skills",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-rust-agent-memory-skills/SKILL.md",
-      "digest": "sha256:1863359f904cef7473ee168b16e1afdab24db126f862ce13995f4aa7be49de5a"
+      "digest": "sha256:0c3190ae39d206cd10a6f77a94e0279918df82098ea06abde413e10e4e7028b6"
     },
     {
       "name": "ax-rust-agent-observability",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-rust-agent-observability/SKILL.md",
-      "digest": "sha256:5b03a7257bb35dad5c8c32a1ef5e9871b3297a9195cc6bd2898a6bb372d16da8"
+      "digest": "sha256:9fcffb30131fbe1488ab37e7d9169c0bd9550a7286c1fbe23db63280b05be467"
     },
     {
       "name": "ax-rust-agent-optimize",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-rust-agent-optimize/SKILL.md",
-      "digest": "sha256:ac035912feae46cb245ac505f72c837be8bb17c8f8362b2b346f77359265b368"
+      "digest": "sha256:66c3a99d76d1e4115b390425ed6201749cc9bed67e7e5793d2ec0c1ed54bca83"
     },
     {
       "name": "ax-rust-agent-context",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-rust-agent-context/SKILL.md",
-      "digest": "sha256:c40d7ec627c2d41051fc48fbc826d4c36df74a8368876447fc81dea6d5cc024f"
+      "digest": "sha256:e658c5dcf7db120ce80e62bf1e5344e7c1aa698962a4e3cdd2f93fa651c50339"
     },
     {
       "name": "ax-rust-gepa",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-rust-gepa/SKILL.md",
-      "digest": "sha256:23db8d612078fcdd8b72af1f249c4d391356e196504bb1e699eb69dd53073270"
+      "digest": "sha256:c5f031827bd9436d2724e66844a21259e208871b4d6c39362b6b27e23d12a675"
     },
     {
       "name": "ax-rust-refine",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-rust-refine/SKILL.md",
-      "digest": "sha256:4db34ad3a3d69f5105e20b2b91f8a794612c402212fabbe59f223bd632700959"
+      "digest": "sha256:59b02eb93e5ded5f2ac44f9e6f8917ebbd3b4c3a2cf58ec3f50bef163676f590"
     },
     {
       "name": "ax-rust-playbook",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-rust-playbook/SKILL.md",
-      "digest": "sha256:ed1c02a8d4f5a2c03395d92ea352378e6d35e61d20f4ced6c4407872e40eeed3"
+      "digest": "sha256:724ccbf4ea7afaff0583baa79ad4fb8da8ac2acf1080a4362a978bbe3a0855cb"
     }
   ]
 }
