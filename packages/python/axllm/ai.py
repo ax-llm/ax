@@ -17080,6 +17080,37 @@ def openai_responses_validate_session_request(request: Any) -> Any:
             previous_update = update
     else:
         pass
+    gpt6 = _openai_is_gpt6_family_impl(model)
+    if gpt6:
+        _core_map_delete(request, "temperature")
+        _core_map_delete(request, "top_p")
+        if astra:
+            _core_map_delete(request, "prompt_cache_retention")
+        else:
+            pass
+        none = _core_eq(effort, "none")
+        reasoning_enabled = _core_not(none)
+        if reasoning_enabled:
+            _core_map_delete(request, "top_logprobs")
+            _core_map_delete(request, "logprobs")
+            include = _core_get(request, "include", None)
+            include_list = _core_type_is(include, "list")
+            if include_list:
+                filtered = []
+                for value in include:
+                    logprobs = _core_eq(value, "message.output_text.logprobs")
+                    keep = _core_not(logprobs)
+                    if keep:
+                        filtered.append(value)
+                    else:
+                        pass
+                request["include"] = filtered
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
     return request
 
 

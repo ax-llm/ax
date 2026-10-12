@@ -112,11 +112,14 @@ export function axValidateOpenAIResponseRequest<T>(
   }
   // The whole GPT-6 family refuses sampling parameters while it reasons.
   const { temperature: _temperature, top_p: _topP, ...family } = request;
-  if (!astra) return family as AxAIOpenAIResponsesRequest<T>;
+  if (!astra && family.reasoning?.effort === 'none')
+    return family as AxAIOpenAIResponsesRequest<T>;
   const { prompt_cache_retention: _retention, ...clean } = family;
   // Also sanitize dynamically supplied fields, even when callers bypass TS types.
-  const result = { ...clean } as AxAIOpenAIResponsesRequest<T> &
-    Record<string, unknown>;
+  // An omitted effort defaults to medium, so only explicit none permits logprobs.
+  const result = {
+    ...(astra ? clean : family),
+  } as AxAIOpenAIResponsesRequest<T> & Record<string, unknown>;
   delete result.top_logprobs;
   delete result.logprobs;
   return {

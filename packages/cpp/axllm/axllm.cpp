@@ -19719,6 +19719,33 @@ Value Core::openai_responses_validate_session_request(Value request) {
       previous_update = update;
     }
   }
+  Value gpt6 = Core::_openai_is_gpt6_family_impl(model);
+  if (Core::truthy(gpt6)) {
+    Core::map_delete(request, Value("temperature"));
+    Core::map_delete(request, Value("top_p"));
+    if (Core::truthy(astra)) {
+      Core::map_delete(request, Value("prompt_cache_retention"));
+    }
+    Value none = Core::eq(effort, Value("none"));
+    Value reasoning_enabled = Core::not_(none);
+    if (Core::truthy(reasoning_enabled)) {
+      Core::map_delete(request, Value("top_logprobs"));
+      Core::map_delete(request, Value("logprobs"));
+      Value include = Core::get(request, Value("include"), Value());
+      Value include_list = Core::type_is(include, Value("list"));
+      if (Core::truthy(include_list)) {
+        Value filtered = Value::array();
+        for (auto value : Core::iter(include)) {
+          Value logprobs = Core::eq(value, Value("message.output_text.logprobs"));
+          Value keep = Core::not_(logprobs);
+          if (Core::truthy(keep)) {
+            Core::append(filtered, value);
+          }
+        }
+        Core::set(request, Value("include"), filtered);
+      }
+    }
+  }
   return request;
 }
 

@@ -28,6 +28,10 @@ import {
   axResolveOpenAIResponsesReasoningEffort,
 } from '../../../src/ax/ai/openai/effort.js';
 import { AxAIOpenAIResponses } from '../../../src/ax/ai/openai/responses_api_base.js';
+import {
+  type AxAIOpenAIResponseCreateRequest,
+  axValidateOpenAIResponseRequest,
+} from '../../../src/ax/ai/openai/responses_client.js';
 import { axGetAIProfile } from '../../../src/ax/ai/provider_profiles.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
 import { ai } from '../../../src/ax/ai/wrap.js';
@@ -12979,7 +12983,42 @@ writeFixture('bedrock-us-openai-gpt-6-astra-features', {
 
 // GPT-6.1 Sol is a GPT-6 family member: Responses from both factory routes,
 // the GPT-5.6 ladders, breakpoint caching with a ttl, no sampling. Like Astra
-// it cannot disable reasoning, but it has no sessions or configuration_update.
+// it cannot disable reasoning; Ax's sessions and configuration updates remain Astra-only.
+writeFixture('gpt6-responses-logprob-sanitization', {
+  kind: 'ai_responses_validation',
+  cases: [
+    ['gpt-6-astra', 'low'],
+    ['gpt-6.1-sol', undefined],
+    ['gpt-6.1-sol', 'high'],
+    ['gpt-6.1-sol-2026-10-01', 'low'],
+    ['us.openai.gpt-6.1-sol', 'low'],
+    ['gpt-6-sol', 'high'],
+    ['gpt-6-luna', 'high'],
+    ['gpt-6-sol', 'none'],
+    ['gpt-6-luna', 'none'],
+    ['gpt-5.6-sol', 'low'],
+  ].map(([model, effort]) => {
+    const request: AxAIOpenAIResponseCreateRequest = {
+      model,
+      input: 'hi',
+    };
+    Object.assign(request, {
+      ...(effort ? { reasoning: { effort } } : {}),
+      temperature: 0.5,
+      top_p: 0.9,
+      top_logprobs: 5,
+      logprobs: true,
+      include: ['message.output_text.logprobs', 'reasoning.encrypted_content'],
+      prompt_cache_retention: '24h',
+    });
+    return {
+      request: JSON.parse(JSON.stringify(request)),
+      expected_request: JSON.parse(
+        JSON.stringify(axValidateOpenAIResponseRequest({ ...request, model }))
+      ),
+    };
+  }),
+});
 for (const provider of ['openai', 'openai-responses']) {
   for (const budget of [
     'minimal',

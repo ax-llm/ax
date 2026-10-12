@@ -4745,6 +4745,10 @@ static void run_kind(Value fixture) {
     Value result=expect_maybe_error([&]{if(display(Core::get(fixture,"operation"))=="models"){Value cards=Value::array();for(const auto& card:client.list_models())Core::append(cards,card.to_value());return cards;}return client.system_one(Core::get(fixture,"request")).to_value();},fixture);
     if(Core::get(fixture,"expected_error_contains").is_null())assert_equal(result,Core::get(fixture,"expected_output"),"native Typesafe output");
     assert_transport(fixture,transport);
+  } else if (kind == "ai_responses_validation") {
+    for (const auto& item : Core::iter(Core::get(fixture, "cases"))) {
+      assert_equal(Core::openai_responses_validate_session_request(Core::get(item, "request")), Core::get(item, "expected_request"), "Responses request validation");
+    }
   } else if (kind == "ai_chat") {
     run_ai_chat(fixture);
   } else if (kind == "ai_embed") {

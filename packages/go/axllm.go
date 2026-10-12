@@ -36445,18 +36445,26 @@ func openai_responses_validate_session_request(args ...Value) (Value, error) {
 	var v_effort_message Value
 	var v_empty Value
 	var v_empty_input Value
+	var v_filtered Value
+	var v_gpt6 Value
 	var v_has_effort Value
+	var v_include Value
+	var v_include_list Value
 	var v_incompatible Value
 	var v_input Value
 	var v_invalid_effort Value
 	var v_is_list Value
 	var v_item Value
+	var v_keep Value
+	var v_logprobs Value
 	var v_management Value
 	var v_mode Value
 	var v_model Value
+	var v_none Value
 	var v_previous_update Value
 	var v_pro Value
 	var v_reasoning Value
+	var v_reasoning_enabled Value
 	var v_requires_reasoning Value
 	var v_truncation Value
 	var v_type Value
@@ -36465,6 +36473,7 @@ func openai_responses_validate_session_request(args ...Value) (Value, error) {
 	var v_update_reasoning Value
 	var v_valid_effort Value
 	var v_validate_effort Value
+	var v_value Value
 	var v_wrong_model Value
 	if len(args) > 0 { v_request = args[0] }
 	_ = v_request
@@ -36478,18 +36487,26 @@ func openai_responses_validate_session_request(args ...Value) (Value, error) {
 	_ = v_effort_message
 	_ = v_empty
 	_ = v_empty_input
+	_ = v_filtered
+	_ = v_gpt6
 	_ = v_has_effort
+	_ = v_include
+	_ = v_include_list
 	_ = v_incompatible
 	_ = v_input
 	_ = v_invalid_effort
 	_ = v_is_list
 	_ = v_item
+	_ = v_keep
+	_ = v_logprobs
 	_ = v_management
 	_ = v_mode
 	_ = v_model
+	_ = v_none
 	_ = v_previous_update
 	_ = v_pro
 	_ = v_reasoning
+	_ = v_reasoning_enabled
 	_ = v_requires_reasoning
 	_ = v_truncation
 	_ = v_type
@@ -36498,6 +36515,7 @@ func openai_responses_validate_session_request(args ...Value) (Value, error) {
 	_ = v_update_reasoning
 	_ = v_valid_effort
 	_ = v_validate_effort
+	_ = v_value
 	_ = v_wrong_model
 	v_model = coreGet(v_request, "model", "")
 	{ v, err := _openai_is_gpt6_astra_impl(v_model); if err != nil { return nil, err }; v_astra = v }
@@ -36559,6 +36577,43 @@ func openai_responses_validate_session_request(args ...Value) (Value, error) {
 			// empty
 			}
 			v_previous_update = v_update
+		}
+	} else {
+	// empty
+	}
+	{ v, err := _openai_is_gpt6_family_impl(v_model); if err != nil { return nil, err }; v_gpt6 = v }
+	if coreTruthy(v_gpt6) {
+		_core_map_delete(v_request, "temperature")
+		_core_map_delete(v_request, "top_p")
+		if coreTruthy(v_astra) {
+			_core_map_delete(v_request, "prompt_cache_retention")
+		} else {
+		// empty
+		}
+		v_none = _core_eq(v_effort, "none")
+		v_reasoning_enabled = _core_not(v_none)
+		if coreTruthy(v_reasoning_enabled) {
+			_core_map_delete(v_request, "top_logprobs")
+			_core_map_delete(v_request, "logprobs")
+			v_include = coreGet(v_request, "include", nil)
+			v_include_list = coreTypeIs(v_include, "list")
+			if coreTruthy(v_include_list) {
+				v_filtered = MutableArray()
+				for _, v_value = range coreIter(v_include) {
+					v_logprobs = _core_eq(v_value, "message.output_text.logprobs")
+					v_keep = _core_not(v_logprobs)
+					if coreTruthy(v_keep) {
+						v_filtered = coreAppend(v_filtered, v_value)
+					} else {
+					// empty
+					}
+				}
+				if err := coreSet(v_request, "include", v_filtered); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
 		}
 	} else {
 	// empty
@@ -116568,6 +116623,11 @@ func runConformanceFixtureKind(fixture map[string]Value) {
         },fixture,nil)
         if _,expectedError:=fixture["expected_error_contains"];!expectedError{assertEqual(result,coreGet(fixture,"expected_output",nil),"native Typesafe output")}
         assertTransportRequest(fixture,transport)
+	case "ai_responses_validation":
+		for _, item := range asSlice(coreGet(fixture, "cases", Array())) {
+			actual := mustCore(openai_responses_validate_session_request(coreGet(item, "request", nil)))
+			assertEqual(actual, coreGet(item, "expected_request", nil), "Responses request validation")
+		}
 	case "ai_chat":
 		runConformanceAIChat(fixture)
 	case "ai_embed":

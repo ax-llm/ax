@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ai } from '../wrap.js';
 import {
+  type AxAIOpenAIResponseCreateRequest,
   AxAIOpenAIResponsesClient,
   type AxAIOpenAIResponsesSocket,
 } from './responses_client.js';
@@ -122,6 +123,61 @@ describe('native Responses API', () => {
     expect(body.temperature).toBeUndefined();
     expect(body.top_logprobs).toBeUndefined();
   });
+  it.each([
+    ['gpt-6-astra', 'low', true, true],
+    ['gpt-6.1-sol', undefined, true, false],
+    ['gpt-6.1-sol', 'high', true, false],
+    ['gpt-6.1-sol-2026-10-01', 'low', true, false],
+    ['us.openai.gpt-6.1-sol', 'low', true, false],
+    ['gpt-6-sol', 'high', true, false],
+    ['gpt-6-luna', 'high', true, false],
+    ['gpt-6-sol', 'none', false, false],
+    ['gpt-6-luna', 'none', false, false],
+    ['gpt-5.6-sol', 'low', false, false],
+  ] as const)(
+    'applies logprob contracts for %s with effort %s without mutating input',
+    async (requestModel, effort, filtered, astra) => {
+      let body: unknown;
+      const api = new AxAIOpenAIResponsesClient({
+        apiKey: 'test',
+        defaults: { model: requestModel },
+        options: () => ({
+          fetch: async (_url, init) => {
+            body = JSON.parse(String(init?.body));
+            return Response.json({ ...response(), model: requestModel });
+          },
+        }),
+        estimateCost: () => 0,
+      });
+      const request: AxAIOpenAIResponseCreateRequest = {
+        input: 'hi',
+        ...(effort ? { reasoning: { effort } } : {}),
+      };
+      // JavaScript callers and native request updaters can supply fields outside the TS union.
+      Object.assign(request, {
+        top_logprobs: 5,
+        logprobs: true,
+        include: [
+          'message.output_text.logprobs',
+          'reasoning.encrypted_content',
+        ],
+        prompt_cache_retention: '24h',
+      });
+      const original = structuredClone(request);
+      await api.create(request);
+      expect(body).toEqual({
+        model: requestModel,
+        input: 'hi',
+        ...(effort ? { reasoning: { effort } } : {}),
+        ...(!filtered ? { top_logprobs: 5, logprobs: true } : {}),
+        include: filtered
+          ? ['reasoning.encrypted_content']
+          : ['message.output_text.logprobs', 'reasoning.encrypted_content'],
+        ...(!astra ? { prompt_cache_retention: '24h' } : {}),
+      });
+      expect(request).toEqual(original);
+    }
+  );
   it('refreshes authentication for each request', async () => {
     const headers: any[] = [];
     let n = 0;

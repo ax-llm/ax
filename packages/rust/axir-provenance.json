@@ -4,8 +4,8 @@
   "emitted_functions": 1078,
   "files": {
     "src/lib.rs": {
-      "emitted_lines": 106095,
-      "total_lines": 146177
+      "emitted_lines": 106135,
+      "total_lines": 146232
     }
   }
 }

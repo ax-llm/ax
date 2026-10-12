@@ -65,8 +65,8 @@ export function axIsGPT6Family(model: unknown): boolean {
 }
 
 /**
- * Astra is the GPT-6 tier that alone supports chat sessions and
- * `configuration_update` (on OpenAI's own API; see
+ * Ax currently scopes chat sessions and `configuration_update` to Astra
+ * (on OpenAI's own API; see
  * axSupportsOpenAIChatSessions).
  */
 export function axIsGPT6Astra(model: unknown): boolean {

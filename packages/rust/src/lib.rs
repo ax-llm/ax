@@ -16256,6 +16256,21 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
                 &Arc::new(Mutex::new(Vec::new())),
             )?;
         }
+        "ai_responses_validation" => {
+            let cases = fixture["cases"]
+                .as_array()
+                .ok_or_else(|| AxError::runtime("Responses validation cases must be an array"))?;
+            for case in cases {
+                let actual = core_value_to_json(&openai_responses_validate_session_request(&[
+                    core_value_from_json(&case["request"]),
+                ])?);
+                expect_json_equal(
+                    "Responses request validation",
+                    &actual,
+                    &case["expected_request"],
+                )?;
+            }
+        }
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,
@@ -72369,18 +72384,26 @@ fn openai_responses_validate_session_request(args: &[CoreValue]) -> Result<CoreV
     let mut v_effort_message = CoreValue::Null;
     let mut v_empty = CoreValue::Null;
     let mut v_empty_input = CoreValue::Null;
+    let mut v_filtered = CoreValue::Null;
+    let mut v_gpt6 = CoreValue::Null;
     let mut v_has_effort = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_include_list = CoreValue::Null;
     let mut v_incompatible = CoreValue::Null;
     let mut v_input = CoreValue::Null;
     let mut v_invalid_effort = CoreValue::Null;
     let mut v_is_list = CoreValue::Null;
     let mut v_item = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
+    let mut v_logprobs = CoreValue::Null;
     let mut v_management = CoreValue::Null;
     let mut v_mode = CoreValue::Null;
     let mut v_model = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
     let mut v_previous_update = CoreValue::Null;
     let mut v_pro = CoreValue::Null;
     let mut v_reasoning = CoreValue::Null;
+    let mut v_reasoning_enabled = CoreValue::Null;
     let mut v_requires_reasoning = CoreValue::Null;
     let mut v_truncation = CoreValue::Null;
     let mut v_type = CoreValue::Null;
@@ -72389,6 +72412,7 @@ fn openai_responses_validate_session_request(args: &[CoreValue]) -> Result<CoreV
     let mut v_update_reasoning = CoreValue::Null;
     let mut v_valid_effort = CoreValue::Null;
     let mut v_validate_effort = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
     let mut v_wrong_model = CoreValue::Null;
     v_model = core_get(&v_request, &CoreValue::from("model"), CoreValue::from(""));
     v_astra = _openai_is_gpt6_astra_impl(&[v_model.clone()])?;
@@ -72456,6 +72480,37 @@ fn openai_responses_validate_session_request(args: &[CoreValue]) -> Result<CoreV
                 openai_responses_validate_astra_effort(&[v_update_effort.clone()])?;
             }
             v_previous_update = v_update.clone();
+        }
+    }
+    v_gpt6 = _openai_is_gpt6_family_impl(&[v_model.clone()])?;
+    if core_truthy(&v_gpt6) {
+        core_map_delete(&[v_request.clone(), CoreValue::from("temperature")])?;
+        core_map_delete(&[v_request.clone(), CoreValue::from("top_p")])?;
+        if core_truthy(&v_astra) {
+            core_map_delete(&[v_request.clone(), CoreValue::from("prompt_cache_retention")])?;
+        }
+        v_none = core_eq(&[v_effort.clone(), CoreValue::from("none")])?;
+        v_reasoning_enabled = core_not(&[v_none.clone()])?;
+        if core_truthy(&v_reasoning_enabled) {
+            core_map_delete(&[v_request.clone(), CoreValue::from("top_logprobs")])?;
+            core_map_delete(&[v_request.clone(), CoreValue::from("logprobs")])?;
+            v_include = core_get(&v_request, &CoreValue::from("include"), CoreValue::Null);
+            v_include_list = core_type_is(&v_include, CoreValue::from("list"));
+            if core_truthy(&v_include_list) {
+                v_filtered = CoreValue::new_list();
+                for v_value in core_iter(&v_include)? {
+                    let mut v_value = v_value;
+                    v_logprobs = core_eq(&[
+                        v_value.clone(),
+                        CoreValue::from("message.output_text.logprobs"),
+                    ])?;
+                    v_keep = core_not(&[v_logprobs.clone()])?;
+                    if core_truthy(&v_keep) {
+                        core_append(&v_filtered, v_value.clone())?;
+                    }
+                }
+                core_set(&v_request, CoreValue::from("include"), v_filtered.clone())?;
+            }
         }
     }
     return Ok(v_request.clone());

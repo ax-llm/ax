@@ -17955,6 +17955,33 @@ final class Core {
         previous_update = update;
       }
     }
+    Object gpt6 = Core._openai_is_gpt6_family_impl(model);
+    if (Core.truthy(gpt6)) {
+      Core.mapDelete(request, "temperature");
+      Core.mapDelete(request, "top_p");
+      if (Core.truthy(astra)) {
+        Core.mapDelete(request, "prompt_cache_retention");
+      }
+      Object none = Core.eq(effort, "none");
+      Object reasoning_enabled = Core.not(none);
+      if (Core.truthy(reasoning_enabled)) {
+        Core.mapDelete(request, "top_logprobs");
+        Core.mapDelete(request, "logprobs");
+        Object include = Core.get(request, "include", null);
+        Object include_list = Core.typeIs(include, "list");
+        if (Core.truthy(include_list)) {
+          Object filtered = new java.util.ArrayList<Object>();
+          for (Object value : Core.iter(include)) {
+            Object logprobs = Core.eq(value, "message.output_text.logprobs");
+            Object keep = Core.not(logprobs);
+            if (Core.truthy(keep)) {
+              Core.append(filtered, value);
+            }
+          }
+          Core.set(request, "include", filtered);
+        }
+      }
+    }
     return request;
   }
 

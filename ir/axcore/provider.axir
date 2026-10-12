@@ -10975,6 +10975,33 @@ module @ax.provider version "0.1" {
           %previous_update = core.let %update
         }
       }
+      %gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      core.if %gpt6 {
+        core.call intrinsic.map.delete(%request, "temperature")
+        core.call intrinsic.map.delete(%request, "top_p")
+        core.if %astra {
+          core.call intrinsic.map.delete(%request, "prompt_cache_retention")
+        }
+        %none = core.call intrinsic.eq(%effort, "none")
+        %reasoning_enabled = core.call intrinsic.not(%none)
+        core.if %reasoning_enabled {
+          core.call intrinsic.map.delete(%request, "top_logprobs")
+          core.call intrinsic.map.delete(%request, "logprobs")
+          %include = core.get %request["include"]
+          %include_list = core.type_is %include type "list"
+          core.if %include_list {
+            %filtered = core.list
+            core.for %value in %include {
+              %logprobs = core.call intrinsic.eq(%value, "message.output_text.logprobs")
+              %keep = core.call intrinsic.not(%logprobs)
+              core.if %keep {
+                core.append %filtered, %value
+              }
+            }
+            core.set %request["include"] = %filtered
+          }
+        }
+      }
       core.return %request
     }
   }

@@ -1060,9 +1060,10 @@ GPT-6 priority request's served tier as `fast`; Ax records it as `priority`.
 
 GPT-6.1 Sol (`AxAIOpenAIModel.GPT61Sol`) is a GPT-6 family member: it routes
 through Responses, caches at breakpoints with `ttl: '30m'`, and drops sampling
-options. Like Astra it cannot disable reasoning, so `thinkingTokenBudget: 'none'`
-throws and Chat Completions refuses its function tools at every effort; like
-Sol and Luna it has no chat sessions or `configuration_update`.
+and log-probability options while reasoning. Like Astra it cannot disable
+reasoning, so `thinkingTokenBudget: 'none'` throws and Chat Completions refuses
+its function tools at every effort. Ax does not yet expose chat sessions or
+`configuration_update` for this model.
 
 Keep calling `forward()` and `streamingForward()`. Declare independent tools with
 `fn('lookup').description('...').execution('background').handler(...).build()`.
