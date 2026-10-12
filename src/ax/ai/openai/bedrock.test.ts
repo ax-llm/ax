@@ -9,6 +9,8 @@ import {
   axIsGPT6Astra,
   axIsGPT6Family,
   axIsGPT56Family,
+  axRefusesOpenAIChatTools,
+  axRequiresOpenAIReasoning,
   axSupportsOpenAIBreakpointCaching,
   axSupportsOpenAIChatSessions,
 } from './model_family.js';
@@ -87,6 +89,19 @@ describe('Bedrock OpenAI model IDs', () => {
       expect(axIsGPT6Astra(model)).toBe(true);
     }
     for (const model of [
+      'openai.gpt-6.1-sol',
+      'us.openai.gpt-6.1-sol',
+      'global.openai.gpt-6.1-sol',
+      'us-gov.openai.gpt-6.1-sol',
+    ]) {
+      expect(axIsGPT6Family(model)).toBe(true);
+      expect(axRequiresOpenAIReasoning(model)).toBe(true);
+      expect(axRefusesOpenAIChatTools(model)).toBe(true);
+      expect(axIsGPT6Astra(model)).toBe(false);
+      expect(axSupportsOpenAIChatSessions(model)).toBe(false);
+      expect(axSupportsOpenAIBreakpointCaching(model)).toBe(false);
+    }
+    for (const model of [
       'openai.gpt-5.6-sol',
       'us.openai.gpt-5.6-terra',
       'global.openai.gpt-5.6-luna',
@@ -121,6 +136,7 @@ describe('Bedrock OpenAI model IDs', () => {
     for (const [model, name] of [
       ['us.openai.gpt-6-sol', 'gpt-6-sol'],
       ['global.openai.gpt-6-astra', 'gpt-6-astra'],
+      ['us.openai.gpt-6.1-sol', 'gpt-6.1-sol'],
       ['us-gov.openai.gpt-6-luna', 'gpt-6-luna'],
       ['global.openai.gpt-5.6-sol', 'gpt-5.6-sol'],
     ] as const) {
@@ -303,10 +319,18 @@ describe('Bedrock OpenAI model IDs', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps the Astra reasoning contract', () => {
-    expect(() =>
-      axResolveOpenAIResponsesReasoningEffort('us.openai.gpt-6-astra', 'none')
-    ).toThrow(/does not support disabling reasoning/);
+  it('keeps the reasoning contract of models that cannot disable it', () => {
+    for (const model of ['us.openai.gpt-6-astra', 'us.openai.gpt-6.1-sol']) {
+      expect(() =>
+        axResolveOpenAIResponsesReasoningEffort(model, 'none')
+      ).toThrow(`${model} does not support disabling reasoning`);
+    }
+    expect(
+      axResolveOpenAIResponsesReasoningEffort(
+        'us.openai.gpt-6.1-sol',
+        'highest'
+      )
+    ).toBe('max');
     expect(
       axResolveOpenAIResponsesReasoningEffort('global.openai.gpt-6-sol', 'none')
     ).toBe('none');

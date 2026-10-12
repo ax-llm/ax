@@ -5,7 +5,11 @@ import type {
   AxModelUsage,
 } from '../types.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
-import { axIsGPT6Astra, axIsGPT6Family } from './model_family.js';
+import {
+  axIsGPT6Astra,
+  axIsGPT6Family,
+  axRequiresOpenAIReasoning,
+} from './model_family.js';
 import type {
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
@@ -96,14 +100,14 @@ export function axValidateOpenAIResponseRequest<T>(
   }
   if (!axIsGPT6Family(request.model)) return request;
   if (
-    astra &&
+    axRequiresOpenAIReasoning(request.model) &&
     request.reasoning?.effort &&
     !['low', 'medium', 'high', 'xhigh', 'max'].includes(
       request.reasoning.effort
     )
   ) {
     throw new Error(
-      'GPT-6 Astra requires reasoning effort low, medium, high, xhigh, or max'
+      `${String(request.model)} requires reasoning effort low, medium, high, xhigh, or max`
     );
   }
   // The whole GPT-6 family refuses sampling parameters while it reasons.

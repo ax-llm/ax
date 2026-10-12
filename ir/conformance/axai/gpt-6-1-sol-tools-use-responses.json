@@ -1,0 +1,69 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "low"
+      },
+      "tools": [
+        {
+          "description": "Look up a record",
+          "name": "lookup",
+          "parameters": {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": ["id"],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6.1-sol",
+  "name": "gpt-6-1-sol-tools-use-responses",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Look up record 7",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Look up a record",
+        "name": "lookup",
+        "parameters": {
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["id"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "low"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r1",
+        "model": "gpt-6.1-sol",
+        "output": []
+      },
+      "status": 200
+    }
+  ]
+}

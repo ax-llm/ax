@@ -2364,6 +2364,45 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.1,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.2,
+            "longContextCacheWriteTokenCostPer1M": 5,
+            "longContextCompletionTokenCostPer1M": 15,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6.1-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -3778,6 +3817,45 @@
             "longContextThreshold": 272000,
             "maxTokens": 128000,
             "name": "gpt-6-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.1,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.2,
+            "longContextCacheWriteTokenCostPer1M": 5,
+            "longContextCompletionTokenCostPer1M": 15,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6.1-sol",
             "notSupported": {
               "temperature": true,
               "topP": true
@@ -7872,7 +7950,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 215,
+    "modelCount": 217,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 51,

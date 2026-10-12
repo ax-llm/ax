@@ -11223,7 +11223,8 @@ writeFixture('astra-native-none-rejected', {
     chat_prompt: [{ role: 'user', content: 'reason' }],
     model_config: { reasoning: { effort: 'none' } },
   },
-  expected_error_contains: 'Invalid Astra reasoning effort',
+  expected_error_contains:
+    'gpt-6-astra requires reasoning effort low, medium, high, xhigh, or max',
   expected_transport_request_count: 0,
 });
 writeFixture('astra-adjacent-reasoning-updates-rejected', {
@@ -12974,6 +12975,253 @@ writeFixture('bedrock-us-openai-gpt-6-astra-features', {
     thinking: true,
     caching: { supported: true, types: ['ephemeral'] },
   },
+});
+
+// GPT-6.1 Sol is a GPT-6 family member: Responses from both factory routes,
+// the GPT-5.6 ladders, breakpoint caching with a ttl, no sampling. Like Astra
+// it cannot disable reasoning, but it has no sessions or configuration_update.
+for (const provider of ['openai', 'openai-responses']) {
+  for (const budget of [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'highest',
+  ] as const) {
+    const model = AxAIOpenAIModel.GPT61Sol;
+    writeFixture(`${provider}-gpt-6-1-sol-reasoning-${budget}`, {
+      kind: 'ai_chat',
+      provider,
+      model,
+      request: {
+        chat_prompt: [{ role: 'user', content: 'reason' }],
+        model_config: {
+          stream: false,
+          thinkingTokenBudget: budget,
+          temperature: 0.5,
+          topP: 0.9,
+        },
+      },
+      transport_responses: [
+        {
+          status: 200,
+          json: {
+            id: 'resp_gpt61',
+            model,
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            output: [
+              {
+                id: 'msg_gpt61',
+                type: 'message',
+                content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+              },
+            ],
+          },
+        },
+      ],
+      expected_transport_request: {
+        method: 'POST',
+        url: 'https://api.openai.com/v1/responses',
+        json: {
+          model,
+          reasoning: {
+            effort: axResolveOpenAIResponsesReasoningEffort(model, budget),
+          },
+          stream: false,
+        },
+      },
+      expected_transport_json_absent: ['temperature', 'top_p'],
+    });
+  }
+  writeFixture(`${provider}-gpt-6-1-sol-none-rejected`, {
+    kind: 'ai_chat',
+    provider,
+    model: AxAIOpenAIModel.GPT61Sol,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'reason' }],
+      model_config: { stream: false, thinkingTokenBudget: 'none' },
+    },
+    expected_error_contains: 'does not support disabling reasoning',
+    expected_transport_request_count: 0,
+  });
+}
+
+writeFixture('gpt-6-1-sol-native-none-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT61Sol,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: { reasoning: { effort: 'none' } },
+  },
+  expected_error_contains:
+    'gpt-6.1-sol requires reasoning effort low, medium, high, xhigh, or max',
+  expected_transport_request_count: 0,
+});
+
+writeFixture('gpt-6-1-sol-configuration-update-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT61Sol,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    previous_response_id: 'r1',
+    session_input: [
+      { type: 'configuration_update', reasoning: { effort: 'high' } },
+    ],
+  },
+  expected_error_contains: 'configuration_update requires GPT-6 Astra',
+  expected_transport_request_count: 0,
+});
+
+writeFixture('gpt-6-1-sol-tools-use-responses', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT61Sol,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Look up record 7' }],
+    functions: [bedrockTool],
+    model_config: { stream: false, thinkingTokenBudget: 'low' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: { id: 'r1', model: AxAIOpenAIModel.GPT61Sol, output: [] },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/responses',
+    json: {
+      model: AxAIOpenAIModel.GPT61Sol,
+      tools: [{ type: 'function', ...bedrockTool }],
+      reasoning: { effort: 'low' },
+    },
+  },
+});
+
+writeFixture('gpt-6-1-sol-prompt-cache-breakpoints', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: AxAIOpenAIModel.GPT61Sol,
+  service_options: { contextCache: {}, promptCacheKey: 'sol-prefix' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'cached' }],
+    model_config: { thinkingTokenBudget: 'low' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: { id: 'r1', model: AxAIOpenAIModel.GPT61Sol, output: [] },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/responses',
+    json: {
+      model: AxAIOpenAIModel.GPT61Sol,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: 'cached',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+      ],
+      reasoning: { effort: 'low' },
+      stream: false,
+      prompt_cache_key: 'sol-prefix',
+      prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+    },
+  },
+});
+
+for (const inputTokens of [272000, 272001]) {
+  const long = inputTokens > 272000;
+  writeFixture(`gpt-6-1-sol-cache-cost-threshold-${inputTokens}`, {
+    kind: 'ai_chat',
+    provider: 'openai',
+    model: AxAIOpenAIModel.GPT61Sol,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'measure' }],
+      model_config: { stream: false, thinkingTokenBudget: 'low' },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: 'r_cost',
+          model: AxAIOpenAIModel.GPT61Sol,
+          output: [],
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: 100,
+            total_tokens: inputTokens + 100,
+            input_tokens_details: {
+              cached_tokens: 10000,
+              cache_write_tokens: 20000,
+            },
+          },
+        },
+      },
+    ],
+    expected_estimated_cost:
+      ((inputTokens - 30000) * (long ? 4 : 2) +
+        10000 * (long ? 0.2 : 0.1) +
+        20000 * (long ? 5 : 2.5) +
+        100 * (long ? 15 : 10)) /
+      1000000,
+  });
+}
+
+// Bedrock's GPT-6.1 Sol ID keeps the model's contracts.
+writeFixture('bedrock-us-openai-gpt-6-1-sol-on-openai-responses', {
+  kind: 'ai_chat',
+  provider: 'openai-responses',
+  model: 'us.openai.gpt-6.1-sol',
+  base_url: bedrockRuntimeURL,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'highest',
+      temperature: 0.5,
+      topP: 0.9,
+    },
+  },
+  transport_responses: [bedrockResponse('us.openai.gpt-6.1-sol')],
+  expected_transport_request: {
+    method: 'POST',
+    url: `${bedrockRuntimeURL}/responses`,
+    json: {
+      model: 'us.openai.gpt-6.1-sol',
+      reasoning: {
+        effort: axResolveOpenAIResponsesReasoningEffort(
+          'us.openai.gpt-6.1-sol',
+          'highest'
+        ),
+      },
+      stream: false,
+    },
+  },
+  expected_transport_json_absent: ['temperature', 'top_p'],
+});
+
+writeFixture('bedrock-us-openai-gpt-6-1-sol-none-rejected', {
+  kind: 'ai_chat',
+  provider: 'openai',
+  model: 'us.openai.gpt-6.1-sol',
+  base_url: bedrockRuntimeURL,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: { stream: false, thinkingTokenBudget: 'none' },
+  },
+  expected_error_contains: 'does not support disabling reasoning',
+  expected_transport_request_count: 0,
 });
 
 // GPT-6 reports a served priority request as `fast`.
