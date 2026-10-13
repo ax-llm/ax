@@ -11,7 +11,10 @@ import {
 import {
   axIsGPT6Astra,
   axIsGPT6Family,
+  axRefusesOpenAIChatTools,
+  axRequiresOpenAIReasoning,
   axSupportsOpenAIBreakpointCaching,
+  axSupportsOpenAIChatSessions,
 } from './model_family.js';
 import { axValidateOpenAIResponseRequest } from './responses_client.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
@@ -39,10 +42,20 @@ describe('GPT-6 Sol and Luna', () => {
     for (const model of [...tiers, 'gpt-6-sol-2026-09-14']) {
       expect(axIsGPT6Family(model)).toBe(true);
       expect(axIsGPT6Astra(model)).toBe(false);
+      expect(axRequiresOpenAIReasoning(model)).toBe(false);
+      expect(axRefusesOpenAIChatTools(model)).toBe(false);
       expect(axSupportsOpenAIBreakpointCaching(model)).toBe(true);
     }
     expect(axIsGPT6Family(AxAIOpenAIModel.GPT6Astra)).toBe(true);
-    for (const model of ['gpt-6', 'gpt-60-sol', 'gpt-5.6-sol', 'gpt-6-nova']) {
+    for (const model of [
+      'gpt-6',
+      'gpt-60-sol',
+      'gpt-5.6-sol',
+      'gpt-6-nova',
+      'gpt-6.1',
+      'gpt-6.1-luna',
+      'gpt-6.10-sol',
+    ]) {
       expect(axIsGPT6Family(model)).toBe(false);
     }
   });
@@ -237,5 +250,198 @@ describe('GPT-6 Sol and Luna', () => {
 
   it('reads a served `fast` tier as priority', () => {
     expect(axNormalizeAppliedServiceTier('fast')).toBe('priority');
+  });
+});
+
+describe('GPT-6.1 Sol', () => {
+  const model = AxAIOpenAIModel.GPT61Sol;
+
+  it('is a GPT-6 family member that cannot disable reasoning, without Astra sessions', () => {
+    for (const name of [model, 'gpt-6.1-sol-2026-10-01']) {
+      expect(axIsGPT6Family(name)).toBe(true);
+      expect(axRequiresOpenAIReasoning(name)).toBe(true);
+      expect(axRefusesOpenAIChatTools(name)).toBe(true);
+      expect(axSupportsOpenAIBreakpointCaching(name)).toBe(true);
+      expect(axIsGPT6Astra(name)).toBe(false);
+      expect(axSupportsOpenAIChatSessions(name)).toBe(false);
+    }
+  });
+
+  it('is in both catalogs without `none` thinking', () => {
+    for (const name of ['openai', 'openai-responses'] as const) {
+      const entry = axGetSupportedAIModels()
+        .find((p) => p.name === name)
+        ?.models.find((m) => m.name === model);
+      expect(entry).toMatchObject({
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        promptTokenCostPer1M: 2,
+      });
+      expect(entry?.capabilities.thinkingLevels).not.toContain('none');
+      expect(entry?.capabilities.temperature).toBe(false);
+    }
+  });
+
+  it('maps portable effort onto the GPT-5.6 ladders and refuses `none`', () => {
+    for (const resolve of [
+      axResolveOpenAIChatReasoningEffort,
+      axResolveOpenAIResponsesReasoningEffort,
+    ]) {
+      expect(() => resolve(model, 'none')).toThrow(
+        'gpt-6.1-sol does not support disabling reasoning; use low or higher'
+      );
+      expect(resolve(model, 'minimal')).toBe('low');
+      expect(resolve(model, 'low')).toBe('low');
+      expect(resolve(model, 'medium')).toBe('medium');
+      expect(resolve(model, 'high')).toBe('high');
+    }
+    expect(axResolveOpenAIChatReasoningEffort(model, 'highest')).toBe('xhigh');
+    expect(axResolveOpenAIResponsesReasoningEffort(model, 'highest')).toBe(
+      'max'
+    );
+  });
+
+  it('routes tool calls through Responses without opening sessions', async () => {
+    let url = '';
+    const provider = ai({
+      name: 'openai',
+      apiKey: 'test',
+      config: { model },
+      options: {
+        fetch: async (input) => {
+          url = String(input);
+          return Response.json({
+            id: 'r1',
+            model,
+            output: [],
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          });
+        },
+      },
+    });
+    await provider.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        functions: [{ name: 'lookup', description: 'lookup' }],
+      },
+      { stream: false }
+    );
+    expect(url).toContain('/responses');
+    const features = provider.getFeatures(model);
+    expect(features.functions).toBe(true);
+    expect(features.caching.supported).toBe(true);
+    expect(features.asyncTools).toBeFalsy();
+    expect(features.reasoningUpdates).toBeFalsy();
+    await expect(
+      provider.openChatSession({
+        model,
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+      })
+    ).rejects.toThrow(/does not support chat sessions/);
+  });
+
+  it('refuses Chat Completions tools at every effort', async () => {
+    let calls = 0;
+    const provider = new AxAIOpenAI({
+      apiKey: 'test',
+      config: { model },
+      options: {
+        fetch: async () => {
+          calls++;
+          return completion(model);
+        },
+      },
+    });
+    expect(provider.getFeatures(model).functions).toBe(false);
+    for (const thinkingTokenBudget of ['low', 'highest'] as const) {
+      await expect(
+        provider.chat(
+          {
+            chatPrompt: [{ role: 'user', content: 'hi' }],
+            functions: [{ name: 'lookup', description: 'lookup' }],
+          },
+          { stream: false, thinkingTokenBudget }
+        )
+      ).rejects.toThrow('gpt-6.1-sol tool calling requires openai-responses');
+    }
+    expect(calls).toBe(0);
+  });
+
+  it('caches Chat Completions prompts with explicit breakpoints and a ttl', async () => {
+    let body: any;
+    const provider = new AxAIOpenAI({
+      apiKey: 'test',
+      config: { model },
+      options: {
+        fetch: async (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return completion(model);
+        },
+      },
+    });
+    await provider.chat(
+      {
+        chatPrompt: [
+          { role: 'system', content: 'Stable instructions.', cache: true },
+          { role: 'user', content: 'hi' },
+        ],
+        modelConfig: { temperature: 0.3 },
+      },
+      { stream: false, sessionId: 'conversation', thinkingTokenBudget: 'high' }
+    );
+    expect(body.reasoning_effort).toBe('high');
+    expect(body.temperature).toBeUndefined();
+    expect(body.prompt_cache_options).toEqual({ mode: 'explicit', ttl: '30m' });
+    expect(body.prompt_cache_key).toBe('conversation');
+  });
+
+  it('validates Responses requests with the reasoning contract but not Astra rules', () => {
+    expect(() =>
+      axValidateOpenAIResponseRequest({
+        model: AxAIOpenAIResponsesModel.GPT61Sol,
+        input: 'hi',
+        reasoning: { effort: 'none' },
+      } as any)
+    ).toThrow(
+      'gpt-6.1-sol requires reasoning effort low, medium, high, xhigh, or max'
+    );
+
+    const sol = axValidateOpenAIResponseRequest({
+      model: AxAIOpenAIResponsesModel.GPT61Sol,
+      input: 'hi',
+      reasoning: { effort: 'max' },
+      temperature: 0.5,
+      prompt_cache_retention: '24h',
+    } as any);
+    expect(sol.reasoning?.effort).toBe('max');
+    expect(sol.temperature).toBeUndefined();
+    expect((sol as any).prompt_cache_retention).toBe('24h');
+
+    expect(() =>
+      axValidateOpenAIResponseRequest({
+        model: AxAIOpenAIResponsesModel.GPT61Sol,
+        input: [
+          { type: 'configuration_update', reasoning: { effort: 'high' } },
+        ],
+      } as any)
+    ).toThrow(/configuration_update requires GPT-6 Astra/);
+  });
+
+  it('bills cache reads and writes at the long-context rate above the threshold', () => {
+    const provider = ai({ name: 'openai', apiKey: 'test', config: { model } });
+    const cost = (input: number) =>
+      provider.getEstimatedCost({
+        ai: 'openai',
+        model,
+        tokens: {
+          promptTokens: 0,
+          completionTokens: 1_000_000,
+          cacheReadTokens: 100_000,
+          cacheCreationTokens: input - 100_000,
+          totalTokens: input + 1_000_000,
+        },
+      });
+    expect(cost(272_000)).toBeCloseTo(10 + 0.1 * 0.1 + 0.172 * 2.5);
+    expect(cost(272_001)).toBeCloseTo(15 + 0.1 * 0.2 + 0.172001 * 5);
   });
 });

@@ -1,7 +1,36 @@
+import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxModelInfo } from '../types.js';
 
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js';
+import { isBedrockModel } from './model_family.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
+
+// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+// Priority is 2x Standard and Flex is 0.5x, including cache and long-context rates.
+const gpt61SolServiceTierPricing: NonNullable<
+  AxModelInfo['serviceTierPricing']
+> = {
+  priority: {
+    promptTokenCostPer1M: 4,
+    completionTokenCostPer1M: 20,
+    cacheReadTokenCostPer1M: 0.2,
+    cacheWriteTokenCostPer1M: 5,
+    longContextPromptTokenCostPer1M: 8,
+    longContextCompletionTokenCostPer1M: 30,
+    longContextCacheReadTokenCostPer1M: 0.4,
+    longContextCacheWriteTokenCostPer1M: 10,
+  },
+  flex: {
+    promptTokenCostPer1M: 1,
+    completionTokenCostPer1M: 5,
+    cacheReadTokenCostPer1M: 0.05,
+    cacheWriteTokenCostPer1M: 1.25,
+    longContextPromptTokenCostPer1M: 2,
+    longContextCompletionTokenCostPer1M: 7.5,
+    longContextCacheReadTokenCostPer1M: 0.1,
+    longContextCacheWriteTokenCostPer1M: 2.5,
+  },
+};
 
 /**
  * OpenAI: Model information
@@ -427,6 +456,28 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     longContextCompletionTokenCostPer1M: 0.75,
     longContextCacheReadTokenCostPer1M: 0.02,
     longContextCacheWriteTokenCostPer1M: 0.25,
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      thinkingBudget: true,
+      structuredOutputModes: ['native', 'json_object'],
+    },
+  },
+  {
+    name: AxAIOpenAIModel.GPT61Sol,
+    currency: 'usd',
+    serviceTierPricing: gpt61SolServiceTierPricing,
+    promptTokenCostPer1M: 2,
+    completionTokenCostPer1M: 10,
+    cacheReadTokenCostPer1M: 0.1,
+    cacheWriteTokenCostPer1M: 2.5,
+    longContextThreshold: 272_000,
+    longContextPromptTokenCostPer1M: 4,
+    longContextCompletionTokenCostPer1M: 15,
+    longContextCacheReadTokenCostPer1M: 0.2,
+    longContextCacheWriteTokenCostPer1M: 5,
     contextWindow: 1_050_000,
     maxTokens: 128_000,
     notSupported: { temperature: true, topP: true },
@@ -1066,6 +1117,28 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
       showThoughts: true,
     },
   },
+  {
+    name: AxAIOpenAIResponsesModel.GPT61Sol,
+    currency: 'usd',
+    serviceTierPricing: gpt61SolServiceTierPricing,
+    promptTokenCostPer1M: 2,
+    completionTokenCostPer1M: 10,
+    cacheReadTokenCostPer1M: 0.1,
+    cacheWriteTokenCostPer1M: 2.5,
+    longContextThreshold: 272_000,
+    longContextPromptTokenCostPer1M: 4,
+    longContextCompletionTokenCostPer1M: 15,
+    longContextCacheReadTokenCostPer1M: 0.2,
+    longContextCacheWriteTokenCostPer1M: 5,
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      structuredOutputs: true,
+      thinkingBudget: true,
+      showThoughts: true,
+    },
+  },
   // GPT-5.6 models. Above 272K input tokens the whole request is billed at 2x
   // input / 1.5x output across the family.
   {
@@ -1275,6 +1348,10 @@ const openAIOSeriesNames = new Set<string>([
  * model. A profile without model info (azure-openai, openai-compatible, the
  * other OpenAI Chat and Responses profiles) still keeps sampling parameters
  * these models reject off the wire.
+ *
+ * An Amazon Bedrock ID such as `us.openai.gpt-6-sol` gets the info of the
+ * OpenAI model it names, so amazon-bedrock keeps them off too. Unlike a
+ * deployment name, the ID is fixed by AWS rather than chosen by the user.
  */
 export const openAIOSeriesSamplingModelInfo = (
   model: string
@@ -1282,4 +1359,6 @@ export const openAIOSeriesSamplingModelInfo = (
   openAIOSeriesNames.has(model)
     ? (axModelInfoOpenAI.find((info) => info.name === model) ??
       axModelInfoOpenAIResponses.find((info) => info.name === model))
-    : undefined;
+    : isBedrockModel(model)
+      ? (getModelInfo({ model, modelInfo: axModelInfoOpenAI }) ?? undefined)
+      : undefined;

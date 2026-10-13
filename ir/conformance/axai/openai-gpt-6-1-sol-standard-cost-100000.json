@@ -1,0 +1,50 @@
+{
+  "expected_estimated_cost": 0.192,
+  "expected_transport_request": {
+    "json": {
+      "model": "gpt-6.1-sol",
+      "service_tier": "default"
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6.1-sol",
+  "name": "openai-gpt-6-1-sol-standard-cost-100000",
+  "provider": "openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "measure",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "low"
+    }
+  },
+  "service_options": {
+    "serviceTier": "standard"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "r_tier_cost",
+        "model": "gpt-6.1-sol",
+        "output": [],
+        "service_tier": "default",
+        "usage": {
+          "input_tokens": 100000,
+          "input_tokens_details": {
+            "cache_write_tokens": 20000,
+            "cached_tokens": 10000
+          },
+          "output_tokens": 100,
+          "total_tokens": 100100
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -60,8 +60,9 @@ import {
 import { axResolveOpenAIChatReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI, openAIOSeriesSamplingModelInfo } from './info.js';
 import {
-  axIsGPT6Astra,
   axIsGPT6Family,
+  axRefusesOpenAIChatTools,
+  axRequiresOpenAIReasoning,
   axSupportsOpenAIBreakpointCaching,
 } from './model_family.js';
 import {
@@ -376,7 +377,7 @@ class AxAIOpenAIImpl<
   validateChatReq = (req: Readonly<AxInternalChatRequest<TModel>>): void => {
     if (
       this.promptCaching &&
-      axIsGPT6Astra(req.model) &&
+      axRefusesOpenAIChatTools(req.model) &&
       (req.functions?.length ||
         (req.functionCall && req.functionCall !== 'none') ||
         req.chatPrompt?.some(
@@ -385,7 +386,9 @@ class AxAIOpenAIImpl<
             (m.role === 'assistant' && m.functionCalls?.length)
         ))
     ) {
-      throw new Error('GPT-6 Astra tool calling requires openai-responses');
+      throw new Error(
+        `${String(req.model)} tool calling requires openai-responses`
+      );
     }
   };
 
@@ -645,15 +648,20 @@ class AxAIOpenAIImpl<
     }
 
     if (this.promptCaching && axIsGPT6Family(model)) {
-      if (axIsGPT6Astra(model) && reqValue.reasoning_effort === 'none')
-        throw new Error('GPT-6 Astra requires reasoning; use low or higher');
+      if (
+        axRequiresOpenAIReasoning(model) &&
+        reqValue.reasoning_effort === 'none'
+      )
+        throw new Error(
+          `${String(model)} requires reasoning; use low or higher`
+        );
       if (reqValue.reasoning_effort === 'minimal')
         reqValue.reasoning_effort = 'low';
       delete reqValue.temperature;
       delete reqValue.top_p;
       // Chat Completions refuses function tools on GPT-6 while it reasons, and
-      // an omitted effort means `medium`. Astra is refused earlier, in
-      // validateChatReq, because it cannot disable reasoning at all.
+      // an omitted effort means `medium`. Models that cannot disable reasoning
+      // at all are refused earlier, in validateChatReq.
       if (reqValue.tools?.length && reqValue.reasoning_effort !== 'none') {
         throw new Error(
           `${String(model)} supports function tools on Chat Completions only with reasoning disabled; use the openai-responses provider or set thinkingTokenBudget to 'none'`
@@ -1287,7 +1295,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           ? (['native', 'function', 'json_object'] as const)
           : (['function', 'json_object'] as const));
       return {
-        functions: !axIsGPT6Astra(model),
+        functions: !axRefusesOpenAIChatTools(model),
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,

@@ -1,0 +1,286 @@
+{
+  "cases": [
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "gpt-6-astra",
+        "reasoning": {
+          "effort": "low"
+        }
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-astra",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "gpt-6.1-sol",
+        "prompt_cache_retention": "24h"
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6.1-sol",
+        "prompt_cache_retention": "24h",
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "gpt-6.1-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "high"
+        }
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6.1-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "high"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "gpt-6.1-sol-2026-10-01",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        }
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6.1-sol-2026-10-01",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "us.openai.gpt-6.1-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        }
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "us.openai.gpt-6.1-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "gpt-6-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "high"
+        }
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "high"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": ["reasoning.encrypted_content"],
+        "input": "hi",
+        "model": "gpt-6-luna",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "high"
+        }
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-luna",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "high"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "none"
+        },
+        "top_logprobs": 5
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "none"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-luna",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "none"
+        },
+        "top_logprobs": 5
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-6-luna",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "none"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    },
+    {
+      "expected_request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-5.6-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      },
+      "request": {
+        "include": [
+          "message.output_text.logprobs",
+          "reasoning.encrypted_content"
+        ],
+        "input": "hi",
+        "logprobs": true,
+        "model": "gpt-5.6-sol",
+        "prompt_cache_retention": "24h",
+        "reasoning": {
+          "effort": "low"
+        },
+        "temperature": 0.5,
+        "top_logprobs": 5,
+        "top_p": 0.9
+      }
+    }
+  ],
+  "kind": "ai_responses_validation",
+  "name": "gpt6-responses-logprob-sanitization"
+}

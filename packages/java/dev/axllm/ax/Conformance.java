@@ -890,6 +890,12 @@ public final class Conformance {
         if(!fixture.containsKey("expected_error_contains"))assertEqual(result,fixture.get("expected_output"),"native Typesafe output");
         assertTransport(fixture,transport);
       }
+      case "ai_responses_validation" -> {
+        for (Object raw : Core.asList(fixture.get("cases"))) {
+          var item = Core.asMap(raw);
+          assertEqual(Core.openai_responses_validate_session_request(item.get("request")), item.get("expected_request"), "Responses request validation");
+        }
+      }
       case "ai_chat" -> runAIChat(fixture);
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
