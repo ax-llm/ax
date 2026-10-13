@@ -96,6 +96,8 @@ const internalExportNames = new Set([
   'axIsGPT56Family',
   'axIsGPT6Astra',
   'axIsGPT6Family',
+  'axRefusesOpenAIChatTools',
+  'axRequiresOpenAIReasoning',
   'axSupportsOpenAIBreakpointCaching',
   'axSupportsOpenAIChatSessions',
   'axValidateOpenAIResponseRequest',

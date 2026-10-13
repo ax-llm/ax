@@ -317,7 +317,7 @@ module @ax.provider version "0.1" {
     tag "openai-gpt6-family-core-helper"
     type signature = "(string) -> bool"
     body @entry(%model: string) {
-      %is_gpt6 = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-(astra|sol|luna)($|-)"
+      %is_gpt6 = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6(?:-(?:astra|sol|luna)|\\.1-sol)($|-)"
       core.return %is_gpt6
     }
   }
@@ -331,6 +331,21 @@ module @ax.provider version "0.1" {
     body @entry(%model: string) {
       %is_astra = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6-astra($|-)"
       core.return %is_astra
+    }
+  }
+
+  // Astra and GPT-6.1 Sol refuse `reasoning_effort: none`, and with it
+  // function tools on Chat Completions, since OpenAI accepts those there only
+  // with reasoning off.
+  op ax.provider.semantic @openai_requires_reasoning_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-requires-reasoning-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %requires = core.regex_match %model pattern "^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-6(?:-astra|\\.1-sol)($|-)"
+      core.return %requires
     }
   }
 
@@ -389,13 +404,15 @@ module @ax.provider version "0.1" {
     type signature = "(model:string, budget:json) -> json throws"
     body @entry(%model: string, %budget: json) {
       %is_gpt56 = core.call @openai_is_gpt56_family_impl(%model)
-      %is_astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %requires_reasoning = core.call @openai_requires_reasoning_impl(%model)
       %is_gpt6 = core.call @openai_is_gpt6_family_impl(%model)
       %modern = core.call intrinsic.or(%is_gpt56, %is_gpt6)
       %is_none = core.call intrinsic.eq(%budget, "none")
       core.if %is_none {
-        core.if %is_astra {
-          core.raise "GPT-6 Astra does not support disabling reasoning; use low or higher"
+        core.if %requires_reasoning {
+          %none_message = core.call intrinsic.string.format("{} does not support disabling reasoning; use low or higher", %model)
+          %none_error = core.call intrinsic.error.runtime(%none_message)
+          core.raise %none_error
         }
         core.if %modern {
           core.return "none"
@@ -10908,13 +10925,20 @@ module @ax.provider version "0.1" {
     body @entry(%request: json) {
       %model = core.get %request["model"] default ""
       %astra = core.call @openai_is_gpt6_astra_impl(%model)
+      %requires_reasoning = core.call @openai_requires_reasoning_impl(%model)
       %empty = core.map
       %reasoning = core.get %request["reasoning"] default %empty
       %effort = core.get %reasoning["effort"]
       %has_effort = core.call intrinsic.is_not_none(%effort)
-      %validate_effort = core.call intrinsic.and(%astra, %has_effort)
+      %validate_effort = core.call intrinsic.and(%requires_reasoning, %has_effort)
       core.if %validate_effort {
-        core.call @openai_responses_validate_astra_effort(%effort)
+        %valid_effort = core.call @openai_responses_is_reasoning_effort(%effort)
+        %invalid_effort = core.call intrinsic.not(%valid_effort)
+        core.if %invalid_effort {
+          %effort_message = core.call intrinsic.string.format("{} requires reasoning effort low, medium, high, xhigh, or max", %model)
+          %effort_error = core.call intrinsic.error.runtime(%effort_message)
+          core.raise %effort_error
+        }
       }
       %empty_input = core.list
       %input = core.get %request["input"] default %empty_input
@@ -10951,6 +10975,33 @@ module @ax.provider version "0.1" {
           %previous_update = core.let %update
         }
       }
+      %gpt6 = core.call @openai_is_gpt6_family_impl(%model)
+      core.if %gpt6 {
+        core.call intrinsic.map.delete(%request, "temperature")
+        core.call intrinsic.map.delete(%request, "top_p")
+        core.if %astra {
+          core.call intrinsic.map.delete(%request, "prompt_cache_retention")
+        }
+        %none = core.call intrinsic.eq(%effort, "none")
+        %reasoning_enabled = core.call intrinsic.not(%none)
+        core.if %reasoning_enabled {
+          core.call intrinsic.map.delete(%request, "top_logprobs")
+          core.call intrinsic.map.delete(%request, "logprobs")
+          %include = core.get %request["include"]
+          %include_list = core.type_is %include type "list"
+          core.if %include_list {
+            %filtered = core.list
+            core.for %value in %include {
+              %logprobs = core.call intrinsic.eq(%value, "message.output_text.logprobs")
+              %keep = core.call intrinsic.not(%logprobs)
+              core.if %keep {
+                core.append %filtered, %value
+              }
+            }
+            core.set %request["include"] = %filtered
+          }
+        }
+      }
       core.return %request
     }
   }
@@ -10962,6 +11013,23 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/responses_client.ts"
     type signature = "(effort:json) -> void throws"
     body @entry(%effort: json) {
+      %valid = core.call @openai_responses_is_reasoning_effort(%effort)
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        core.raise "Invalid Astra reasoning effort"
+      }
+      core.return
+    }
+  }
+
+  // The efforts a model that cannot disable reasoning accepts on Responses.
+  op ax.provider.semantic @openai_responses_is_reasoning_effort {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/openai/responses_client.ts"
+    type signature = "(effort:json) -> bool"
+    body @entry(%effort: json) {
       %low = core.call intrinsic.eq(%effort, "low")
       %medium = core.call intrinsic.eq(%effort, "medium")
       %high = core.call intrinsic.eq(%effort, "high")
@@ -10971,11 +11039,7 @@ module @ax.provider version "0.1" {
       %valid = core.call intrinsic.or(%valid, %high)
       %valid = core.call intrinsic.or(%valid, %xhigh)
       %valid = core.call intrinsic.or(%valid, %max)
-      %invalid = core.call intrinsic.not(%valid)
-      core.if %invalid {
-        core.raise "Invalid Astra reasoning effort"
-      }
-      core.return
+      core.return %valid
     }
   }
 
@@ -11324,12 +11388,14 @@ module @ax.provider version "0.1" {
       } else {
         // TS samplingModelInfo: a profile without model info (azure-openai,
         // openai-compatible, ...) uses OpenAI's own info for a model named
-        // exactly like an o-series reasoning model.
+        // exactly like an o-series reasoning model, or a fixed Bedrock ID.
         %is_chat = core.call intrinsic.eq(%transport, "openai-chat")
         %is_responses_transport = core.call intrinsic.eq(%transport, "openai-responses")
         %openai_transport = core.call intrinsic.or(%is_chat, %is_responses_transport)
         %o_series = core.regex_match %model pattern "^(?:o1|o1-mini|o1-pro|o3|o3-mini|o3-pro|o4-mini)$"
-        %use_openai_info = core.call intrinsic.and(%openai_transport, %o_series)
+        %bedrock_id = core.call @openai_is_bedrock_model_impl(%model)
+        %known_openai_name = core.call intrinsic.or(%o_series, %bedrock_id)
+        %use_openai_info = core.call intrinsic.and(%openai_transport, %known_openai_name)
         core.if %use_openai_info {
           %no_user_info = core.call intrinsic.none()
           %info = core.call @provider_find_model_info("openai", %model, %no_user_info)

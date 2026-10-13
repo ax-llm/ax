@@ -1,9 +1,9 @@
 import type { AxAIServiceOptions } from '../types.js';
 import type { AxAIOpenAIChatRequest } from './chat_types.js';
 import {
-  axIsGPT6Astra,
   axIsGPT6Family,
   axIsGPT56Family,
+  axRequiresOpenAIReasoning,
 } from './model_family.js';
 import type { AxAIOpenAIResponsesRequest } from './responses_types.js';
 
@@ -93,8 +93,9 @@ const LEGACY_LADDER: EffortLadder<AxAIOpenAIChatReasoningEffort> = {
 /**
  * GPT-5.6 and GPT-6 default an omitted effort to `medium`, so disabling
  * reasoning requires an explicit `none`. Every other model and
- * OpenAI-compatible provider keeps the historical omission. (Astra refuses
- * `none` outright; the resolvers below throw before reaching here.)
+ * OpenAI-compatible provider keeps the historical omission. (Astra and
+ * GPT-6.1 Sol refuse `none` outright; the resolvers below throw before
+ * reaching here.)
  */
 function resolveNone(model: unknown): 'none' | undefined {
   return usesGPT56Ladder(model) ? 'none' : undefined;
@@ -109,6 +110,15 @@ function usesGPT56Ladder(model: unknown): boolean {
   return axIsGPT56Family(model) || axIsGPT6Family(model);
 }
 
+/** Throws for a model that refuses `reasoning_effort: none`. */
+function assertCanDisableReasoning(model: unknown): void {
+  if (axRequiresOpenAIReasoning(model)) {
+    throw new Error(
+      `${String(model)} does not support disabling reasoning; use low or higher`
+    );
+  }
+}
+
 /**
  * Resolve a thinking-budget rung to the `reasoning_effort` value to send on a
  * Chat Completions request, or `undefined` when no effort should be sent.
@@ -117,12 +127,8 @@ export function axResolveOpenAIChatReasoningEffort(
   model: unknown,
   budget: ThinkingTokenBudget
 ): AxAIOpenAIChatReasoningEffort | undefined {
-  if (axIsGPT6Astra(model) && budget === 'none') {
-    throw new Error(
-      'GPT-6 Astra does not support disabling reasoning; use low or higher'
-    );
-  }
   if (budget === 'none') {
+    assertCanDisableReasoning(model);
     return resolveNone(model);
   }
   return usesGPT56Ladder(model)
@@ -139,12 +145,8 @@ export function axResolveOpenAIResponsesReasoningEffort(
   model: unknown,
   budget: ThinkingTokenBudget
 ): AxAIOpenAIResponsesReasoningEffort | undefined {
-  if (axIsGPT6Astra(model) && budget === 'none') {
-    throw new Error(
-      'GPT-6 Astra does not support disabling reasoning; use low or higher'
-    );
-  }
   if (budget === 'none') {
+    assertCanDisableReasoning(model);
     return resolveNone(model);
   }
   return usesGPT56Ladder(model)

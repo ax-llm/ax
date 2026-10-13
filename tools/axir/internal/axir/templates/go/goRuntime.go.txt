@@ -13391,6 +13391,11 @@ func runConformanceFixtureKind(fixture map[string]Value) {
         },fixture,nil)
         if _,expectedError:=fixture["expected_error_contains"];!expectedError{assertEqual(result,coreGet(fixture,"expected_output",nil),"native Typesafe output")}
         assertTransportRequest(fixture,transport)
+	case "ai_responses_validation":
+		for _, item := range asSlice(coreGet(fixture, "cases", Array())) {
+			actual := mustCore(openai_responses_validate_session_request(coreGet(item, "request", nil)))
+			assertEqual(actual, coreGet(item, "expected_request", nil), "Responses request validation")
+		}
 	case "ai_chat":
 		runConformanceAIChat(fixture)
 	case "ai_embed":

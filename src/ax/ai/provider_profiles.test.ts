@@ -167,6 +167,7 @@ describe('named AI deployment profiles', () => {
     ['openai-responses', 'gpt-5.4-mini'],
     // The openai provider sends the GPT-6 family through its Responses sibling.
     ['openai', 'gpt-6-sol'],
+    ['openai', 'gpt-6.1-sol'],
   ] as const)(
     'sends %s chat for %s to the configured apiURL',
     async (name, model) => {

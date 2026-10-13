@@ -26,7 +26,7 @@ function openAIModelName(model: unknown): string {
  * Whether the model is named by a Bedrock ID. Bedrock serves the model but not
  * every OpenAI platform feature around it.
  */
-function isBedrockModel(model: unknown): boolean {
+export function isBedrockModel(model: unknown): boolean {
   return typeof model === 'string' && BEDROCK_OPENAI_PREFIX.test(model);
 }
 
@@ -45,29 +45,52 @@ export function axIsGPT56Family(model: unknown): boolean {
   return GPT56_MODELS.test(openAIModelName(model));
 }
 
-/** Matches the GPT-6 tiers by name: `-astra`, `-sol` and `-luna`. */
-const GPT6_MODELS = /^gpt-6-(astra|sol|luna)($|-)/;
+/**
+ * Matches the GPT-6 tiers by name — `-astra`, `-sol` and `-luna` — and the
+ * GPT-6.1 point releases, `gpt-6.1-sol`.
+ */
+const GPT6_MODELS = /^gpt-6(?:-(?:astra|sol|luna)|\.1-sol)($|-)/;
 
 /**
- * Whether the model belongs to the GPT-6 family. Every tier keeps GPT-5.6's
+ * Whether the model belongs to the GPT-6 family. Every member keeps GPT-5.6's
  * effort vocabulary and breakpoint caching, adds a `ttl` to the cache options,
  * drops sampling parameters, and refuses function tools on Chat Completions
  * while reasoning — so `ai()` routes the whole family through Responses.
  *
- * Astra layers stricter contracts on top; see axIsGPT6Astra.
+ * Some members layer stricter contracts on top; see
+ * axRequiresOpenAIReasoning, axRefusesOpenAIChatTools and axIsGPT6Astra.
  */
 export function axIsGPT6Family(model: unknown): boolean {
   return GPT6_MODELS.test(openAIModelName(model));
 }
 
 /**
- * Astra is the GPT-6 tier with contracts the rest of the family lacks: it
- * refuses `reasoning_effort: none`, refuses function tools on Chat Completions
- * at every effort, and alone supports chat sessions and `configuration_update`
- * (on OpenAI's own API; see axSupportsOpenAIChatSessions).
+ * Ax currently scopes chat sessions and `configuration_update` to Astra
+ * (on OpenAI's own API; see
+ * axSupportsOpenAIChatSessions).
  */
 export function axIsGPT6Astra(model: unknown): boolean {
   return /^gpt-6-astra($|-)/.test(openAIModelName(model));
+}
+
+/** GPT-6 members that cannot turn reasoning off: Astra and GPT-6.1 Sol. */
+const REASONING_REQUIRED_MODELS = /^gpt-6(?:-astra|\.1-sol)($|-)/;
+
+/**
+ * Whether the model refuses `reasoning_effort: none`, so Ax must throw before
+ * sending it rather than let OpenAI return a 400.
+ */
+export function axRequiresOpenAIReasoning(model: unknown): boolean {
+  return REASONING_REQUIRED_MODELS.test(openAIModelName(model));
+}
+
+/**
+ * Whether the model refuses function tools on Chat Completions at every
+ * effort. The rest of the GPT-6 family accepts them once reasoning is off;
+ * these models cannot turn it off, so their tool calls need Responses.
+ */
+export function axRefusesOpenAIChatTools(model: unknown): boolean {
+  return axRequiresOpenAIReasoning(model);
 }
 
 /**
