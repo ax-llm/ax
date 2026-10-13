@@ -25,7 +25,7 @@ const streamFetch = (events: readonly unknown[]) =>
 const streamedUsage = async (events: readonly unknown[]) => {
   const ai = new AxAIAnthropic({
     apiKey: 'key',
-    config: { model: AxAIAnthropicModel.Claude48Opus },
+    config: { model: AxAIAnthropicModel.Claude55Haiku },
   });
   ai.setOptions({ fetch: streamFetch(events) });
   const stream = (await ai.chat(
@@ -44,7 +44,7 @@ const streamedUsage = async (events: readonly unknown[]) => {
 
 const events = (
   startUsage: Record<string, number>,
-  deltaUsage: Record<string, number>
+  deltaUsage: Record<string, number | null>
 ) => [
   {
     type: 'message_start',
@@ -53,7 +53,7 @@ const events = (
       type: 'message',
       role: 'assistant',
       content: [],
-      model: 'claude-opus-4-8',
+      model: 'claude-haiku-5-5',
       stop_reason: null,
       usage: startUsage,
     },
@@ -71,6 +71,62 @@ const events = (
 ];
 
 describe('AxAIAnthropic streamed usage', () => {
+  it.each([
+    {
+      name: 'replaces earlier input and cache counts with explicit zeros',
+      delta: {
+        input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 7,
+      },
+      expected: {
+        promptTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        totalTokens: 7,
+      },
+    },
+    {
+      name: 'preserves earlier input and cache counts when the delta contains nulls',
+      delta: {
+        input_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        output_tokens: 7,
+      },
+      expected: {
+        promptTokens: 50,
+        cacheCreationTokens: 5,
+        cacheReadTokens: 10,
+        totalTokens: 72,
+      },
+    },
+    {
+      name: 'updates input tokens while preserving omitted cache counts',
+      delta: { input_tokens: 80, output_tokens: 7 },
+      expected: {
+        promptTokens: 80,
+        cacheCreationTokens: 5,
+        cacheReadTokens: 10,
+        totalTokens: 102,
+      },
+    },
+  ])('$name', async ({ delta, expected }) => {
+    const tokens = await streamedUsage(
+      events(
+        {
+          input_tokens: 50,
+          cache_creation_input_tokens: 5,
+          cache_read_input_tokens: 10,
+          output_tokens: 1,
+        },
+        delta
+      )
+    );
+    expect(tokens).toMatchObject({ ...expected, completionTokens: 7 });
+  });
+
   it('takes the cumulative input and cache counts from message_delta', async () => {
     // With server tools, the final input and cache counts arrive on
     // message_delta, not on message_start.
