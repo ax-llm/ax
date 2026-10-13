@@ -1,0 +1,88 @@
+{
+  "expected_output": [
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-haiku-5-5",
+        "tokens": {
+          "cache_creation_tokens": 5,
+          "cache_read_tokens": 10,
+          "completion_tokens": 1,
+          "prompt_tokens": 50,
+          "speed": "standard",
+          "total_tokens": 66
+        }
+      },
+      "remote_id": "msg_usage",
+      "results": [
+        {
+          "content": "",
+          "id": "msg_usage",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-haiku-5-5",
+        "tokens": {
+          "cache_creation_tokens": 30,
+          "cache_read_tokens": 40,
+          "completion_tokens": 7,
+          "prompt_tokens": 120,
+          "speed": "fast",
+          "total_tokens": 197
+        }
+      },
+      "remote_id": "msg_usage",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "anthropic",
+        "model": "claude-haiku-5-5",
+        "tokens": {
+          "cache_creation_tokens": 30,
+          "cache_read_tokens": 40,
+          "completion_tokens": 9,
+          "prompt_tokens": 120,
+          "speed": "fast",
+          "total_tokens": 199
+        }
+      },
+      "remote_id": "msg_usage",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "claude-haiku-5-5",
+  "name": "anthropic-terminal-usage-successive-deltas",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "usage",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_usage\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-haiku-5-5\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":50,\"output_tokens\":1,\"cache_creation_input_tokens\":5,\"cache_read_input_tokens\":10,\"speed\":\"standard\"}}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":120,\"cache_creation_input_tokens\":30,\"cache_read_input_tokens\":40,\"output_tokens\":7,\"speed\":\"fast\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":9}}\n\n",
+      "status": 200
+    }
+  ]
+}

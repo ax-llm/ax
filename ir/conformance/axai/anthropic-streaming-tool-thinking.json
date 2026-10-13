@@ -85,7 +85,6 @@
         "ai": "anthropic",
         "model": "claude-sonnet-5",
         "tokens": {
-          "cache_creation_tokens": 0,
           "cache_read_tokens": 1,
           "completion_tokens": 3,
           "prompt_tokens": 4,

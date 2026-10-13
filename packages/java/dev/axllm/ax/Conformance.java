@@ -3507,10 +3507,13 @@ public final class Conformance {
     ClientFixture cf = openaiClient(fixture);
     List<Object> result = new ArrayList<>();
     expectMaybeError(() -> {
-      try (AxChatStream stream = cf.client.openStream(Core.asMap(fixture.get("request")), new LinkedHashMap<>(Core.asMap(fixture.get("options"))), null)) {
-        for (Object item : stream) result.add(item);
-        return result;
-      } catch (Exception e) { throw Core.asRuntime(e); }
+      int calls = ((Number) fixture.getOrDefault("stream_calls", 1)).intValue();
+      for (int call = 0; call < calls; ++call) {
+        try (AxChatStream stream = cf.client.openStream(Core.asMap(fixture.get("request")), new LinkedHashMap<>(Core.asMap(fixture.get("options"))), null)) {
+          for (Object item : stream) result.add(item);
+        } catch (Exception e) { throw Core.asRuntime(e); }
+      }
+      return result;
     }, fixture);
     if (fixture.containsKey("expected_error_contains")) { assertTransport(fixture, cf.transport); return; }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai stream output");

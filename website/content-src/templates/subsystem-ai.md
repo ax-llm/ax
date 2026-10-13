@@ -384,6 +384,19 @@ available.
 
 {{aiAudioExample}}
 
+## Streaming Usage And Incomplete Responses
+
+OpenAI Responses reports a token-limit stop as `length` and a content-filter
+stop as `content_filter`. The terminal response status takes precedence even
+when no message was produced or an earlier message completed. Incomplete
+streams retain their token usage and the served service tier. Reusing a client
+keeps each stream's usage separate; consume the terminal event for final totals.
+
+Anthropic `message_delta` counts are cumulative. Present input and cache counts
+replace earlier counts, including explicit zero; omitted or null fields retain
+previous values. Successive deltas retain the latest input, cache, and speed
+metadata while updating output tokens.
+
 ## Practical Notes
 
 - Prefer the named deployment-profile factory over direct provider classes in new code.

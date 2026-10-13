@@ -28156,6 +28156,31 @@ func _openai_responses_copy_cache_control_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _openai_responses_incomplete_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_incomplete_finish_reason_impl")
+	var v_response Value
+	var v_details Value
+	var v_empty_details Value
+	var v_filtered Value
+	var v_reason Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_details
+	_ = v_empty_details
+	_ = v_filtered
+	_ = v_reason
+	v_empty_details = Object()
+	v_details = coreGet(v_response, "incomplete_details", v_empty_details)
+	v_reason = coreGet(v_details, "reason", nil)
+	v_filtered = _core_eq(v_reason, "content_filter")
+	if coreTruthy(v_filtered) {
+		return "content_filter", nil
+	} else {
+	// empty
+	}
+	return "length", nil
+}
+
 func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("openai_responses_normalize_chat_response")
 	var v_raw Value
@@ -28163,7 +28188,14 @@ func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 	var v_model Value
 	var v_empty_function_calls Value
 	var v_empty_output Value
+	var v_finish Value
+	var v_is_incomplete Value
+	var v_is_incomplete_item Value
+	var v_is_incomplete_message Value
+	var v_is_message Value
 	var v_item Value
+	var v_item_status Value
+	var v_item_type Value
 	var v_model_usage Value
 	var v_out Value
 	var v_output Value
@@ -28172,6 +28204,7 @@ func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 	var v_raw_usage Value
 	var v_result Value
 	var v_results Value
+	var v_status Value
 	var v_usage Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
@@ -28181,7 +28214,14 @@ func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_model
 	_ = v_empty_function_calls
 	_ = v_empty_output
+	_ = v_finish
+	_ = v_is_incomplete
+	_ = v_is_incomplete_item
+	_ = v_is_incomplete_message
+	_ = v_is_message
 	_ = v_item
+	_ = v_item_status
+	_ = v_item_type
 	_ = v_model_usage
 	_ = v_out
 	_ = v_output
@@ -28190,6 +28230,7 @@ func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 	_ = v_raw_usage
 	_ = v_result
 	_ = v_results
+	_ = v_status
 	_ = v_usage
 	v_empty_output = MutableArray()
 	v_output = coreGet(v_raw, "output", v_empty_output)
@@ -28202,6 +28243,25 @@ func openai_responses_normalize_chat_response(args ...Value) (Value, error) {
 	if err := coreSet(v_result, "finish_reason", "stop"); err != nil { return nil, err }
 	for _, v_item = range coreIter(v_output) {
 		if _, err := _openai_responses_merge_output_item_impl(v_result, v_item); err != nil { return nil, err }
+		v_item_type = coreGet(v_item, "type", nil)
+		v_item_status = coreGet(v_item, "status", nil)
+		v_is_message = _core_eq(v_item_type, "message")
+		v_is_incomplete_item = _core_eq(v_item_status, "incomplete")
+		v_is_incomplete_message = _core_and(v_is_message, v_is_incomplete_item)
+		if coreTruthy(v_is_incomplete_message) {
+			{ v, err := _openai_responses_incomplete_finish_reason_impl(v_raw); if err != nil { return nil, err }; v_finish = v }
+			if err := coreSet(v_result, "finish_reason", v_finish); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_status = coreGet(v_raw, "status", nil)
+	v_is_incomplete = _core_eq(v_status, "incomplete")
+	if coreTruthy(v_is_incomplete) {
+		{ v, err := _openai_responses_incomplete_finish_reason_impl(v_raw); if err != nil { return nil, err }; v_finish = v }
+		if err := coreSet(v_result, "finish_reason", v_finish); err != nil { return nil, err }
+	} else {
+	// empty
 	}
 	v_results = MutableArray()
 	v_results = coreAppend(v_results, v_result)
@@ -28687,6 +28747,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_event_response Value
 	var v_event_response_id Value
 	var v_event_response_id_fallback Value
+	var v_finish Value
 	var v_function Value
 	var v_function_call_id Value
 	var v_function_item_id Value
@@ -28713,6 +28774,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_is_summary_delta Value
 	var v_is_summary_done Value
 	var v_is_summary_text_done Value
+	var v_is_terminal Value
 	var v_is_text_delta Value
 	var v_item Value
 	var v_item_id Value
@@ -28772,6 +28834,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_event_response
 	_ = v_event_response_id
 	_ = v_event_response_id_fallback
+	_ = v_finish
 	_ = v_function
 	_ = v_function_call_id
 	_ = v_function_item_id
@@ -28798,6 +28861,7 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_is_summary_delta
 	_ = v_is_summary_done
 	_ = v_is_summary_text_done
+	_ = v_is_terminal
 	_ = v_is_text_delta
 	_ = v_item
 	_ = v_item_id
@@ -29037,14 +29101,20 @@ func openai_responses_normalize_stream_delta(args ...Value) (Value, error) {
 	v_is_completed = _core_eq(v_type, "response.completed")
 	v_is_incomplete = _core_eq(v_type, "response.incomplete")
 	if coreTruthy(v_is_incomplete) {
-		if err := coreSet(v_result, "finish_reason", "length"); err != nil { return nil, err }
+		{ v, err := _openai_responses_incomplete_finish_reason_impl(v_event_response); if err != nil { return nil, err }; v_finish = v }
+		if err := coreSet(v_result, "finish_reason", v_finish); err != nil { return nil, err }
 	} else {
 	// empty
 	}
 	v_usage = _core_none()
-	if coreTruthy(v_is_completed) {
+	v_is_terminal = _core_or(v_is_completed, v_is_incomplete)
+	if coreTruthy(v_is_terminal) {
 		v_raw_usage = coreGet(v_event_response, "usage", nil)
 		{ v, err := _openai_usage_with_service_tier(v_event_response, v_raw_usage); if err != nil { return nil, err }; v_usage = v }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_completed) {
 		if err := coreSet(v_result, "finish_reason", "stop"); err != nil { return nil, err }
 	} else {
 	// empty
@@ -35438,17 +35508,26 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_calls Value
 	var v_citations Value
 	var v_completion Value
+	var v_creation_total Value
 	var v_data Value
 	var v_delta Value
+	var v_delta_creation Value
+	var v_delta_prompt Value
+	var v_delta_read Value
+	var v_delta_speed Value
 	var v_delta_type Value
 	var v_details Value
+	var v_empty_usage Value
 	var v_error Value
 	var v_error_body Value
 	var v_event_index Value
 	var v_finish Value
 	var v_function Value
 	var v_has_citations Value
+	var v_has_creation Value
 	var v_has_finish Value
+	var v_has_read Value
+	var v_has_speed Value
 	var v_id Value
 	var v_index Value
 	var v_is_block_start Value
@@ -35470,13 +35549,19 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	var v_model_usage Value
 	var v_name Value
 	var v_name_key Value
+	var v_old_creation Value
+	var v_old_prompt Value
+	var v_old_read Value
+	var v_old_speed Value
 	var v_out Value
 	var v_partial Value
 	var v_prompt Value
+	var v_read_total Value
 	var v_remote_id Value
 	var v_result Value
 	var v_results Value
 	var v_signature Value
+	var v_speed Value
 	var v_stop Value
 	var v_text Value
 	var v_thinking Value
@@ -35506,17 +35591,26 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_calls
 	_ = v_citations
 	_ = v_completion
+	_ = v_creation_total
 	_ = v_data
 	_ = v_delta
+	_ = v_delta_creation
+	_ = v_delta_prompt
+	_ = v_delta_read
+	_ = v_delta_speed
 	_ = v_delta_type
 	_ = v_details
+	_ = v_empty_usage
 	_ = v_error
 	_ = v_error_body
 	_ = v_event_index
 	_ = v_finish
 	_ = v_function
 	_ = v_has_citations
+	_ = v_has_creation
 	_ = v_has_finish
+	_ = v_has_read
+	_ = v_has_speed
 	_ = v_id
 	_ = v_index
 	_ = v_is_block_start
@@ -35538,13 +35632,19 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 	_ = v_model_usage
 	_ = v_name
 	_ = v_name_key
+	_ = v_old_creation
+	_ = v_old_prompt
+	_ = v_old_read
+	_ = v_old_speed
 	_ = v_out
 	_ = v_partial
 	_ = v_prompt
+	_ = v_read_total
 	_ = v_remote_id
 	_ = v_result
 	_ = v_results
 	_ = v_signature
+	_ = v_speed
 	_ = v_stop
 	_ = v_text
 	_ = v_thinking
@@ -35799,20 +35899,49 @@ func _anthropic_normalize_stream_delta(args ...Value) (Value, error) {
 		// empty
 		}
 		v_usage_delta = coreGet(v_event, "usage", nil)
-		v_usage_existing = coreGet(v_state, "usage", v_usage_delta)
+		v_empty_usage = Object()
+		v_usage_existing = coreGet(v_state, "usage", v_empty_usage)
 		v_completion = coreGet(v_usage_delta, "output_tokens", 0)
-		v_prompt = coreGet(v_usage_existing, "prompt_tokens", 0)
-		v_cache_creation = coreGet(v_usage_existing, "cache_creation_tokens", 0)
-		v_cache_read = coreGet(v_usage_existing, "cache_read_tokens", 0)
+		v_old_prompt = coreGet(v_usage_existing, "prompt_tokens", 0)
+		v_delta_prompt = coreGet(v_usage_delta, "input_tokens", nil)
+		v_prompt = _core_coalesce(v_delta_prompt, v_old_prompt)
+		v_old_creation = coreGet(v_usage_existing, "cache_creation_tokens", nil)
+		v_delta_creation = coreGet(v_usage_delta, "cache_creation_input_tokens", nil)
+		v_cache_creation = _core_coalesce(v_delta_creation, v_old_creation)
+		v_old_read = coreGet(v_usage_existing, "cache_read_tokens", nil)
+		v_delta_read = coreGet(v_usage_delta, "cache_read_input_tokens", nil)
+		v_cache_read = _core_coalesce(v_delta_read, v_old_read)
 		v_usage = Object()
 		if err := coreSet(v_usage, "prompt_tokens", v_prompt); err != nil { return nil, err }
 		if err := coreSet(v_usage, "completion_tokens", v_completion); err != nil { return nil, err }
 		v_total_base = _core_add(v_prompt, v_completion)
-		v_total_cache = _core_add(v_cache_creation, v_cache_read)
+		v_creation_total = _core_coalesce(v_cache_creation, 0)
+		v_read_total = _core_coalesce(v_cache_read, 0)
+		v_total_cache = _core_add(v_creation_total, v_read_total)
 		v_total = _core_add(v_total_base, v_total_cache)
 		if err := coreSet(v_usage, "total_tokens", v_total); err != nil { return nil, err }
-		if err := coreSet(v_usage, "cache_creation_tokens", v_cache_creation); err != nil { return nil, err }
-		if err := coreSet(v_usage, "cache_read_tokens", v_cache_read); err != nil { return nil, err }
+		v_has_creation = _core_is_not_none(v_cache_creation)
+		if coreTruthy(v_has_creation) {
+			if err := coreSet(v_usage, "cache_creation_tokens", v_cache_creation); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_has_read = _core_is_not_none(v_cache_read)
+		if coreTruthy(v_has_read) {
+			if err := coreSet(v_usage, "cache_read_tokens", v_cache_read); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_old_speed = coreGet(v_usage_existing, "speed", nil)
+		v_delta_speed = coreGet(v_usage_delta, "speed", nil)
+		v_speed = _core_coalesce(v_delta_speed, v_old_speed)
+		v_has_speed = _core_is_not_none(v_speed)
+		if coreTruthy(v_has_speed) {
+			if err := coreSet(v_usage, "speed", v_speed); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
 		v_result = Object()
 		if err := coreSet(v_result, "index", v_index); err != nil { return nil, err }
 		if err := coreSet(v_result, "content", ""); err != nil { return nil, err }
@@ -119060,13 +119189,16 @@ func runConformanceAIEmbed(fixture map[string]Value) {
 func runConformanceAIStream(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
-		out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
-		if err != nil {
-			panic(err)
-		}
 		v := Array()
-		for _, item := range out {
-			v = append(v, item)
+		calls := int(num(coreGet(fixture, "stream_calls", 1)))
+		for call := 0; call < calls; call++ {
+			out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
+			if err != nil {
+				panic(err)
+			}
+			for _, item := range out {
+				v = append(v, item)
+			}
 		}
 		return v
 	}, fixture, nil)

@@ -109,6 +109,8 @@ Use api_key/apiKey or renewable credential providers with shared timeout, retry,
 - OpenAI GPT-5.6 Chat explicit caching is opt-in through `contextCache` / `context_cache` or message/function cache flags. Use `promptCacheKey` / `prompt_cache_key` for stable affinity; `sessionId` / `session_id` is the fallback.
 - As in TypeScript, every OpenAI Responses request sends `prompt_cache_key`: the `promptCacheKey` / `prompt_cache_key`, else the `sessionId` / `session_id`, the call's before the client's. Chat Completions sends it only with GPT-5.6 caching.
 - Normalized usage separates uncached prompt, cache-read, and cache-creation tokens. `get_model_cost` / target equivalent uses the shared model catalog, including cache-write pricing and long-context thresholds.
+- Incomplete OpenAI Responses retain usage and the served service tier: token limits report `length`, content filters report `content_filter`, and terminal status wins even without message output. Reused clients keep each stream's usage separate; consume its terminal event for final totals.
+- Anthropic streamed usage is cumulative. Present input and cache fields replace prior counts, including explicit zero. Omitted or null fields preserve earlier counts, and successive deltas retain the latest input, cache, and speed metadata.
 - Start with the OpenAI prompt-caching and Vertex Gemini examples under `examples/`. Scripted AxAI fixtures verify routing without live credentials.
 
 ## Request Timeouts

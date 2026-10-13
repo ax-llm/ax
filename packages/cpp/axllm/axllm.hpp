@@ -852,6 +852,7 @@ struct Core {
   static Value _openai_responses_content_parts_impl(Value content, Value role);
   static Value _openai_responses_content_part_impl(Value part, Value role);
   static Value _openai_responses_copy_cache_control_impl(Value target, Value source);
+  static Value _openai_responses_incomplete_finish_reason_impl(Value response);
   static Value openai_responses_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_responses_merge_output_item_impl(Value result, Value item);
   static Value _openai_responses_reasoning_text_impl(Value item);

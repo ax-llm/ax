@@ -15822,13 +15822,16 @@ func runConformanceAIEmbed(fixture map[string]Value) {
 func runConformanceAIStream(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
-		out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
-		if err != nil {
-			panic(err)
-		}
 		v := Array()
-		for _, item := range out {
-			v = append(v, item)
+		calls := int(num(coreGet(fixture, "stream_calls", 1)))
+		for call := 0; call < calls; call++ {
+			out, err := client.Stream(context.Background(), asMap(coreGet(fixture, "request", Object())), asMap(coreGet(fixture, "options", Object())))
+			if err != nil {
+				panic(err)
+			}
+			for _, item := range out {
+				v = append(v, item)
+			}
 		}
 		return v
 	}, fixture, nil)

@@ -1,0 +1,57 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai-responses",
+      "model": "gpt-6.1-sol",
+      "tokens": {
+        "completion_tokens": 16,
+        "prompt_tokens": 11,
+        "total_tokens": 27
+      }
+    },
+    "remote_id": "res_usage",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "length",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "kind": "ai_chat",
+  "model": "gpt-6.1-sol",
+  "name": "responses-terminal-usage-length-no-output",
+  "options": {
+    "stream": false
+  },
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "usage",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "res_usage",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "model": "gpt-6.1-sol",
+        "output": [],
+        "status": "incomplete",
+        "usage": {
+          "input_tokens": 11,
+          "output_tokens": 16,
+          "total_tokens": 27
+        }
+      },
+      "status": 200
+    }
+  ]
+}

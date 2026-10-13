@@ -7517,7 +7517,6 @@ writeFixture('anthropic-streaming-tool-thinking', {
           prompt_tokens: 4,
           completion_tokens: 3,
           total_tokens: 8,
-          cache_creation_tokens: 0,
           cache_read_tokens: 1,
         },
       },
@@ -16411,5 +16410,469 @@ writeFixture('gemini-live-ws-url-encodes-key', {
     },
     transport_responses: [{ status: 200, json: response }],
     expected_transport_request: { json: { input: body.input } },
+  });
+}
+
+// Provider terminal usage and cross-call isolation are derived from the real TS
+// clients. The fixture envelope uses the existing portable stream IDs/defaults.
+{
+  const responsesModel = AxAIOpenAIModel.GPT61Sol;
+  const anthropicModel = AxAIAnthropicModel.Claude55Haiku;
+  const sseBody = (events: any[]) =>
+    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+  const snake = (value: any): any => {
+    if (Array.isArray(value)) return value.map(snake);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [
+          key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+          snake(item),
+        ])
+    );
+  };
+  const clientFor = (provider: string, responses: any[]) => {
+    let index = 0;
+    const client = ai({
+      name: provider,
+      apiKey: 'test-key',
+      config: {
+        model: provider === 'anthropic' ? anthropicModel : responsesModel,
+      },
+      options: {
+        fetch: async () => {
+          const response = responses[index++];
+          if (!response) throw new Error('Provider usage fixture exhausted');
+          return response.body !== undefined
+            ? new Response(response.body, {
+                headers: { 'content-type': 'text/event-stream' },
+              })
+            : Response.json(response.json);
+        },
+      },
+    } as any);
+    return client;
+  };
+  const modelUsage = (chunk: any, provider: string) =>
+    chunk.modelUsage
+      ? {
+          ai: provider,
+          model: chunk.modelUsage.model,
+          tokens: snake(chunk.modelUsage.tokens),
+        }
+      : null;
+  const streamChunks = async (client: any, options: any = {}) => {
+    const stream = await client.chat(
+      { chatPrompt: [{ role: 'user', content: 'usage' }] },
+      { ...options, stream: true }
+    );
+    const chunks: any[] = [];
+    const reader = stream.getReader();
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      chunks.push(item.value);
+    }
+    return chunks;
+  };
+  const responsesChunk = (chunk: any, event: any, remoteId: string) => ({
+    results: [
+      {
+        index: 0,
+        id: event.item_id ?? '0',
+        content: chunk.results[0]?.content ?? '',
+        function_calls: [],
+        finish_reason:
+          event.type === 'response.completed' ||
+          event.type === 'response.incomplete'
+            ? chunk.results[0]?.finishReason
+            : null,
+      },
+    ],
+    remote_id: remoteId,
+    model_usage: modelUsage(chunk, 'openai-responses'),
+  });
+  const usage = { input_tokens: 11, output_tokens: 16, total_tokens: 27 };
+  const message = (status?: string) => ({
+    type: 'message',
+    id: 'msg_usage',
+    role: 'assistant',
+    ...(status ? { status } : {}),
+    content: [{ type: 'output_text', text: 'partial answer', annotations: [] }],
+  });
+  for (const testCase of [
+    {
+      id: 'length-message',
+      reason: 'max_output_tokens',
+      output: [message('incomplete')],
+    },
+    {
+      id: 'filter-message',
+      reason: 'content_filter',
+      output: [message('incomplete')],
+    },
+    { id: 'length-no-output', reason: 'max_output_tokens', output: [] },
+    {
+      id: 'length-completed-prefix',
+      reason: 'max_output_tokens',
+      output: [message('completed')],
+    },
+    {
+      id: 'completed-missing-item-status',
+      status: 'completed',
+      reason: null,
+      output: [message()],
+    },
+    {
+      id: 'length-item-without-response-status',
+      status: null,
+      reason: 'max_output_tokens',
+      output: [message('incomplete')],
+    },
+  ]) {
+    const response = {
+      id: 'res_usage',
+      model: responsesModel,
+      ...('status' in testCase
+        ? testCase.status
+          ? { status: testCase.status }
+          : {}
+        : { status: 'incomplete' }),
+      incomplete_details: testCase.reason ? { reason: testCase.reason } : null,
+      usage,
+      output: testCase.output,
+    };
+    const transport = { status: 200, json: response };
+    const output = await clientFor('openai-responses', [transport]).chat(
+      { chatPrompt: [{ role: 'user', content: 'usage' }] },
+      { stream: false }
+    );
+    if (
+      output instanceof ReadableStream ||
+      typeof output.remoteId !== 'string'
+    ) {
+      throw new Error('Non-streaming usage fixture did not return a response');
+    }
+    const expected = snake(output);
+    expected.results.forEach((result: any) => {
+      result.id ??= '0';
+      result.content ??= '';
+      result.function_calls ??= [];
+    });
+    writeFixture(`responses-terminal-usage-${testCase.id}`, {
+      kind: 'ai_chat',
+      provider: 'openai-responses',
+      model: responsesModel,
+      request: { chat_prompt: [{ role: 'user', content: 'usage' }] },
+      options: { stream: false },
+      transport_responses: [transport],
+      expected_output: {
+        results: expected.results,
+        remote_id: output.remoteId,
+        model_usage: modelUsage(output, 'openai-responses'),
+      },
+    });
+  }
+  for (const reason of ['max_output_tokens', 'content_filter', null]) {
+    const event = {
+      type: 'response.incomplete',
+      response: {
+        id: 'res_incomplete_usage',
+        model: responsesModel,
+        status: 'incomplete',
+        incomplete_details: reason ? { reason } : null,
+        service_tier: 'priority',
+        service_tier_used: 'flex',
+        usage,
+      },
+    };
+    const transport = { status: 200, body: sseBody([event]) };
+    const chunks = await streamChunks(
+      clientFor('openai-responses', [transport])
+    );
+    writeFixture(`responses-terminal-usage-stream-${reason ?? 'unknown'}`, {
+      kind: 'ai_stream',
+      provider: 'openai-responses',
+      model: responsesModel,
+      request: { chat_prompt: [{ role: 'user', content: 'usage' }] },
+      transport_responses: [transport],
+      expected_output: chunks.map((chunk) =>
+        responsesChunk(chunk, event, event.response.id)
+      ),
+    });
+  }
+  for (const firstTerminal of ['response.completed', 'response.incomplete']) {
+    const eventsFor = (id: string, total: number, terminal: string) => [
+      { type: 'response.created', response: { id, status: 'in_progress' } },
+      {
+        type: 'response.output_text.delta',
+        response_id: id,
+        item_id: 'msg_usage',
+        delta: 'answer',
+      },
+      {
+        type: terminal,
+        response: {
+          id,
+          model: responsesModel,
+          ...(terminal === 'response.incomplete'
+            ? { incomplete_details: { reason: 'max_output_tokens' } }
+            : {}),
+          usage: {
+            input_tokens: total - 1,
+            output_tokens: 1,
+            total_tokens: total,
+          },
+        },
+      },
+    ];
+    const calls = [
+      eventsFor('res_first', 1200, firstTerminal),
+      eventsFor('res_second', 30, 'response.completed'),
+    ];
+    const transports = calls.map((events) => ({
+      status: 200,
+      body: sseBody(events),
+    }));
+    const client = clientFor('openai-responses', transports);
+    const expected: any[] = [];
+    for (const [call, events] of calls.entries()) {
+      const chunks = await streamChunks(client);
+      if (chunks.length !== events.length)
+        throw new Error('Responses usage fixture chunk count differs');
+      for (const [index, chunk] of chunks.entries()) {
+        if (index < 2 && chunk.modelUsage !== undefined)
+          throw new Error('New stream exposed stale usage');
+        if (
+          index === 2 &&
+          chunk.modelUsage?.tokens?.totalTokens !== (call === 0 ? 1200 : 30)
+        )
+          throw new Error('Stream lost its terminal usage');
+        expected.push(
+          responsesChunk(
+            chunk,
+            events[index],
+            call === 0 ? 'res_first' : 'res_second'
+          )
+        );
+      }
+    }
+    writeFixture(
+      `responses-terminal-usage-reused-${firstTerminal.split('.')[1]}`,
+      {
+        kind: 'ai_stream',
+        provider: 'openai-responses',
+        model: responsesModel,
+        request: { chat_prompt: [{ role: 'user', content: 'usage' }] },
+        stream_calls: 2,
+        transport_responses: transports,
+        expected_transport_request_count: 2,
+        expected_output: expected,
+      }
+    );
+  }
+  const initial = {
+    input_tokens: 50,
+    output_tokens: 1,
+    cache_creation_input_tokens: 5,
+    cache_read_input_tokens: 10,
+    speed: 'standard',
+  };
+  for (const testCase of [
+    {
+      id: 'cumulative',
+      start: { input_tokens: 0, output_tokens: 0 },
+      deltas: [
+        {
+          input_tokens: 1200,
+          cache_creation_input_tokens: 30,
+          cache_read_input_tokens: 400,
+          output_tokens: 25,
+        },
+      ],
+    },
+    {
+      id: 'partial',
+      start: initial,
+      deltas: [{ input_tokens: 80, output_tokens: 7 }],
+    },
+    {
+      id: 'zeros',
+      start: initial,
+      deltas: [
+        {
+          input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          output_tokens: 7,
+        },
+      ],
+    },
+    {
+      id: 'nulls',
+      start: initial,
+      deltas: [
+        {
+          input_tokens: null,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+          output_tokens: 7,
+          speed: null,
+        },
+      ],
+    },
+    {
+      id: 'successive-deltas',
+      start: initial,
+      deltas: [
+        {
+          input_tokens: 120,
+          cache_creation_input_tokens: 30,
+          cache_read_input_tokens: 40,
+          output_tokens: 7,
+          speed: 'fast',
+        },
+        { output_tokens: 9 },
+      ],
+    },
+  ]) {
+    const events = [
+      {
+        type: 'message_start',
+        message: {
+          id: 'msg_usage',
+          type: 'message',
+          role: 'assistant',
+          model: anthropicModel,
+          content: [],
+          stop_reason: null,
+          usage: testCase.start,
+        },
+      },
+      ...testCase.deltas.map((usage) => ({
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn', stop_sequence: null },
+        usage,
+      })),
+    ];
+    const transport = { status: 200, body: sseBody(events) };
+    const chunks = await streamChunks(clientFor('anthropic', [transport]));
+    if (chunks.length !== events.length)
+      throw new Error('Anthropic usage fixture chunk count differs');
+    writeFixture(`anthropic-terminal-usage-${testCase.id}`, {
+      kind: 'ai_stream',
+      provider: 'anthropic',
+      model: anthropicModel,
+      request: { chat_prompt: [{ role: 'user', content: 'usage' }] },
+      transport_responses: [transport],
+      expected_output: chunks.map((chunk) => ({
+        results: snake(chunk.results),
+        remote_id: 'msg_usage',
+        model_usage: modelUsage(chunk, 'anthropic'),
+      })),
+    });
+  }
+  // Retry coverage uses the same real TS usage view: an omitted cache count
+  // stays absent rather than being fabricated as zero after the retry.
+  const retryEvents = [
+    {
+      type: 'message_start',
+      message: {
+        id: 'msg_stream_a',
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: anthropicModel,
+        stop_reason: null,
+        usage: {
+          input_tokens: 4,
+          output_tokens: 0,
+          cache_read_input_tokens: 1,
+        },
+      },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: 'hel' },
+    },
+    {
+      type: 'content_block_start',
+      index: 1,
+      content_block: {
+        type: 'tool_use',
+        id: 'toolu_stream',
+        name: 'search',
+        input: {},
+      },
+    },
+    {
+      type: 'content_block_delta',
+      index: 1,
+      delta: { type: 'input_json_delta', partial_json: '{"query":"Ax"}' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 2,
+      delta: { type: 'thinking_delta', thinking: 'plan' },
+    },
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'tool_use', stop_sequence: null },
+      usage: { output_tokens: 3 },
+    },
+  ];
+  const retryOptions = {
+    retry: { initialDelayMs: 0, maxDelayMs: 0, maxRetries: 3 },
+    stream: true,
+  };
+  const retryTransports = [
+    {
+      status: 200,
+      body: sseBody([
+        {
+          type: 'error',
+          error: { type: 'overloaded_error', message: 'Stream overloaded' },
+        },
+      ]),
+    },
+    { status: 200, body: sseBody(retryEvents) },
+  ];
+  const retryChunks = await streamChunks(
+    clientFor('anthropic', retryTransports),
+    retryOptions
+  );
+  if (retryChunks.length !== retryEvents.length)
+    throw new Error('Anthropic retry fixture chunk count differs');
+  writeFixture('anthropic-stream-retry-overloaded', {
+    kind: 'ai_stream',
+    provider: 'anthropic',
+    model: anthropicModel,
+    request: { chat_prompt: [{ role: 'user', content: 'usage' }] },
+    options: retryOptions,
+    transport_responses: retryTransports,
+    expected_transport_request_count: 2,
+    expected_output: retryChunks.map((chunk, index) => {
+      const results = snake(chunk.results);
+      // Portable function deltas retain the name from the initial tool block.
+      for (const result of results) {
+        for (const call of result.function_calls ?? []) {
+          if (call.function.name === '') {
+            const start = (retryEvents as any[]).find(
+              (event) => event.content_block?.id === call.id
+            );
+            call.function.name = start?.content_block.name ?? '';
+          }
+        }
+      }
+      return {
+        results,
+        remote_id: 'msg_stream_a',
+        ...(index === 0 || index === retryChunks.length - 1
+          ? { model_usage: modelUsage(chunk, 'anthropic') }
+          : {}),
+      };
+    }),
   });
 }

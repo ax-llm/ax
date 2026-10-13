@@ -3622,7 +3622,9 @@ def _run_ai_embed(fixture):
 def _run_ai_stream(fixture):
     client, transport = _openai_fixture_client(fixture)
     try:
-        result = list(client.stream(fixture["request"], fixture.get("options")))
+        result = []
+        for _ in range(int(fixture.get("stream_calls", 1))):
+            result.extend(client.stream(fixture["request"], fixture.get("options")))
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):

@@ -19094,10 +19094,18 @@ fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     // Fixture `options` are the stream call's options, as for ai_chat.
-    let output_result = match fixture.get("options").filter(|options| options.is_object()) {
-        Some(options) => client.stream_with_options(request, options.clone()),
-        None => client.stream(request),
-    };
+    let output_result = (|| -> AxResult<Vec<Value>> {
+        let mut output = Vec::new();
+        let calls = fixture.get("stream_calls").and_then(Value::as_u64).unwrap_or(1);
+        for _ in 0..calls {
+            let stream = match fixture.get("options").filter(|options| options.is_object()) {
+                Some(options) => client.stream_with_options(request.clone(), options.clone()),
+                None => client.stream(request.clone()),
+            }?;
+            output.extend(stream);
+        }
+        Ok(output)
+    })();
     if fixture.get("expected_error_contains").is_some() {
         let result = expect_validation_result(output_result.map(|_| ()), fixture);
         expect_transport_request_subset(fixture, &requests, &credential_requests)?;

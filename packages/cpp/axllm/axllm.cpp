@@ -15551,6 +15551,18 @@ Value Core::_openai_responses_copy_cache_control_impl(Value target, Value source
   return Value();
 }
 
+Value Core::_openai_responses_incomplete_finish_reason_impl(Value response) {
+  axir_coverage_mark("_openai_responses_incomplete_finish_reason_impl");
+  Value empty_details = Value::object();
+  Value details = Core::get(response, Value("incomplete_details"), empty_details);
+  Value reason = Core::get(details, Value("reason"), Value());
+  Value filtered = Core::eq(reason, Value("content_filter"));
+  if (Core::truthy(filtered)) {
+    return Value("content_filter");
+  }
+  return Value("length");
+}
+
 Value Core::openai_responses_normalize_chat_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("openai_responses_normalize_chat_response");
   Value empty_output = Value::array();
@@ -15564,6 +15576,21 @@ Value Core::openai_responses_normalize_chat_response(Value raw, Value ai_name, V
   Core::set(result, Value("finish_reason"), Value("stop"));
   for (auto item : Core::iter(output)) {
     Core::_openai_responses_merge_output_item_impl(result, item);
+    Value item_type = Core::get(item, Value("type"), Value());
+    Value item_status = Core::get(item, Value("status"), Value());
+    Value is_message = Core::eq(item_type, Value("message"));
+    Value is_incomplete_item = Core::eq(item_status, Value("incomplete"));
+    Value is_incomplete_message = Core::and_(is_message, is_incomplete_item);
+    if (Core::truthy(is_incomplete_message)) {
+      Value finish = Core::_openai_responses_incomplete_finish_reason_impl(raw);
+      Core::set(result, Value("finish_reason"), finish);
+    }
+  }
+  Value status = Core::get(raw, Value("status"), Value());
+  Value is_incomplete = Core::eq(status, Value("incomplete"));
+  if (Core::truthy(is_incomplete)) {
+    Value finish = Core::_openai_responses_incomplete_finish_reason_impl(raw);
+    Core::set(result, Value("finish_reason"), finish);
   }
   Value results = Value::array();
   Core::append(results, result);
@@ -15982,12 +16009,16 @@ Value Core::openai_responses_normalize_stream_delta(Value event, Value state, Va
   Value is_completed = Core::eq(type, Value("response.completed"));
   Value is_incomplete = Core::eq(type, Value("response.incomplete"));
   if (Core::truthy(is_incomplete)) {
-    Core::set(result, Value("finish_reason"), Value("length"));
+    Value finish = Core::_openai_responses_incomplete_finish_reason_impl(event_response);
+    Core::set(result, Value("finish_reason"), finish);
   }
   Value usage = Core::none();
-  if (Core::truthy(is_completed)) {
+  Value is_terminal = Core::or_(is_completed, is_incomplete);
+  if (Core::truthy(is_terminal)) {
     Value raw_usage = Core::get(event_response, Value("usage"), Value());
     usage = Core::_openai_usage_with_service_tier(event_response, raw_usage);
+  }
+  if (Core::truthy(is_completed)) {
     Core::set(result, Value("finish_reason"), Value("stop"));
   }
   Value results = Value::array();
@@ -19340,20 +19371,43 @@ Value Core::_anthropic_normalize_stream_delta(Value event, Value state, Value ai
       Core::raise_error(error);
     }
     Value usage_delta = Core::get(event, Value("usage"), Value());
-    Value usage_existing = Core::get(state, Value("usage"), usage_delta);
+    Value empty_usage = Value::object();
+    Value usage_existing = Core::get(state, Value("usage"), empty_usage);
     Value completion = Core::get(usage_delta, Value("output_tokens"), Value(0));
-    Value prompt = Core::get(usage_existing, Value("prompt_tokens"), Value(0));
-    Value cache_creation = Core::get(usage_existing, Value("cache_creation_tokens"), Value(0));
-    Value cache_read = Core::get(usage_existing, Value("cache_read_tokens"), Value(0));
+    Value old_prompt = Core::get(usage_existing, Value("prompt_tokens"), Value(0));
+    Value delta_prompt = Core::get(usage_delta, Value("input_tokens"), Value());
+    Value prompt = Core::coalesce(delta_prompt, old_prompt);
+    Value old_creation = Core::get(usage_existing, Value("cache_creation_tokens"), Value());
+    Value delta_creation = Core::get(usage_delta, Value("cache_creation_input_tokens"), Value());
+    Value cache_creation = Core::coalesce(delta_creation, old_creation);
+    Value old_read = Core::get(usage_existing, Value("cache_read_tokens"), Value());
+    Value delta_read = Core::get(usage_delta, Value("cache_read_input_tokens"), Value());
+    Value cache_read = Core::coalesce(delta_read, old_read);
     Value usage = Value::object();
     Core::set(usage, Value("prompt_tokens"), prompt);
     Core::set(usage, Value("completion_tokens"), completion);
     Value total_base = Core::add(prompt, completion);
-    Value total_cache = Core::add(cache_creation, cache_read);
+    Value creation_total = Core::coalesce(cache_creation, Value(0));
+    Value read_total = Core::coalesce(cache_read, Value(0));
+    Value total_cache = Core::add(creation_total, read_total);
     Value total = Core::add(total_base, total_cache);
     Core::set(usage, Value("total_tokens"), total);
-    Core::set(usage, Value("cache_creation_tokens"), cache_creation);
-    Core::set(usage, Value("cache_read_tokens"), cache_read);
+    Value has_creation = Core::is_not_none(cache_creation);
+    if (Core::truthy(has_creation)) {
+      Core::set(usage, Value("cache_creation_tokens"), cache_creation);
+    }
+    Value has_read = Core::is_not_none(cache_read);
+    if (Core::truthy(has_read)) {
+      Core::set(usage, Value("cache_read_tokens"), cache_read);
+    }
+    Value old_speed = Core::get(usage_existing, Value("speed"), Value());
+    Value delta_speed = Core::get(usage_delta, Value("speed"), Value());
+    Value speed = Core::coalesce(delta_speed, old_speed);
+    Value has_speed = Core::is_not_none(speed);
+    if (Core::truthy(has_speed)) {
+      Core::set(usage, Value("speed"), speed);
+    }
+    Core::set(state, Value("usage"), usage);
     Value result = Value::object();
     Core::set(result, Value("index"), index);
     Core::set(result, Value("content"), Value(""));

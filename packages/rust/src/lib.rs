@@ -26740,10 +26740,21 @@ fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     // Fixture `options` are the stream call's options, as for ai_chat.
-    let output_result = match fixture.get("options").filter(|options| options.is_object()) {
-        Some(options) => client.stream_with_options(request, options.clone()),
-        None => client.stream(request),
-    };
+    let output_result = (|| -> AxResult<Vec<Value>> {
+        let mut output = Vec::new();
+        let calls = fixture
+            .get("stream_calls")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        for _ in 0..calls {
+            let stream = match fixture.get("options").filter(|options| options.is_object()) {
+                Some(options) => client.stream_with_options(request.clone(), options.clone()),
+                None => client.stream(request.clone()),
+            }?;
+            output.extend(stream);
+        }
+        Ok(output)
+    })();
     if fixture.get("expected_error_contains").is_some() {
         let result = expect_validation_result(output_result.map(|_| ()), fixture);
         expect_transport_request_subset(fixture, &requests, &credential_requests)?;
@@ -63477,6 +63488,36 @@ fn _openai_responses_copy_cache_control_impl(args: &[CoreValue]) -> Result<CoreV
     unreachable_code,
     clippy::all
 )]
+fn _openai_responses_incomplete_finish_reason_impl(
+    args: &[CoreValue],
+) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_incomplete_finish_reason_impl");
+    let mut v_response = core_arg(args, 0);
+    let mut v_details = CoreValue::Null;
+    let mut v_empty_details = CoreValue::Null;
+    let mut v_filtered = CoreValue::Null;
+    let mut v_reason = CoreValue::Null;
+    v_empty_details = CoreValue::new_map();
+    v_details = core_get(
+        &v_response,
+        &CoreValue::from("incomplete_details"),
+        v_empty_details.clone(),
+    );
+    v_reason = core_get(&v_details, &CoreValue::from("reason"), CoreValue::Null);
+    v_filtered = core_eq(&[v_reason.clone(), CoreValue::from("content_filter")])?;
+    if core_truthy(&v_filtered) {
+        return Ok(CoreValue::from("content_filter"));
+    }
+    return Ok(CoreValue::from("length"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_responses_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
@@ -63484,7 +63525,14 @@ fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreVa
     let mut v_model = core_arg(args, 2);
     let mut v_empty_function_calls = CoreValue::Null;
     let mut v_empty_output = CoreValue::Null;
+    let mut v_finish = CoreValue::Null;
+    let mut v_is_incomplete = CoreValue::Null;
+    let mut v_is_incomplete_item = CoreValue::Null;
+    let mut v_is_incomplete_message = CoreValue::Null;
+    let mut v_is_message = CoreValue::Null;
     let mut v_item = CoreValue::Null;
+    let mut v_item_status = CoreValue::Null;
+    let mut v_item_type = CoreValue::Null;
     let mut v_model_usage = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_output = CoreValue::Null;
@@ -63493,6 +63541,7 @@ fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreVa
     let mut v_raw_usage = CoreValue::Null;
     let mut v_result = CoreValue::Null;
     let mut v_results = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
     let mut v_usage = CoreValue::Null;
     v_empty_output = CoreValue::new_list();
     v_output = core_get(&v_raw, &CoreValue::from("output"), v_empty_output.clone());
@@ -63514,6 +63563,29 @@ fn openai_responses_normalize_chat_response(args: &[CoreValue]) -> Result<CoreVa
     for v_item in core_iter(&v_output)? {
         let mut v_item = v_item;
         _openai_responses_merge_output_item_impl(&[v_result.clone(), v_item.clone()])?;
+        v_item_type = core_get(&v_item, &CoreValue::from("type"), CoreValue::Null);
+        v_item_status = core_get(&v_item, &CoreValue::from("status"), CoreValue::Null);
+        v_is_message = core_eq(&[v_item_type.clone(), CoreValue::from("message")])?;
+        v_is_incomplete_item = core_eq(&[v_item_status.clone(), CoreValue::from("incomplete")])?;
+        v_is_incomplete_message = core_and(&[v_is_message.clone(), v_is_incomplete_item.clone()])?;
+        if core_truthy(&v_is_incomplete_message) {
+            v_finish = _openai_responses_incomplete_finish_reason_impl(&[v_raw.clone()])?;
+            core_set(
+                &v_result,
+                CoreValue::from("finish_reason"),
+                v_finish.clone(),
+            )?;
+        }
+    }
+    v_status = core_get(&v_raw, &CoreValue::from("status"), CoreValue::Null);
+    v_is_incomplete = core_eq(&[v_status.clone(), CoreValue::from("incomplete")])?;
+    if core_truthy(&v_is_incomplete) {
+        v_finish = _openai_responses_incomplete_finish_reason_impl(&[v_raw.clone()])?;
+        core_set(
+            &v_result,
+            CoreValue::from("finish_reason"),
+            v_finish.clone(),
+        )?;
     }
     v_results = CoreValue::new_list();
     core_append(&v_results, v_result.clone())?;
@@ -64021,6 +64093,7 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     let mut v_event_response = CoreValue::Null;
     let mut v_event_response_id = CoreValue::Null;
     let mut v_event_response_id_fallback = CoreValue::Null;
+    let mut v_finish = CoreValue::Null;
     let mut v_function = CoreValue::Null;
     let mut v_function_call_id = CoreValue::Null;
     let mut v_function_item_id = CoreValue::Null;
@@ -64047,6 +64120,7 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     let mut v_is_summary_delta = CoreValue::Null;
     let mut v_is_summary_done = CoreValue::Null;
     let mut v_is_summary_text_done = CoreValue::Null;
+    let mut v_is_terminal = CoreValue::Null;
     let mut v_is_text_delta = CoreValue::Null;
     let mut v_item = CoreValue::Null;
     let mut v_item_id = CoreValue::Null;
@@ -64442,14 +64516,16 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
     v_is_completed = core_eq(&[v_type.clone(), CoreValue::from("response.completed")])?;
     v_is_incomplete = core_eq(&[v_type.clone(), CoreValue::from("response.incomplete")])?;
     if core_truthy(&v_is_incomplete) {
+        v_finish = _openai_responses_incomplete_finish_reason_impl(&[v_event_response.clone()])?;
         core_set(
             &v_result,
             CoreValue::from("finish_reason"),
-            CoreValue::from("length"),
+            v_finish.clone(),
         )?;
     }
     v_usage = core_none(&[])?;
-    if core_truthy(&v_is_completed) {
+    v_is_terminal = core_or(&[v_is_completed.clone(), v_is_incomplete.clone()])?;
+    if core_truthy(&v_is_terminal) {
         v_raw_usage = core_get(
             &v_event_response,
             &CoreValue::from("usage"),
@@ -64457,6 +64533,8 @@ fn openai_responses_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreVal
         );
         v_usage =
             _openai_usage_with_service_tier(&[v_event_response.clone(), v_raw_usage.clone()])?;
+    }
+    if core_truthy(&v_is_completed) {
         core_set(
             &v_result,
             CoreValue::from("finish_reason"),
@@ -71341,17 +71419,26 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_calls = CoreValue::Null;
     let mut v_citations = CoreValue::Null;
     let mut v_completion = CoreValue::Null;
+    let mut v_creation_total = CoreValue::Null;
     let mut v_data = CoreValue::Null;
     let mut v_delta = CoreValue::Null;
+    let mut v_delta_creation = CoreValue::Null;
+    let mut v_delta_prompt = CoreValue::Null;
+    let mut v_delta_read = CoreValue::Null;
+    let mut v_delta_speed = CoreValue::Null;
     let mut v_delta_type = CoreValue::Null;
     let mut v_details = CoreValue::Null;
+    let mut v_empty_usage = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_error_body = CoreValue::Null;
     let mut v_event_index = CoreValue::Null;
     let mut v_finish = CoreValue::Null;
     let mut v_function = CoreValue::Null;
     let mut v_has_citations = CoreValue::Null;
+    let mut v_has_creation = CoreValue::Null;
     let mut v_has_finish = CoreValue::Null;
+    let mut v_has_read = CoreValue::Null;
+    let mut v_has_speed = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_index = CoreValue::Null;
     let mut v_is_block_start = CoreValue::Null;
@@ -71373,13 +71460,19 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_model_usage = CoreValue::Null;
     let mut v_name = CoreValue::Null;
     let mut v_name_key = CoreValue::Null;
+    let mut v_old_creation = CoreValue::Null;
+    let mut v_old_prompt = CoreValue::Null;
+    let mut v_old_read = CoreValue::Null;
+    let mut v_old_speed = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_partial = CoreValue::Null;
     let mut v_prompt = CoreValue::Null;
+    let mut v_read_total = CoreValue::Null;
     let mut v_remote_id = CoreValue::Null;
     let mut v_result = CoreValue::Null;
     let mut v_results = CoreValue::Null;
     let mut v_signature = CoreValue::Null;
+    let mut v_speed = CoreValue::Null;
     let mut v_stop = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_thinking = CoreValue::Null;
@@ -71685,27 +71778,46 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
             return Err(core_as_error(&v_error));
         }
         v_usage_delta = core_get(&v_event, &CoreValue::from("usage"), CoreValue::Null);
-        v_usage_existing = core_get(&v_state, &CoreValue::from("usage"), v_usage_delta.clone());
+        v_empty_usage = CoreValue::new_map();
+        v_usage_existing = core_get(&v_state, &CoreValue::from("usage"), v_empty_usage.clone());
         v_completion = core_get(
             &v_usage_delta,
             &CoreValue::from("output_tokens"),
             CoreValue::Num(0f64),
         );
-        v_prompt = core_get(
+        v_old_prompt = core_get(
             &v_usage_existing,
             &CoreValue::from("prompt_tokens"),
             CoreValue::Num(0f64),
         );
-        v_cache_creation = core_get(
+        v_delta_prompt = core_get(
+            &v_usage_delta,
+            &CoreValue::from("input_tokens"),
+            CoreValue::Null,
+        );
+        v_prompt = core_coalesce(&[v_delta_prompt.clone(), v_old_prompt.clone()])?;
+        v_old_creation = core_get(
             &v_usage_existing,
             &CoreValue::from("cache_creation_tokens"),
-            CoreValue::Num(0f64),
+            CoreValue::Null,
         );
-        v_cache_read = core_get(
+        v_delta_creation = core_get(
+            &v_usage_delta,
+            &CoreValue::from("cache_creation_input_tokens"),
+            CoreValue::Null,
+        );
+        v_cache_creation = core_coalesce(&[v_delta_creation.clone(), v_old_creation.clone()])?;
+        v_old_read = core_get(
             &v_usage_existing,
             &CoreValue::from("cache_read_tokens"),
-            CoreValue::Num(0f64),
+            CoreValue::Null,
         );
+        v_delta_read = core_get(
+            &v_usage_delta,
+            &CoreValue::from("cache_read_input_tokens"),
+            CoreValue::Null,
+        );
+        v_cache_read = core_coalesce(&[v_delta_read.clone(), v_old_read.clone()])?;
         v_usage = CoreValue::new_map();
         core_set(&v_usage, CoreValue::from("prompt_tokens"), v_prompt.clone())?;
         core_set(
@@ -71714,19 +71826,39 @@ fn _anthropic_normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, Ax
             v_completion.clone(),
         )?;
         v_total_base = core_add(&[v_prompt.clone(), v_completion.clone()])?;
-        v_total_cache = core_add(&[v_cache_creation.clone(), v_cache_read.clone()])?;
+        v_creation_total = core_coalesce(&[v_cache_creation.clone(), CoreValue::Num(0f64)])?;
+        v_read_total = core_coalesce(&[v_cache_read.clone(), CoreValue::Num(0f64)])?;
+        v_total_cache = core_add(&[v_creation_total.clone(), v_read_total.clone()])?;
         v_total = core_add(&[v_total_base.clone(), v_total_cache.clone()])?;
         core_set(&v_usage, CoreValue::from("total_tokens"), v_total.clone())?;
-        core_set(
-            &v_usage,
-            CoreValue::from("cache_creation_tokens"),
-            v_cache_creation.clone(),
-        )?;
-        core_set(
-            &v_usage,
-            CoreValue::from("cache_read_tokens"),
-            v_cache_read.clone(),
-        )?;
+        v_has_creation = core_is_not_none(&[v_cache_creation.clone()])?;
+        if core_truthy(&v_has_creation) {
+            core_set(
+                &v_usage,
+                CoreValue::from("cache_creation_tokens"),
+                v_cache_creation.clone(),
+            )?;
+        }
+        v_has_read = core_is_not_none(&[v_cache_read.clone()])?;
+        if core_truthy(&v_has_read) {
+            core_set(
+                &v_usage,
+                CoreValue::from("cache_read_tokens"),
+                v_cache_read.clone(),
+            )?;
+        }
+        v_old_speed = core_get(
+            &v_usage_existing,
+            &CoreValue::from("speed"),
+            CoreValue::Null,
+        );
+        v_delta_speed = core_get(&v_usage_delta, &CoreValue::from("speed"), CoreValue::Null);
+        v_speed = core_coalesce(&[v_delta_speed.clone(), v_old_speed.clone()])?;
+        v_has_speed = core_is_not_none(&[v_speed.clone()])?;
+        if core_truthy(&v_has_speed) {
+            core_set(&v_usage, CoreValue::from("speed"), v_speed.clone())?;
+        }
+        core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
         v_result = CoreValue::new_map();
         core_set(&v_result, CoreValue::from("index"), v_index.clone())?;
         core_set(&v_result, CoreValue::from("content"), CoreValue::from(""))?;
@@ -143390,7 +143522,7 @@ fn mcp_tool_call_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (1078 of 1078 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (1079 of 1079 core functions)
 
 fn run_ai_session_events_fixture(fixture: &Value) -> AxResult<()> {
     let state = core_value_from_json(&json!({}));
