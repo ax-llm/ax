@@ -23,27 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-10-13-map-incomplete-responses-by-their-reason-and-keep-their-usage` [axai] Map incomplete Responses by their reason and keep their usage
-  - Status: open
-  - Source PR: #841
-  - Source commit: `3b0ab10ec6cb0732dbd0e0f566c7cc04e24d068d`
-  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.incomplete.test.ts`
-  - Impact: TypeScript maps an incomplete Responses result from incomplete_details.reason (max_output_tokens to length, content_filter to content_filter) in both the non-streaming and streaming paths, and records usage on response.incomplete as on response.completed. Generated languages that still hard-code content_filter or length, or drop usage on incomplete, drift.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-10-13-take-streamed-input-and-cache-tokens-from-anthropic-message-delt` [axai] Take streamed input and cache tokens from Anthropic message_delta
-  - Status: open
-  - Source PR: #842
-  - Source commit: `cf817cba8f72c6874b7b9db21c6759003c0a6e2f`
-  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/types.ts`, `src/ax/ai/anthropic/api.stream-usage.test.ts`
-  - Impact: TypeScript reads the cumulative usage on the Anthropic streaming message_delta event: input tokens and cache creation/read tokens as well as output tokens, preferring them over message_start when present (as with server tools). Generated languages that only take output_tokens from message_delta under-report input and cache usage.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-10-13-clear-responses-usage-when-a-new-stream-starts` [axai] Clear Responses usage when a new stream starts
-  - Status: open
-  - Source PR: #843
-  - Source commit: `01935de00e8b6b57dd64544a4ed49d3862e59d03`
-  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.stream-usage.test.ts`
-  - Impact: TypeScript clears the stored token usage of the OpenAI Responses client on response.created, so a reused client never reports the previous call's usage during the chunks of the next stream. Generated languages that keep usage across streams report stale totals.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1410,3 +1390,33 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-07
   - Completed by: `63721bbecacbbdfec0b52117b647272cf38b709b`
   - Verification: `All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass.`
+- `axir-2026-10-13-map-incomplete-responses-by-their-reason-and-keep-their-usage` [axai] Map incomplete Responses by their reason and keep their usage
+  - Status: done
+  - Source PR: #841
+  - Source commit: `3b0ab10ec6cb0732dbd0e0f566c7cc04e24d068d`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.incomplete.test.ts`
+  - Impact: TypeScript maps an incomplete Responses result from incomplete_details.reason (max_output_tokens to length, content_filter to content_filter) in both the non-streaming and streaming paths, and records usage on response.incomplete as on response.completed. Generated languages that still hard-code content_filter or length, or drop usage on incomplete, drift.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-13
+  - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
+  - Verification: `Current TS-derived fixtures cover max_output_tokens, content_filter and unknown-reason fallback, incomplete responses without output or after a completed message, completed messages without status, and terminal streaming usage with served service tier. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
+- `axir-2026-10-13-take-streamed-input-and-cache-tokens-from-anthropic-message-delt` [axai] Take streamed input and cache tokens from Anthropic message_delta
+  - Status: done
+  - Source PR: #842
+  - Source commit: `cf817cba8f72c6874b7b9db21c6759003c0a6e2f`
+  - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/types.ts`, `src/ax/ai/anthropic/api.stream-usage.test.ts`
+  - Impact: TypeScript reads the cumulative usage on the Anthropic streaming message_delta event: input tokens and cache creation/read tokens as well as output tokens, preferring them over message_start when present (as with server tools). Generated languages that only take output_tokens from message_delta under-report input and cache usage.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-13
+  - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
+  - Verification: `Current TS-derived streaming and overload-retry fixtures cover cumulative input/cache usage, explicit zero, null and omitted fields, successive deltas, and retained speed metadata. The shared stream state keeps the latest normalized usage. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
+- `axir-2026-10-13-clear-responses-usage-when-a-new-stream-starts` [axai] Clear Responses usage when a new stream starts
+  - Status: done
+  - Source PR: #843
+  - Source commit: `01935de00e8b6b57dd64544a4ed49d3862e59d03`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.stream-usage.test.ts`
+  - Impact: TypeScript clears the stored token usage of the OpenAI Responses client on response.created, so a reused client never reports the previous call's usage during the chunks of the next stream. Generated languages that keep usage across streams report stale totals.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-13
+  - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
+  - Verification: `Two public-client fixtures consume consecutive complete/incomplete-to-complete streams on the same client in all five harnesses. Existing generated per-call stream state is isolated; both calls retain their own terminal usage without leaking earlier totals. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
