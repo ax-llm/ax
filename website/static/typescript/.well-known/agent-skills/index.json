@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:6ccd89854b3175b128929f55089a167448bb37e25a58ca72eaa8784ee3fb127b"
+      "digest": "sha256:ea2553bd7dc865e5d41a98c3c864984c9f9ae61aa7b61b5af59c6270b67e569d"
     },
     {
       "name": "ax-gen",
@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:7b2db149eb728cf9666752cac421c49c3ba8b0a4ad5fd35ede66445d696be872"
+      "digest": "sha256:dcb0a036ec3eb619173a115f65621c8dd1e218982bd85742ce46f1eb764447f9"
     },
     {
       "name": "ax-agent-rlm",

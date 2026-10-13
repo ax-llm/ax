@@ -446,6 +446,21 @@ describe('AxSignature', () => {
     expect(sig.toString()).toContain('"This is a Q&A signature."');
   });
 
+  it.each([
+    'Describe "layer" carefully',
+    'Read C:\\reports',
+    'Quotes " and slashes \\ together',
+  ])('round-trips signature description %j', (description) => {
+    const sig = f()
+      .input('queryText', f.string())
+      .output('answerText', f.string())
+      .description(description)
+      .build();
+    const restored = AxSignature.from(sig.toString());
+    expect(restored.getDescription()).toBe(description);
+    expect(restored.toString()).toBe(sig.toString());
+  });
+
   it('should add input and output fields', () => {
     const sig = AxSignature.from('userQuestion:string -> modelAnswer:string');
     sig.addInputField({

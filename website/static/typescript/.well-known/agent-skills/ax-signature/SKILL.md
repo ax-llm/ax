@@ -128,6 +128,7 @@ The adapter's `trueThreshold` is provider-wide conversion policy, not a field mo
 - Inside `object{ ... }`, the `!` internal marker, media types, `cache`, and `item` are rejected (they only apply at the top level).
 - In quoted values, backslashes are doubled — a regex `\d` is written `pattern "\\d+"`.
 - `AxSignature.toString()` renders every construct back to this grammar losslessly, so a signature round-trips — this is what lets a whole flow serialize its node contracts into mermaid `%%ax` directives (see the ax-flow skill).
+- Signature-level descriptions preserve quotes and backslashes through `toString()` and reparsing. Fluent `.description(...)` accepts ordinary text; string signatures escape embedded quotes and backslashes inside their quoted description.
 
 ## Signature Gallery
 

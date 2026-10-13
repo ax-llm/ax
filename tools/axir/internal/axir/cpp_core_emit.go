@@ -172,7 +172,7 @@ func emitCppCoreStmt(names map[string]string, stmt CoreStmt, declared map[string
 		if _, ok := Attr(stmt.Op, "error"); ok {
 			return []string{fmt.Sprintf("Core::raise_error(%s);", cppAttrValue(stmt.Op, "error"))}, nil
 		}
-		return []string{fmt.Sprintf("throw AxError(\"runtime\", %s);", strconv.Quote(stmt.Message))}, nil
+		return []string{fmt.Sprintf("throw AxError(\"runtime\", %s);", cppStringLiteral(stmt.Message))}, nil
 	default:
 		return nil, fmt.Errorf("unsupported C++ Core op %q", stmt.Op.Name)
 	}
@@ -518,9 +518,9 @@ func cppLiteral(value interface{}) string {
 		if strings.HasPrefix(v, "%") {
 			return cppName(v)
 		}
-		return "Value(" + strconv.Quote(v) + ")"
+		return "Value(" + cppStringLiteral(v) + ")"
 	case QuotedString:
-		return "Value(" + strconv.Quote(string(v)) + ")"
+		return "Value(" + cppStringLiteral(string(v)) + ")"
 	case bool:
 		if v {
 			return "Value(true)"
@@ -531,7 +531,7 @@ func cppLiteral(value interface{}) string {
 	case float64:
 		return "Value(" + strconv.FormatFloat(v, 'f', -1, 64) + ")"
 	default:
-		return "Value(" + strconv.Quote(fmt.Sprint(v)) + ")"
+		return "Value(" + cppStringLiteral(fmt.Sprint(v)) + ")"
 	}
 }
 

@@ -547,7 +547,7 @@ func rustLiteral(value interface{}) string {
 }
 
 func rustStringLiteral(value string) string {
-	return strconv.Quote(value)
+	return rustQuoteString(value)
 }
 
 func rustName(value string) string {

@@ -167,6 +167,23 @@ mkdirSync(outDir, { recursive: true });
 
 stringCase('default-string-type', 'question -> answer');
 stringCase(
+  'signature-description-quotes-and-backslashes',
+  String.raw`"Describe \"layer\" in C:\\reports" queryText:string -> answerText:string`
+);
+fluentCase(
+  'fluent-signature-description-quotes-and-backslashes',
+  {
+    description: 'Describe "layer" in C:\\reports',
+    inputs: { queryText: { type: 'string' } },
+    outputs: { answerText: { type: 'string' } },
+  },
+  f()
+    .input('queryText', f.string())
+    .output('answerText', f.string())
+    .description('Describe "layer" in C:\\reports')
+    .build()
+);
+stringCase(
   'descriptions-and-single-quotes',
   'question:string "double quote", context:string \'single quote\' -> answer:string "result"'
 );

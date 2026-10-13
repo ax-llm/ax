@@ -8137,6 +8137,50 @@ console.log('Keys:', Object.keys(globalThis));`;
     rejectedCodes: readonly string[];
   }> = [
     {
+      name: 'should reject CRLF fenced actor blocks in a structured JSON response',
+      codeFieldTitle: 'Javascript Code',
+      usageInstructions: runtimeWithConsoleMode.getUsageInstructions(),
+      firstResponse: JSON.stringify({
+        javascriptCode: [
+          '```javascript',
+          'console.log("partial");',
+          '```',
+          '```javascript',
+          'await final("premature", { partial: true });',
+          '```',
+        ].join('\r\n'),
+      }),
+      correctedResponse:
+        'Javascript Code: await final("done", { data: "done" });',
+      correctedCode: 'await final("done", { data: "done" });',
+      rejectedCodes: [
+        'console.log("partial");',
+        'await final("premature", { partial: true });',
+      ],
+    },
+    {
+      name: 'should reject CRLF fenced Python blocks in a structured JSON response',
+      language: 'Python',
+      codeFieldTitle: 'Python Code',
+      usageInstructions: '- Use Python syntax for runtime code.',
+      firstResponse: JSON.stringify({
+        pythonCode: [
+          '```python',
+          'print("partial")',
+          '```',
+          '```python',
+          'final("premature", {"partial": True})',
+          '```',
+        ].join('\r\n'),
+      }),
+      correctedResponse: 'Python Code: final("done", {"data": "done"})',
+      correctedCode: 'final("done", {"data": "done"})',
+      rejectedCodes: [
+        'print("partial")',
+        'final("premature", {"partial": True})',
+      ],
+    },
+    {
       name: 'should reject multiple fenced actor code blocks without executing either block',
       codeFieldTitle: 'Javascript Code',
       usageInstructions: runtimeWithConsoleMode.getUsageInstructions(),

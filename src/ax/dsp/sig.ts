@@ -3215,7 +3215,9 @@ function renderSignature(
   inputFields: readonly AxField[],
   outputFields: readonly AxField[]
 ): string {
-  const descriptionPart = description ? `"${description}" ` : '';
+  const descriptionPart = description
+    ? `"${escapeRenderedString(description)}" `
+    : '';
 
   const inputFieldsRendered = inputFields.map(renderField).join(', ');
 

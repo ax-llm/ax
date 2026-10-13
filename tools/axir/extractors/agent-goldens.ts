@@ -23,6 +23,7 @@ import {
   manageContext,
 } from '../../../src/ax/agent/contextManager.js';
 import { agent } from '../../../src/ax/agent/index.js';
+import { normalizeActorCode } from '../../../src/ax/agent/optimize.js';
 import type { AxCodeRuntime } from '../../../src/ax/agent/rlm.js';
 import { getRuntimeLanguageInfo } from '../../../src/ax/agent/rlm.js';
 import { formatStructuredRuntimeState } from '../../../src/ax/agent/runtime.js';
@@ -41,6 +42,11 @@ type Fixture = Record<string, Json>;
 const outRoot = process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd();
 const outDir = join(outRoot, 'ir/conformance/axagent');
 const parityContractsOnly = process.env.AXIR_AGENT_PARITY_ONLY === '1';
+const runtimeCodeNormalizationFixtures = new Set([
+  'runtime-code-preserves-line-ending-r',
+  'runtime-code-crlf-fences',
+  'runtime-code-crlf-multiple-fences',
+]);
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
@@ -63,6 +69,7 @@ function stable(value: unknown, parentKey = ''): unknown {
 function writeFixture(name: string, fixture: Fixture): void {
   if (
     parityContractsOnly &&
+    !runtimeCodeNormalizationFixtures.has(name) &&
     typeof fixture.parity_contract_id !== 'string' &&
     !Array.isArray(fixture.parity_contract_ids)
   ) {
@@ -1444,6 +1451,131 @@ function touchReferenceBehavior(): void {
   AxSignature.create('question:string, document:string -> answer:string');
 }
 
+async function writeRuntimeCodeNormalizationOracles(): Promise<void> {
+  const distiller =
+    'const context = `layer\nproductnumber\n`;\nfinal("execute", {});';
+  const executor =
+    'const query = `layer\nproductnumber\n`;\nfinal("answer", {"answer":"ok"});';
+  const fence = (code: string) => `\`\`\`javascript\r\n${code}\r\n\`\`\``;
+  const cases = [
+    {
+      name: 'runtime-code-preserves-line-ending-r',
+      distiller,
+      executors: [executor],
+    },
+    {
+      name: 'runtime-code-crlf-fences',
+      distiller: fence(distiller),
+      executors: [fence(executor)],
+    },
+    {
+      name: 'runtime-code-crlf-multiple-fences',
+      distiller,
+      executors: [
+        `${fence('throw new Error("first block")')}\r\n${fence('throw new Error("second block")')}`,
+        executor,
+      ],
+    },
+  ];
+  for (const test of cases) {
+    const executed: string[] = [];
+    const responses = [
+      { content: JSON.stringify({ javascriptCode: test.distiller }) },
+      ...test.executors.map((code) => ({
+        content: JSON.stringify({ javascriptCode: code }),
+      })),
+      { content: 'Answer: ok' },
+    ];
+    let requests = 0;
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async () => ({
+        results: [
+          {
+            index: 0,
+            content: responses[requests++]!.content,
+            finishReason: 'stop' as const,
+          },
+        ],
+        modelUsage: oracleModelUsage(),
+      }),
+    });
+    const runtime: AxCodeRuntime = {
+      language: 'JavaScript',
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          async execute(code) {
+            if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+            executed.push(code);
+            const isDistiller = code.includes('final("execute"');
+            (globals!.final as (...args: unknown[]) => void)(
+              isDistiller ? 'execute' : 'answer',
+              isDistiller ? {} : { answer: 'ok' }
+            );
+            return 'done';
+          },
+          async patchGlobals(patch: Record<string, unknown>) {
+            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+            Object.assign(globals ?? {}, rest);
+            if (globals && staged && typeof staged === 'object') {
+              globals.inputs = Object.assign(
+                (globals.inputs as Record<string, unknown>) ?? {},
+                staged
+              );
+            }
+          },
+          inspectGlobals() {
+            return JSON.stringify({ version: 1, entries: [] });
+          },
+          snapshotGlobals() {
+            return { version: 1, entries: [], bindings: {} };
+          },
+          close() {},
+        };
+      },
+    };
+    const reference = agent('question:string -> answer:string', {
+      ai,
+      runtime,
+      directResponse: 'off',
+      maxTurns: 3,
+    });
+    const input = { question: 'Preserve field names and code fences' };
+    const output = await reference.forward(ai, input);
+    const expectedExecuted = [
+      normalizeActorCode(test.distiller),
+      normalizeActorCode(test.executors.at(-1)!),
+    ];
+    if (JSON.stringify(executed) !== JSON.stringify(expectedExecuted)) {
+      throw new Error(
+        `${test.name}: TypeScript executed unexpected or corrupted code: ${JSON.stringify(executed)}; expected ${JSON.stringify(expectedExecuted)}`
+      );
+    }
+    writeFixture(test.name, {
+      kind: 'agent_forward',
+      signature: 'question:string -> answer:string',
+      options: {
+        runtime: { language: 'JavaScript' },
+        directResponse: 'off',
+        maxTurns: 3,
+      },
+      input,
+      responses,
+      runtime_script: expectedExecuted.map((code, index) => ({
+        expected_code: code,
+        result: {
+          type: 'final',
+          args: index === 0 ? ['execute', {}] : ['answer', { answer: 'ok' }],
+        },
+      })),
+      expected_output: output as Json,
+      expected_executed: executed,
+      expected_request_count: requests,
+    });
+  }
+}
+
 function runtimeContractSubset(language: string, usageInstructions?: string) {
   const info = getRuntimeLanguageInfo({ language });
   return {
@@ -1529,6 +1661,7 @@ const checkpointSummary =
 
 mkdirSync(outDir, { recursive: true });
 touchReferenceBehavior();
+await writeRuntimeCodeNormalizationOracles();
 
 writeFixture(
   'simple-pipeline',

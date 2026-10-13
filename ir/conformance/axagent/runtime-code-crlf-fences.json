@@ -1,0 +1,58 @@
+{
+  "expected_executed": [
+    "const context = `layer\nproductnumber\n`;\nfinal(\"execute\", {});",
+    "const query = `layer\nproductnumber\n`;\nfinal(\"answer\", {\"answer\":\"ok\"});"
+  ],
+  "expected_output": {
+    "answer": "ok"
+  },
+  "expected_request_count": 3,
+  "input": {
+    "question": "Preserve field names and code fences"
+  },
+  "kind": "agent_forward",
+  "name": "runtime-code-crlf-fences",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "directResponse": "off",
+    "maxTurns": 3
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"```javascript\\r\\nconst context = `layer\\nproductnumber\\n`;\\nfinal(\\\"execute\\\", {});\\r\\n```\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"```javascript\\r\\nconst query = `layer\\nproductnumber\\n`;\\nfinal(\\\"answer\\\", {\\\"answer\\\":\\\"ok\\\"});\\r\\n```\"}"
+    },
+    {
+      "content": "Answer: ok"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "const context = `layer\nproductnumber\n`;\nfinal(\"execute\", {});",
+      "result": {
+        "args": [
+          "execute",
+          {}
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "const query = `layer\nproductnumber\n`;\nfinal(\"answer\", {\"answer\":\"ok\"});",
+      "result": {
+        "args": [
+          "answer",
+          {
+            "answer": "ok"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

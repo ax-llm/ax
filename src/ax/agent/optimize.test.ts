@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+// cspell:ignore nproductnumber
 
 import { assertSafeMCPEvaluation } from './agentInternal/optimizer.js';
 import { normalizeActorJavascriptCode } from './optimize.js';
@@ -7,6 +8,18 @@ describe('normalizeActorJavascriptCode', () => {
   it('passes through plain code unchanged', () => {
     const code = `const x = 1;\nconsole.log(x);`;
     expect(normalizeActorJavascriptCode(code)).toBe(code);
+  });
+
+  it('preserves identifiers ending in r before line breaks', () => {
+    const code = 'const q = `x\nlayer\nproductnumber\n`;';
+    expect(normalizeActorJavascriptCode(code)).toBe(code);
+  });
+
+  it('extracts CRLF fenced code without changing field names', () => {
+    const code = 'const q = `x\nlayer\nproductnumber\n`;';
+    expect(
+      normalizeActorJavascriptCode(`\`\`\`javascript\r\n${code}\r\n\`\`\``)
+    ).toBe(code);
   });
 
   it('strips ```javascript fences at the exact boundaries', () => {
