@@ -58,6 +58,12 @@ import type {
 } from './responses_types.js';
 import { axNormalizeOpenAIUsage } from './usage.js';
 
+/** Maps `incomplete_details.reason`; anything other than a content filter is a length stop. */
+const incompleteFinishReason = (
+  details: Readonly<{ reason?: string }> | null | undefined
+): 'length' | 'content_filter' =>
+  details?.reason === 'content_filter' ? 'content_filter' : 'length';
+
 export class AxAIOpenAIResponsesImpl<
   TModel,
   TEmbedModel, // Kept for interface compatibility, but not used by this impl.
@@ -862,7 +868,9 @@ export class AxAIOpenAIResponsesImpl<
             }
           }
           currentResult.finishReason =
-            item.status === 'completed' ? 'stop' : 'content_filter';
+            item.status === 'completed'
+              ? 'stop'
+              : incompleteFinishReason(resp.incomplete_details);
           // Extract annotations from output_text parts
           currentResult.citations = extractAnnotationsFromContent(item.content);
           break;
@@ -1597,10 +1605,16 @@ export class AxAIOpenAIResponsesImpl<
         );
 
       case 'response.incomplete':
-        // Response incomplete
+        // Response incomplete: still billed, so keep its usage
+        this.tokensUsed = axNormalizeOpenAIUsage(
+          event.response.usage,
+          event.response.service_tier_used ?? event.response.service_tier
+        );
         remoteId = event.response.id;
         baseResult.id = `${event.response.id}_incomplete`;
-        baseResult.finishReason = 'length';
+        baseResult.finishReason = incompleteFinishReason(
+          event.response.incomplete_details
+        );
         break;
 
       case 'error':
