@@ -11610,6 +11610,13 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
             else{expect_json_equal("native Typesafe output",&result?,&fixture["expected_output"])?;}
             expect_transport_request_subset(&fixture,&requests,&Arc::new(Mutex::new(Vec::new())))?;
         },
+        "ai_responses_validation" => {
+            let cases = fixture["cases"].as_array().ok_or_else(|| AxError::runtime("Responses validation cases must be an array"))?;
+            for case in cases {
+                let actual = core_value_to_json(&openai_responses_validate_session_request(&[core_value_from_json(&case["request"])])?);
+                expect_json_equal("Responses request validation", &actual, &case["expected_request"])?;
+            }
+        },
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_cancellation" => run_ai_cancellation_fixture(&fixture)?,

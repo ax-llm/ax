@@ -36,8 +36,8 @@ final class ResponsesChatSession implements AxChatSession {
     if(socket!=null) executor.execute(()->{try{while(!closed.get()){var event=socket.recv();if(event==null)throw new IllegalStateException("Responses socket disconnected; work was not replayed");synchronized(transportCursor){Core.openai_responses_transport_cursor(transportCursor,event);}queue.put(new Delivery(event,null));}}catch(Throwable error){if(!closed.get())queue.offer(new Delivery(null,error));}});
     send(new LinkedHashMap<>(base));
   }
-  private void send(Map<String,Object> payload) {
-    Core.openai_responses_validate_session_request(payload);
+  private void send(Map<String,Object> request) {
+    var payload=Core.asMap(Core.openai_responses_validate_session_request(request));
     List<Object> input=Core.asList(payload.get("input"));
     if(lastWasUpdate && !input.isEmpty() && "configuration_update".equals(Core.get(input.get(0),"type",null))) throw new IllegalArgumentException("Adjacent configuration_update items are not supported");
     lastWasUpdate=!input.isEmpty() && "configuration_update".equals(Core.get(input.get(input.size()-1),"type",null));
