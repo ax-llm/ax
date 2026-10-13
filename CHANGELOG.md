@@ -1,5 +1,17 @@
 # Changelog
 
+## [25.3.1](https://github.com/ax-llm/ax/compare/25.2.1...25.3.0) (2026-10-13)
+
+### Bug Fixes
+
+* preserve code and string literals across generated languages ([#837](https://github.com/ax-llm/ax/issues/837)) ([898a8f8](https://github.com/ax-llm/ax/commit/898a8f8102505218235c8eb8c24aaf1009cf9ee8))
+
+## [25.3.0](https://github.com/ax-llm/ax/compare/25.2.1...25.3.0) (2026-10-11)
+
+### Features
+
+* add decision evidence and rubric scores to Ax signatures ([#832](https://github.com/ax-llm/ax/issues/832)) ([5c2b83f](https://github.com/ax-llm/ax/commit/5c2b83f1718db934f432f804cf09a674c419481e))
+
 ## [25.3.0](https://github.com/ax-llm/ax/compare/25.2.1...25.3.0) (2026-10-11)
 
 ### Features
