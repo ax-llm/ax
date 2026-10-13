@@ -1384,16 +1384,25 @@ class AxAIAnthropicImpl
       const { delta, usage } =
         resp as unknown as AxAIAnthropicMessageDeltaEvent;
 
+      // message_delta usage is cumulative and can carry the final input and
+      // cache counts (for example with server tools); prefer them when present.
+      const promptTokens =
+        usage.input_tokens ?? this.tokensUsed?.promptTokens ?? 0;
+      const cacheCreationTokens =
+        usage.cache_creation_input_tokens ??
+        this.tokensUsed?.cacheCreationTokens;
+      const cacheReadTokens =
+        usage.cache_read_input_tokens ?? this.tokensUsed?.cacheReadTokens;
       this.tokensUsed = {
-        promptTokens: this.tokensUsed?.promptTokens ?? 0,
+        promptTokens,
         completionTokens: usage.output_tokens,
         totalTokens:
-          (this.tokensUsed?.promptTokens ?? 0) +
+          promptTokens +
           usage.output_tokens +
-          (this.tokensUsed?.cacheCreationTokens ?? 0) +
-          (this.tokensUsed?.cacheReadTokens ?? 0),
-        cacheCreationTokens: this.tokensUsed?.cacheCreationTokens,
-        cacheReadTokens: this.tokensUsed?.cacheReadTokens,
+          (cacheCreationTokens ?? 0) +
+          (cacheReadTokens ?? 0),
+        cacheCreationTokens,
+        cacheReadTokens,
         speed: usage.speed ?? this.tokensUsed?.speed,
       };
 
