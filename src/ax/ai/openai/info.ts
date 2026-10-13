@@ -1,6 +1,8 @@
+import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxModelInfo } from '../types.js';
 
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js';
+import { isBedrockModel } from './model_family.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
 /**
@@ -1275,6 +1277,10 @@ const openAIOSeriesNames = new Set<string>([
  * model. A profile without model info (azure-openai, openai-compatible, the
  * other OpenAI Chat and Responses profiles) still keeps sampling parameters
  * these models reject off the wire.
+ *
+ * An Amazon Bedrock ID such as `us.openai.gpt-6-sol` gets the info of the
+ * OpenAI model it names, so amazon-bedrock keeps them off too. Unlike a
+ * deployment name, the ID is fixed by AWS rather than chosen by the user.
  */
 export const openAIOSeriesSamplingModelInfo = (
   model: string
@@ -1282,4 +1288,6 @@ export const openAIOSeriesSamplingModelInfo = (
   openAIOSeriesNames.has(model)
     ? (axModelInfoOpenAI.find((info) => info.name === model) ??
       axModelInfoOpenAIResponses.find((info) => info.name === model))
-    : undefined;
+    : isBedrockModel(model)
+      ? (getModelInfo({ model, modelInfo: axModelInfoOpenAI }) ?? undefined)
+      : undefined;

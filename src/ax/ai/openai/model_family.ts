@@ -26,7 +26,7 @@ function openAIModelName(model: unknown): string {
  * Whether the model is named by a Bedrock ID. Bedrock serves the model but not
  * every OpenAI platform feature around it.
  */
-function isBedrockModel(model: unknown): boolean {
+export function isBedrockModel(model: unknown): boolean {
   return typeof model === 'string' && BEDROCK_OPENAI_PREFIX.test(model);
 }
 

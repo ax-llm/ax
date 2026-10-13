@@ -165,6 +165,35 @@ describe('Bedrock OpenAI model IDs', () => {
   );
 
   it.each([
+    ['us.openai.gpt-6-sol', runtime, undefined],
+    ['global.openai.gpt-6-astra', runtime, undefined],
+    ['us.openai.gpt-5.6-sol', runtime, undefined],
+    ['openai.gpt-6-luna', mantle, undefined],
+    // Not in OpenAI's model info, and Bedrock accepts its temperature 0.
+    ['openai.gpt-oss-120b-1:0', runtime, 0],
+  ])(
+    'sends %s on the amazon-bedrock profile with the temperature OpenAI info allows',
+    async (model, apiURL, temperature) => {
+      const fetch = spy(completion);
+      const provider = ai({
+        name: 'amazon-bedrock',
+        apiKey: 'bedrock-key',
+        apiURL,
+        config: { model },
+        options: { fetch },
+      });
+      await provider.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { stream: false }
+      );
+      const [request] = sent(fetch);
+      expect(request?.body.model).toBe(model);
+      // The profile has no model info and defaults to temperature 0.
+      expect(request?.body.temperature).toBe(temperature);
+    }
+  );
+
+  it.each([
     ['us.openai.gpt-6-astra', runtime],
     ['global.openai.gpt-6-sol', runtime],
     ['openai.gpt-6-astra', mantle],
