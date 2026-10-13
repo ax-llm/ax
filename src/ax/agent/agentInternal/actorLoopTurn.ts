@@ -63,6 +63,7 @@ function buildMultipleCodeBlocksPolicyGuidance(
 
 function extractRawActorCode(
   chatLog: readonly AxChatLogEntry[],
+  runtimeCodeFieldName: string,
   runtimeCodeFieldTitle: string
 ): string | undefined {
   const messages = chatLog[chatLog.length - 1]?.messages;
@@ -80,6 +81,23 @@ function extractRawActorCode(
       .replace(/<think>[\s\S]*?<\/think>/g, '')
       .replace(/[^\n]*<\/think>/g, '')
       .trim();
+
+    // Structured responses carry escaped newlines in JSON. Decode the original
+    // code field before checking fences; field parsing may already have removed
+    // a second block from the parsed value.
+    try {
+      const parsed: unknown = JSON.parse(content);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const rawCode = (parsed as Record<string, unknown>)[
+          runtimeCodeFieldName
+        ];
+        if (typeof rawCode === 'string') {
+          return rawCode;
+        }
+      }
+    } catch {
+      // Text responses use the field-title prefix below.
+    }
 
     const prefix = `${runtimeCodeFieldTitle}:`;
     const prefixIndex = content.indexOf(prefix);
@@ -352,6 +370,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
   // response before a later block can disappear from the actor turn.
   const rawResponseCode = extractRawActorCode(
     actorChatLog,
+    runtimeCodeFieldName,
     runtimeCodeFieldTitle
   )?.trim();
   const codeBeforeNormalization = rawResponseCode ?? trimmedCode;

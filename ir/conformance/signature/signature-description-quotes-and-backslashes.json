@@ -1,0 +1,35 @@
+{
+  "expected_signature": {
+    "description": "Describe \"layer\" in C:\\reports",
+    "inputs": [
+      {
+        "name": "queryText",
+        "title": "Query Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "answerText",
+        "title": "Answer Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "\"Describe \\\"layer\\\" in C:\\\\reports\" queryText:string -> answerText:string",
+  "kind": "signature",
+  "name": "signature-description-quotes-and-backslashes",
+  "signature": "\"Describe \\\"layer\\\" in C:\\\\reports\" queryText:string -> answerText:string"
+}

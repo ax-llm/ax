@@ -118,7 +118,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"axllm/schema.py":                                             schema,
 		"axllm/tool.py":                                               pyTool,
 		"axllm/runtime.py":                                            pyRuntime,
-		"axllm/runtime_quickjs.py":                                    renderRuntimeHostNamespaces(pyRuntimeQuickjs),
+		"axllm/runtime_quickjs.py":                                    renderRuntimeHostNamespaces(pyRuntimeQuickjs, strconv.Quote),
 		"axllm/prompt.py":                                             prompt,
 		"axllm/ai.py":                                                 ai,
 		"axllm/gen.py":                                                gen,
@@ -266,7 +266,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxProcessCodeRuntime.java":                      javaAxProcessCodeRuntime,
 		"dev/axllm/ax/AxProcessCodeSession.java":                      javaAxProcessCodeSession,
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeRuntime.java":      javaQuickJSCodeRuntime,
-		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeSession.java":      renderRuntimeHostNamespaces(javaQuickJSCodeSession),
+		"dev/axllm/ax/runtime/quickjs/AxQuickJsCodeSession.java":      renderRuntimeHostNamespaces(javaQuickJSCodeSession, javaStringLiteral),
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsHostCallable.java":     javaQuickJSHostCallable,
 		"dev/axllm/ax/runtime/quickjs/AxQuickJsProtocolServer.java":   javaQuickJSProtocolServer,
 		"dev/axllm/ax/OpenAICompatibleClient.java":                    javaOpenAI,
@@ -387,7 +387,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
 		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
 		"axllm/runtime/quickjs/quickjs_runtime.hpp":             cppQuickJSRuntimeHeader,
-		"axllm/runtime/quickjs/quickjs_runtime.cpp":             renderRuntimeHostNamespaces(cppQuickJSRuntimeSource),
+		"axllm/runtime/quickjs/quickjs_runtime.cpp":             renderRuntimeHostNamespaces(cppQuickJSRuntimeSource, cppStringLiteral),
 		"examples/runtime_profiles/javascript_quickjs.cpp":      cppJavaScriptQuickJSProfileExample,
 		"examples/runtime_profiles/python_pyodide.cpp":          cppPythonPyodideProfileExample,
 		"examples/runtime_profiles/quickjs-runtime-policy.json": quickJSRuntimePolicyJSON,
@@ -435,7 +435,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"session_test.go":                   goSessionTest,
 		"errors_test.go":                    goErrorBoundaryTest,
 		"ordered_values_test.go":            goOrderedValuesTest,
-		"runtime/goja/goja.go":              renderRuntimeHostNamespaces(goGojaRuntime),
+		"runtime/goja/goja.go":              renderRuntimeHostNamespaces(goGojaRuntime, strconv.Quote),
 		"runtime/goja/goja_test.go":         goGojaRuntimeTest,
 		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
 		"axir-api.json":                     mustAPIReferenceManifest(model, "go"),
@@ -492,7 +492,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"src/lib.rs":                                      renderPackageTemplate(core, version),
 		"src/mcp.rs":                                      rustMCP,
 		"src/session.rs":                                  rustSession,
-		"src/runtime/quickjs.rs":                          renderRuntimeHostNamespaces(rustQuickJSRuntime),
+		"src/runtime/quickjs.rs":                          renderRuntimeHostNamespaces(rustQuickJSRuntime, rustStringLiteral),
 		"src/bin/axllm-conformance.rs":                    rustConformanceMain,
 		"axir-capabilities.json":                          mustCapabilityManifest(model, "rust"),
 		"axir-api.json":                                   mustAPIReferenceManifest(model, "rust"),
@@ -2819,11 +2819,11 @@ func readmeLines(lines ...string) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderRuntimeHostNamespaces(template string) string {
+func renderRuntimeHostNamespaces(template string, quoteString func(string) string) string {
 	template = strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_RAW}}", runtimeHostNamespaces)
-	template = strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_QUOTED}}", strconv.Quote(runtimeHostNamespaces))
+	template = strings.ReplaceAll(template, "{{AX_HOST_NAMESPACES_QUOTED}}", quoteString(runtimeHostNamespaces))
 	// The JS runtimes' shared support (scripts/axir-runtime-support.mjs):
 	// TypeScript's action-log code analysis and snapshot entries.
 	template = strings.ReplaceAll(template, "{{AX_RUNTIME_SUPPORT_RAW}}", runtimeSupport)
-	return strings.ReplaceAll(template, "{{AX_RUNTIME_SUPPORT_QUOTED}}", strconv.Quote(runtimeSupport))
+	return strings.ReplaceAll(template, "{{AX_RUNTIME_SUPPORT_QUOTED}}", quoteString(runtimeSupport))
 }

@@ -200,3 +200,53 @@ func TestCheckersReadQuotedStringsAsLiterals(t *testing.T) {
 		t.Fatalf("quoted @ type value must still be checked (%v)", types)
 	}
 }
+
+func TestLexDecodesStringEscapes(t *testing.T) {
+	tokens, err := lex(`"a\r\nb\tc\"d\\e"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tokens) == 0 || tokens[0].kind != "string" {
+		t.Fatalf("tokens = %+v", tokens)
+	}
+	if want := "a\r\nb\tc\"d\\e"; tokens[0].text != want {
+		t.Fatalf("lex = %q, want %q", tokens[0].text, want)
+	}
+}
+
+func TestStringEscapeFormatRoundTrip(t *testing.T) {
+	values := []string{"\a\b\f\v\x00\r\n\t", "\u2028\u2029\u0085", "🚀", `\r\n\d`, `"quoted"`, "\xff"}
+	for ch := byte(0); ch < 128; ch++ {
+		values = append(values, string([]byte{ch})+"A7")
+	}
+	for _, value := range values {
+		formatted := formatValue(QuotedString(value))
+		tokens, err := lex(formatted)
+		if err != nil {
+			t.Fatalf("lex(%s): %v", formatted, err)
+		}
+		if got := tokens[0].text; got != value {
+			t.Errorf("format/parse changed %q to %q (%s)", value, got, formatted)
+		}
+	}
+	for _, spelling := range []string{`"\101"`, `"\x41"`, `"\u0041"`, `"\U00000041"`} {
+		tokens, err := lex(spelling)
+		if err != nil || tokens[0].text != "A" {
+			t.Errorf("lex(%s) = %v, %v", spelling, tokens, err)
+		}
+	}
+}
+
+func TestLexRejectsInvalidStringEscapes(t *testing.T) {
+	for _, value := range []string{`"\q"`, `"\x0"`, `"\u202"`, `"\uZZZZ"`, `"\U00110000"`, `"\uD800"`, `"unterminated`, `"""unterminated`, `"trailing\`} {
+		if _, err := lex(value); err == nil {
+			t.Errorf("lex(%s) silently accepted invalid string", value)
+		}
+	}
+	if _, err := ParseModule("module @test {\n  op core.func @demo { attr doc = \"\\q\" }\n}", "invalid.axir"); err == nil || !strings.Contains(err.Error(), "invalid.axir:2: invalid string escape") {
+		t.Fatalf("missing source location for invalid escape: %v", err)
+	}
+	if tokens, err := lex(`"""\q\r\n"""`); err != nil || tokens[0].text != `\q\r\n` {
+		t.Fatalf("raw strings must preserve backslashes: %v, %v", tokens, err)
+	}
+}

@@ -86,6 +86,19 @@ The lowering stages are:
 executes fixture conformance, validates capability manifests, and smoke-tests
 package metadata for Python, Java, C++, Go, and Rust.
 
+### String literals
+
+Quoted AxIR strings decode `\a`, `\b`, `\f`, `\n`, `\r`, `\t`, `\v`, `\"`,
+and `\\`, three-digit octal escapes, two-digit `\x` byte escapes, and
+four/eight-digit `\u`/`\U` Unicode escapes. Invalid escapes and unterminated
+strings produce a diagnostic with the source file and line. Triple-quoted
+strings keep their contents literal, including backslashes.
+
+Formatting and reparsing preserve string values. Each backend emits its own
+language's string syntax; generated literals preserve control characters,
+Unicode, and embedded NULs. Agent newline normalization preserves identifiers
+ending in `r` and handles CRLF code fences in actor and distiller code.
+
 ## Layers
 
 Ax dialects are MLIR-like semantic layers. They preserve Ax meaning until Core

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 func BuildJavaCore(model AxRuntimeModel) (string, error) {
@@ -134,7 +135,7 @@ func emitJavaCoreStmt(names map[string]string, stmt CoreStmt, declared map[strin
 		if _, ok := Attr(stmt.Op, "error"); ok {
 			return []string{fmt.Sprintf("throw Core.asRuntime(%s);", javaAttrValue(stmt.Op, "error"))}, nil
 		}
-		return []string{fmt.Sprintf("throw new RuntimeException(%s);", strconv.Quote(stmt.Message))}, nil
+		return []string{fmt.Sprintf("throw new RuntimeException(%s);", javaStringLiteral(stmt.Message))}, nil
 	case "try":
 		return emitJavaTry(names, stmt, declared)
 	default:
@@ -499,22 +500,27 @@ func javaLiteral(value interface{}) string {
 		}
 		return text
 	default:
-		return strconv.Quote(fmt.Sprint(v))
+		return javaStringLiteral(fmt.Sprint(v))
 	}
 }
 
 func javaStringLiteral(value string) string {
 	const maxChunk = 12000
 	if len(value) <= maxChunk {
-		return strconv.Quote(value)
+		return javaQuoteString(value)
 	}
 	parts := make([]string, 0, (len(value)/maxChunk)+1)
-	for start := 0; start < len(value); start += maxChunk {
+	for start := 0; start < len(value); {
 		end := start + maxChunk
-		if end > len(value) {
+		if end >= len(value) {
 			end = len(value)
+		} else {
+			for end > start && !utf8.RuneStart(value[end]) {
+				end--
+			}
 		}
-		parts = append(parts, strconv.Quote(value[start:end]))
+		parts = append(parts, javaQuoteString(value[start:end]))
+		start = end
 	}
 	return "String.join(\"\", new String[] {\n        " + strings.Join(parts, ",\n        ") + "\n      })"
 }

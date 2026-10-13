@@ -43373,7 +43373,7 @@ Value Core::_agent_stage_options(Value state, Value stage, Value forward_options
 
 Value Core::_agent_runtime_code_fence_violation(Value code) {
   axir_coverage_mark("_agent_runtime_code_fence_violation");
-  Value normalized_newlines = Core::string_replace(code, Value("r\n"), Value("\n"));
+  Value normalized_newlines = Core::string_replace(code, Value("\r\n"), Value("\n"));
   Value lines = Core::string_split(normalized_newlines, Value("\n"));
   Value inside_fence = Value(false);
   Value block_count = Value(0);
@@ -43406,7 +43406,7 @@ Value Core::_normalize_agent_runtime_code(Value code) {
   normalized = Core::string_trim(normalized);
   normalized = Core::regex_replace(Value("[^\\n]*</think>"), Value(""), normalized);
   normalized = Core::string_trim(normalized);
-  normalized = Core::string_replace(normalized, Value("r\n"), Value("\n"));
+  normalized = Core::string_replace(normalized, Value("\r\n"), Value("\n"));
   Value search = normalized;
   Value extracted = Value("");
   Value has_extracted = Value(false);

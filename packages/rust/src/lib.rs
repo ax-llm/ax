@@ -123884,7 +123884,7 @@ fn _agent_runtime_code_fence_violation(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_normalized_newlines = CoreValue::Null;
     v_normalized_newlines = core_string_replace(&[
         v_code.clone(),
-        CoreValue::from("r\n"),
+        CoreValue::from("\r\n"),
         CoreValue::from("\n"),
     ])?;
     v_lines = core_string_split(&[v_normalized_newlines.clone(), CoreValue::from("\n")])?;
@@ -123954,7 +123954,7 @@ fn _normalize_agent_runtime_code(args: &[CoreValue]) -> Result<CoreValue, AxErro
     v_normalized = core_string_trim(&v_normalized);
     v_normalized = core_string_replace(&[
         v_normalized.clone(),
-        CoreValue::from("r\n"),
+        CoreValue::from("\r\n"),
         CoreValue::from("\n"),
     ])?;
     v_search = v_normalized.clone();

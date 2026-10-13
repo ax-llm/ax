@@ -20,11 +20,15 @@ type parser struct {
 }
 
 func ParseModule(src, file string) (Module, error) {
-	p := parser{tokens: lex(src), file: file}
+	tokens, err := lex(src)
+	if err != nil {
+		return Module{}, fmt.Errorf("%s:%w", file, err)
+	}
+	p := parser{tokens: tokens, file: file}
 	return p.parseModule()
 }
 
-func lex(src string) []token {
+func lex(src string) ([]token, error) {
 	var out []token
 	line := 1
 	for i := 0; i < len(src); {
@@ -80,39 +84,43 @@ func lex(src string) []token {
 					i++
 				}
 				text := src[start:i]
-				if i < len(src) {
-					i += 3
+				if i == len(src) {
+					return nil, fmt.Errorf("%d: unterminated raw string", startLine)
 				}
+				i += 3
 				out = append(out, token{kind: "string", text: text, line: startLine})
 				continue
 			}
 			i++
 			var b strings.Builder
+			closed := false
 			for i < len(src) {
 				if src[i] == '\n' {
 					line++
 				}
 				if src[i] == '"' {
 					i++
+					closed = true
 					break
 				}
-				if src[i] == '\\' && i+1 < len(src) {
-					i++
-					switch src[i] {
-					case 'n':
-						b.WriteByte('\n')
-					case 't':
-						b.WriteByte('\t')
-					case '"', '\\':
-						b.WriteByte(src[i])
-					default:
-						b.WriteByte(src[i])
+				if src[i] == '\\' {
+					value, multibyte, tail, err := strconv.UnquoteChar(src[i:], '"')
+					if err != nil {
+						return nil, fmt.Errorf("%d: invalid string escape: %w", line, err)
 					}
-					i++
+					if multibyte {
+						b.WriteRune(value)
+					} else {
+						b.WriteByte(byte(value))
+					}
+					i = len(src) - len(tail)
 					continue
 				}
 				b.WriteByte(src[i])
 				i++
+			}
+			if !closed {
+				return nil, fmt.Errorf("%d: unterminated string", startLine)
 			}
 			out = append(out, token{kind: "string", text: b.String(), line: startLine})
 			continue
@@ -139,7 +147,7 @@ func lex(src string) []token {
 		i++
 	}
 	out = append(out, token{kind: "eof", line: line})
-	return out
+	return out, nil
 }
 
 func isIdentStart(r rune) bool {
