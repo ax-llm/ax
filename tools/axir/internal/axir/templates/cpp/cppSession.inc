@@ -76,7 +76,7 @@ class ResponsesChatSession final:public AxChatSession {
   std::shared_ptr<SessionTransportCursor> transport_cursor_=std::make_shared<SessionTransportCursor>();
   std::shared_ptr<RealtimeTransport> socket_;
   void send(Value payload) {
-    Core::openai_responses_validate_session_request(payload);
+    payload = Core::openai_responses_validate_session_request(payload);
     const auto& input=array_ref(Core::get(payload,"input",Value::array()));
     if(last_was_update_&&!input.empty()&&display(Core::get(input.front(),"type"))=="configuration_update")throw AxError("validation","Adjacent configuration_update items are not supported");
     last_was_update_=!input.empty()&&display(Core::get(input.back(),"type"))=="configuration_update";

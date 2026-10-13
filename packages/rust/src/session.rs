@@ -547,7 +547,9 @@ impl ResponsesSession {
         Ok(session)
     }
     fn send(&mut self, payload: Value) -> AxResult<()> {
-        openai_responses_validate_session_request(&[core_value_from_json(&payload)])?;
+        let payload = core_value_to_json(&openai_responses_validate_session_request(&[
+            core_value_from_json(&payload),
+        ])?);
         let items = payload["input"].as_array().cloned().unwrap_or_default();
         if self.last_was_update
             && items.first().and_then(|v| v["type"].as_str()) == Some("configuration_update")

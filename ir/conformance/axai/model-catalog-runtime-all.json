@@ -2408,6 +2408,67 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.1,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.2,
+            "longContextCacheWriteTokenCostPer1M": 5,
+            "longContextCompletionTokenCostPer1M": 15,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6.1-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai",
+            "serviceTierPricing": {
+              "flex": {
+                "cacheReadTokenCostPer1M": 0.05,
+                "cacheWriteTokenCostPer1M": 1.25,
+                "completionTokenCostPer1M": 5,
+                "longContextCacheReadTokenCostPer1M": 0.1,
+                "longContextCacheWriteTokenCostPer1M": 2.5,
+                "longContextCompletionTokenCostPer1M": 7.5,
+                "longContextPromptTokenCostPer1M": 2,
+                "promptTokenCostPer1M": 1
+              },
+              "priority": {
+                "cacheReadTokenCostPer1M": 0.2,
+                "cacheWriteTokenCostPer1M": 5,
+                "completionTokenCostPer1M": 20,
+                "longContextCacheReadTokenCostPer1M": 0.4,
+                "longContextCacheWriteTokenCostPer1M": 10,
+                "longContextCompletionTokenCostPer1M": 30,
+                "longContextPromptTokenCostPer1M": 8,
+                "promptTokenCostPer1M": 4
+              }
+            },
+            "supported": {
+              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -4665,6 +4726,67 @@
             },
             "promptTokenCostPer1M": 2,
             "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.1,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "imageOutput": false,
+              "serviceTiers": ["standard", "flex", "priority"],
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "topP": false
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.2,
+            "longContextCacheWriteTokenCostPer1M": 5,
+            "longContextCompletionTokenCostPer1M": 15,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-6.1-sol",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai-responses",
+            "serviceTierPricing": {
+              "flex": {
+                "cacheReadTokenCostPer1M": 0.05,
+                "cacheWriteTokenCostPer1M": 1.25,
+                "completionTokenCostPer1M": 5,
+                "longContextCacheReadTokenCostPer1M": 0.1,
+                "longContextCacheWriteTokenCostPer1M": 2.5,
+                "longContextCompletionTokenCostPer1M": 7.5,
+                "longContextPromptTokenCostPer1M": 2,
+                "promptTokenCostPer1M": 1
+              },
+              "priority": {
+                "cacheReadTokenCostPer1M": 0.2,
+                "cacheWriteTokenCostPer1M": 5,
+                "completionTokenCostPer1M": 20,
+                "longContextCacheReadTokenCostPer1M": 0.4,
+                "longContextCacheWriteTokenCostPer1M": 10,
+                "longContextCompletionTokenCostPer1M": 30,
+                "longContextPromptTokenCostPer1M": 8,
+                "promptTokenCostPer1M": 4
+              }
+            },
             "supported": {
               "showThoughts": true,
               "structuredOutputs": true,
@@ -8773,7 +8895,7 @@
         "name": "typesafe"
       }
     ],
-    "modelCount": 249,
+    "modelCount": 251,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
     "providerCount": 51,

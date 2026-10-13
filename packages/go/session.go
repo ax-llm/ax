@@ -232,7 +232,7 @@ func (s *responsesChatSession) send(items []Value, continuation bool) {
 	}
 	call := s.client.requestJSON(s.ctx, "stream_chat", req, true, s.options)
 	payload := asMap(coreGet(call, "json", Object()))
-	mustCore(openai_responses_validate_session_request(payload))
+	payload = asMap(mustCore(openai_responses_validate_session_request(payload)))
 	input := asSlice(coreGet(payload, "input", Array()))
 	if s.lastWasUpdate && len(input) > 0 && coreGet(input[0], "type", "") == "configuration_update" {
 		panic(fmt.Errorf("adjacent configuration_update items are not supported across responses"))

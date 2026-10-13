@@ -5,7 +5,11 @@ import type {
   AxModelUsage,
 } from '../types.js';
 import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
-import { axIsGPT6Astra, axIsGPT6Family } from './model_family.js';
+import {
+  axIsGPT6Astra,
+  axIsGPT6Family,
+  axRequiresOpenAIReasoning,
+} from './model_family.js';
 import type {
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
@@ -96,23 +100,26 @@ export function axValidateOpenAIResponseRequest<T>(
   }
   if (!axIsGPT6Family(request.model)) return request;
   if (
-    astra &&
+    axRequiresOpenAIReasoning(request.model) &&
     request.reasoning?.effort &&
     !['low', 'medium', 'high', 'xhigh', 'max'].includes(
       request.reasoning.effort
     )
   ) {
     throw new Error(
-      'GPT-6 Astra requires reasoning effort low, medium, high, xhigh, or max'
+      `${String(request.model)} requires reasoning effort low, medium, high, xhigh, or max`
     );
   }
   // The whole GPT-6 family refuses sampling parameters while it reasons.
   const { temperature: _temperature, top_p: _topP, ...family } = request;
-  if (!astra) return family as AxAIOpenAIResponsesRequest<T>;
+  if (!astra && family.reasoning?.effort === 'none')
+    return family as AxAIOpenAIResponsesRequest<T>;
   const { prompt_cache_retention: _retention, ...clean } = family;
   // Also sanitize dynamically supplied fields, even when callers bypass TS types.
-  const result = { ...clean } as AxAIOpenAIResponsesRequest<T> &
-    Record<string, unknown>;
+  // An omitted effort defaults to medium, so only explicit none permits logprobs.
+  const result = {
+    ...(astra ? clean : family),
+  } as AxAIOpenAIResponsesRequest<T> & Record<string, unknown>;
   delete result.top_logprobs;
   delete result.logprobs;
   return {
