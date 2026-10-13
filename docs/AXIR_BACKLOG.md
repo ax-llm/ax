@@ -23,7 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-10-13-map-incomplete-responses-by-their-reason-and-keep-their-usage` [axai] Map incomplete Responses by their reason and keep their usage
+  - Status: open
+  - Source PR: #841
+  - Source commit: `3b0ab10ec6cb0732dbd0e0f566c7cc04e24d068d`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.incomplete.test.ts`
+  - Impact: TypeScript maps an incomplete Responses result from incomplete_details.reason (max_output_tokens to length, content_filter to content_filter) in both the non-streaming and streaming paths, and records usage on response.incomplete as on response.completed. Generated languages that still hard-code content_filter or length, or drop usage on incomplete, drift.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -1372,15 +1378,6 @@ No entries.
   - Completed at: 2026-10-06
   - Completed by: `1deee895e830310ba6fe96d1bc6cb8e6b18b5887`
   - Verification: `Five-language release verification: 1753 conformance fixtures per target, native tests, examples, package consumers; 19 TS-derived regression cases fail on base; 217 focused TS tests; live Sonnet 5.5 examples in Python, Java, C++, Go, Rust; package, conformance, profile, website, skill checks`
-- `axir-2026-10-07-port-openai-decisions-adapter-and-native-client` [axai] Port OpenAI Decisions adapter and native client
-  - Status: done
-  - Source commit: `5edc31fd54e77e50a162b6c668ca1d125583b9ec`
-  - TS paths: `src/ax/ai/openai-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/base.ts`, `src/ax/util/headers.ts`
-  - Impact: TypeScript adds required boolean/class signature decisions and native predicate/choice/score requests with inline images, refusals, usage, retries and cancellation. Generated language transport parity remains pending; its profile is marked typescript-only. TypeScript also merges static, custom and refreshed credential headers case-insensitively in the shared provider base and native Decisions client; preserve this precedence across retries in the generated transports.
-  - Suggested AxIR work: Port and test case-insensitive credential header precedence for shared adapters and native Decisions requests, including mixed capitalization and retry refresh.; Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-10-07
-  - Completed by: `63721bbecacbbdfec0b52117b647272cf38b709b`
-  - Verification: `All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass.`
 - `axir-2026-10-07-port-haiku-5-5-model-adaptive-thinking-and-tiered-pricing` [axai] Port Haiku 5.5 model, adaptive thinking, and tiered pricing
   - Status: done
   - Source commit: `be8468d53d0c6c8778007e707ad8df8765337252`
@@ -1390,3 +1387,12 @@ No entries.
   - Completed at: 2026-10-08
   - Completed by: `working-tree`
   - Verification: `Current-main verification: 1837 fixtures per generated language and downstream package consumers pass; Go passed a complete isolated release-gate rerun after the aggregate run exceeded the existing 100ms AxFlow cancellation assertion under parallel load. 1180 TypeScript provider/replay tests and 68 compiler unit tests pass; live Haiku examples succeed in all six languages; real forced tools, hidden signed-thinking replay with an appended system message, and streaming pass. Type checks, strict Core check, lowering, conformance/profile/package freshness, skills and 1980-page website checks pass.`
+- `axir-2026-10-07-port-openai-decisions-adapter-and-native-client` [axai] Port OpenAI Decisions adapter and native client
+  - Status: done
+  - Source commit: `5edc31fd54e77e50a162b6c668ca1d125583b9ec`
+  - TS paths: `src/ax/ai/openai-decisions`, `src/ax/ai/wrap.ts`, `src/ax/ai/provider_profiles.ts`, `src/ax/ai/catalog.ts`, `src/ax/ai/base.ts`, `src/ax/util/headers.ts`
+  - Impact: TypeScript adds required boolean/class signature decisions and native predicate/choice/score requests with inline images, refusals, usage, retries and cancellation. Generated language transport parity remains pending; its profile is marked typescript-only. TypeScript also merges static, custom and refreshed credential headers case-insensitively in the shared provider base and native Decisions client; preserve this precedence across retries in the generated transports.
+  - Suggested AxIR work: Port and test case-insensitive credential header precedence for shared adapters and native Decisions requests, including mixed capitalization and retry refresh.; Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-07
+  - Completed by: `63721bbecacbbdfec0b52117b647272cf38b709b`
+  - Verification: `All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass.`
