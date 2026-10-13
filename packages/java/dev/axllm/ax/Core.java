@@ -13791,6 +13791,18 @@ final class Core {
     return null;
   }
 
+  static Object _openai_responses_incomplete_finish_reason_impl(Object response) {
+    axirCoverageMark("_openai_responses_incomplete_finish_reason_impl");
+    Object empty_details = new java.util.LinkedHashMap<String, Object>();
+    Object details = Core.get(response, "incomplete_details", empty_details);
+    Object reason = Core.get(details, "reason", null);
+    Object filtered = Core.eq(reason, "content_filter");
+    if (Core.truthy(filtered)) {
+      return "content_filter";
+    }
+    return "length";
+  }
+
   static Object openai_responses_normalize_chat_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("openai_responses_normalize_chat_response");
     Object empty_output = new java.util.ArrayList<Object>();
@@ -13804,6 +13816,21 @@ final class Core {
     Core.set(result, "finish_reason", "stop");
     for (Object item : Core.iter(output)) {
       Core._openai_responses_merge_output_item_impl(result, item);
+      Object item_type = Core.get(item, "type", null);
+      Object item_status = Core.get(item, "status", null);
+      Object is_message = Core.eq(item_type, "message");
+      Object is_incomplete_item = Core.eq(item_status, "incomplete");
+      Object is_incomplete_message = Core.and(is_message, is_incomplete_item);
+      if (Core.truthy(is_incomplete_message)) {
+        Object finish = Core._openai_responses_incomplete_finish_reason_impl(raw);
+        Core.set(result, "finish_reason", finish);
+      }
+    }
+    Object status = Core.get(raw, "status", null);
+    Object is_incomplete = Core.eq(status, "incomplete");
+    if (Core.truthy(is_incomplete)) {
+      Object finish = Core._openai_responses_incomplete_finish_reason_impl(raw);
+      Core.set(result, "finish_reason", finish);
     }
     Object results = new java.util.ArrayList<Object>();
     Core.append(results, result);
@@ -14221,12 +14248,16 @@ final class Core {
     Object is_completed = Core.eq(type, "response.completed");
     Object is_incomplete = Core.eq(type, "response.incomplete");
     if (Core.truthy(is_incomplete)) {
-      Core.set(result, "finish_reason", "length");
+      Object finish = Core._openai_responses_incomplete_finish_reason_impl(event_response);
+      Core.set(result, "finish_reason", finish);
     }
     Object usage = Core.none();
-    if (Core.truthy(is_completed)) {
+    Object is_terminal = Core.or(is_completed, is_incomplete);
+    if (Core.truthy(is_terminal)) {
       Object raw_usage = Core.get(event_response, "usage", null);
       usage = Core._openai_usage_with_service_tier(event_response, raw_usage);
+    }
+    if (Core.truthy(is_completed)) {
       Core.set(result, "finish_reason", "stop");
     }
     Object results = new java.util.ArrayList<Object>();
@@ -17576,20 +17607,43 @@ final class Core {
         throw Core.asRuntime(error);
       }
       Object usage_delta = Core.get(event, "usage", null);
-      Object usage_existing = Core.get(state, "usage", usage_delta);
+      Object empty_usage = new java.util.LinkedHashMap<String, Object>();
+      Object usage_existing = Core.get(state, "usage", empty_usage);
       Object completion = Core.get(usage_delta, "output_tokens", 0);
-      Object prompt = Core.get(usage_existing, "prompt_tokens", 0);
-      Object cache_creation = Core.get(usage_existing, "cache_creation_tokens", 0);
-      Object cache_read = Core.get(usage_existing, "cache_read_tokens", 0);
+      Object old_prompt = Core.get(usage_existing, "prompt_tokens", 0);
+      Object delta_prompt = Core.get(usage_delta, "input_tokens", null);
+      Object prompt = Core.coalesce(delta_prompt, old_prompt);
+      Object old_creation = Core.get(usage_existing, "cache_creation_tokens", null);
+      Object delta_creation = Core.get(usage_delta, "cache_creation_input_tokens", null);
+      Object cache_creation = Core.coalesce(delta_creation, old_creation);
+      Object old_read = Core.get(usage_existing, "cache_read_tokens", null);
+      Object delta_read = Core.get(usage_delta, "cache_read_input_tokens", null);
+      Object cache_read = Core.coalesce(delta_read, old_read);
       Object usage = new java.util.LinkedHashMap<String, Object>();
       Core.set(usage, "prompt_tokens", prompt);
       Core.set(usage, "completion_tokens", completion);
       Object total_base = Core.add(prompt, completion);
-      Object total_cache = Core.add(cache_creation, cache_read);
+      Object creation_total = Core.coalesce(cache_creation, 0);
+      Object read_total = Core.coalesce(cache_read, 0);
+      Object total_cache = Core.add(creation_total, read_total);
       Object total = Core.add(total_base, total_cache);
       Core.set(usage, "total_tokens", total);
-      Core.set(usage, "cache_creation_tokens", cache_creation);
-      Core.set(usage, "cache_read_tokens", cache_read);
+      Object has_creation = Core.isNotNone(cache_creation);
+      if (Core.truthy(has_creation)) {
+        Core.set(usage, "cache_creation_tokens", cache_creation);
+      }
+      Object has_read = Core.isNotNone(cache_read);
+      if (Core.truthy(has_read)) {
+        Core.set(usage, "cache_read_tokens", cache_read);
+      }
+      Object old_speed = Core.get(usage_existing, "speed", null);
+      Object delta_speed = Core.get(usage_delta, "speed", null);
+      Object speed = Core.coalesce(delta_speed, old_speed);
+      Object has_speed = Core.isNotNone(speed);
+      if (Core.truthy(has_speed)) {
+        Core.set(usage, "speed", speed);
+      }
+      Core.set(state, "usage", usage);
       Object result = new java.util.LinkedHashMap<String, Object>();
       Core.set(result, "index", index);
       Core.set(result, "content", "");

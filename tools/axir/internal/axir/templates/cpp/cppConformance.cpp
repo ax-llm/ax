@@ -3504,7 +3504,10 @@ static void run_ai_stream(Value fixture) {
   Value expected_error = Core::get(fixture, "expected_error_contains");
   Value out = Value::array();
   try {
-    for (const auto& item : call_options.is_null() ? cf.client->stream(request) : cf.client->stream(request, call_options)) Core::append(out, item);
+    auto calls = static_cast<int>(Core::number(Core::get(fixture, "stream_calls", 1)));
+    for (int call = 0; call < calls; ++call) {
+      for (const auto& item : call_options.is_null() ? cf.client->stream(request) : cf.client->stream(request, call_options)) Core::append(out, item);
+    }
   } catch (const std::exception& error) {
     if (!expected_error.is_null() && std::string(error.what()).find(display(expected_error)) != std::string::npos) {
       assert_transport(fixture, cf.transport, *cf.credential_requests);

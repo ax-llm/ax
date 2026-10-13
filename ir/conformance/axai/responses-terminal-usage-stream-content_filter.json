@@ -1,0 +1,44 @@
+{
+  "expected_output": [
+    {
+      "model_usage": {
+        "ai": "openai-responses",
+        "model": "gpt-6.1-sol",
+        "tokens": {
+          "completion_tokens": 16,
+          "prompt_tokens": 11,
+          "service_tier": "flex",
+          "total_tokens": 27
+        }
+      },
+      "remote_id": "res_incomplete_usage",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "content_filter",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "gpt-6.1-sol",
+  "name": "responses-terminal-usage-stream-content_filter",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "usage",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"res_incomplete_usage\",\"model\":\"gpt-6.1-sol\",\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"content_filter\"},\"service_tier\":\"priority\",\"service_tier_used\":\"flex\",\"usage\":{\"input_tokens\":11,\"output_tokens\":16,\"total_tokens\":27}}}\n\n",
+      "status": 200
+    }
+  ]
+}

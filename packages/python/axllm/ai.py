@@ -12741,6 +12741,19 @@ def _openai_responses_copy_cache_control_impl(target: Any, source: Any) -> None:
     return None
 
 
+def _openai_responses_incomplete_finish_reason_impl(response: Any) -> str:
+    _core_coverage_mark("_openai_responses_incomplete_finish_reason_impl")
+    empty_details = {}
+    details = _core_get(response, "incomplete_details", empty_details)
+    reason = _core_get(details, "reason", None)
+    filtered = _core_eq(reason, "content_filter")
+    if filtered:
+        return "content_filter"
+    else:
+        pass
+    return "length"
+
+
 def openai_responses_normalize_chat_response(raw: Any, ai_name: str, model: str) -> AxChatResponse:
     _core_coverage_mark("openai_responses_normalize_chat_response")
     empty_output = []
@@ -12754,6 +12767,23 @@ def openai_responses_normalize_chat_response(raw: Any, ai_name: str, model: str)
     result["finish_reason"] = "stop"
     for item in output:
         _openai_responses_merge_output_item_impl(result, item)
+        item_type = _core_get(item, "type", None)
+        item_status = _core_get(item, "status", None)
+        is_message = _core_eq(item_type, "message")
+        is_incomplete_item = _core_eq(item_status, "incomplete")
+        is_incomplete_message = _core_and(is_message, is_incomplete_item)
+        if is_incomplete_message:
+            finish = _openai_responses_incomplete_finish_reason_impl(raw)
+            result["finish_reason"] = finish
+        else:
+            pass
+    status = _core_get(raw, "status", None)
+    is_incomplete = _core_eq(status, "incomplete")
+    if is_incomplete:
+        finish = _openai_responses_incomplete_finish_reason_impl(raw)
+        result["finish_reason"] = finish
+    else:
+        pass
     results = []
     results.append(result)
     raw_model = _core_get(raw, "model", model)
@@ -13190,13 +13220,18 @@ def openai_responses_normalize_stream_delta(event: Any, state: Any, ai_name: str
     is_completed = _core_eq(type, "response.completed")
     is_incomplete = _core_eq(type, "response.incomplete")
     if is_incomplete:
-        result["finish_reason"] = "length"
+        finish = _openai_responses_incomplete_finish_reason_impl(event_response)
+        result["finish_reason"] = finish
     else:
         pass
     usage = _core_none()
-    if is_completed:
+    is_terminal = _core_or(is_completed, is_incomplete)
+    if is_terminal:
         raw_usage = _core_get(event_response, "usage", None)
         usage = _openai_usage_with_service_tier(event_response, raw_usage)
+    else:
+        pass
+    if is_completed:
         result["finish_reason"] = "stop"
     else:
         pass
@@ -16682,20 +16717,46 @@ def _anthropic_normalize_stream_delta(event: Any, state: Any, ai_name: str, mode
         else:
             pass
         usage_delta = _core_get(event, "usage", None)
-        usage_existing = _core_get(state, "usage", usage_delta)
+        empty_usage = {}
+        usage_existing = _core_get(state, "usage", empty_usage)
         completion = _core_get(usage_delta, "output_tokens", 0)
-        prompt = _core_get(usage_existing, "prompt_tokens", 0)
-        cache_creation = _core_get(usage_existing, "cache_creation_tokens", 0)
-        cache_read = _core_get(usage_existing, "cache_read_tokens", 0)
+        old_prompt = _core_get(usage_existing, "prompt_tokens", 0)
+        delta_prompt = _core_get(usage_delta, "input_tokens", None)
+        prompt = _core_coalesce(delta_prompt, old_prompt)
+        old_creation = _core_get(usage_existing, "cache_creation_tokens", None)
+        delta_creation = _core_get(usage_delta, "cache_creation_input_tokens", None)
+        cache_creation = _core_coalesce(delta_creation, old_creation)
+        old_read = _core_get(usage_existing, "cache_read_tokens", None)
+        delta_read = _core_get(usage_delta, "cache_read_input_tokens", None)
+        cache_read = _core_coalesce(delta_read, old_read)
         usage = {}
         usage["prompt_tokens"] = prompt
         usage["completion_tokens"] = completion
         total_base = _core_add(prompt, completion)
-        total_cache = _core_add(cache_creation, cache_read)
+        creation_total = _core_coalesce(cache_creation, 0)
+        read_total = _core_coalesce(cache_read, 0)
+        total_cache = _core_add(creation_total, read_total)
         total = _core_add(total_base, total_cache)
         usage["total_tokens"] = total
-        usage["cache_creation_tokens"] = cache_creation
-        usage["cache_read_tokens"] = cache_read
+        has_creation = _core_is_not_none(cache_creation)
+        if has_creation:
+            usage["cache_creation_tokens"] = cache_creation
+        else:
+            pass
+        has_read = _core_is_not_none(cache_read)
+        if has_read:
+            usage["cache_read_tokens"] = cache_read
+        else:
+            pass
+        old_speed = _core_get(usage_existing, "speed", None)
+        delta_speed = _core_get(usage_delta, "speed", None)
+        speed = _core_coalesce(delta_speed, old_speed)
+        has_speed = _core_is_not_none(speed)
+        if has_speed:
+            usage["speed"] = speed
+        else:
+            pass
+        state["usage"] = usage
         result = {}
         result["index"] = index
         result["content"] = ""

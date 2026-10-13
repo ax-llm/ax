@@ -6355,6 +6355,24 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @openai_responses_incomplete_finish_reason_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-incomplete-core-helper"
+    type signature = "(json) -> string"
+    body @entry(%response: json) {
+      %empty_details = core.map
+      %details = core.get %response["incomplete_details"] default %empty_details
+      %reason = core.get %details["reason"]
+      %filtered = core.call intrinsic.eq(%reason, "content_filter")
+      core.if %filtered {
+        core.return "content_filter"
+      }
+      core.return "length"
+    }
+  }
+
   op ax.provider.semantic @openai_responses_normalize_chat_response {
     attr core_kind = "func"
     attr effect = "throws"
@@ -6373,6 +6391,21 @@ module @ax.provider version "0.1" {
       core.set %result["finish_reason"] = "stop"
       core.for %item in %output {
         core.call @openai_responses_merge_output_item_impl(%result, %item)
+        %item_type = core.get %item["type"]
+        %item_status = core.get %item["status"]
+        %is_message = core.call intrinsic.eq(%item_type, "message")
+        %is_incomplete_item = core.call intrinsic.eq(%item_status, "incomplete")
+        %is_incomplete_message = core.call intrinsic.and(%is_message, %is_incomplete_item)
+        core.if %is_incomplete_message {
+          %finish = core.call @openai_responses_incomplete_finish_reason_impl(%raw)
+          core.set %result["finish_reason"] = %finish
+        }
+      }
+      %status = core.get %raw["status"]
+      %is_incomplete = core.call intrinsic.eq(%status, "incomplete")
+      core.if %is_incomplete {
+        %finish = core.call @openai_responses_incomplete_finish_reason_impl(%raw)
+        core.set %result["finish_reason"] = %finish
       }
       %results = core.list
       core.append %results, %result
@@ -6826,12 +6859,16 @@ module @ax.provider version "0.1" {
       %is_completed = core.call intrinsic.eq(%type, "response.completed")
       %is_incomplete = core.call intrinsic.eq(%type, "response.incomplete")
       core.if %is_incomplete {
-        core.set %result["finish_reason"] = "length"
+        %finish = core.call @openai_responses_incomplete_finish_reason_impl(%event_response)
+        core.set %result["finish_reason"] = %finish
       }
       %usage = core.call intrinsic.none()
-      core.if %is_completed {
+      %is_terminal = core.call intrinsic.or(%is_completed, %is_incomplete)
+      core.if %is_terminal {
         %raw_usage = core.get %event_response["usage"]
         %usage = core.call @openai_usage_with_service_tier(%event_response, %raw_usage)
+      }
+      core.if %is_completed {
         core.set %result["finish_reason"] = "stop"
       }
       %results = core.list
@@ -10560,20 +10597,43 @@ module @ax.provider version "0.1" {
           core.raise %error
         }
         %usage_delta = core.get %event["usage"]
-        %usage_existing = core.get %state["usage"] default %usage_delta
+        %empty_usage = core.map
+        %usage_existing = core.get %state["usage"] default %empty_usage
         %completion = core.get %usage_delta["output_tokens"] default 0
-        %prompt = core.get %usage_existing["prompt_tokens"] default 0
-        %cache_creation = core.get %usage_existing["cache_creation_tokens"] default 0
-        %cache_read = core.get %usage_existing["cache_read_tokens"] default 0
+        %old_prompt = core.get %usage_existing["prompt_tokens"] default 0
+        %delta_prompt = core.get %usage_delta["input_tokens"]
+        %prompt = core.call intrinsic.coalesce(%delta_prompt, %old_prompt)
+        %old_creation = core.get %usage_existing["cache_creation_tokens"]
+        %delta_creation = core.get %usage_delta["cache_creation_input_tokens"]
+        %cache_creation = core.call intrinsic.coalesce(%delta_creation, %old_creation)
+        %old_read = core.get %usage_existing["cache_read_tokens"]
+        %delta_read = core.get %usage_delta["cache_read_input_tokens"]
+        %cache_read = core.call intrinsic.coalesce(%delta_read, %old_read)
         %usage = core.map
         core.set %usage["prompt_tokens"] = %prompt
         core.set %usage["completion_tokens"] = %completion
         %total_base = core.call intrinsic.add(%prompt, %completion)
-        %total_cache = core.call intrinsic.add(%cache_creation, %cache_read)
+        %creation_total = core.call intrinsic.coalesce(%cache_creation, 0)
+        %read_total = core.call intrinsic.coalesce(%cache_read, 0)
+        %total_cache = core.call intrinsic.add(%creation_total, %read_total)
         %total = core.call intrinsic.add(%total_base, %total_cache)
         core.set %usage["total_tokens"] = %total
-        core.set %usage["cache_creation_tokens"] = %cache_creation
-        core.set %usage["cache_read_tokens"] = %cache_read
+        %has_creation = core.call intrinsic.is_not_none(%cache_creation)
+        core.if %has_creation {
+          core.set %usage["cache_creation_tokens"] = %cache_creation
+        }
+        %has_read = core.call intrinsic.is_not_none(%cache_read)
+        core.if %has_read {
+          core.set %usage["cache_read_tokens"] = %cache_read
+        }
+        %old_speed = core.get %usage_existing["speed"]
+        %delta_speed = core.get %usage_delta["speed"]
+        %speed = core.call intrinsic.coalesce(%delta_speed, %old_speed)
+        %has_speed = core.call intrinsic.is_not_none(%speed)
+        core.if %has_speed {
+          core.set %usage["speed"] = %speed
+        }
+        core.set %state["usage"] = %usage
         %result = core.map
         core.set %result["index"] = %index
         core.set %result["content"] = ""

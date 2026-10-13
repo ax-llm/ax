@@ -1230,3 +1230,16 @@ and all usage fields. Runnable examples are under each language generation
 directory as `openai-decisions` and `openai-decisions-native` (Java uses
 `OpenAIDecisionsExample` and `OpenAIDecisionsNativeExample`). See the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
 for the current provider contract and availability.
+
+## Streaming Usage And Incomplete Responses
+
+OpenAI Responses reports a token-limit stop as `length` and a content-filter
+stop as `content_filter`. The terminal response status takes precedence even
+when no message was produced or an earlier message completed. Incomplete
+streams retain their token usage and the served service tier. Reusing a client
+keeps each stream's usage separate; consume the terminal event for final totals.
+
+Anthropic `message_delta` counts are cumulative. Present input and cache counts
+replace earlier counts, including explicit zero; omitted or null fields retain
+previous values. Successive deltas retain the latest input, cache, and speed
+metadata while updating output tokens.

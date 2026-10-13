@@ -1,0 +1,122 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "res_first",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "res_first",
+      "results": [
+        {
+          "content": "answer",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "msg_usage",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "openai-responses",
+        "model": "gpt-6.1-sol",
+        "tokens": {
+          "completion_tokens": 1,
+          "prompt_tokens": 1199,
+          "total_tokens": 1200
+        }
+      },
+      "remote_id": "res_first",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "length",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "res_second",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "res_second",
+      "results": [
+        {
+          "content": "answer",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "msg_usage",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "openai-responses",
+        "model": "gpt-6.1-sol",
+        "tokens": {
+          "completion_tokens": 1,
+          "prompt_tokens": 29,
+          "total_tokens": 30
+        }
+      },
+      "remote_id": "res_second",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_transport_request_count": 2,
+  "kind": "ai_stream",
+  "model": "gpt-6.1-sol",
+  "name": "responses-terminal-usage-reused-incomplete",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "usage",
+        "role": "user"
+      }
+    ]
+  },
+  "stream_calls": 2,
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.created\",\"response\":{\"id\":\"res_first\",\"status\":\"in_progress\"}}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"res_first\",\"item_id\":\"msg_usage\",\"delta\":\"answer\"}\n\ndata: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"res_first\",\"model\":\"gpt-6.1-sol\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":1199,\"output_tokens\":1,\"total_tokens\":1200}}}\n\n",
+      "status": 200
+    },
+    {
+      "body": "data: {\"type\":\"response.created\",\"response\":{\"id\":\"res_second\",\"status\":\"in_progress\"}}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"res_second\",\"item_id\":\"msg_usage\",\"delta\":\"answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"res_second\",\"model\":\"gpt-6.1-sol\",\"usage\":{\"input_tokens\":29,\"output_tokens\":1,\"total_tokens\":30}}}\n\n",
+      "status": 200
+    }
+  ]
+}
