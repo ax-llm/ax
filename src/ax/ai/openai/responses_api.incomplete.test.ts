@@ -4,7 +4,7 @@ import type { AxAIOpenAIResponsesResponse } from './responses_types.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
 const config = {
-  model: AxAIOpenAIResponsesModel.GPT55,
+  model: AxAIOpenAIResponsesModel.GPT61Sol,
   maxTokens: 16,
   stream: false,
 } as any;
@@ -34,6 +34,42 @@ function incompleteResponse(reason: string): AxAIOpenAIResponsesResponse {
 }
 
 describe('Responses API incomplete responses', () => {
+  it('keeps completed responses without a message status as a normal stop', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, false);
+    const response = incompleteResponse('max_output_tokens');
+    const { status: _status, ...message } = response.output![0]!;
+    const result = impl.createChatResp({
+      ...response,
+      status: 'completed',
+      incomplete_details: null,
+      output: [message],
+    } as AxAIOpenAIResponsesResponse);
+    expect(result.results[0]?.finishReason).toBe('stop');
+  });
+
+  it('reports a token limit even when no message was produced', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, false);
+    const result = impl.createChatResp({
+      ...incompleteResponse('max_output_tokens'),
+      output: [],
+    });
+    expect(result.results[0]?.finishReason).toBe('length');
+    expect(impl.getTokenUsage()?.totalTokens).toBe(27);
+  });
+
+  it('uses the terminal incomplete status after an earlier completed message', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, false);
+    const response = incompleteResponse('max_output_tokens');
+    const result = impl.createChatResp({
+      ...response,
+      output: response.output!.map((item) => ({
+        ...item,
+        status: 'completed',
+      })),
+    } as AxAIOpenAIResponsesResponse);
+    expect(result.results[0]?.finishReason).toBe('length');
+  });
+
   it('reports a response cut by max_output_tokens as length, not content_filter', () => {
     const impl = new AxAIOpenAIResponsesImpl(config, false);
     const result = impl.createChatResp(incompleteResponse('max_output_tokens'));

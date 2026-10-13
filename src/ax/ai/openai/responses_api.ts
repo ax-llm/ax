@@ -868,9 +868,9 @@ export class AxAIOpenAIResponsesImpl<
             }
           }
           currentResult.finishReason =
-            item.status === 'completed'
-              ? 'stop'
-              : incompleteFinishReason(resp.incomplete_details);
+            item.status === 'incomplete'
+              ? incompleteFinishReason(resp.incomplete_details)
+              : 'stop';
           // Extract annotations from output_text parts
           currentResult.citations = extractAnnotationsFromContent(item.content);
           break;
@@ -1033,6 +1033,14 @@ export class AxAIOpenAIResponsesImpl<
 
     if (functionCalls.length > 0) {
       currentResult.functionCalls = functionCalls;
+    }
+
+    // The response can exhaust its budget before producing a message, or
+    // after completing an earlier output item. Its terminal status wins.
+    if (resp.status === 'incomplete') {
+      currentResult.finishReason = incompleteFinishReason(
+        resp.incomplete_details
+      );
     }
 
     return {
