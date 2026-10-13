@@ -9,6 +9,8 @@ import {
   axIsGPT6Astra,
   axIsGPT6Family,
   axIsGPT56Family,
+  axRefusesOpenAIChatTools,
+  axRequiresOpenAIReasoning,
   axSupportsOpenAIBreakpointCaching,
   axSupportsOpenAIChatSessions,
 } from './model_family.js';
@@ -87,6 +89,19 @@ describe('Bedrock OpenAI model IDs', () => {
       expect(axIsGPT6Astra(model)).toBe(true);
     }
     for (const model of [
+      'openai.gpt-6.1-sol',
+      'us.openai.gpt-6.1-sol',
+      'global.openai.gpt-6.1-sol',
+      'us-gov.openai.gpt-6.1-sol',
+    ]) {
+      expect(axIsGPT6Family(model)).toBe(true);
+      expect(axRequiresOpenAIReasoning(model)).toBe(true);
+      expect(axRefusesOpenAIChatTools(model)).toBe(true);
+      expect(axIsGPT6Astra(model)).toBe(false);
+      expect(axSupportsOpenAIChatSessions(model)).toBe(false);
+      expect(axSupportsOpenAIBreakpointCaching(model)).toBe(false);
+    }
+    for (const model of [
       'openai.gpt-5.6-sol',
       'us.openai.gpt-5.6-terra',
       'global.openai.gpt-5.6-luna',
@@ -121,6 +136,7 @@ describe('Bedrock OpenAI model IDs', () => {
     for (const [model, name] of [
       ['us.openai.gpt-6-sol', 'gpt-6-sol'],
       ['global.openai.gpt-6-astra', 'gpt-6-astra'],
+      ['us.openai.gpt-6.1-sol', 'gpt-6.1-sol'],
       ['us-gov.openai.gpt-6-luna', 'gpt-6-luna'],
       ['global.openai.gpt-5.6-sol', 'gpt-5.6-sol'],
     ] as const) {
@@ -161,6 +177,37 @@ describe('Bedrock OpenAI model IDs', () => {
       // The defaults are temperature 0.7 and top_p 1, which Bedrock refuses.
       expect(request?.body).not.toHaveProperty('temperature');
       expect(request?.body).not.toHaveProperty('top_p');
+    }
+  );
+
+  it.each([
+    ['us.openai.gpt-6-sol', runtime, undefined],
+    ['global.openai.gpt-6-astra', runtime, undefined],
+    ['us.openai.gpt-5.6-sol', runtime, undefined],
+    ['openai.gpt-6-luna', mantle, undefined],
+    ['us.openai.gpt-6.1-sol', runtime, undefined],
+    // Not in OpenAI's model info, and Bedrock accepts its temperature 0.
+    ['openai.gpt-oss-120b-1:0', runtime, 0],
+  ])(
+    'sends %s on the amazon-bedrock profile with the temperature OpenAI info allows',
+    async (model, apiURL, temperature) => {
+      const fetch = spy(completion);
+      const provider = ai({
+        name: 'amazon-bedrock',
+        apiKey: 'bedrock-key',
+        apiURL,
+        config: { model, topP: 0.9 },
+        options: { fetch },
+      });
+      await provider.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { stream: false }
+      );
+      const [request] = sent(fetch);
+      expect(request?.body.model).toBe(model);
+      // The profile has no model info and defaults to temperature 0.
+      expect(request?.body.temperature).toBe(temperature);
+      expect(request?.body.top_p).toBe(temperature === 0 ? 0.9 : undefined);
     }
   );
 
@@ -303,10 +350,18 @@ describe('Bedrock OpenAI model IDs', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps the Astra reasoning contract', () => {
-    expect(() =>
-      axResolveOpenAIResponsesReasoningEffort('us.openai.gpt-6-astra', 'none')
-    ).toThrow(/does not support disabling reasoning/);
+  it('keeps the reasoning contract of models that cannot disable it', () => {
+    for (const model of ['us.openai.gpt-6-astra', 'us.openai.gpt-6.1-sol']) {
+      expect(() =>
+        axResolveOpenAIResponsesReasoningEffort(model, 'none')
+      ).toThrow(`${model} does not support disabling reasoning`);
+    }
+    expect(
+      axResolveOpenAIResponsesReasoningEffort(
+        'us.openai.gpt-6.1-sol',
+        'highest'
+      )
+    ).toBe('max');
     expect(
       axResolveOpenAIResponsesReasoningEffort('global.openai.gpt-6-sol', 'none')
     ).toBe('none');

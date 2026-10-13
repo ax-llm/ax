@@ -125,6 +125,27 @@ export const axAIProviderProfiles = {
       {
         "match": {
           "prefix": [
+            "gpt-6.1-sol"
+          ]
+        },
+        "request": {
+          "unsupportedThinkingLevels": {
+            "none": "GPT-6.1 Sol requires reasoning; use low or higher"
+          }
+        },
+        "capabilities": {
+          "audio": false,
+          "audioOutput": false,
+          "functions": true,
+          "structuredOutputModes": [
+            "native",
+            "json_object"
+          ]
+        }
+      },
+      {
+        "match": {
+          "prefix": [
             "gpt-6-sol",
             "gpt-6-luna"
           ]
@@ -309,6 +330,22 @@ export const axAIProviderProfiles = {
         "request": {
           "unsupportedThinkingLevels": {
             "none": "GPT-6 Astra requires reasoning; use low or higher"
+          }
+        },
+        "capabilities": {
+          "audio": false,
+          "audioOutput": false
+        }
+      },
+      {
+        "match": {
+          "prefix": [
+            "gpt-6.1-sol"
+          ]
+        },
+        "request": {
+          "unsupportedThinkingLevels": {
+            "none": "GPT-6.1 Sol requires reasoning; use low or higher"
           }
         },
         "capabilities": {

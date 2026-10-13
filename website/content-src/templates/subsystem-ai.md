@@ -205,6 +205,20 @@ languages read it as `timeoutMs` and warn once when a call gives `timeout`
 alone. A request whose response has not started in time fails with
 `AxAIServiceTimeoutError`.
 
+### GPT-6.1 Sol
+
+Select `gpt-6.1-sol` on the `openai` or `openai-responses` deployment profile.
+Ax routes it through Responses with the GPT-6 effort ladder and breakpoint
+caching. Use `thinkingTokenBudget: 'low'`; the model requires reasoning, so
+`none` fails before transport. Ax currently exposes automatic sessions and
+mid-conversation reasoning updates only for Astra.
+
+Standard input, cache-read, cache-write, and output rates per million tokens are
+$2, $0.10, $2.50, and $10. Above 272K total input tokens they become $4, $0.20,
+$5, and $15. Priority multiplies these rates by 2; Flex multiplies them by 0.5.
+The served `fast` tier is accounted for as Priority. Fixed Bedrock OpenAI IDs
+inherit the matching model's sampling restrictions when profile metadata is absent.
+
 ### GPT-6 Astra and automatic sessions (TypeScript)
 
 Select `ai({ name: 'openai', config: { model: AxAIOpenAIModel.GPT6Astra }, apiKey })`.

@@ -1,0 +1,47 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_request": {
+    "json": {
+      "model": "openai.gpt-oss-120b-1:0",
+      "temperature": 0,
+      "top_p": 0.9
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "openai.gpt-oss-120b-1:0",
+  "name": "bedrock-profile-openai-gpt-oss-120b-1-0-sampling",
+  "provider": "amazon-bedrock",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "topP": 0.9
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_bedrock_sampling",
+        "model": "openai.gpt-oss-120b-1:0"
+      },
+      "status": 200
+    }
+  ]
+}

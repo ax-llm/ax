@@ -346,6 +346,11 @@ describe('OpenAI model catalog: new 2026 entries are registered', () => {
       rates: [0.1, 0.5, 0.01],
       longRates: [0.2, 0.75, 0.02],
     },
+    {
+      name: AxAIOpenAIModel.GPT61Sol,
+      rates: [2, 10, 0.1],
+      longRates: [4, 15, 0.2],
+    },
   ])('has $name in both catalogs with published rates', (expected) => {
     for (const catalog of [axModelInfoOpenAI, axModelInfoOpenAIResponses]) {
       const entry = catalog.find((m) => m.name === expected.name);
