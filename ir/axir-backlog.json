@@ -3318,6 +3318,31 @@
       "verification": "Five-language release verification: 1753 conformance fixtures per target, native tests, examples, package consumers; 19 TS-derived regression cases fail on base; 217 focused TS tests; live Sonnet 5.5 examples in Python, Java, C++, Go, Rust; package, conformance, profile, website, skill checks"
     },
     {
+      "id": "axir-2026-10-07-port-haiku-5-5-model-adaptive-thinking-and-tiered-pricing",
+      "status": "done",
+      "title": "Port Haiku 5.5 model, adaptive thinking, and tiered pricing",
+      "createdAt": "2026-10-07",
+      "sourcePR": null,
+      "sourceCommit": "be8468d53d0c6c8778007e707ad8df8765337252",
+      "tsPaths": [
+        "src/ax/ai/anthropic/types.ts",
+        "src/ax/ai/anthropic/info.ts",
+        "src/ax/ai/anthropic/api.ts",
+        "src/ax/ai/anthropic/haiku55.test.ts",
+        "src/ax/ai/catalog.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript adds Claude55Haiku on Anthropic and Vertex with 1M context, 128K output, adaptive thinking and explicit disabled thinking at high effort or below, forced tool choices and native/function structured output, append-only system history, sampling restrictions, and pricing above 100K total input including cache reads/writes. Mirror model metadata, wire behavior, and boundary conformance in generated Python, Go, Java, C++, and Rust.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-10-08",
+      "completedByCommit": "working-tree",
+      "verification": "Current-main verification: 1837 fixtures per generated language and downstream package consumers pass; Go passed a complete isolated release-gate rerun after the aggregate run exceeded the existing 100ms AxFlow cancellation assertion under parallel load. 1180 TypeScript provider/replay tests and 68 compiler unit tests pass; live Haiku examples succeed in all six languages; real forced tools, hidden signed-thinking replay with an appended system message, and streaming pass. Type checks, strict Core check, lowering, conformance/profile/package freshness, skills and 1980-page website checks pass."
+    },
+    {
       "id": "axir-2026-10-07-port-openai-decisions-adapter-and-native-client",
       "status": "done",
       "title": "Port OpenAI Decisions adapter and native client",
@@ -3345,29 +3370,27 @@
       "verification": "All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass."
     },
     {
-      "id": "axir-2026-10-07-port-haiku-5-5-model-adaptive-thinking-and-tiered-pricing",
-      "status": "done",
-      "title": "Port Haiku 5.5 model, adaptive thinking, and tiered pricing",
-      "createdAt": "2026-10-07",
-      "sourcePR": null,
-      "sourceCommit": "be8468d53d0c6c8778007e707ad8df8765337252",
+      "id": "axir-2026-10-13-take-streamed-input-and-cache-tokens-from-anthropic-message-delt",
+      "status": "open",
+      "title": "Take streamed input and cache tokens from Anthropic message_delta",
+      "createdAt": "2026-10-13",
+      "sourcePR": 842,
+      "sourceCommit": "cf817cba8f72c6874b7b9db21c6759003c0a6e2f",
       "tsPaths": [
-        "src/ax/ai/anthropic/types.ts",
-        "src/ax/ai/anthropic/info.ts",
         "src/ax/ai/anthropic/api.ts",
-        "src/ax/ai/anthropic/haiku55.test.ts",
-        "src/ax/ai/catalog.test.ts"
+        "src/ax/ai/anthropic/types.ts",
+        "src/ax/ai/anthropic/api.stream-usage.test.ts"
       ],
       "portableSurface": "axai",
-      "impact": "TypeScript adds Claude55Haiku on Anthropic and Vertex with 1M context, 128K output, adaptive thinking and explicit disabled thinking at high effort or below, forced tool choices and native/function structured output, append-only system history, sampling restrictions, and pricing above 100K total input including cache reads/writes. Mirror model metadata, wire behavior, and boundary conformance in generated Python, Go, Java, C++, and Rust.",
+      "impact": "TypeScript reads the cumulative usage on the Anthropic streaming message_delta event: input tokens and cache creation/read tokens as well as output tokens, preferring them over message_start when present (as with server tools). Generated languages that only take output_tokens from message_delta under-report input and cache usage.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": "2026-10-08",
-      "completedByCommit": "working-tree",
-      "verification": "Current-main verification: 1837 fixtures per generated language and downstream package consumers pass; Go passed a complete isolated release-gate rerun after the aggregate run exceeded the existing 100ms AxFlow cancellation assertion under parallel load. 1180 TypeScript provider/replay tests and 68 compiler unit tests pass; live Haiku examples succeed in all six languages; real forced tools, hidden signed-thinking replay with an appended system message, and streaming pass. Type checks, strict Core check, lowering, conformance/profile/package freshness, skills and 1980-page website checks pass."
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
