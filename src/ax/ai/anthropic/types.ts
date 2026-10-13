@@ -444,8 +444,12 @@ export interface AxAIAnthropicMessageDeltaEvent {
     stop_sequence: string | null;
     stop_details?: AxAIAnthropicStopDetails | null;
   };
+  // Cumulative; input and cache counts are present when the API reports them here.
   usage: {
     output_tokens: number;
+    input_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
     speed?: 'fast' | 'standard';
   };
 }
