@@ -3370,6 +3370,28 @@
       "verification": "All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass."
     },
     {
+      "id": "axir-2026-10-13-map-incomplete-responses-by-their-reason-and-keep-their-usage",
+      "status": "open",
+      "title": "Map incomplete Responses by their reason and keep their usage",
+      "createdAt": "2026-10-13",
+      "sourcePR": 841,
+      "sourceCommit": "3b0ab10ec6cb0732dbd0e0f566c7cc04e24d068d",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/responses_api.incomplete.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript maps an incomplete Responses result from incomplete_details.reason (max_output_tokens to length, content_filter to content_filter) in both the non-streaming and streaming paths, and records usage on response.incomplete as on response.completed. Generated languages that still hard-code content_filter or length, or drop usage on incomplete, drift.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-10-13-take-streamed-input-and-cache-tokens-from-anthropic-message-delt",
       "status": "open",
       "title": "Take streamed input and cache tokens from Anthropic message_delta",

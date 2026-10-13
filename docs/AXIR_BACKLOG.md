@@ -23,6 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-10-13-map-incomplete-responses-by-their-reason-and-keep-their-usage` [axai] Map incomplete Responses by their reason and keep their usage
+  - Status: open
+  - Source PR: #841
+  - Source commit: `3b0ab10ec6cb0732dbd0e0f566c7cc04e24d068d`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.incomplete.test.ts`
+  - Impact: TypeScript maps an incomplete Responses result from incomplete_details.reason (max_output_tokens to length, content_filter to content_filter) in both the non-streaming and streaming paths, and records usage on response.incomplete as on response.completed. Generated languages that still hard-code content_filter or length, or drop usage on incomplete, drift.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-10-13-take-streamed-input-and-cache-tokens-from-anthropic-message-delt` [axai] Take streamed input and cache tokens from Anthropic message_delta
   - Status: open
   - Source PR: #842
