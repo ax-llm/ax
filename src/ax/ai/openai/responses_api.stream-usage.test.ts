@@ -4,7 +4,7 @@ import { AxAIOpenAIResponses } from './responses_api_base.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
 const config = {
-  model: AxAIOpenAIResponsesModel.GPT55,
+  model: AxAIOpenAIResponsesModel.GPT61Sol,
   maxTokens: 16,
   stream: true,
 } as any;
@@ -92,7 +92,7 @@ describe('AxAIOpenAIResponses streamed usage on a reused client', () => {
       );
     const ai = new AxAIOpenAIResponses({
       apiKey: 'key',
-      config: { model: AxAIOpenAIResponsesModel.GPT55 },
+      config: { model: AxAIOpenAIResponsesModel.GPT61Sol },
     });
     ai.setOptions({ fetch });
 
@@ -112,7 +112,7 @@ describe('AxAIOpenAIResponses streamed usage on a reused client', () => {
       return seen;
     };
 
-    expect(await totals()).not.toContain(30);
-    expect(await totals()).not.toContain(1200);
+    expect(await totals()).toEqual([1200]);
+    expect(await totals()).toEqual([30]);
   });
 });
