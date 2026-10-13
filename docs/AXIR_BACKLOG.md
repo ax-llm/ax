@@ -37,6 +37,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/anthropic/api.ts`, `src/ax/ai/anthropic/types.ts`, `src/ax/ai/anthropic/api.stream-usage.test.ts`
   - Impact: TypeScript reads the cumulative usage on the Anthropic streaming message_delta event: input tokens and cache creation/read tokens as well as output tokens, preferring them over message_start when present (as with server tools). Generated languages that only take output_tokens from message_delta under-report input and cache usage.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-13-clear-responses-usage-when-a-new-stream-starts` [axai] Clear Responses usage when a new stream starts
+  - Status: open
+  - Source PR: #843
+  - Source commit: `01935de00e8b6b57dd64544a4ed49d3862e59d03`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.stream-usage.test.ts`
+  - Impact: TypeScript clears the stored token usage of the OpenAI Responses client on response.created, so a reused client never reports the previous call's usage during the chunks of the next stream. Generated languages that keep usage across streams report stale totals.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

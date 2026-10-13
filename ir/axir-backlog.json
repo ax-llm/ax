@@ -3413,6 +3413,28 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-10-13-clear-responses-usage-when-a-new-stream-starts",
+      "status": "open",
+      "title": "Clear Responses usage when a new stream starts",
+      "createdAt": "2026-10-13",
+      "sourcePR": 843,
+      "sourceCommit": "01935de00e8b6b57dd64544a4ed49d3862e59d03",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/responses_api.stream-usage.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript clears the stored token usage of the OpenAI Responses client on response.created, so a reused client never reports the previous call's usage during the chunks of the next stream. Generated languages that keep usage across streams report stale totals.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
