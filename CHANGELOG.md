@@ -1,5 +1,19 @@
 # Changelog
 
+## [25.3.2](https://github.com/ax-llm/ax/compare/25.3.1...25.3.2) (2026-10-13)
+
+### Features
+
+* **examples:** add keyless Parallel Search MCP example ([#829](https://github.com/ax-llm/ax/pull/829)) ([9d7225e](https://github.com/ax-llm/ax/commit/9d7225e0fe9e7ef9480e336c98c59722d5dc3132))
+
+### Bug Fixes
+
+* **ai:** complete GPT-6.1 Sol and Bedrock provider parity ([#840](https://github.com/ax-llm/ax/pull/840)) ([ee43f3e](https://github.com/ax-llm/ax/commit/ee43f3e4026457411e516307a6b804199627e286)), closes [#836](https://github.com/ax-llm/ax/pull/836) [#838](https://github.com/ax-llm/ax/pull/838)
+* **anthropic:** retain cumulative streamed input and cache usage ([#842](https://github.com/ax-llm/ax/pull/842)) ([1982a12](https://github.com/ax-llm/ax/commit/1982a12d5f080cfc35795ccd092f27867c0ca7c7))
+* **axir:** complete provider stream usage parity across languages ([#844](https://github.com/ax-llm/ax/pull/844)) ([00e7b0c](https://github.com/ax-llm/ax/commit/00e7b0cbc05a6fc9a510e5a50b65021f10a30266))
+* **openai:** clear Responses usage when a new stream starts ([#843](https://github.com/ax-llm/ax/pull/843)) ([80d7a3f](https://github.com/ax-llm/ax/commit/80d7a3f6d0c4023063c12e788b5622ab6e2c5b1d))
+* **openai:** map incomplete Responses by reason and retain usage ([#841](https://github.com/ax-llm/ax/pull/841)) ([3b706b2](https://github.com/ax-llm/ax/commit/3b706b201c7fb1e06f58c76d2359103d24aeaa22))
+
 ## [25.3.1](https://github.com/ax-llm/ax/compare/25.3.0...25.3.1) (2026-10-13)
 
 ### Bug Fixes
