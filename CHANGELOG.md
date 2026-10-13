@@ -1,10 +1,10 @@
 # Changelog
 
-## [25.3.1](https://github.com/ax-llm/ax/compare/25.2.1...25.3.0) (2026-10-13)
+## [25.3.1](https://github.com/ax-llm/ax/compare/25.3.0...25.3.1) (2026-10-13)
 
 ### Bug Fixes
 
-* preserve code and string literals across generated languages ([#837](https://github.com/ax-llm/ax/issues/837)) ([898a8f8](https://github.com/ax-llm/ax/commit/898a8f8102505218235c8eb8c24aaf1009cf9ee8))
+* preserve code and string literals across generated languages ([#837](https://github.com/ax-llm/ax/pull/837)) ([898a8f8](https://github.com/ax-llm/ax/commit/898a8f8102505218235c8eb8c24aaf1009cf9ee8))
 
 ## [25.3.0](https://github.com/ax-llm/ax/compare/25.2.1...25.3.0) (2026-10-11)
 
