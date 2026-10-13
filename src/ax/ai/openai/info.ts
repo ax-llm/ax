@@ -3,6 +3,34 @@ import type { AxModelInfo } from '../types.js';
 import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
+// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+// Priority is 2x Standard and Flex is 0.5x, including cache and long-context rates.
+const gpt61SolServiceTierPricing: NonNullable<
+  AxModelInfo['serviceTierPricing']
+> = {
+  priority: {
+    promptTokenCostPer1M: 4,
+    completionTokenCostPer1M: 20,
+    cacheReadTokenCostPer1M: 0.2,
+    cacheWriteTokenCostPer1M: 5,
+    longContextPromptTokenCostPer1M: 8,
+    longContextCompletionTokenCostPer1M: 30,
+    longContextCacheReadTokenCostPer1M: 0.4,
+    longContextCacheWriteTokenCostPer1M: 10,
+  },
+  flex: {
+    promptTokenCostPer1M: 1,
+    completionTokenCostPer1M: 5,
+    cacheReadTokenCostPer1M: 0.05,
+    cacheWriteTokenCostPer1M: 1.25,
+    longContextPromptTokenCostPer1M: 2,
+    longContextCompletionTokenCostPer1M: 7.5,
+    longContextCacheReadTokenCostPer1M: 0.1,
+    longContextCacheWriteTokenCostPer1M: 2.5,
+  },
+};
+
+
 /**
  * OpenAI: Model information
  */
@@ -439,6 +467,7 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
   {
     name: AxAIOpenAIModel.GPT61Sol,
     currency: 'usd',
+    serviceTierPricing: gpt61SolServiceTierPricing,
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 10,
     cacheReadTokenCostPer1M: 0.1,
@@ -1090,6 +1119,7 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
   {
     name: AxAIOpenAIResponsesModel.GPT61Sol,
     currency: 'usd',
+    serviceTierPricing: gpt61SolServiceTierPricing,
     promptTokenCostPer1M: 2,
     completionTokenCostPer1M: 10,
     cacheReadTokenCostPer1M: 0.1,
