@@ -1065,6 +1065,10 @@ export class AxAIOpenAIResponsesImpl<
       case 'response.in_progress':
       case 'response.queued':
         // Response lifecycle events - return empty content with metadata
+        if (event.type === 'response.created') {
+          // Usage arrives on the terminal event; until then, none is known for this stream.
+          this.tokensUsed = undefined;
+        }
         remoteId = event.response.id;
         baseResult.id = `${event.response.id}_res_0`;
         break;
