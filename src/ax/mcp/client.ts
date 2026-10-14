@@ -1085,15 +1085,22 @@ export class AxMCPClient {
 
   async ping(timeout = 3000): Promise<void> {
     const pingPromise = this.sendRequest('ping', undefined);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(
         () => reject(new Error('Ping response timeout exceeded')),
         timeout
-      )
-    );
-    const response = (await Promise.race([pingPromise, timeoutPromise])) as {
-      result: unknown;
-    };
+      );
+    });
+    let response: { result: unknown };
+    try {
+      response = (await Promise.race([pingPromise, timeoutPromise])) as {
+        result: unknown;
+      };
+    } finally {
+      // The timer must not outlive the ping: it keeps the process alive for `timeout` ms
+      clearTimeout(timer);
+    }
     const { result } = response;
     if (
       typeof result !== 'object' ||
@@ -2173,15 +2180,16 @@ export class AxMCPClient {
   private listeningDelay(ms: number, signal: AbortSignal): Promise<void> {
     if (signal.aborted) return Promise.resolve();
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      signal.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true }
-      );
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        // Drop the listener when the delay elapses: the signal outlives every retry delay
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal.addEventListener('abort', onAbort, { once: true });
     });
   }
 
