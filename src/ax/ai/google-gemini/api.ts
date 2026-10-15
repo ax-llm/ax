@@ -2166,7 +2166,7 @@ class AxAIGoogleGeminiImpl
     systemInstruction?: AxAIGoogleGeminiContent;
     contents?: AxAIGoogleGeminiContent[];
   } {
-    let systemInstruction: AxAIGoogleGeminiContent | undefined;
+    const systemPrompts: string[] = [];
     const contents: AxAIGoogleGeminiContent[] = [];
 
     // Find the last message with cache: true (the breakpoint)
@@ -2185,10 +2185,7 @@ class AxAIGoogleGeminiImpl
 
       // Always cache system prompts
       if (msg.role === 'system') {
-        systemInstruction = {
-          role: 'user' as const,
-          parts: [{ text: msg.content }],
-        };
+        systemPrompts.push(msg.content);
         continue;
       }
 
@@ -2302,6 +2299,14 @@ class AxAIGoogleGeminiImpl
         }
       }
     }
+
+    const systemInstruction =
+      systemPrompts.length > 0
+        ? {
+            role: 'user' as const,
+            parts: [{ text: systemPrompts.join(' ') }],
+          }
+        : undefined;
 
     return { systemInstruction, contents };
   }
