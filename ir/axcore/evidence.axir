@@ -1,6 +1,84 @@
 module @ax.evidence version "0.1" {
   dialect @ax.gen version "0.1"
 
+  op ax.gen.semantic @box_schema_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/box.ts"
+    type signature = "() -> json"
+    body @entry() {
+      %edges = core.list
+      core.append %edges, "top"
+      core.append %edges, "bottom"
+      core.append %edges, "left"
+      core.append %edges, "right"
+      %properties = core.map
+      core.for %edge in %edges {
+        %number = core.map
+        core.set %number["type"] = "number"
+        core.set %number["minimum"] = 0
+        core.set %number["maximum"] = 1
+        core.set %properties[%edge] = %number
+      }
+      %schema = core.map
+      core.set %schema["type"] = "object"
+      core.set %schema["properties"] = %properties
+      core.set %schema["required"] = %edges
+      core.set %schema["additionalProperties"] = false
+      core.return %schema
+    }
+  }
+
+  op ax.gen.semantic @box_validate_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "src/ax/dsp/box.ts"
+    type signature = "(json, string) -> json throws"
+    body @entry(%value: json, %path: string) {
+      %valid = core.type_is %value type "object"
+      core.if %valid {
+        %count = core.call intrinsic.len(%value)
+        %valid = core.call intrinsic.eq(%count, 4)
+      }
+      %edges = core.list
+      core.append %edges, "top"
+      core.append %edges, "bottom"
+      core.append %edges, "left"
+      core.append %edges, "right"
+      core.for %edge in %edges {
+        %v = core.get %value[%edge]
+        %number = core.type_is %v type "number"
+        core.if %number {
+          %finite = core.call intrinsic.math.is_finite(%v)
+          %low = core.call intrinsic.gte(%v, 0)
+          %high = core.call intrinsic.lte(%v, 1)
+          %number = core.call intrinsic.and(%low, %high)
+          %number = core.call intrinsic.and(%number, %finite)
+        }
+        %valid = core.call intrinsic.and(%valid, %number)
+      }
+      core.if %valid {
+        %top = core.get %value["top"]
+        %bottom = core.get %value["bottom"]
+        %left = core.get %value["left"]
+        %right = core.get %value["right"]
+        %vertical = core.call intrinsic.lt(%top, %bottom)
+        %horizontal = core.call intrinsic.lt(%left, %right)
+        %valid = core.call intrinsic.and(%vertical, %horizontal)
+      }
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        %message = core.call intrinsic.string.format("Invalid box for {}: four finite edges in [0, 1], top < bottom and left < right are required", %path)
+        %error = core.call intrinsic.error.validation(%message)
+        core.raise %error
+      }
+      core.return %value
+    }
+  }
+
   op ax.gen.semantic @evidence_is_type_impl {
     attr core_kind = "func"
     attr emit_module = "signature"
@@ -12,7 +90,9 @@ module @ax.evidence version "0.1" {
       %present = core.call intrinsic.is_not_none(%evidence)
       %name = core.get %typ["name"]
       %score = core.call intrinsic.eq(%name, "score")
+      %box = core.call intrinsic.eq(%name, "box")
       %result = core.call intrinsic.or(%present, %score)
+      %result = core.call intrinsic.or(%result, %box)
       core.return %result
     }
   }
@@ -56,11 +136,15 @@ module @ax.evidence version "0.1" {
         core.append %supported, "boolean"
         core.append %supported, "class"
         core.append %supported, "score"
+        core.append %supported, "box"
         %valid = core.call intrinsic.contains(%supported, %name)
         %object = core.type_is %evidence type "object"
         %valid = core.call intrinsic.and(%valid, %object)
         %invalid = core.call intrinsic.not(%valid)
-        core.if %invalid { core.raise "Evidence requires a boolean, class or score field" }
+        core.if %invalid {
+          %error = core.call intrinsic.error.signature("Evidence requires a boolean, class, score or box field")
+          core.raise %error
+        }
         %keys = core.call intrinsic.map.keys(%evidence)
         %allowed = core.list
         core.append %allowed, "threshold"
@@ -68,7 +152,10 @@ module @ax.evidence version "0.1" {
         core.for %key in %keys {
           %known = core.call intrinsic.contains(%allowed, %key)
           %unknown = core.call intrinsic.not(%known)
-          core.if %unknown { core.raise "Unknown evidence option" }
+          core.if %unknown {
+            %error = core.call intrinsic.error.signature("Unknown evidence option")
+            core.raise %error
+          }
         }
         %threshold = core.get %evidence["threshold"]
         %has_threshold = core.call intrinsic.is_not_none(%threshold)
@@ -84,36 +171,54 @@ module @ax.evidence version "0.1" {
             %valid = core.call intrinsic.and(%finite, %range)
           }
           %invalid = core.call intrinsic.not(%valid)
-          core.if %invalid { core.raise "threshold requires a boolean field and a finite value in [0, 1]" }
+          core.if %invalid {
+            %error = core.call intrinsic.error.signature("threshold requires a boolean field and a finite value in [0, 1]")
+            core.raise %error
+          }
         }
         %policy = core.get %evidence["onRefusal"] default "throw"
         %throw_policy = core.call intrinsic.eq(%policy, "throw")
         %return_policy = core.call intrinsic.eq(%policy, "return")
         %valid = core.call intrinsic.or(%throw_policy, %return_policy)
         %invalid = core.call intrinsic.not(%valid)
-        core.if %invalid { core.raise "onRefusal must be throw or return" }
+        core.if %invalid {
+          %error = core.call intrinsic.error.signature("onRefusal must be throw or return")
+          core.raise %error
+        }
       }
       %score = core.call intrinsic.eq(%name, "score")
       core.if %score {
         %labels = core.get %typ["options"]
         %list = core.type_is %labels type "list"
         %invalid = core.call intrinsic.not(%list)
-        core.if %invalid { core.raise "Score requires 2-10 distinct, nonempty ordered rubric labels" }
+        core.if %invalid {
+          %error = core.call intrinsic.error.signature("Score requires 2-10 distinct, nonempty ordered rubric labels")
+          core.raise %error
+        }
         %count = core.call intrinsic.len(%labels)
         %low = core.call intrinsic.lt(%count, 2)
         %high = core.call intrinsic.gt(%count, 10)
         %invalid = core.call intrinsic.or(%low, %high)
-        core.if %invalid { core.raise "Score requires 2-10 distinct, nonempty ordered rubric labels" }
+        core.if %invalid {
+          %error = core.call intrinsic.error.signature("Score requires 2-10 distinct, nonempty ordered rubric labels")
+          core.raise %error
+        }
         %seen = core.list
         core.for %label in %labels {
           %string = core.type_is %label type "string"
           %invalid = core.call intrinsic.not(%string)
-          core.if %invalid { core.raise "Score labels must be strings" }
+          core.if %invalid {
+            %error = core.call intrinsic.error.signature("Score labels must be strings")
+            core.raise %error
+          }
           %trimmed = core.string_trim %label
           %empty = core.call intrinsic.eq(%trimmed, "")
           %duplicate = core.call intrinsic.contains(%seen, %label)
           %invalid = core.call intrinsic.or(%empty, %duplicate)
-          core.if %invalid { core.raise "Score requires distinct, nonempty ordered rubric labels" }
+          core.if %invalid {
+            %error = core.call intrinsic.error.signature("Score requires distinct, nonempty ordered rubric labels")
+            core.raise %error
+          }
           core.append %seen, %label
         }
       }
@@ -220,8 +325,25 @@ module @ax.evidence version "0.1" {
       %props = core.map
       %is_boolean = core.call intrinsic.eq(%name, "boolean")
       %score = core.call intrinsic.eq(%name, "score")
+      %box = core.call intrinsic.eq(%name, "box")
       %required = core.list
-      core.if %is_boolean {
+      core.if %box {
+        %coordinates = core.call @box_schema_impl()
+        %evidence = core.get %typ["evidence"]
+        %plain = core.call intrinsic.is_none(%evidence)
+        core.if %plain {
+          %array = core.get %typ["is_array"] default false
+          core.if %array {
+            %wrapped = core.map
+            core.set %wrapped["type"] = "array"
+            core.set %wrapped["items"] = %coordinates
+            core.return %wrapped
+          }
+          core.return %coordinates
+        }
+        core.set %props["box"] = %coordinates
+        core.append %required, "box"
+      } else { core.if %is_boolean {
         core.set %props["probability"] = %p
         core.append %required, "probability"
       } else {
@@ -246,6 +368,7 @@ module @ax.evidence version "0.1" {
         core.set %props["probabilities"] = %distribution
         core.append %required, "probabilities"
       }
+      }
       %schema = core.map
       core.set %schema["type"] = "object"
       core.set %schema["properties"] = %props
@@ -262,6 +385,13 @@ module @ax.evidence version "0.1" {
         core.set %status["enum"] = %answered
         core.set %props["status"] = %status
         core.append %required, "status"
+        core.set %schema["required"] = %required
+        core.if %box {
+          %required = core.list
+          core.append %required, "status"
+          core.append %required, "box"
+          core.set %schema["required"] = %required
+        }
         %refused = core.map
         core.set %refused["type"] = "object"
         %refusal_props = core.map
@@ -335,6 +465,13 @@ module @ax.evidence version "0.1" {
       }
       %name = core.get %typ["name"]
       %evidence = core.get %typ["evidence"]
+      %box = core.call intrinsic.eq(%name, "box")
+      %plain = core.call intrinsic.is_none(%evidence)
+      %plain_box = core.call intrinsic.and(%box, %plain)
+      core.if %plain_box {
+        %value = core.call @box_validate_impl(%raw, %path)
+        core.return %value
+      }
       %provenance = core.get %context["provenance"]
       %source = core.get %provenance["source"] default "elicited"
       %native_state = core.call intrinsic.eq(%source, "native")
@@ -384,7 +521,8 @@ module @ax.evidence version "0.1" {
       %is_boolean = core.call intrinsic.eq(%name, "boolean")
       %score = core.call intrinsic.eq(%name, "score")
       %allowed = core.list
-      core.if %is_boolean { core.append %allowed, "probability" } else { core.append %allowed, "probabilities" }
+      core.if %box { core.append %allowed, "box" }
+      else { core.if %is_boolean { core.append %allowed, "probability" } else { core.append %allowed, "probabilities" } }
       core.if %return_policy { core.append %allowed, "status" }
       core.for %key in %keys {
         %known = core.call intrinsic.contains(%allowed, %key)
@@ -396,7 +534,18 @@ module @ax.evidence version "0.1" {
       }
       %out = core.map
       core.set %out["provenance"] = %provenance
-      core.if %is_boolean {
+      core.if %box {
+        %raw_box = core.get %raw["box"]
+        %value = core.call @box_validate_impl(%raw_box, %path)
+        core.set %out["value"] = %value
+        %confidence = core.get %answer["confidence"]
+        %present = core.call intrinsic.is_not_none(%confidence)
+        %copy = core.call intrinsic.and(%native_state, %present)
+        core.if %copy {
+          %confidence = core.call @evidence_probability_impl(%confidence, %path)
+          core.set %out["confidence"] = %confidence
+        }
+      } else { core.if %is_boolean {
         %p = core.get %raw["probability"]
         %p = core.call @evidence_probability_impl(%p, %path)
         %threshold = core.get %evidence["threshold"] default 0.5
@@ -482,6 +631,7 @@ module @ax.evidence version "0.1" {
           %confidence = core.call @evidence_probability_impl(%confidence, %path)
           core.set %out["confidence"] = %confidence
         }
+      }
       }
       core.if %return_policy { core.set %out["status"] = "answered" }
       core.return %out
@@ -604,7 +754,9 @@ module @ax.evidence version "0.1" {
       %out = core.map
       core.if %is_boolean { core.set %out["probability"] = "<probability of true, 0 to 1>" }
       else {
-        %labels = core.get %typ["options"]
+        %empty = core.list
+        %labels_raw = core.get %typ["options"]
+        %labels = core.call intrinsic.coalesce(%labels_raw, %empty)
         %ps = core.map
         core.if %score { %ps = core.list }
         core.for %label in %labels {
@@ -612,6 +764,19 @@ module @ax.evidence version "0.1" {
           else { core.set %ps[%label] = "<probability, 0 to 1>" }
         }
         core.set %out["probabilities"] = %ps
+      }
+      %box = core.call intrinsic.eq(%name, "box")
+      core.if %box {
+        %coordinates = core.map
+        core.set %coordinates["top"] = "<top edge, 0 to 1>"
+        core.set %coordinates["bottom"] = "<bottom edge, greater than top, up to 1>"
+        core.set %coordinates["left"] = "<left edge, 0 to 1>"
+        core.set %coordinates["right"] = "<right edge, greater than left, up to 1>"
+        %out = core.map
+        core.set %out["box"] = %coordinates
+        %evidence = core.get %typ["evidence"]
+        %plain = core.call intrinsic.is_none(%evidence)
+        core.if %plain { %out = core.let %coordinates }
       }
       %evidence = core.get %typ["evidence"]
       %policy = core.get %evidence["onRefusal"] default "throw"
@@ -657,8 +822,11 @@ module @ax.evidence version "0.1" {
           core.set %value["enum"] = %levels
         }
       }
+      %box = core.call intrinsic.eq(%name, "box")
+      core.if %box { %value = core.call @box_schema_impl() }
       %plain = core.call intrinsic.is_none(%evidence)
-      %plain_score = core.call intrinsic.and(%plain, %score)
+      %plain_value = core.call intrinsic.or(%score, %box)
+      %plain_score = core.call intrinsic.and(%plain, %plain_value)
       %schema = core.let %value
       %rich = core.call intrinsic.not(%plain_score)
       core.if %rich {
@@ -687,7 +855,8 @@ module @ax.evidence version "0.1" {
         core.set %provenance["required"] = %provenance_required
         core.set %provenance["additionalProperties"] = false
         core.set %props["provenance"] = %provenance
-        core.if %is_boolean {
+        %not_box = core.call intrinsic.not(%box)
+        core.if %not_box { core.if %is_boolean {
           core.set %props["probability"] = %p
           core.set %props["threshold"] = %p
         } else {
@@ -709,6 +878,7 @@ module @ax.evidence version "0.1" {
           }
           core.set %props["probabilities"] = %ps
         }
+        }
         %required = core.call intrinsic.map.keys(%props)
         core.set %schema["required"] = %required
         core.set %schema["properties"] = %props
@@ -725,6 +895,7 @@ module @ax.evidence version "0.1" {
           core.set %status["enum"] = %answered
           core.set %props["status"] = %status
           core.append %required, "status"
+          core.set %schema["required"] = %required
           %refusal = core.map
           core.set %refusal["type"] = "object"
           %refusal_props = core.map
@@ -762,10 +933,11 @@ module @ax.evidence version "0.1" {
 
   op ax.gen.semantic @evidence_example_values_impl {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "signature"
     attr private = true
     tag "src/ax/dsp/decision.ts"
-    type signature = "(list<Field>, json) -> json"
+    type signature = "(list<Field>, json) -> json throws"
     body @entry(%fields: list<Field>, %values: json) {
       %empty = core.map
       %out = core.call intrinsic.map.merge(%empty, %values)
@@ -797,6 +969,18 @@ module @ax.evidence version "0.1" {
                   core.if %is_boolean { %key = core.let "probability" }
                   %probabilities = core.get %item[%key]
                   core.set %raw[%key] = %probabilities
+                  %box = core.call intrinsic.eq(%type_name, "box")
+                  core.if %box {
+                    %coordinates = core.get %item["value"]
+                    %wire_box = core.get %item["box"] default %item
+                    %coordinates = core.call intrinsic.coalesce(%coordinates, %wire_box)
+                    %coordinates = core.call @box_validate_impl(%coordinates, %name)
+                    %raw = core.map
+                    core.set %raw["box"] = %coordinates
+                    %evidence = core.get %typ["evidence"]
+                    %plain = core.call intrinsic.is_none(%evidence)
+                    core.if %plain { %raw = core.let %coordinates }
+                  }
                   %evidence = core.get %typ["evidence"]
                   %policy = core.get %evidence["onRefusal"]
                   %return_policy = core.call intrinsic.eq(%policy, "return")

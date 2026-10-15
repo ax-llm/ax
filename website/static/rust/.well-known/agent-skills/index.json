@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-rust-ai/SKILL.md",
-      "digest": "sha256:3780100c4f7268238dbb56ea93cef7f6be227379236576a02188013dedbf9ff8"
+      "digest": "sha256:824ab6d65685388014db1bcdb8a663e9068176c9456883022681af32db57df54"
     },
     {
       "name": "ax-rust-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Rust code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Rust code with `axllm` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-rust-typesafe/SKILL.md",
-      "digest": "sha256:c834c1a80b277596dd2be1eddf4e18d4fde7b64f0d8b36b3470db2ccea279008"
+      "digest": "sha256:151494dc2075ee6db4f2c1510870052eb1e6d2308d33f31ed619e98ab47c3d90"
     },
     {
       "name": "ax-rust-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-rust-signature/SKILL.md",
-      "digest": "sha256:ca09a9ee54df7dd707c1974d7a496cdcb9156b88f285163252137d894b296c22"
+      "digest": "sha256:82523927b64c4152ab44aee0a8c5f50dfce256e74c4d35f75b156ba1aa0a87e5"
     },
     {
       "name": "ax-rust-gen",

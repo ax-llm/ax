@@ -1,0 +1,45 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "target": {
+        "additionalProperties": false,
+        "description": "",
+        "properties": {
+          "bottom": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "left": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "right": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "top": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": ["top", "bottom", "left", "right"],
+        "type": "object"
+      }
+    },
+    "required": ["target"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "box-plain-result",
+  "schema_options": {
+    "decisionMode": "result"
+  },
+  "signature": "query:string -> target:box",
+  "target": "outputs"
+}

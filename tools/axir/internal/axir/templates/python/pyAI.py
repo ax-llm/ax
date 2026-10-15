@@ -24,6 +24,11 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 # AXIR_CORE_IMPORTS
+from .signature import _core_string_utf8_length
+
+def _core_string_index_of(value, needle, start=0):
+    return str(value).find(str(needle), max(0, int(start)))
+
 from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text, _js_format, _js_text
 import warnings
 
@@ -1920,6 +1925,8 @@ class ProviderOperationClient(AxBaseAI):
         request_base_url = (base_url or self.base_url).rstrip("/")
         request_url = endpoint if endpoint.startswith(("http://", "https://")) else request_base_url + endpoint
         headers = self._headers()
+        if self.profile == "typesafe":
+            headers = provider_merge_headers(headers, typesafe_image_headers(payload))
         if accept:
             headers["Accept"] = accept
         if self.credential_provider:
@@ -2138,10 +2145,24 @@ class _TypesafeQuestionOptions(TypedDict, total=False):
     criteria: dict[str, TypesafeEntry] | list[TypesafeEntry] | None
 
 class TypesafeQuestion(_TypesafeQuestionOptions):
-    type: Literal["noul", "choice", "score"]
+    type: Literal["noul", "choice", "score", "box"]
+
+class AxBox(TypedDict):
+    top: float
+    bottom: float
+    left: float
+    right: float
+
+class _TypesafeImageAssetOptions(TypedDict, total=False):
+    type: Literal["image"]
+
+class TypesafeImageAsset(_TypesafeImageAssetOptions):
+    format: Literal["png", "jpg", "jpeg"]
+    data_base64: str
 
 class _TypesafeRequestOptions(TypedDict, total=False):
     model: str
+    assets: dict[str, TypesafeImageAsset]
 
 class TypesafeRequest(_TypesafeRequestOptions):
     state: TypesafeEntry
@@ -2164,7 +2185,12 @@ class TypesafeScore(TypedDict):
     confidence: float
     legend: dict[str, TypesafeEntry]
 
-TypesafeAnswer = TypesafeNoul | TypesafeChoice | TypesafeScore
+class TypesafeBox(TypedDict):
+    type: Literal["box"]
+    box: AxBox
+    confidence: float
+
+TypesafeAnswer = TypesafeNoul | TypesafeChoice | TypesafeScore | TypesafeBox
 
 class TypesafeUsage(TypedDict):
     input_tokens: int

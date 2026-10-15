@@ -20,7 +20,7 @@
       "type": "skill-md",
       "description": "Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers images, box outputs, and boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.",
       "url": "ax-typesafe/SKILL.md",
-      "digest": "sha256:182587916b2caf105035a4fa2457bd6760887e4bc168f9944137790b025b8410"
+      "digest": "sha256:f1698f7e92cd8361fc8271a32252108d322fe8c3a2a9e90aee8ee1e98ca07faa"
     },
     {
       "name": "ax-audio",

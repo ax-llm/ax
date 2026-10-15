@@ -796,6 +796,8 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"signature",
 			"signature-value-descriptions",
 			"signature-decision-evidence",
+			"signature-box-fields",
+			"typesafe-images-and-box",
 			"wire-field-extraction",
 			"typesafe-native-and-signatures",
 			"openai-decisions-native-and-signatures",

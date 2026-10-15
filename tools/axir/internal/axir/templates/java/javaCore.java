@@ -136,6 +136,11 @@ final class Core {
     for(int index=0;index<text.length();index++)units.add((int)text.charAt(index));
     return units;
   }
+  static Object stringUTF8Length(Object value) {
+    String text=String.valueOf(value);long bytes=0;
+    for(int index=0;index<text.length();){int cp=text.codePointAt(index);index+=Character.charCount(cp);bytes+=cp<128?1:cp<2048?2:cp<65536?3:4;}
+    return bytes;
+  }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
   // Streamed text appends chunk by chunk. Java strings hold UTF-16 units, so
   // a surrogate pair a provider split across two chunks joins back into one

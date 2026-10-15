@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:dd9c1c24346ab96116ba81d62b93332cadbe9f425c0031295ae6405a1d28aefb"
+      "digest": "sha256:ed379bfc96454cdefa0f85d63a2fb25332b4efbe73955d995dc7db70d730f139"
     },
     {
       "name": "ax-python-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Python code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Python code with `axllm` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-python-typesafe/SKILL.md",
-      "digest": "sha256:2b2254786bb38050d9de125b09dc0db68081ea1b20da077311ade2ca4dfd9e43"
+      "digest": "sha256:d34f2f3a04075a6aa95ca5b246bf4f38651bfe12f9f1b70c2844284304a823a5"
     },
     {
       "name": "ax-python-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-python-signature/SKILL.md",
-      "digest": "sha256:70b88033160e9379dd82529a65052175837c87948de420a5eba79701c2207c3d"
+      "digest": "sha256:ae4f83bacd4f851407c7fd66022df67299b69b1edeeeefbf68d0ff2fd49b6945"
     },
     {
       "name": "ax-python-gen",

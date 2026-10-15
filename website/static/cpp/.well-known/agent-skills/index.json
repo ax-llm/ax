@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:ec786129e011bbe93173f4d05591061242630229542ff01452040f2f19592f31"
+      "digest": "sha256:2111ce59e98c1c3d265f0dab16980cb6b3a01039470dd0f3946b02f50fb2246b"
     },
     {
       "name": "ax-cpp-typesafe",
       "type": "skill-md",
-      "description": "Use when writing C++ code with `axllm` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing C++ code with `axllm` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-cpp-typesafe/SKILL.md",
-      "digest": "sha256:d2d3371677a9c598fbd925757a458f9dc43cca0535698cc64366bbef852bea79"
+      "digest": "sha256:c8dd277ec75d041a45503a29025c63ed9970b20ff84fd4ebc1209a10526df917"
     },
     {
       "name": "ax-cpp-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-cpp-signature/SKILL.md",
-      "digest": "sha256:fb700c39051302739eaf47061b001ce5451311180837c4457d7aa5adff344d84"
+      "digest": "sha256:813fde65a4b3af8c4f0f33bb2f149eaaedc92402112b476b599eaa6441b27818"
     },
     {
       "name": "ax-cpp-gen",

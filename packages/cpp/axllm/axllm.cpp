@@ -942,6 +942,7 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_utf8_length(Value value) { return Value(static_cast<double>(str(value).size())); }
 Value Core::string_utf16_units(Value value) {
   Array units;const auto text=str(value);size_t index=0;
   while(index<text.size()) {
@@ -1403,6 +1404,16 @@ Value Core::type_is(Value value, Value type_name) {
   return Value(false);
 }
 Value Core::regex_match(Value pattern, Value value) {
+  // libc++ regex may recurse for each character in a repeated character class.
+  // Evaluate this flat ASCII pattern in constant stack space for image payloads.
+  if (value.is_string() && str(pattern) == "^[A-Za-z0-9+/]+={0,2}$") {
+    const auto& text = std::get<std::string>(value.data);
+    size_t end=text.size(), padding=0;
+    while(end>0 && text[end-1]=='='){--end;++padding;}
+    if(end==0 || padding>2)return Value(false);
+    for(size_t index=0;index<end;++index){unsigned char ch=text[index];if(!((ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z')||(ch>='0'&&ch<='9')||ch=='+'||ch=='/'))return Value(false);}
+    return Value(true);
+  }
   return Value(value.is_string() && std::regex_search(str(value), std::regex(str(pattern))));
 }
 // The UTF-8 length of the JavaScript white space or line terminator at pos
@@ -3627,14 +3638,27 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state) { return opena
 Value Core::openai_normalize_embed_response(Value raw) { return openai_normalize_embed_response(std::move(raw), "openai", Value()); }
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
-Value Core::_evidence_is_type_impl(Value typ) {
-  axir_coverage_mark("_evidence_is_type_impl");
-  Value evidence = Core::get(typ, Value("evidence"), Value());
-  Value present = Core::is_not_none(evidence);
-  Value name = Core::get(typ, Value("name"), Value());
-  Value score = Core::eq(name, Value("score"));
-  Value result = Core::or_(present, score);
-  return result;
+Value Core::_box_schema_impl() {
+  axir_coverage_mark("_box_schema_impl");
+  Value edges = Value::array();
+  Core::append(edges, Value("top"));
+  Core::append(edges, Value("bottom"));
+  Core::append(edges, Value("left"));
+  Core::append(edges, Value("right"));
+  Value properties = Value::object();
+  for (auto edge : Core::iter(edges)) {
+    Value number = Value::object();
+    Core::set(number, Value("type"), Value("number"));
+    Core::set(number, Value("minimum"), Value(0));
+    Core::set(number, Value("maximum"), Value(1));
+    Core::set(properties, edge, number);
+  }
+  Value schema = Value::object();
+  Core::set(schema, Value("type"), Value("object"));
+  Core::set(schema, Value("properties"), properties);
+  Core::set(schema, Value("required"), edges);
+  Core::set(schema, Value("additionalProperties"), Value(false));
+  return schema;
 }
 
 Value Core::_signature_value_keys_impl(Value typ) {
@@ -3650,27 +3674,6 @@ Value Core::_signature_value_keys_impl(Value typ) {
     Core::append(keys, Value("false"));
   }
   return keys;
-}
-
-Value Core::_evidence_has_fields_impl(Value fields) {
-  axir_coverage_mark("_evidence_has_fields_impl");
-  for (auto field : Core::iter(fields)) {
-    Value typ = Core::get(field, Value("type"), Value());
-    Value decision = Core::_evidence_is_type_impl(typ);
-    if (Core::truthy(decision)) {
-      return Value(true);
-    }
-    Value children = Core::get(typ, Value("fields"), Value());
-    Value present = Core::is_not_none(children);
-    if (Core::truthy(present)) {
-      Value nested = Core::fields_from_map(children);
-      decision = Core::_evidence_has_fields_impl(nested);
-      if (Core::truthy(decision)) {
-        return Value(true);
-      }
-    }
-  }
-  return Value(false);
 }
 
 Value Core::parse_signature(Value signature) {
@@ -3724,99 +3727,51 @@ Value Core::_signature_validate_value_descriptions_impl(Value typ, Value field_n
   return Value();
 }
 
+Value Core::_box_validate_impl(Value value, Value path) {
+  axir_coverage_mark("_box_validate_impl");
+  Value valid = Core::type_is(value, Value("object"));
+  if (Core::truthy(valid)) {
+    Value count = Core::len(value);
+    valid = Core::eq(count, Value(4));
+  }
+  Value edges = Value::array();
+  Core::append(edges, Value("top"));
+  Core::append(edges, Value("bottom"));
+  Core::append(edges, Value("left"));
+  Core::append(edges, Value("right"));
+  for (auto edge : Core::iter(edges)) {
+    Value v = Core::get(value, edge, Value());
+    Value number = Core::type_is(v, Value("number"));
+    if (Core::truthy(number)) {
+      Value finite = Core::math_is_finite(v);
+      Value low = Core::gte(v, Value(0));
+      Value high = Core::lte(v, Value(1));
+      number = Core::and_(low, high);
+      number = Core::and_(number, finite);
+    }
+    valid = Core::and_(valid, number);
+  }
+  if (Core::truthy(valid)) {
+    Value top = Core::get(value, Value("top"), Value());
+    Value bottom = Core::get(value, Value("bottom"), Value());
+    Value left = Core::get(value, Value("left"), Value());
+    Value right = Core::get(value, Value("right"), Value());
+    Value vertical = Core::lt(top, bottom);
+    Value horizontal = Core::lt(left, right);
+    valid = Core::and_(vertical, horizontal);
+  }
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("Invalid box for {}: four finite edges in [0, 1], top < bottom and left < right are required"), path);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  return value;
+}
+
 Value Core::validate_signature(Value signature) {
   axir_coverage_mark("validate_signature");
   Core::_signature_validate_impl(signature);
-  return Value();
-}
-
-Value Core::_evidence_validate_type_impl(Value typ) {
-  axir_coverage_mark("_evidence_validate_type_impl");
-  Value name = Core::get(typ, Value("name"), Value());
-  Value evidence = Core::get(typ, Value("evidence"), Value());
-  Value present = Core::is_not_none(evidence);
-  if (Core::truthy(present)) {
-    Value supported = Value::array();
-    Core::append(supported, Value("boolean"));
-    Core::append(supported, Value("class"));
-    Core::append(supported, Value("score"));
-    Value valid = Core::contains(supported, name);
-    Value object = Core::type_is(evidence, Value("object"));
-    valid = Core::and_(valid, object);
-    Value invalid = Core::not_(valid);
-    if (Core::truthy(invalid)) {
-      throw AxError("runtime", "Evidence requires a boolean, class or score field");
-    }
-    Value keys = Core::map_keys(evidence);
-    Value allowed = Value::array();
-    Core::append(allowed, Value("threshold"));
-    Core::append(allowed, Value("onRefusal"));
-    for (auto key : Core::iter(keys)) {
-      Value known = Core::contains(allowed, key);
-      Value unknown = Core::not_(known);
-      if (Core::truthy(unknown)) {
-        throw AxError("runtime", "Unknown evidence option");
-      }
-    }
-    Value threshold = Core::get(evidence, Value("threshold"), Value());
-    Value has_threshold = Core::is_not_none(threshold);
-    if (Core::truthy(has_threshold)) {
-      Value is_boolean = Core::eq(name, Value("boolean"));
-      Value number = Core::type_is(threshold, Value("number"));
-      valid = Core::and_(is_boolean, number);
-      if (Core::truthy(valid)) {
-        Value finite = Core::math_is_finite(threshold);
-        Value low = Core::gte(threshold, Value(0));
-        Value high = Core::lte(threshold, Value(1));
-        Value range = Core::and_(low, high);
-        valid = Core::and_(finite, range);
-      }
-      invalid = Core::not_(valid);
-      if (Core::truthy(invalid)) {
-        throw AxError("runtime", "threshold requires a boolean field and a finite value in [0, 1]");
-      }
-    }
-    Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
-    Value throw_policy = Core::eq(policy, Value("throw"));
-    Value return_policy = Core::eq(policy, Value("return"));
-    valid = Core::or_(throw_policy, return_policy);
-    invalid = Core::not_(valid);
-    if (Core::truthy(invalid)) {
-      throw AxError("runtime", "onRefusal must be throw or return");
-    }
-  }
-  Value score = Core::eq(name, Value("score"));
-  if (Core::truthy(score)) {
-    Value labels = Core::get(typ, Value("options"), Value());
-    Value list = Core::type_is(labels, Value("list"));
-    Value invalid = Core::not_(list);
-    if (Core::truthy(invalid)) {
-      throw AxError("runtime", "Score requires 2-10 distinct, nonempty ordered rubric labels");
-    }
-    Value count = Core::len(labels);
-    Value low = Core::lt(count, Value(2));
-    Value high = Core::gt(count, Value(10));
-    invalid = Core::or_(low, high);
-    if (Core::truthy(invalid)) {
-      throw AxError("runtime", "Score requires 2-10 distinct, nonempty ordered rubric labels");
-    }
-    Value seen = Value::array();
-    for (auto label : Core::iter(labels)) {
-      Value string = Core::type_is(label, Value("string"));
-      invalid = Core::not_(string);
-      if (Core::truthy(invalid)) {
-        throw AxError("runtime", "Score labels must be strings");
-      }
-      Value trimmed = Core::string_trim(label);
-      Value empty = Core::eq(trimmed, Value(""));
-      Value duplicate = Core::contains(seen, label);
-      invalid = Core::or_(empty, duplicate);
-      if (Core::truthy(invalid)) {
-        throw AxError("runtime", "Score requires distinct, nonempty ordered rubric labels");
-      }
-      Core::append(seen, label);
-    }
-  }
   return Value();
 }
 
@@ -3885,6 +3840,39 @@ Value Core::_signature_parse_value_description_impl(Value raw, Value field_name,
     Core::raise_error(error);
   }
   return description;
+}
+
+Value Core::_evidence_is_type_impl(Value typ) {
+  axir_coverage_mark("_evidence_is_type_impl");
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value present = Core::is_not_none(evidence);
+  Value name = Core::get(typ, Value("name"), Value());
+  Value score = Core::eq(name, Value("score"));
+  Value box = Core::eq(name, Value("box"));
+  Value result = Core::or_(present, score);
+  result = Core::or_(result, box);
+  return result;
+}
+
+Value Core::_evidence_has_fields_impl(Value fields) {
+  axir_coverage_mark("_evidence_has_fields_impl");
+  for (auto field : Core::iter(fields)) {
+    Value typ = Core::get(field, Value("type"), Value());
+    Value decision = Core::_evidence_is_type_impl(typ);
+    if (Core::truthy(decision)) {
+      return Value(true);
+    }
+    Value children = Core::get(typ, Value("fields"), Value());
+    Value present = Core::is_not_none(children);
+    if (Core::truthy(present)) {
+      Value nested = Core::fields_from_map(children);
+      decision = Core::_evidence_has_fields_impl(nested);
+      if (Core::truthy(decision)) {
+        return Value(true);
+      }
+    }
+  }
+  return Value(false);
 }
 
 Value Core::_signature_parse_impl(Value signature) {
@@ -3992,67 +3980,103 @@ Value Core::_signature_parse_class_descriptions_impl(Value raw, Value field_name
   return descriptions;
 }
 
-Value Core::_evidence_parse_options_impl(Value raw) {
-  axir_coverage_mark("_evidence_parse_options_impl");
-  Value parts = Core::string_split_top_level(raw, Value(","));
-  Value evidence = Value::object();
-  Value seen = Value::array();
-  Value remaining = Value::array();
-  for (auto part : Core::iter(parts)) {
-    part = Core::string_trim(part);
-    Value words = Core::string_words(part);
-    Value token = Core::list_get(words, Value(0), Value(""));
-    Value e = Core::eq(token, Value("evidence"));
-    Value t = Core::eq(token, Value("threshold"));
-    Value r = Core::eq(token, Value("refusal"));
-    Value modifier = Core::or_(e, t);
-    modifier = Core::or_(modifier, r);
-    if (Core::truthy(modifier)) {
-      Value duplicate = Core::contains(seen, token);
-      if (Core::truthy(duplicate)) {
-        throw AxError("runtime", "Duplicate evidence modifier");
-      }
-      Core::append(seen, token);
-      Value count = Core::len(words);
-      Value arg = Core::list_get(words, Value(1), Value(""));
-      if (Core::truthy(e)) {
-        Value bad = Core::ne(count, Value(1));
-        if (Core::truthy(bad)) {
-          throw AxError("runtime", "evidence does not take an argument");
-        }
-      }
-      if (!Core::truthy(e)) {
-        Value bad = Core::ne(count, Value(2));
-        if (Core::truthy(bad)) {
-          throw AxError("runtime", "Evidence modifier requires one argument");
-        }
-        if (Core::truthy(t)) {
-          Value number = Core::json_parse(arg);
-          Core::set(evidence, Value("threshold"), number);
-        }
-        if (!Core::truthy(t)) {
-          Core::set(evidence, Value("onRefusal"), arg);
-        }
+Value Core::_evidence_validate_type_impl(Value typ) {
+  axir_coverage_mark("_evidence_validate_type_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value present = Core::is_not_none(evidence);
+  if (Core::truthy(present)) {
+    Value supported = Value::array();
+    Core::append(supported, Value("boolean"));
+    Core::append(supported, Value("class"));
+    Core::append(supported, Value("score"));
+    Core::append(supported, Value("box"));
+    Value valid = Core::contains(supported, name);
+    Value object = Core::type_is(evidence, Value("object"));
+    valid = Core::and_(valid, object);
+    Value invalid = Core::not_(valid);
+    if (Core::truthy(invalid)) {
+      Value error = Core::signature_error(Value("Evidence requires a boolean, class, score or box field"));
+      Core::raise_error(error);
+    }
+    Value keys = Core::map_keys(evidence);
+    Value allowed = Value::array();
+    Core::append(allowed, Value("threshold"));
+    Core::append(allowed, Value("onRefusal"));
+    for (auto key : Core::iter(keys)) {
+      Value known = Core::contains(allowed, key);
+      Value unknown = Core::not_(known);
+      if (Core::truthy(unknown)) {
+        Value error = Core::signature_error(Value("Unknown evidence option"));
+        Core::raise_error(error);
       }
     }
-    if (!Core::truthy(modifier)) {
-      Core::append(remaining, part);
+    Value threshold = Core::get(evidence, Value("threshold"), Value());
+    Value has_threshold = Core::is_not_none(threshold);
+    if (Core::truthy(has_threshold)) {
+      Value is_boolean = Core::eq(name, Value("boolean"));
+      Value number = Core::type_is(threshold, Value("number"));
+      valid = Core::and_(is_boolean, number);
+      if (Core::truthy(valid)) {
+        Value finite = Core::math_is_finite(threshold);
+        Value low = Core::gte(threshold, Value(0));
+        Value high = Core::lte(threshold, Value(1));
+        Value range = Core::and_(low, high);
+        valid = Core::and_(finite, range);
+      }
+      invalid = Core::not_(valid);
+      if (Core::truthy(invalid)) {
+        Value error = Core::signature_error(Value("threshold requires a boolean field and a finite value in [0, 1]"));
+        Core::raise_error(error);
+      }
+    }
+    Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+    Value throw_policy = Core::eq(policy, Value("throw"));
+    Value return_policy = Core::eq(policy, Value("return"));
+    valid = Core::or_(throw_policy, return_policy);
+    invalid = Core::not_(valid);
+    if (Core::truthy(invalid)) {
+      Value error = Core::signature_error(Value("onRefusal must be throw or return"));
+      Core::raise_error(error);
     }
   }
-  Value has_evidence = Core::contains(seen, Value("evidence"));
-  Value has_policy = Core::truthy_value(seen);
-  Value missing_evidence = Core::not_(has_evidence);
-  Value invalid = Core::and_(has_policy, missing_evidence);
-  if (Core::truthy(invalid)) {
-    throw AxError("runtime", "threshold and refusal require the evidence modifier");
+  Value score = Core::eq(name, Value("score"));
+  if (Core::truthy(score)) {
+    Value labels = Core::get(typ, Value("options"), Value());
+    Value list = Core::type_is(labels, Value("list"));
+    Value invalid = Core::not_(list);
+    if (Core::truthy(invalid)) {
+      Value error = Core::signature_error(Value("Score requires 2-10 distinct, nonempty ordered rubric labels"));
+      Core::raise_error(error);
+    }
+    Value count = Core::len(labels);
+    Value low = Core::lt(count, Value(2));
+    Value high = Core::gt(count, Value(10));
+    invalid = Core::or_(low, high);
+    if (Core::truthy(invalid)) {
+      Value error = Core::signature_error(Value("Score requires 2-10 distinct, nonempty ordered rubric labels"));
+      Core::raise_error(error);
+    }
+    Value seen = Value::array();
+    for (auto label : Core::iter(labels)) {
+      Value string = Core::type_is(label, Value("string"));
+      invalid = Core::not_(string);
+      if (Core::truthy(invalid)) {
+        Value error = Core::signature_error(Value("Score labels must be strings"));
+        Core::raise_error(error);
+      }
+      Value trimmed = Core::string_trim(label);
+      Value empty = Core::eq(trimmed, Value(""));
+      Value duplicate = Core::contains(seen, label);
+      invalid = Core::or_(empty, duplicate);
+      if (Core::truthy(invalid)) {
+        Value error = Core::signature_error(Value("Score requires distinct, nonempty ordered rubric labels"));
+        Core::raise_error(error);
+      }
+      Core::append(seen, label);
+    }
   }
-  Value out = Value::object();
-  if (Core::truthy(has_evidence)) {
-    Core::set(out, Value("evidence"), evidence);
-  }
-  Value rest = Core::string_join(Value(", "), remaining);
-  Core::set(out, Value("rest"), rest);
-  return out;
+  return Value();
 }
 
 Value Core::_signature_parse_fields_impl(Value text, Value output) {
@@ -4091,29 +4115,6 @@ Value Core::_signature_render_value_descriptions_impl(Value typ) {
         label = Core::string_format(Value("\"{}\""), escaped_key);
       }
       Value entry = Core::string_format(Value("{} \"{}\""), label, escaped);
-      Core::append(entries, entry);
-    }
-  }
-  return entries;
-}
-
-Value Core::_evidence_render_entries_impl(Value typ) {
-  axir_coverage_mark("_evidence_render_entries_impl");
-  Value entries = Value::array();
-  Value evidence = Core::get(typ, Value("evidence"), Value());
-  Value present = Core::is_not_none(evidence);
-  if (Core::truthy(present)) {
-    Core::append(entries, Value("evidence"));
-    Value threshold = Core::get(evidence, Value("threshold"), Value());
-    present = Core::is_not_none(threshold);
-    if (Core::truthy(present)) {
-      Value entry = Core::string_format(Value("threshold {}"), threshold);
-      Core::append(entries, entry);
-    }
-    Value policy = Core::get(evidence, Value("onRefusal"), Value());
-    present = Core::is_not_none(policy);
-    if (Core::truthy(present)) {
-      Value entry = Core::string_format(Value("refusal {}"), policy);
       Core::append(entries, entry);
     }
   }
@@ -4275,6 +4276,69 @@ Value Core::_signature_parse_field_common_impl(Value raw, Value output, Value ne
   return field;
 }
 
+Value Core::_evidence_parse_options_impl(Value raw) {
+  axir_coverage_mark("_evidence_parse_options_impl");
+  Value parts = Core::string_split_top_level(raw, Value(","));
+  Value evidence = Value::object();
+  Value seen = Value::array();
+  Value remaining = Value::array();
+  for (auto part : Core::iter(parts)) {
+    part = Core::string_trim(part);
+    Value words = Core::string_words(part);
+    Value token = Core::list_get(words, Value(0), Value(""));
+    Value e = Core::eq(token, Value("evidence"));
+    Value t = Core::eq(token, Value("threshold"));
+    Value r = Core::eq(token, Value("refusal"));
+    Value modifier = Core::or_(e, t);
+    modifier = Core::or_(modifier, r);
+    if (Core::truthy(modifier)) {
+      Value duplicate = Core::contains(seen, token);
+      if (Core::truthy(duplicate)) {
+        throw AxError("runtime", "Duplicate evidence modifier");
+      }
+      Core::append(seen, token);
+      Value count = Core::len(words);
+      Value arg = Core::list_get(words, Value(1), Value(""));
+      if (Core::truthy(e)) {
+        Value bad = Core::ne(count, Value(1));
+        if (Core::truthy(bad)) {
+          throw AxError("runtime", "evidence does not take an argument");
+        }
+      }
+      if (!Core::truthy(e)) {
+        Value bad = Core::ne(count, Value(2));
+        if (Core::truthy(bad)) {
+          throw AxError("runtime", "Evidence modifier requires one argument");
+        }
+        if (Core::truthy(t)) {
+          Value number = Core::json_parse(arg);
+          Core::set(evidence, Value("threshold"), number);
+        }
+        if (!Core::truthy(t)) {
+          Core::set(evidence, Value("onRefusal"), arg);
+        }
+      }
+    }
+    if (!Core::truthy(modifier)) {
+      Core::append(remaining, part);
+    }
+  }
+  Value has_evidence = Core::contains(seen, Value("evidence"));
+  Value has_policy = Core::truthy_value(seen);
+  Value missing_evidence = Core::not_(has_evidence);
+  Value invalid = Core::and_(has_policy, missing_evidence);
+  if (Core::truthy(invalid)) {
+    throw AxError("runtime", "threshold and refusal require the evidence modifier");
+  }
+  Value out = Value::object();
+  if (Core::truthy(has_evidence)) {
+    Core::set(out, Value("evidence"), evidence);
+  }
+  Value rest = Core::string_join(Value(", "), remaining);
+  Core::set(out, Value("rest"), rest);
+  return out;
+}
+
 Value Core::_signature_nested_value_descriptions_impl(Value fields, Value prefix) {
   axir_coverage_mark("_signature_nested_value_descriptions_impl");
   Value out = Value::array();
@@ -4328,6 +4392,29 @@ Value Core::_signature_output_value_descriptions_impl(Value fields) {
   return out;
 }
 
+Value Core::_evidence_render_entries_impl(Value typ) {
+  axir_coverage_mark("_evidence_render_entries_impl");
+  Value entries = Value::array();
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value present = Core::is_not_none(evidence);
+  if (Core::truthy(present)) {
+    Core::append(entries, Value("evidence"));
+    Value threshold = Core::get(evidence, Value("threshold"), Value());
+    present = Core::is_not_none(threshold);
+    if (Core::truthy(present)) {
+      Value entry = Core::string_format(Value("threshold {}"), threshold);
+      Core::append(entries, entry);
+    }
+    Value policy = Core::get(evidence, Value("onRefusal"), Value());
+    present = Core::is_not_none(policy);
+    if (Core::truthy(present)) {
+      Value entry = Core::string_format(Value("refusal {}"), policy);
+      Core::append(entries, entry);
+    }
+  }
+  return entries;
+}
+
 Value Core::_signature_parse_description_impl(Value raw, Value fallback) {
   axir_coverage_mark("_signature_parse_description_impl");
   Value text = Core::string_trim(raw);
@@ -4367,6 +4454,7 @@ Value Core::_signature_parse_base_type_impl(Value raw) {
   Core::append(types, Value("object"));
   Core::append(types, Value("class"));
   Core::append(types, Value("score"));
+  Core::append(types, Value("box"));
   Core::append(types, Value("image"));
   Core::append(types, Value("audio"));
   Core::append(types, Value("file"));
@@ -4611,71 +4699,6 @@ Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value fiel
   Value is_cached = Core::get(modifier_state, Value("is_cached"), Value(false));
   Core::set(out, Value("is_cached"), is_cached);
   Core::set(out, Value("rest"), rest);
-  return out;
-}
-
-Value Core::_evidence_request_fields_impl(Value fields) {
-  axir_coverage_mark("_evidence_request_fields_impl");
-  Value out = Value::object();
-  for (auto field : Core::iter(fields)) {
-    Value typ = Core::get(field, Value("type"), Value());
-    Value decision = Core::_evidence_is_type_impl(typ);
-    if (Core::truthy(decision)) {
-      Value entry = Value::object();
-      Value name = Core::get(typ, Value("name"), Value());
-      Value labels = Core::get(typ, Value("options"), Value());
-      Value evidence = Core::get(typ, Value("evidence"), Value());
-      Value array = Core::get(typ, Value("is_array"), Value(false));
-      Value optional = Core::get(field, Value("is_optional"), Value(false));
-      Core::set(entry, Value("type"), name);
-      Core::set(entry, Value("options"), labels);
-      Core::set(entry, Value("evidence"), evidence);
-      Core::set(entry, Value("isArray"), array);
-      Core::set(entry, Value("isOptional"), optional);
-      Value key = Core::get(field, Value("name"), Value());
-      Core::set(out, key, entry);
-    }
-  }
-  return out;
-}
-
-Value Core::_evidence_placeholder_impl(Value typ) {
-  axir_coverage_mark("_evidence_placeholder_impl");
-  Value name = Core::get(typ, Value("name"), Value());
-  Value is_boolean = Core::eq(name, Value("boolean"));
-  Value score = Core::eq(name, Value("score"));
-  Value out = Value::object();
-  if (Core::truthy(is_boolean)) {
-    Core::set(out, Value("probability"), Value("<probability of true, 0 to 1>"));
-  }
-  if (!Core::truthy(is_boolean)) {
-    Value labels = Core::get(typ, Value("options"), Value());
-    Value ps = Value::object();
-    if (Core::truthy(score)) {
-      ps = Value::array();
-    }
-    for (auto label : Core::iter(labels)) {
-      if (Core::truthy(score)) {
-        Core::append(ps, Value("<probability, 0 to 1>"));
-      }
-      if (!Core::truthy(score)) {
-        Core::set(ps, label, Value("<probability, 0 to 1>"));
-      }
-    }
-    Core::set(out, Value("probabilities"), ps);
-  }
-  Value evidence = Core::get(typ, Value("evidence"), Value());
-  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
-  Value return_policy = Core::eq(policy, Value("return"));
-  if (Core::truthy(return_policy)) {
-    Core::set(out, Value("status"), Value("answered"));
-  }
-  Value array = Core::get(typ, Value("is_array"), Value(false));
-  if (Core::truthy(array)) {
-    Value wrapped = Value::array();
-    Core::append(wrapped, out);
-    return wrapped;
-  }
   return out;
 }
 
@@ -4973,6 +4996,121 @@ Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, V
   return out;
 }
 
+Value Core::_evidence_request_fields_impl(Value fields) {
+  axir_coverage_mark("_evidence_request_fields_impl");
+  Value out = Value::object();
+  for (auto field : Core::iter(fields)) {
+    Value typ = Core::get(field, Value("type"), Value());
+    Value decision = Core::_evidence_is_type_impl(typ);
+    if (Core::truthy(decision)) {
+      Value entry = Value::object();
+      Value name = Core::get(typ, Value("name"), Value());
+      Value labels = Core::get(typ, Value("options"), Value());
+      Value evidence = Core::get(typ, Value("evidence"), Value());
+      Value array = Core::get(typ, Value("is_array"), Value(false));
+      Value optional = Core::get(field, Value("is_optional"), Value(false));
+      Core::set(entry, Value("type"), name);
+      Core::set(entry, Value("options"), labels);
+      Core::set(entry, Value("evidence"), evidence);
+      Core::set(entry, Value("isArray"), array);
+      Core::set(entry, Value("isOptional"), optional);
+      Value key = Core::get(field, Value("name"), Value());
+      Core::set(out, key, entry);
+    }
+  }
+  return out;
+}
+
+Value Core::_evidence_placeholder_impl(Value typ) {
+  axir_coverage_mark("_evidence_placeholder_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value out = Value::object();
+  if (Core::truthy(is_boolean)) {
+    Core::set(out, Value("probability"), Value("<probability of true, 0 to 1>"));
+  }
+  if (!Core::truthy(is_boolean)) {
+    Value empty = Value::array();
+    Value labels_raw = Core::get(typ, Value("options"), Value());
+    Value labels = Core::coalesce(labels_raw, empty);
+    Value ps = Value::object();
+    if (Core::truthy(score)) {
+      ps = Value::array();
+    }
+    for (auto label : Core::iter(labels)) {
+      if (Core::truthy(score)) {
+        Core::append(ps, Value("<probability, 0 to 1>"));
+      }
+      if (!Core::truthy(score)) {
+        Core::set(ps, label, Value("<probability, 0 to 1>"));
+      }
+    }
+    Core::set(out, Value("probabilities"), ps);
+  }
+  Value box = Core::eq(name, Value("box"));
+  if (Core::truthy(box)) {
+    Value coordinates = Value::object();
+    Core::set(coordinates, Value("top"), Value("<top edge, 0 to 1>"));
+    Core::set(coordinates, Value("bottom"), Value("<bottom edge, greater than top, up to 1>"));
+    Core::set(coordinates, Value("left"), Value("<left edge, 0 to 1>"));
+    Core::set(coordinates, Value("right"), Value("<right edge, greater than left, up to 1>"));
+    out = Value::object();
+    Core::set(out, Value("box"), coordinates);
+    Value evidence = Core::get(typ, Value("evidence"), Value());
+    Value plain = Core::is_none(evidence);
+    if (Core::truthy(plain)) {
+      out = coordinates;
+    }
+  }
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+  Value return_policy = Core::eq(policy, Value("return"));
+  if (Core::truthy(return_policy)) {
+    Core::set(out, Value("status"), Value("answered"));
+  }
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  if (Core::truthy(array)) {
+    Value wrapped = Value::array();
+    Core::append(wrapped, out);
+    return wrapped;
+  }
+  return out;
+}
+
+Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value parent) {
+  axir_coverage_mark("_signature_parse_object_fields_impl");
+  Value text = Core::string_trim(raw);
+  Value empty = Core::eq(text, Value(""));
+  if (Core::truthy(empty)) {
+    Value message = Core::string_format(Value("Field \"{}\": object type requires at least one field"), parent);
+    Value error = Core::signature_error(message);
+    Core::raise_error(error);
+  }
+  Value parts = Core::string_split_top_level(raw, Value(","));
+  Value fields = Value::object();
+  Value output = Core::eq(section, Value("output"));
+  for (auto part : Core::iter(parts)) {
+    Value entry = Core::string_trim(part);
+    Value entry_empty = Core::eq(entry, Value(""));
+    if (Core::truthy(entry_empty)) {
+      Value message = Core::string_format(Value("Field \"{}\": trailing comma in object type"), parent);
+      Value error = Core::signature_error(message);
+      Core::raise_error(error);
+    }
+    Value field = Core::_signature_parse_field_common_impl(entry, output, Value(true), parent);
+    Value name = Core::get(field, Value("name"), Value());
+    Value duplicate = Core::map_contains(fields, name);
+    if (Core::truthy(duplicate)) {
+      Value message = Core::string_format(Value("Field \"{}\": duplicate object field name \"{}\""), parent, name);
+      Value error = Core::signature_error(message);
+      Core::raise_error(error);
+    }
+    Core::set(fields, name, field);
+  }
+  return fields;
+}
+
 Value Core::_evidence_example_values_impl(Value fields, Value values) {
   axir_coverage_mark("_evidence_example_values_impl");
   Value empty = Value::object();
@@ -5014,6 +5152,20 @@ Value Core::_evidence_example_values_impl(Value fields, Value values) {
               }
               Value probabilities = Core::get(item, key, Value());
               Core::set(raw, key, probabilities);
+              Value box = Core::eq(type_name, Value("box"));
+              if (Core::truthy(box)) {
+                Value coordinates = Core::get(item, Value("value"), Value());
+                Value wire_box = Core::get(item, Value("box"), item);
+                coordinates = Core::coalesce(coordinates, wire_box);
+                coordinates = Core::_box_validate_impl(coordinates, name);
+                raw = Value::object();
+                Core::set(raw, Value("box"), coordinates);
+                Value evidence = Core::get(typ, Value("evidence"), Value());
+                Value plain = Core::is_none(evidence);
+                if (Core::truthy(plain)) {
+                  raw = coordinates;
+                }
+              }
               Value evidence = Core::get(typ, Value("evidence"), Value());
               Value policy = Core::get(evidence, Value("onRefusal"), Value());
               Value return_policy = Core::eq(policy, Value("return"));
@@ -5042,39 +5194,6 @@ Value Core::_evidence_example_values_impl(Value fields, Value values) {
     }
   }
   return out;
-}
-
-Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value parent) {
-  axir_coverage_mark("_signature_parse_object_fields_impl");
-  Value text = Core::string_trim(raw);
-  Value empty = Core::eq(text, Value(""));
-  if (Core::truthy(empty)) {
-    Value message = Core::string_format(Value("Field \"{}\": object type requires at least one field"), parent);
-    Value error = Core::signature_error(message);
-    Core::raise_error(error);
-  }
-  Value parts = Core::string_split_top_level(raw, Value(","));
-  Value fields = Value::object();
-  Value output = Core::eq(section, Value("output"));
-  for (auto part : Core::iter(parts)) {
-    Value entry = Core::string_trim(part);
-    Value entry_empty = Core::eq(entry, Value(""));
-    if (Core::truthy(entry_empty)) {
-      Value message = Core::string_format(Value("Field \"{}\": trailing comma in object type"), parent);
-      Value error = Core::signature_error(message);
-      Core::raise_error(error);
-    }
-    Value field = Core::_signature_parse_field_common_impl(entry, output, Value(true), parent);
-    Value name = Core::get(field, Value("name"), Value());
-    Value duplicate = Core::map_contains(fields, name);
-    if (Core::truthy(duplicate)) {
-      Value message = Core::string_format(Value("Field \"{}\": duplicate object field name \"{}\""), parent, name);
-      Value error = Core::signature_error(message);
-      Core::raise_error(error);
-    }
-    Core::set(fields, name, field);
-  }
-  return fields;
 }
 
 Value Core::signature_to_string(Value signature) {
@@ -5341,6 +5460,7 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   Core::append(valid_types, Value("boolean"));
   Core::append(valid_types, Value("class"));
   Core::append(valid_types, Value("score"));
+  Core::append(valid_types, Value("box"));
   Core::append(valid_types, Value("code"));
   Core::append(valid_types, Value("date"));
   Core::append(valid_types, Value("dateRange"));
@@ -5821,93 +5941,6 @@ Value Core::_validate_string_constraints_impl(Value value, Value field) {
   return Value();
 }
 
-Value Core::_evidence_schema_impl(Value typ) {
-  axir_coverage_mark("_evidence_schema_impl");
-  Value name = Core::get(typ, Value("name"), Value());
-  Value labels = Core::get(typ, Value("options"), Value());
-  Value p = Value::object();
-  Core::set(p, Value("type"), Value("number"));
-  Core::set(p, Value("minimum"), Value(0));
-  Core::set(p, Value("maximum"), Value(1));
-  Value props = Value::object();
-  Value is_boolean = Core::eq(name, Value("boolean"));
-  Value score = Core::eq(name, Value("score"));
-  Value required = Value::array();
-  if (Core::truthy(is_boolean)) {
-    Core::set(props, Value("probability"), p);
-    Core::append(required, Value("probability"));
-  }
-  if (!Core::truthy(is_boolean)) {
-    Value distribution = Value::object();
-    if (Core::truthy(score)) {
-      Core::set(distribution, Value("type"), Value("array"));
-      Core::set(distribution, Value("items"), p);
-      Value count = Core::len(labels);
-      Core::set(distribution, Value("minItems"), count);
-      Core::set(distribution, Value("maxItems"), count);
-      Value order = Core::string_join(Value(", "), labels);
-      Value hint = Core::string_format(Value("Probabilities in rubric order, lowest to highest: {}"), order);
-      Core::set(distribution, Value("description"), hint);
-    }
-    if (!Core::truthy(score)) {
-      Core::set(distribution, Value("type"), Value("object"));
-      Value ps = Value::object();
-      for (auto label : Core::iter(labels)) {
-        Core::set(ps, label, p);
-      }
-      Core::set(distribution, Value("properties"), ps);
-      Core::set(distribution, Value("required"), labels);
-      Core::set(distribution, Value("additionalProperties"), Value(false));
-    }
-    Core::set(props, Value("probabilities"), distribution);
-    Core::append(required, Value("probabilities"));
-  }
-  Value schema = Value::object();
-  Core::set(schema, Value("type"), Value("object"));
-  Core::set(schema, Value("properties"), props);
-  Core::set(schema, Value("required"), required);
-  Core::set(schema, Value("additionalProperties"), Value(false));
-  Value evidence = Core::get(typ, Value("evidence"), Value());
-  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
-  Value return_policy = Core::eq(policy, Value("return"));
-  if (Core::truthy(return_policy)) {
-    Value status = Value::object();
-    Core::set(status, Value("type"), Value("string"));
-    Value answered = Value::array();
-    Core::append(answered, Value("answered"));
-    Core::set(status, Value("enum"), answered);
-    Core::set(props, Value("status"), status);
-    Core::append(required, Value("status"));
-    Value refused = Value::object();
-    Core::set(refused, Value("type"), Value("object"));
-    Value refusal_props = Value::object();
-    Value refusal_status = Value::object();
-    Core::set(refusal_status, Value("type"), Value("string"));
-    Value tags = Value::array();
-    Core::append(tags, Value("refused"));
-    Core::set(refusal_status, Value("enum"), tags);
-    Core::set(refusal_props, Value("status"), refusal_status);
-    Core::set(refused, Value("properties"), refusal_props);
-    Value keys = Value::array();
-    Core::append(keys, Value("status"));
-    Core::set(refused, Value("required"), keys);
-    Core::set(refused, Value("additionalProperties"), Value(false));
-    Value alternatives = Value::array();
-    Core::append(alternatives, schema);
-    Core::append(alternatives, refused);
-    schema = Value::object();
-    Core::set(schema, Value("anyOf"), alternatives);
-  }
-  Value array = Core::get(typ, Value("is_array"), Value(false));
-  if (Core::truthy(array)) {
-    Value wrapped = Value::object();
-    Core::set(wrapped, Value("type"), Value("array"));
-    Core::set(wrapped, Value("items"), schema);
-    schema = wrapped;
-  }
-  return schema;
-}
-
 Value Core::_validate_number_constraints_impl(Value value, Value field) {
   axir_coverage_mark("_validate_number_constraints_impl");
   Value typ = Core::get(field, Value("type"), Value());
@@ -6021,6 +6054,26 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
     for (auto item : Core::iter(value)) {
       Core::_validate_value_impl(item_field, item, path);
     }
+    return Value();
+  }
+  Value box = Core::eq(type_name, Value("box"));
+  if (Core::truthy(box)) {
+    Value evidence = Core::get(typ, Value("evidence"), Value());
+    Value rich = Core::is_not_none(evidence);
+    Value coordinates = value;
+    if (Core::truthy(rich)) {
+      Value policy = Core::get(evidence, Value("onRefusal"), Value());
+      Value return_refusal = Core::eq(policy, Value("return"));
+      Value status = Core::get(value, Value("status"), Value());
+      Value refused = Core::eq(status, Value("refused"));
+      Value allow_refusal = Core::and_(return_refusal, refused);
+      if (Core::truthy(allow_refusal)) {
+        return Value();
+      }
+      Value wire = Core::get(value, Value("box"), value);
+      coordinates = Core::get(value, Value("value"), wire);
+    }
+    Core::_box_validate_impl(coordinates, path);
     return Value();
   }
   Value decision = Core::_evidence_is_type_impl(typ);
@@ -6200,25 +6253,6 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
   return Value();
 }
 
-Value Core::_evidence_probability_impl(Value v, Value path) {
-  axir_coverage_mark("_evidence_probability_impl");
-  Value valid = Core::type_is(v, Value("number"));
-  if (Core::truthy(valid)) {
-    Value finite = Core::math_is_finite(v);
-    Value low = Core::gte(v, Value(0));
-    Value high = Core::lte(v, Value(1));
-    Value range = Core::and_(low, high);
-    valid = Core::and_(finite, range);
-  }
-  Value invalid = Core::not_(valid);
-  if (Core::truthy(invalid)) {
-    Value message = Core::string_format(Value("Invalid probability for {}"), path);
-    Value error = Core::validation_error(message);
-    Core::raise_error(error);
-  }
-  return v;
-}
-
 Value Core::_schema_nullable_optional_impl(Value schema, Value field, Value options) {
   axir_coverage_mark("_schema_nullable_optional_impl");
   Value is_optional = Core::get(field, Value("is_optional"), Value(false));
@@ -6256,6 +6290,120 @@ Value Core::_schema_nullable_optional_impl(Value schema, Value field, Value opti
   return schema;
 }
 
+Value Core::_evidence_schema_impl(Value typ) {
+  axir_coverage_mark("_evidence_schema_impl");
+  Value name = Core::get(typ, Value("name"), Value());
+  Value labels = Core::get(typ, Value("options"), Value());
+  Value p = Value::object();
+  Core::set(p, Value("type"), Value("number"));
+  Core::set(p, Value("minimum"), Value(0));
+  Core::set(p, Value("maximum"), Value(1));
+  Value props = Value::object();
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value box = Core::eq(name, Value("box"));
+  Value required = Value::array();
+  if (Core::truthy(box)) {
+    Value coordinates = Core::_box_schema_impl();
+    Value evidence = Core::get(typ, Value("evidence"), Value());
+    Value plain = Core::is_none(evidence);
+    if (Core::truthy(plain)) {
+      Value array = Core::get(typ, Value("is_array"), Value(false));
+      if (Core::truthy(array)) {
+        Value wrapped = Value::object();
+        Core::set(wrapped, Value("type"), Value("array"));
+        Core::set(wrapped, Value("items"), coordinates);
+        return wrapped;
+      }
+      return coordinates;
+    }
+    Core::set(props, Value("box"), coordinates);
+    Core::append(required, Value("box"));
+  }
+  if (!Core::truthy(box)) {
+    if (Core::truthy(is_boolean)) {
+      Core::set(props, Value("probability"), p);
+      Core::append(required, Value("probability"));
+    }
+    if (!Core::truthy(is_boolean)) {
+      Value distribution = Value::object();
+      if (Core::truthy(score)) {
+        Core::set(distribution, Value("type"), Value("array"));
+        Core::set(distribution, Value("items"), p);
+        Value count = Core::len(labels);
+        Core::set(distribution, Value("minItems"), count);
+        Core::set(distribution, Value("maxItems"), count);
+        Value order = Core::string_join(Value(", "), labels);
+        Value hint = Core::string_format(Value("Probabilities in rubric order, lowest to highest: {}"), order);
+        Core::set(distribution, Value("description"), hint);
+      }
+      if (!Core::truthy(score)) {
+        Core::set(distribution, Value("type"), Value("object"));
+        Value ps = Value::object();
+        for (auto label : Core::iter(labels)) {
+          Core::set(ps, label, p);
+        }
+        Core::set(distribution, Value("properties"), ps);
+        Core::set(distribution, Value("required"), labels);
+        Core::set(distribution, Value("additionalProperties"), Value(false));
+      }
+      Core::set(props, Value("probabilities"), distribution);
+      Core::append(required, Value("probabilities"));
+    }
+  }
+  Value schema = Value::object();
+  Core::set(schema, Value("type"), Value("object"));
+  Core::set(schema, Value("properties"), props);
+  Core::set(schema, Value("required"), required);
+  Core::set(schema, Value("additionalProperties"), Value(false));
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+  Value return_policy = Core::eq(policy, Value("return"));
+  if (Core::truthy(return_policy)) {
+    Value status = Value::object();
+    Core::set(status, Value("type"), Value("string"));
+    Value answered = Value::array();
+    Core::append(answered, Value("answered"));
+    Core::set(status, Value("enum"), answered);
+    Core::set(props, Value("status"), status);
+    Core::append(required, Value("status"));
+    Core::set(schema, Value("required"), required);
+    if (Core::truthy(box)) {
+      required = Value::array();
+      Core::append(required, Value("status"));
+      Core::append(required, Value("box"));
+      Core::set(schema, Value("required"), required);
+    }
+    Value refused = Value::object();
+    Core::set(refused, Value("type"), Value("object"));
+    Value refusal_props = Value::object();
+    Value refusal_status = Value::object();
+    Core::set(refusal_status, Value("type"), Value("string"));
+    Value tags = Value::array();
+    Core::append(tags, Value("refused"));
+    Core::set(refusal_status, Value("enum"), tags);
+    Core::set(refusal_props, Value("status"), refusal_status);
+    Core::set(refused, Value("properties"), refusal_props);
+    Value keys = Value::array();
+    Core::append(keys, Value("status"));
+    Core::set(refused, Value("required"), keys);
+    Core::set(refused, Value("additionalProperties"), Value(false));
+    Value alternatives = Value::array();
+    Core::append(alternatives, schema);
+    Core::append(alternatives, refused);
+    schema = Value::object();
+    Core::set(schema, Value("anyOf"), alternatives);
+  }
+  Value array = Core::get(typ, Value("is_array"), Value(false));
+  if (Core::truthy(array)) {
+    Value wrapped = Value::object();
+    Core::set(wrapped, Value("type"), Value("array"));
+    Core::set(wrapped, Value("items"), schema);
+    schema = wrapped;
+  }
+  return schema;
+}
+
 Value Core::_schema_object_from_fields_impl(Value fields_map, Value is_nested, Value options) {
   axir_coverage_mark("_schema_object_from_fields_impl");
   Value schema = Value::object();
@@ -6288,6 +6436,12 @@ Value Core::_schema_field_schema_impl(Value field, Value is_nested, Value option
   Value type_name = Core::get(typ, Value("name"), Value());
   Value decision = Core::_evidence_is_type_impl(typ);
   if (Core::truthy(decision)) {
+    Value box = Core::eq(type_name, Value("box"));
+    Value array = Core::get(typ, Value("is_array"), Value(false));
+    if (Core::truthy(box)) {
+      Value item_field = Core::field_item(field);
+      typ = Core::get(item_field, Value("type"), Value());
+    }
     Value schema = Core::_evidence_schema_impl(typ);
     Value decision_mode = Core::get(options, Value("decisionMode"), Value("request"));
     Value result_mode = Core::eq(decision_mode, Value("result"));
@@ -6295,7 +6449,30 @@ Value Core::_schema_field_schema_impl(Value field, Value is_nested, Value option
       schema = Core::_evidence_result_schema_impl(typ);
     }
     Value description = Core::_signature_describe_field_values_impl(field);
+    if (Core::truthy(box)) {
+      Value hint = Value("Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right.");
+      if (Core::truthy(result_mode)) {
+        hint = Value("");
+      }
+      Value has_description = Core::truthy_value(description);
+      if (Core::truthy(has_description)) {
+        Value has_hint = Core::truthy_value(hint);
+        if (Core::truthy(has_hint)) {
+          description = Core::string_format(Value("{} {}"), description, hint);
+        }
+      }
+      if (!Core::truthy(has_description)) {
+        description = hint;
+      }
+    }
     Core::set(schema, Value("description"), description);
+    Value box_array = Core::and_(box, array);
+    if (Core::truthy(box_array)) {
+      Value wrapped = Value::object();
+      Core::set(wrapped, Value("type"), Value("array"));
+      Core::set(wrapped, Value("items"), schema);
+      schema = wrapped;
+    }
     Value nullable = Core::_schema_nullable_optional_impl(schema, field, options);
     return nullable;
   }
@@ -6407,6 +6584,25 @@ Value Core::_schema_field_schema_impl(Value field, Value is_nested, Value option
   return nullable;
 }
 
+Value Core::_evidence_probability_impl(Value v, Value path) {
+  axir_coverage_mark("_evidence_probability_impl");
+  Value valid = Core::type_is(v, Value("number"));
+  if (Core::truthy(valid)) {
+    Value finite = Core::math_is_finite(v);
+    Value low = Core::gte(v, Value(0));
+    Value high = Core::lte(v, Value(1));
+    Value range = Core::and_(low, high);
+    valid = Core::and_(finite, range);
+  }
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Value message = Core::string_format(Value("Invalid probability for {}"), path);
+    Value error = Core::validation_error(message);
+    Core::raise_error(error);
+  }
+  return v;
+}
+
 Value Core::_strip_internal_fields_impl(Value fields, Value values) {
   axir_coverage_mark("_strip_internal_fields_impl");
   Value public_values = Value::object();
@@ -6502,8 +6698,13 @@ Value Core::_evidence_result_schema_impl(Value typ) {
       Core::set(value, Value("enum"), levels);
     }
   }
+  Value box = Core::eq(name, Value("box"));
+  if (Core::truthy(box)) {
+    value = Core::_box_schema_impl();
+  }
   Value plain = Core::is_none(evidence);
-  Value plain_score = Core::and_(plain, score);
+  Value plain_value = Core::or_(score, box);
+  Value plain_score = Core::and_(plain, plain_value);
   Value schema = value;
   Value rich = Core::not_(plain_score);
   if (Core::truthy(rich)) {
@@ -6532,31 +6733,34 @@ Value Core::_evidence_result_schema_impl(Value typ) {
     Core::set(provenance, Value("required"), provenance_required);
     Core::set(provenance, Value("additionalProperties"), Value(false));
     Core::set(props, Value("provenance"), provenance);
-    if (Core::truthy(is_boolean)) {
-      Core::set(props, Value("probability"), p);
-      Core::set(props, Value("threshold"), p);
-    }
-    if (!Core::truthy(is_boolean)) {
-      Value ps = Value::object();
-      if (Core::truthy(score)) {
-        Core::set(ps, Value("type"), Value("array"));
-        Core::set(ps, Value("items"), p);
-        Value labels = Value::object();
-        Core::set(labels, Value("type"), Value("array"));
-        Core::set(labels, Value("items"), text);
-        Core::set(props, Value("levels"), labels);
+    Value not_box = Core::not_(box);
+    if (Core::truthy(not_box)) {
+      if (Core::truthy(is_boolean)) {
+        Core::set(props, Value("probability"), p);
+        Core::set(props, Value("threshold"), p);
       }
-      if (!Core::truthy(score)) {
-        Core::set(ps, Value("type"), Value("object"));
-        Value probability_props = Value::object();
-        for (auto label : Core::iter(levels)) {
-          Core::set(probability_props, label, p);
+      if (!Core::truthy(is_boolean)) {
+        Value ps = Value::object();
+        if (Core::truthy(score)) {
+          Core::set(ps, Value("type"), Value("array"));
+          Core::set(ps, Value("items"), p);
+          Value labels = Value::object();
+          Core::set(labels, Value("type"), Value("array"));
+          Core::set(labels, Value("items"), text);
+          Core::set(props, Value("levels"), labels);
         }
-        Core::set(ps, Value("properties"), probability_props);
-        Core::set(ps, Value("required"), levels);
-        Core::set(ps, Value("additionalProperties"), Value(false));
+        if (!Core::truthy(score)) {
+          Core::set(ps, Value("type"), Value("object"));
+          Value probability_props = Value::object();
+          for (auto label : Core::iter(levels)) {
+            Core::set(probability_props, label, p);
+          }
+          Core::set(ps, Value("properties"), probability_props);
+          Core::set(ps, Value("required"), levels);
+          Core::set(ps, Value("additionalProperties"), Value(false));
+        }
+        Core::set(props, Value("probabilities"), ps);
       }
-      Core::set(props, Value("probabilities"), ps);
     }
     Value required = Core::map_keys(props);
     Core::set(schema, Value("required"), required);
@@ -6576,6 +6780,7 @@ Value Core::_evidence_result_schema_impl(Value typ) {
       Core::set(status, Value("enum"), answered);
       Core::set(props, Value("status"), status);
       Core::append(required, Value("status"));
+      Core::set(schema, Value("required"), required);
       Value refusal = Value::object();
       Core::set(refusal, Value("type"), Value("object"));
       Value refusal_props = Value::object();
@@ -7215,97 +7420,43 @@ Value Core::typesafe_validate_entry(Value value, Value context) {
   return Value();
 }
 
-Value Core::typesafe_validate_request(Value request) {
-  axir_coverage_mark("typesafe_validate_request");
-  Core::typesafe_require_object(request, Value("request"));
-  Value model = Core::get(request, Value("model"), Value());
-  Core::typesafe_require_string(model, Value("model"), Value(true));
-  Value has_state = Core::map_contains(request, Value("state"));
-  Value missing_state = Core::not_(has_state);
-  if (Core::truthy(missing_state)) {
-    throw AxError("runtime", "Typesafe: state is required (null is allowed)");
+Value Core::typesafe_utf8_size(Value text) {
+  axir_coverage_mark("typesafe_utf8_size");
+  Value size = Core::string_utf8_length(text);
+  return size;
+}
+
+Value Core::typesafe_collect_strings(Value value) {
+  axir_coverage_mark("typesafe_collect_strings");
+  Value out = Value::array();
+  Value string = Core::type_is(value, Value("string"));
+  if (Core::truthy(string)) {
+    Core::append(out, value);
   }
-  Value state = Core::get(request, Value("state"), Value());
-  Core::typesafe_validate_entry(state, Value("state"));
-  Value questions = Core::get(request, Value("questions"), Value());
-  Core::typesafe_require_object(questions, Value("questions"));
-  Value keys = Core::map_keys(questions);
-  Value count = Core::len(keys);
-  Value empty = Core::eq(count, Value(0));
-  if (Core::truthy(empty)) {
-    throw AxError("runtime", "Typesafe: questions must not be empty");
-  }
-  for (auto key : Core::iter(keys)) {
-    Value question = Core::get(questions, key, Value());
-    Core::typesafe_require_object(question, key);
-    Value instructions = Core::get(question, Value("instructions"), Value());
-    Core::typesafe_validate_entry(instructions, key);
-    Value kind = Core::get(question, Value("type"), Value());
-    Value criteria = Core::get(question, Value("criteria"), Value());
-    Value is_noul = Core::eq(kind, Value("noul"));
-    Value is_choice = Core::eq(kind, Value("choice"));
-    Value is_score = Core::eq(kind, Value("score"));
-    if (Core::truthy(is_noul)) {
-      Value has_criteria = Core::is_not_none(criteria);
-      if (Core::truthy(has_criteria)) {
-        Core::typesafe_require_object(criteria, key);
-        Value labels = Core::map_keys(criteria);
-        for (auto label : Core::iter(labels)) {
-          Value true_label = Core::eq(label, Value("true"));
-          Value false_label = Core::eq(label, Value("false"));
-          Value valid_label = Core::or_(true_label, false_label);
-          Value invalid_label = Core::not_(valid_label);
-          if (Core::truthy(invalid_label)) {
-            throw AxError("runtime", "Typesafe: Noul criteria only accept true and false");
-          }
-          Value entry = Core::get(criteria, label, Value());
-          Core::typesafe_validate_entry(entry, key);
-        }
+  if (!Core::truthy(string)) {
+    Value object = Core::type_is(value, Value("object"));
+    Value list = Core::type_is(value, Value("list"));
+    Value items = Value::array();
+    if (Core::truthy(object)) {
+      Value keys = Core::map_keys(value);
+      for (auto key : Core::iter(keys)) {
+        Value item = Core::get(value, key, Value());
+        Core::append(items, item);
       }
     }
-    if (!Core::truthy(is_noul)) {
-      if (Core::truthy(is_choice)) {
-        Core::typesafe_require_object(criteria, key);
-        Value labels = Core::map_keys(criteria);
-        Value size = Core::len(labels);
-        Value too_small = Core::lt(size, Value(1));
-        Value too_large = Core::gt(size, Value(255));
-        Value invalid_size = Core::or_(too_small, too_large);
-        if (Core::truthy(invalid_size)) {
-          throw AxError("runtime", "Typesafe: Choice requires 1 to 255 options");
-        }
-        for (auto label : Core::iter(labels)) {
-          Value entry = Core::get(criteria, label, Value());
-          Core::typesafe_validate_entry(entry, key);
-        }
+    if (!Core::truthy(object)) {
+      if (Core::truthy(list)) {
+        items = value;
       }
-      if (!Core::truthy(is_choice)) {
-        if (Core::truthy(is_score)) {
-          Value is_list = Core::type_is(criteria, Value("list"));
-          Value not_list = Core::not_(is_list);
-          if (Core::truthy(not_list)) {
-            throw AxError("runtime", "Typesafe: Score requires an array of 2 to 10 levels");
-          }
-          Value size = Core::len(criteria);
-          Value too_small = Core::lt(size, Value(2));
-          Value too_large = Core::gt(size, Value(10));
-          Value invalid_size = Core::or_(too_small, too_large);
-          if (Core::truthy(invalid_size)) {
-            throw AxError("runtime", "Typesafe: Score requires 2 to 10 levels");
-          }
-          for (auto entry : Core::iter(criteria)) {
-            Core::typesafe_validate_entry(entry, key);
-          }
-        }
-        if (!Core::truthy(is_score)) {
-          Value message = Core::string_format(Value("Typesafe: unknown question type for {}"), key);
-          Value error = Core::validation_error(message);
-          Core::raise_error(error);
-        }
+    }
+    for (auto item : Core::iter(items)) {
+      Value strings = Core::typesafe_collect_strings(item);
+      for (auto text : Core::iter(strings)) {
+        Core::append(out, text);
       }
     }
   }
-  return Value();
+  return out;
 }
 
 Value Core::_openai_apply_cache_breakpoint_impl(Value message) {
@@ -7366,6 +7517,121 @@ Value Core::_openai_apply_cache_breakpoint_impl(Value message) {
     }
   }
   return out;
+}
+
+Value Core::typesafe_validate_assets(Value request) {
+  axir_coverage_mark("typesafe_validate_assets");
+  Value present = Core::map_contains(request, Value("assets"));
+  Value absent = Core::not_(present);
+  if (Core::truthy(absent)) {
+    return Value();
+  }
+  Value assets = Core::get(request, Value("assets"), Value());
+  Core::typesafe_require_object(assets, Value("assets"));
+  Value state = Core::get(request, Value("state"), Value());
+  Value strings = Core::typesafe_collect_strings(state);
+  Value questions = Core::get(request, Value("questions"), Value());
+  Core::typesafe_validate_json(questions);
+  Value question_keys = Core::map_keys(questions);
+  for (auto name : Core::iter(question_keys)) {
+    Value question = Core::get(questions, name, Value());
+    Value instructions = Core::get(question, Value("instructions"), Value());
+    Value criteria = Core::get(question, Value("criteria"), Value());
+    Value entries = Value::array();
+    Core::append(entries, instructions);
+    Core::append(entries, criteria);
+    for (auto entry : Core::iter(entries)) {
+      Value texts = Core::typesafe_collect_strings(entry);
+      for (auto text : Core::iter(texts)) {
+        Core::append(strings, text);
+      }
+    }
+  }
+  Value keys = Core::map_keys(assets);
+  Value total_key_bytes = Value(0);
+  for (auto key : Core::iter(keys)) {
+    Value trimmed = Core::string_trim(key);
+    Value bytes = Core::typesafe_utf8_size(key);
+    total_key_bytes = Core::add(total_key_bytes, bytes);
+    Value empty = Core::eq(trimmed, Value(""));
+    Value long_key = Core::gt(bytes, Value(1024));
+    Value too_many = Core::gt(total_key_bytes, Value(65536));
+    Value invalid = Core::or_(empty, long_key);
+    invalid = Core::or_(invalid, too_many);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Typesafe: invalid image reference length");
+    }
+    Value used = Value(false);
+    for (auto text : Core::iter(strings)) {
+      Value index = Core::string_index_of(text, key, Value(0));
+      Value found = Core::gte(index, Value(0));
+      used = Core::or_(used, found);
+    }
+    Value unused = Core::not_(used);
+    if (Core::truthy(unused)) {
+      throw AxError("runtime", "Typesafe: image asset is not referenced");
+    }
+    Value asset = Core::get(assets, key, Value());
+    Core::typesafe_require_object(asset, Value("image asset"));
+    Value kind = Core::get(asset, Value("type"), Value("image"));
+    Value not_image = Core::ne(kind, Value("image"));
+    if (Core::truthy(not_image)) {
+      throw AxError("runtime", "Typesafe: assets must be images");
+    }
+    Value multipart = Core::map_contains(asset, Value("part"));
+    if (Core::truthy(multipart)) {
+      throw AxError("runtime", "Typesafe: multipart assets are not supported; use data_base64");
+    }
+    Value format = Core::get(asset, Value("format"), Value());
+    Value formats = Value::array();
+    Core::append(formats, Value("png"));
+    Core::append(formats, Value("jpg"));
+    Core::append(formats, Value("jpeg"));
+    Value valid = Core::contains(formats, format);
+    invalid = Core::not_(valid);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Typesafe: images must be PNG or JPEG");
+    }
+    Value data = Core::get(asset, Value("data_base64"), Value());
+    Core::typesafe_require_string(data, Value("image data_base64"), Value(true));
+    Value length = Core::len(data);
+    Value groups = Core::div(length, Value(4));
+    Value whole = Core::math_floor(groups);
+    Value padded = Core::eq(groups, whole);
+    Value base64 = Core::regex_match(Value("^[A-Za-z0-9+/]+={0,2}$"), data);
+    Value lf = Core::string_ends_with(data, Value("\n"));
+    Value cr = Core::string_ends_with(data, Value("\r"));
+    Value newline = Core::or_(lf, cr);
+    Value no_newline = Core::not_(newline);
+    base64 = Core::and_(base64, no_newline);
+    valid = Core::and_(padded, base64);
+    invalid = Core::not_(valid);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Typesafe: image data_base64 must be padded base64 without a data URL prefix");
+    }
+    bytes = Core::mul(groups, Value(3));
+    Value two_padding = Core::string_ends_with(data, Value("=="));
+    Value one_padding = Core::string_ends_with(data, Value("="));
+    if (Core::truthy(two_padding)) {
+      bytes = Core::add(bytes, Value(-2));
+    }
+    if (!Core::truthy(two_padding)) {
+      if (Core::truthy(one_padding)) {
+        bytes = Core::add(bytes, Value(-1));
+      }
+    }
+    Value too_large = Core::gt(bytes, Value(16777216));
+    if (Core::truthy(too_large)) {
+      throw AxError("runtime", "Typesafe: image exceeds 16 MiB");
+    }
+  }
+  Value json = Core::json_stringify(request);
+  Value size = Core::typesafe_utf8_size(json);
+  Value too_large = Core::gt(size, Value(33554432));
+  if (Core::truthy(too_large)) {
+    throw AxError("runtime", "Typesafe: image request exceeds 32 MiB");
+  }
+  return Value();
 }
 
 Value Core::resolve_model_key(Value client_options, Value request, Value options, Value default_model, Value embed) {
@@ -7516,119 +7782,6 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   return Value();
 }
 
-Value Core::typesafe_decode_response(Value raw, Value questions) {
-  axir_coverage_mark("typesafe_decode_response");
-  Core::typesafe_require_object(raw, Value("response"));
-  Value model = Core::get(raw, Value("model"), Value());
-  Core::typesafe_require_string(model, Value("response.model"), Value(true));
-  Value usage = Core::get(raw, Value("usage"), Value());
-  Core::typesafe_require_object(usage, Value("usage"));
-  Value token_keys = Value::array();
-  Core::append(token_keys, Value("input_tokens"));
-  Core::append(token_keys, Value("output_tokens"));
-  for (auto key : Core::iter(token_keys)) {
-    Value count = Core::get(usage, key, Value());
-    Core::typesafe_require_number(count, key, Value(0), Value(9007199254740991));
-    Value integer = Core::math_floor(count);
-    Value invalid = Core::ne(count, integer);
-    if (Core::truthy(invalid)) {
-      throw AxError("runtime", "Typesafe: token counts must be nonnegative safe integers");
-    }
-  }
-  Value answers = Core::get(raw, Value("answers"), Value());
-  Core::typesafe_require_object(answers, Value("answers"));
-  Value keys = Core::map_keys(questions);
-  for (auto key : Core::iter(keys)) {
-    Value question = Core::get(questions, key, Value());
-    Value kind = Core::get(question, Value("type"), Value());
-    Value answer = Core::get(answers, key, Value());
-    Core::typesafe_require_object(answer, key);
-    Value answer_kind = Core::get(answer, Value("type"), Value());
-    Value mismatch = Core::ne(kind, answer_kind);
-    if (Core::truthy(mismatch)) {
-      Value message = Core::string_format(Value("Typesafe: answer type mismatch for {}"), key);
-      Value error = Core::validation_error(message);
-      Core::raise_error(error);
-    }
-    Value is_noul = Core::eq(kind, Value("noul"));
-    if (Core::truthy(is_noul)) {
-      Value probability = Core::get(answer, Value("noul"), Value());
-      Core::typesafe_require_number(probability, key, Value(0), Value(1));
-    }
-    if (!Core::truthy(is_noul)) {
-      Value confidence = Core::get(answer, Value("confidence"), Value());
-      Core::typesafe_require_number(confidence, Value("confidence"), Value(0), Value(1));
-      Value criteria = Core::get(question, Value("criteria"), Value());
-      Value is_choice = Core::eq(kind, Value("choice"));
-      Value labels = Value::array();
-      if (Core::truthy(is_choice)) {
-        labels = Core::map_keys(criteria);
-        Value choice = Core::get(answer, Value("choice"), Value());
-        Core::typesafe_require_string(choice, key, Value(false));
-        Value known = Core::contains(labels, choice);
-        Value unknown = Core::not_(known);
-        if (Core::truthy(unknown)) {
-          Value message = Core::string_format(Value("Typesafe: invalid selected Choice label for {}"), key);
-          Value error = Core::validation_error(message);
-          Core::raise_error(error);
-        }
-      }
-      if (!Core::truthy(is_choice)) {
-        Value index = Value(0);
-        for (auto entry : Core::iter(criteria)) {
-          Value label = Core::string_format(Value("{}"), index);
-          Core::append(labels, label);
-          index = Core::add(index, Value(1));
-        }
-        Value upper = Core::add(index, Value(-1));
-        Value score = Core::get(answer, Value("score"), Value());
-        Core::typesafe_require_number(score, key, Value(0), upper);
-        Value legend = Core::get(answer, Value("legend"), Value());
-        Core::typesafe_require_object(legend, Value("legend"));
-        Value legend_keys = Core::map_keys(legend);
-        Value legend_size = Core::len(legend_keys);
-        Value wrong_size = Core::ne(legend_size, index);
-        if (Core::truthy(wrong_size)) {
-          throw AxError("runtime", "Typesafe: Score legend must match rubric indices");
-        }
-        for (auto label : Core::iter(labels)) {
-          Value present = Core::map_contains(legend, label);
-          Value missing = Core::not_(present);
-          if (Core::truthy(missing)) {
-            throw AxError("runtime", "Typesafe: Score legend must match rubric indices");
-          }
-          Value entry = Core::get(legend, label, Value());
-          Core::typesafe_validate_entry(entry, Value("legend"));
-        }
-      }
-      Value probabilities = Core::get(answer, Value("probabilities"), Value());
-      Core::typesafe_require_object(probabilities, Value("probabilities"));
-      Value probability_keys = Core::map_keys(probabilities);
-      Value size = Core::len(probability_keys);
-      Value expected_size = Core::len(labels);
-      Value wrong_size = Core::ne(size, expected_size);
-      if (Core::truthy(wrong_size)) {
-        throw AxError("runtime", "Typesafe: probabilities must match criteria keys");
-      }
-      Value total = Value(0);
-      for (auto label : Core::iter(labels)) {
-        Value probability = Core::get(probabilities, label, Value());
-        Core::typesafe_require_number(probability, label, Value(0), Value(1));
-        total = Core::add(total, probability);
-      }
-      Value difference = Core::add(total, Value(-1));
-      difference = Core::math_abs(difference);
-      Value roundoff = Core::mul(Value(0.0000000000000002220446049250313), expected_size);
-      Value tolerance = Core::add(Value(0.01), roundoff);
-      Value invalid_sum = Core::gt(difference, tolerance);
-      if (Core::truthy(invalid_sum)) {
-        throw AxError("runtime", "Typesafe: probabilities must sum to one");
-      }
-    }
-  }
-  return raw;
-}
-
 Value Core::decisions_decode_response(Value raw, Value questions) {
   axir_coverage_mark("decisions_decode_response");
   Core::decisions_require_object(raw, Value("response"));
@@ -7771,10 +7924,147 @@ Value Core::decisions_decode_response(Value raw, Value questions) {
   return raw;
 }
 
+Value Core::typesafe_image_headers(Value request) {
+  axir_coverage_mark("typesafe_image_headers");
+  Value assets = Core::get(request, Value("assets"), Value());
+  Value enabled = Core::truthy_value(assets);
+  Value questions = Core::get(request, Value("questions"), Value());
+  Value keys = Core::map_keys(questions);
+  for (auto key : Core::iter(keys)) {
+    Value question = Core::get(questions, key, Value());
+    Value kind = Core::get(question, Value("type"), Value());
+    Value box = Core::eq(kind, Value("box"));
+    enabled = Core::or_(enabled, box);
+  }
+  Value headers = Value::object();
+  if (Core::truthy(enabled)) {
+    Core::set(headers, Value("TypeSafe-Danger-Zone-Images"), Value("true"));
+  }
+  return headers;
+}
+
 Value Core::_openai_is_gpt56_family_impl(Value model) {
   axir_coverage_mark("_openai_is_gpt56_family_impl");
   Value is_gpt56 = Core::regex_match(Value("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)"), model);
   return is_gpt56;
+}
+
+Value Core::typesafe_validate_request(Value request) {
+  axir_coverage_mark("typesafe_validate_request");
+  Core::typesafe_require_object(request, Value("request"));
+  Value model = Core::get(request, Value("model"), Value());
+  Core::typesafe_require_string(model, Value("model"), Value(true));
+  Value has_state = Core::map_contains(request, Value("state"));
+  Value missing_state = Core::not_(has_state);
+  if (Core::truthy(missing_state)) {
+    throw AxError("runtime", "Typesafe: state is required (null is allowed)");
+  }
+  Value state = Core::get(request, Value("state"), Value());
+  Core::typesafe_validate_entry(state, Value("state"));
+  Value questions = Core::get(request, Value("questions"), Value());
+  Core::typesafe_require_object(questions, Value("questions"));
+  Core::typesafe_validate_assets(request);
+  Value keys = Core::map_keys(questions);
+  Value count = Core::len(keys);
+  Value empty = Core::eq(count, Value(0));
+  if (Core::truthy(empty)) {
+    throw AxError("runtime", "Typesafe: questions must not be empty");
+  }
+  for (auto key : Core::iter(keys)) {
+    Value question = Core::get(questions, key, Value());
+    Core::typesafe_require_object(question, key);
+    Value instructions = Core::get(question, Value("instructions"), Value());
+    Core::typesafe_validate_entry(instructions, key);
+    Value kind = Core::get(question, Value("type"), Value());
+    Value criteria = Core::get(question, Value("criteria"), Value());
+    Value is_box = Core::eq(kind, Value("box"));
+    if (Core::truthy(is_box)) {
+      Value has_instructions = Core::is_not_none(instructions);
+      Value string = Core::type_is(instructions, Value("string"));
+      if (Core::truthy(string)) {
+        Value trimmed = Core::string_trim(instructions);
+        has_instructions = Core::ne(trimmed, Value(""));
+      }
+      Value missing = Core::not_(has_instructions);
+      if (Core::truthy(missing)) {
+        throw AxError("runtime", "Typesafe: Box requires instructions");
+      }
+      Value has_criteria = Core::map_contains(question, Value("criteria"));
+      if (Core::truthy(has_criteria)) {
+        throw AxError("runtime", "Typesafe: Box does not accept criteria");
+      }
+      Value assets = Core::get(request, Value("assets"), Value());
+      Value has_images = Core::truthy_value(assets);
+      missing = Core::not_(has_images);
+      if (Core::truthy(missing)) {
+        throw AxError("runtime", "Typesafe: Box requires an image asset");
+      }
+      continue;
+    }
+    Value is_noul = Core::eq(kind, Value("noul"));
+    Value is_choice = Core::eq(kind, Value("choice"));
+    Value is_score = Core::eq(kind, Value("score"));
+    if (Core::truthy(is_noul)) {
+      Value has_criteria = Core::is_not_none(criteria);
+      if (Core::truthy(has_criteria)) {
+        Core::typesafe_require_object(criteria, key);
+        Value labels = Core::map_keys(criteria);
+        for (auto label : Core::iter(labels)) {
+          Value true_label = Core::eq(label, Value("true"));
+          Value false_label = Core::eq(label, Value("false"));
+          Value valid_label = Core::or_(true_label, false_label);
+          Value invalid_label = Core::not_(valid_label);
+          if (Core::truthy(invalid_label)) {
+            throw AxError("runtime", "Typesafe: Noul criteria only accept true and false");
+          }
+          Value entry = Core::get(criteria, label, Value());
+          Core::typesafe_validate_entry(entry, key);
+        }
+      }
+    }
+    if (!Core::truthy(is_noul)) {
+      if (Core::truthy(is_choice)) {
+        Core::typesafe_require_object(criteria, key);
+        Value labels = Core::map_keys(criteria);
+        Value size = Core::len(labels);
+        Value too_small = Core::lt(size, Value(1));
+        Value too_large = Core::gt(size, Value(255));
+        Value invalid_size = Core::or_(too_small, too_large);
+        if (Core::truthy(invalid_size)) {
+          throw AxError("runtime", "Typesafe: Choice requires 1 to 255 options");
+        }
+        for (auto label : Core::iter(labels)) {
+          Value entry = Core::get(criteria, label, Value());
+          Core::typesafe_validate_entry(entry, key);
+        }
+      }
+      if (!Core::truthy(is_choice)) {
+        if (Core::truthy(is_score)) {
+          Value is_list = Core::type_is(criteria, Value("list"));
+          Value not_list = Core::not_(is_list);
+          if (Core::truthy(not_list)) {
+            throw AxError("runtime", "Typesafe: Score requires an array of 2 to 10 levels");
+          }
+          Value size = Core::len(criteria);
+          Value too_small = Core::lt(size, Value(2));
+          Value too_large = Core::gt(size, Value(10));
+          Value invalid_size = Core::or_(too_small, too_large);
+          if (Core::truthy(invalid_size)) {
+            throw AxError("runtime", "Typesafe: Score requires 2 to 10 levels");
+          }
+          for (auto entry : Core::iter(criteria)) {
+            Core::typesafe_validate_entry(entry, key);
+          }
+        }
+        if (!Core::truthy(is_score)) {
+          Value message = Core::string_format(Value("Typesafe: unknown question type for {}"), key);
+          Value error = Core::validation_error(message);
+          Core::raise_error(error);
+        }
+      }
+    }
+  }
+  return Value();
 }
 
 Value Core::_openai_is_gpt6_family_impl(Value model) {
@@ -7872,27 +8162,6 @@ Value Core::_openai_supports_breakpoint_caching_impl(Value model) {
   return supported;
 }
 
-Value Core::typesafe_decode_models(Value raw) {
-  axir_coverage_mark("typesafe_decode_models");
-  Core::typesafe_require_object(raw, Value("model catalog"));
-  Value models = Core::get(raw, Value("models"), Value());
-  Value is_list = Core::type_is(models, Value("list"));
-  Value invalid = Core::not_(is_list);
-  if (Core::truthy(invalid)) {
-    throw AxError("runtime", "Typesafe: models must be an array");
-  }
-  for (auto model : Core::iter(models)) {
-    Core::typesafe_require_object(model, Value("model"));
-    Value name = Core::get(model, Value("name"), Value());
-    Value description = Core::get(model, Value("description"), Value());
-    Value release_date = Core::get(model, Value("release_date"), Value());
-    Core::typesafe_require_string(name, Value("model.name"), Value(true));
-    Core::typesafe_require_string(description, Value("model.description"), Value(false));
-    Core::typesafe_require_string(release_date, Value("model.release_date"), Value(false));
-  }
-  return models;
-}
-
 Value Core::_openai_supports_chat_sessions_impl(Value model) {
   axir_coverage_mark("_openai_supports_chat_sessions_impl");
   Value is_astra = Core::_openai_is_gpt6_astra_impl(model);
@@ -7900,252 +8169,6 @@ Value Core::_openai_supports_chat_sessions_impl(Value model) {
   Value on_openai = Core::not_(is_bedrock);
   Value supported = Core::and_(is_astra, on_openai);
   return supported;
-}
-
-Value Core::typesafe_build_chat_request(Value request, Value options) {
-  axir_coverage_mark("typesafe_build_chat_request");
-  Value empty_map = Value::object();
-  Value empty_list = Value::array();
-  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
-  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
-  Core::typesafe_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
-  Value functions = Core::get(request, Value("functions"), empty_list);
-  Value function_call_snake = Core::get(request, Value("function_call"), Value("none"));
-  Value function_call = Core::get(request, Value("functionCall"), function_call_snake);
-  Value has_functions = Core::truthy_value(functions);
-  Value has_call = Core::ne(function_call, Value("none"));
-  Value has_call_value = Core::truthy_value(function_call);
-  has_call = Core::and_(has_call, has_call_value);
-  Value tools = Core::or_(has_functions, has_call);
-  if (Core::truthy(tools)) {
-    throw AxError("runtime", "Typesafe does not support tools; use a generative provider for tool execution");
-  }
-  Value config_snake = Core::get(request, Value("model_config"), empty_map);
-  Value config = Core::get(request, Value("modelConfig"), config_snake);
-  Value controls = Core::map_keys(config);
-  for (auto control : Core::iter(controls)) {
-    Value value = Core::get(config, control, Value());
-    Value present = Core::is_not_none(value);
-    if (Core::truthy(present)) {
-      Value is_stream = Core::eq(control, Value("stream"));
-      Value is_n = Core::eq(control, Value("n"));
-      Value one = Core::eq(value, Value(1));
-      Value numeric = Core::type_is(value, Value("number"));
-      one = Core::and_(one, numeric);
-      Value allowed_n = Core::and_(is_n, one);
-      Value allowed = Core::or_(is_stream, allowed_n);
-      Value unsupported = Core::not_(allowed);
-      if (Core::truthy(unsupported)) {
-        Value message = Core::string_format(Value("Typesafe does not support generation control {}"), control);
-        Value error = Core::validation_error(message);
-        Core::raise_error(error);
-      }
-    }
-  }
-  Value format_snake = Core::get(request, Value("response_format"), Value());
-  Value format = Core::get(request, Value("responseFormat"), format_snake);
-  Value format_type = Core::get(format, Value("type"), Value());
-  Value wrong_format = Core::ne(format_type, Value("json_schema"));
-  if (Core::truthy(wrong_format)) {
-    throw AxError("runtime", "Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs");
-  }
-  Value wrapper = Core::get(format, Value("schema"), Value());
-  Core::typesafe_require_object(wrapper, Value("responseFormat.schema"));
-  Value schema = Core::get(wrapper, Value("schema"), Value());
-  Core::typesafe_require_object(schema, Value("output schema"));
-  Value root_type = Core::get(schema, Value("type"), Value());
-  Value flat = Core::eq(root_type, Value("object"));
-  Value forbidden = Value::array();
-  Core::append(forbidden, Value("anyOf"));
-  Core::append(forbidden, Value("oneOf"));
-  Core::append(forbidden, Value("allOf"));
-  Core::append(forbidden, Value("$ref"));
-  for (auto key : Core::iter(forbidden)) {
-    Value value = Core::get(schema, key, Value());
-    Value has_value = Core::truthy_value(value);
-    if (Core::truthy(has_value)) {
-      flat = Value(false);
-    }
-  }
-  Value not_flat = Core::not_(flat);
-  if (Core::truthy(not_flat)) {
-    throw AxError("runtime", "Typesafe requires a flat object output schema");
-  }
-  Value properties = Core::get(schema, Value("properties"), Value());
-  Core::typesafe_require_object(properties, Value("output properties"));
-  Value required = Core::get(schema, Value("required"), empty_list);
-  Value annotations = Core::get(format, Value("fieldDescriptions"), empty_map);
-  Value decision_fields = Core::get(format, Value("decisionFields"), empty_map);
-  Value questions = Value::object();
-  Value names = Core::map_keys(properties);
-  Core::append(forbidden, Value("const"));
-  for (auto name : Core::iter(names)) {
-    Value field = Core::get(properties, name, Value());
-    Core::typesafe_require_object(field, name);
-    Value decision = Core::get(decision_fields, name, Value());
-    Value rich = Core::is_not_none(decision);
-    if (Core::truthy(rich)) {
-      Value array = Core::get(decision, Value("isArray"), Value(false));
-      Value optional = Core::get(decision, Value("isOptional"), Value(false));
-      Value invalid = Core::or_(array, optional);
-      if (Core::truthy(invalid)) {
-        throw AxError("runtime", "Decision providers require flat, required scalar outputs");
-      }
-      Value wire_description = Core::get(field, Value("description"), Value());
-      field = Value::object();
-      Value kind = Core::get(decision, Value("type"), Value());
-      Value class_kind = Core::eq(kind, Value("class"));
-      if (Core::truthy(class_kind)) {
-        kind = Value("string");
-      }
-      Core::set(field, Value("type"), kind);
-      Core::set(field, Value("description"), wire_description);
-      if (Core::truthy(class_kind)) {
-        Value labels = Core::get(decision, Value("options"), Value());
-        Core::set(field, Value("enum"), labels);
-      }
-    }
-    Value supported = Core::contains(required, name);
-    for (auto key : Core::iter(forbidden)) {
-      Value has_key = Core::map_contains(field, key);
-      if (Core::truthy(has_key)) {
-        supported = Value(false);
-      }
-    }
-    Value type_name = Core::get(field, Value("type"), Value());
-    Value class_options = Core::get(field, Value("enum"), Value());
-    Value is_boolean = Core::eq(type_name, Value("boolean"));
-    Value has_enum = Core::is_not_none(class_options);
-    Value no_enum = Core::not_(has_enum);
-    is_boolean = Core::and_(is_boolean, no_enum);
-    Value is_string = Core::eq(type_name, Value("string"));
-    Value is_enum = Core::type_is(class_options, Value("list"));
-    Value is_class = Core::and_(is_string, is_enum);
-    Value supported_type = Core::or_(is_boolean, is_class);
-    Value is_score = Core::eq(type_name, Value("score"));
-    supported_type = Core::or_(supported_type, is_score);
-    supported = Core::and_(supported, supported_type);
-    Value unsupported = Core::not_(supported);
-    if (Core::truthy(unsupported)) {
-      Value message = Core::string_format(Value("Typesafe cannot evaluate output {}. Use required boolean, class or rubric score fields, or a generative provider for other outputs"), name);
-      Value error = Core::validation_error(message);
-      Core::raise_error(error);
-    }
-    Value annotation = Core::get(annotations, name, Value());
-    Value description = Core::get(field, Value("description"), Value());
-    Value has_annotation = Core::is_not_none(annotation);
-    Value descriptions = Value::object();
-    if (Core::truthy(has_annotation)) {
-      Core::typesafe_require_object(annotation, name);
-      description = Core::get(annotation, Value("description"), Value());
-      Value has_description = Core::is_not_none(description);
-      if (Core::truthy(has_description)) {
-        Core::typesafe_require_string(description, name, Value(false));
-      }
-      descriptions = Core::get(annotation, Value("valueDescriptions"), Value());
-      Core::typesafe_require_object(descriptions, name);
-      Value type_attrs = Value::object();
-      Value annotation_type = Value("boolean");
-      if (Core::truthy(is_class)) {
-        annotation_type = Value("class");
-      }
-      Core::set(type_attrs, Value("name"), annotation_type);
-      Core::set(type_attrs, Value("options"), class_options);
-      Core::set(type_attrs, Value("value_descriptions"), descriptions);
-      Value typ = Core::record_new(Value("FieldType"), type_attrs);
-      Core::_signature_validate_value_descriptions_impl(typ, name);
-    }
-    Value instructions = Core::string_format(Value("Evaluate the output field {}."), name);
-    Value is_description_string = Core::type_is(description, Value("string"));
-    Value has_description = Core::truthy_value(description);
-    Value use_description = Core::and_(is_description_string, has_description);
-    if (Core::truthy(use_description)) {
-      instructions = Core::string_format(Value("{}: {}"), name, description);
-    }
-    Value question = Value::object();
-    Core::set(question, Value("instructions"), instructions);
-    if (Core::truthy(is_score)) {
-      Core::set(question, Value("type"), Value("score"));
-      Value levels = Core::get(decision, Value("options"), Value());
-      Core::set(question, Value("criteria"), levels);
-      Core::set(questions, name, question);
-      continue;
-    }
-    if (Core::truthy(is_boolean)) {
-      Core::set(question, Value("type"), Value("noul"));
-      if (Core::truthy(has_annotation)) {
-        Core::set(question, Value("criteria"), descriptions);
-      }
-    }
-    if (!Core::truthy(is_boolean)) {
-      Core::set(question, Value("type"), Value("choice"));
-      Value criteria = Value::object();
-      for (auto label : Core::iter(class_options)) {
-        Core::typesafe_require_string(label, name, Value(false));
-        Value duplicate = Core::map_contains(criteria, label);
-        if (Core::truthy(duplicate)) {
-          throw AxError("runtime", "Typesafe: Choice labels must be unique");
-        }
-        description = Core::get(descriptions, label, Value());
-        Core::set(criteria, label, description);
-      }
-      Core::set(question, Value("criteria"), criteria);
-    }
-    Core::set(questions, name, question);
-  }
-  Value prompt_snake = Core::get(request, Value("chat_prompt"), empty_list);
-  Value prompt = Core::get(request, Value("chatPrompt"), prompt_snake);
-  Value messages = Value::array();
-  for (auto message : Core::iter(prompt)) {
-    Value role = Core::get(message, Value("role"), Value());
-    Value content = Core::get(message, Value("content"), Value(""));
-    Value is_tool = Core::eq(role, Value("function"));
-    Value is_tool_alt = Core::eq(role, Value("tool"));
-    is_tool = Core::or_(is_tool, is_tool_alt);
-    Value calls = Core::get(message, Value("functionCalls"), Value());
-    Value calls_snake = Core::get(message, Value("function_calls"), Value());
-    calls = Core::coalesce(calls, calls_snake);
-    Value has_calls = Core::truthy_value(calls);
-    Value audio = Core::get(message, Value("audio"), Value());
-    Value has_audio = Core::truthy_value(audio);
-    Value images = Core::get(message, Value("images"), Value());
-    Value has_images = Core::truthy_value(images);
-    Value invalid = Core::or_(is_tool, has_calls);
-    invalid = Core::or_(invalid, has_audio);
-    invalid = Core::or_(invalid, has_images);
-    if (Core::truthy(invalid)) {
-      throw AxError("runtime", "Typesafe does not support tool or media history");
-    }
-    Value is_list = Core::type_is(content, Value("list"));
-    if (Core::truthy(is_list)) {
-      Value texts = Value::array();
-      for (auto part : Core::iter(content)) {
-        Value kind = Core::get(part, Value("type"), Value());
-        Value nontext = Core::ne(kind, Value("text"));
-        if (Core::truthy(nontext)) {
-          throw AxError("runtime", "Typesafe supports text input only");
-        }
-        Value text = Core::get(part, Value("text"), Value());
-        Core::typesafe_require_string(text, Value("message text"), Value(false));
-        Core::append(texts, text);
-      }
-      content = Core::string_join(Value("\n"), texts);
-    }
-    Core::typesafe_require_string(content, Value("message content"), Value(false));
-    Value entry = Value::object();
-    Core::set(entry, Value("role"), role);
-    Core::set(entry, Value("content"), content);
-    Core::append(messages, entry);
-  }
-  Value state = Value::object();
-  Core::set(state, Value("messages"), messages);
-  Value payload = Value::object();
-  Value model = Core::get(request, Value("model"), Value("jev-latest"));
-  Core::set(payload, Value("model"), model);
-  Core::set(payload, Value("state"), state);
-  Core::set(payload, Value("questions"), questions);
-  Core::typesafe_validate_request(payload);
-  return payload;
 }
 
 Value Core::validate_chat_request(Value request) {
@@ -8391,6 +8414,11 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
     Core::decisions_require_object(field, name);
     Value required_list = Core::type_is(required, Value("list"));
     Value decision = Core::get(decision_fields, name, Value());
+    Value decision_type = Core::get(decision, Value("type"), Value());
+    Value box = Core::eq(decision_type, Value("box"));
+    if (Core::truthy(box)) {
+      throw AxError("runtime", "OpenAI Decisions does not support box outputs; use Typesafe or a generative vision provider");
+    }
     Value rich = Core::is_not_none(decision);
     if (Core::truthy(rich)) {
       Value array = Core::get(decision, Value("isArray"), Value(false));
@@ -8623,6 +8651,125 @@ Value Core::decisions_build_chat_request(Value request, Value options) {
   return payload;
 }
 
+Value Core::typesafe_decode_response(Value raw, Value questions) {
+  axir_coverage_mark("typesafe_decode_response");
+  Core::typesafe_require_object(raw, Value("response"));
+  Value model = Core::get(raw, Value("model"), Value());
+  Core::typesafe_require_string(model, Value("response.model"), Value(true));
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Core::typesafe_require_object(usage, Value("usage"));
+  Value token_keys = Value::array();
+  Core::append(token_keys, Value("input_tokens"));
+  Core::append(token_keys, Value("output_tokens"));
+  for (auto key : Core::iter(token_keys)) {
+    Value count = Core::get(usage, key, Value());
+    Core::typesafe_require_number(count, key, Value(0), Value(9007199254740991));
+    Value integer = Core::math_floor(count);
+    Value invalid = Core::ne(count, integer);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Typesafe: token counts must be nonnegative safe integers");
+    }
+  }
+  Value answers = Core::get(raw, Value("answers"), Value());
+  Core::typesafe_require_object(answers, Value("answers"));
+  Value keys = Core::map_keys(questions);
+  for (auto key : Core::iter(keys)) {
+    Value question = Core::get(questions, key, Value());
+    Value kind = Core::get(question, Value("type"), Value());
+    Value answer = Core::get(answers, key, Value());
+    Core::typesafe_require_object(answer, key);
+    Value answer_kind = Core::get(answer, Value("type"), Value());
+    Value mismatch = Core::ne(kind, answer_kind);
+    if (Core::truthy(mismatch)) {
+      Value message = Core::string_format(Value("Typesafe: answer type mismatch for {}"), key);
+      Value error = Core::validation_error(message);
+      Core::raise_error(error);
+    }
+    Value is_noul = Core::eq(kind, Value("noul"));
+    if (Core::truthy(is_noul)) {
+      Value probability = Core::get(answer, Value("noul"), Value());
+      Core::typesafe_require_number(probability, key, Value(0), Value(1));
+    }
+    if (!Core::truthy(is_noul)) {
+      Value confidence = Core::get(answer, Value("confidence"), Value());
+      Core::typesafe_require_number(confidence, Value("confidence"), Value(0), Value(1));
+      Value is_box = Core::eq(kind, Value("box"));
+      if (Core::truthy(is_box)) {
+        Value box = Core::get(answer, Value("box"), Value());
+        Core::_box_validate_impl(box, key);
+        continue;
+      }
+      Value criteria = Core::get(question, Value("criteria"), Value());
+      Value is_choice = Core::eq(kind, Value("choice"));
+      Value labels = Value::array();
+      if (Core::truthy(is_choice)) {
+        labels = Core::map_keys(criteria);
+        Value choice = Core::get(answer, Value("choice"), Value());
+        Core::typesafe_require_string(choice, key, Value(false));
+        Value known = Core::contains(labels, choice);
+        Value unknown = Core::not_(known);
+        if (Core::truthy(unknown)) {
+          Value message = Core::string_format(Value("Typesafe: invalid selected Choice label for {}"), key);
+          Value error = Core::validation_error(message);
+          Core::raise_error(error);
+        }
+      }
+      if (!Core::truthy(is_choice)) {
+        Value index = Value(0);
+        for (auto entry : Core::iter(criteria)) {
+          Value label = Core::string_format(Value("{}"), index);
+          Core::append(labels, label);
+          index = Core::add(index, Value(1));
+        }
+        Value upper = Core::add(index, Value(-1));
+        Value score = Core::get(answer, Value("score"), Value());
+        Core::typesafe_require_number(score, key, Value(0), upper);
+        Value legend = Core::get(answer, Value("legend"), Value());
+        Core::typesafe_require_object(legend, Value("legend"));
+        Value legend_keys = Core::map_keys(legend);
+        Value legend_size = Core::len(legend_keys);
+        Value wrong_size = Core::ne(legend_size, index);
+        if (Core::truthy(wrong_size)) {
+          throw AxError("runtime", "Typesafe: Score legend must match rubric indices");
+        }
+        for (auto label : Core::iter(labels)) {
+          Value present = Core::map_contains(legend, label);
+          Value missing = Core::not_(present);
+          if (Core::truthy(missing)) {
+            throw AxError("runtime", "Typesafe: Score legend must match rubric indices");
+          }
+          Value entry = Core::get(legend, label, Value());
+          Core::typesafe_validate_entry(entry, Value("legend"));
+        }
+      }
+      Value probabilities = Core::get(answer, Value("probabilities"), Value());
+      Core::typesafe_require_object(probabilities, Value("probabilities"));
+      Value probability_keys = Core::map_keys(probabilities);
+      Value size = Core::len(probability_keys);
+      Value expected_size = Core::len(labels);
+      Value wrong_size = Core::ne(size, expected_size);
+      if (Core::truthy(wrong_size)) {
+        throw AxError("runtime", "Typesafe: probabilities must match criteria keys");
+      }
+      Value total = Value(0);
+      for (auto label : Core::iter(labels)) {
+        Value probability = Core::get(probabilities, label, Value());
+        Core::typesafe_require_number(probability, label, Value(0), Value(1));
+        total = Core::add(total, probability);
+      }
+      Value difference = Core::add(total, Value(-1));
+      difference = Core::math_abs(difference);
+      Value roundoff = Core::mul(Value(0.0000000000000002220446049250313), expected_size);
+      Value tolerance = Core::add(Value(0.01), roundoff);
+      Value invalid_sum = Core::gt(difference, tolerance);
+      if (Core::truthy(invalid_sum)) {
+        throw AxError("runtime", "Typesafe: probabilities must sum to one");
+      }
+    }
+  }
+  return raw;
+}
+
 Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
   axir_coverage_mark("openai_chat_reasoning_effort");
   Value effort = Core::openai_reasoning_effort(model, budget);
@@ -8774,6 +8921,27 @@ Value Core::normalize_stream_delta(Value raw, Value state) {
   return response;
 }
 
+Value Core::typesafe_decode_models(Value raw) {
+  axir_coverage_mark("typesafe_decode_models");
+  Core::typesafe_require_object(raw, Value("model catalog"));
+  Value models = Core::get(raw, Value("models"), Value());
+  Value is_list = Core::type_is(models, Value("list"));
+  Value invalid = Core::not_(is_list);
+  if (Core::truthy(invalid)) {
+    throw AxError("runtime", "Typesafe: models must be an array");
+  }
+  for (auto model : Core::iter(models)) {
+    Core::typesafe_require_object(model, Value("model"));
+    Value name = Core::get(model, Value("name"), Value());
+    Value description = Core::get(model, Value("description"), Value());
+    Value release_date = Core::get(model, Value("release_date"), Value());
+    Core::typesafe_require_string(name, Value("model.name"), Value(true));
+    Core::typesafe_require_string(description, Value("model.description"), Value(false));
+    Core::typesafe_require_string(release_date, Value("model.release_date"), Value(false));
+  }
+  return models;
+}
+
 Value Core::build_embed_request(Value service, Value request, Value options) {
   axir_coverage_mark("build_embed_request");
   Value payload = Core::openai_build_embed_request(request);
@@ -8784,6 +8952,320 @@ Value Core::normalize_embed_response(Value raw) {
   axir_coverage_mark("normalize_embed_response");
   Value response = Core::openai_normalize_embed_response(raw);
   return response;
+}
+
+Value Core::typesafe_build_chat_request(Value request, Value options) {
+  axir_coverage_mark("typesafe_build_chat_request");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
+  Core::typesafe_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
+  Value functions = Core::get(request, Value("functions"), empty_list);
+  Value function_call_snake = Core::get(request, Value("function_call"), Value("none"));
+  Value function_call = Core::get(request, Value("functionCall"), function_call_snake);
+  Value has_functions = Core::truthy_value(functions);
+  Value has_call = Core::ne(function_call, Value("none"));
+  Value has_call_value = Core::truthy_value(function_call);
+  has_call = Core::and_(has_call, has_call_value);
+  Value tools = Core::or_(has_functions, has_call);
+  if (Core::truthy(tools)) {
+    throw AxError("runtime", "Typesafe does not support tools; use a generative provider for tool execution");
+  }
+  Value config_snake = Core::get(request, Value("model_config"), empty_map);
+  Value config = Core::get(request, Value("modelConfig"), config_snake);
+  Value controls = Core::map_keys(config);
+  for (auto control : Core::iter(controls)) {
+    Value value = Core::get(config, control, Value());
+    Value present = Core::is_not_none(value);
+    if (Core::truthy(present)) {
+      Value is_stream = Core::eq(control, Value("stream"));
+      Value is_n = Core::eq(control, Value("n"));
+      Value one = Core::eq(value, Value(1));
+      Value numeric = Core::type_is(value, Value("number"));
+      one = Core::and_(one, numeric);
+      Value allowed_n = Core::and_(is_n, one);
+      Value allowed = Core::or_(is_stream, allowed_n);
+      Value unsupported = Core::not_(allowed);
+      if (Core::truthy(unsupported)) {
+        Value message = Core::string_format(Value("Typesafe does not support generation control {}"), control);
+        Value error = Core::validation_error(message);
+        Core::raise_error(error);
+      }
+    }
+  }
+  Value format_snake = Core::get(request, Value("response_format"), Value());
+  Value format = Core::get(request, Value("responseFormat"), format_snake);
+  Value format_type = Core::get(format, Value("type"), Value());
+  Value wrong_format = Core::ne(format_type, Value("json_schema"));
+  if (Core::truthy(wrong_format)) {
+    throw AxError("runtime", "Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs");
+  }
+  Value wrapper = Core::get(format, Value("schema"), Value());
+  Core::typesafe_require_object(wrapper, Value("responseFormat.schema"));
+  Value schema = Core::get(wrapper, Value("schema"), Value());
+  Core::typesafe_require_object(schema, Value("output schema"));
+  Value root_type = Core::get(schema, Value("type"), Value());
+  Value flat = Core::eq(root_type, Value("object"));
+  Value forbidden = Value::array();
+  Core::append(forbidden, Value("anyOf"));
+  Core::append(forbidden, Value("oneOf"));
+  Core::append(forbidden, Value("allOf"));
+  Core::append(forbidden, Value("$ref"));
+  for (auto key : Core::iter(forbidden)) {
+    Value value = Core::get(schema, key, Value());
+    Value has_value = Core::truthy_value(value);
+    if (Core::truthy(has_value)) {
+      flat = Value(false);
+    }
+  }
+  Value not_flat = Core::not_(flat);
+  if (Core::truthy(not_flat)) {
+    throw AxError("runtime", "Typesafe requires a flat object output schema");
+  }
+  Value properties = Core::get(schema, Value("properties"), Value());
+  Core::typesafe_require_object(properties, Value("output properties"));
+  Value required = Core::get(schema, Value("required"), empty_list);
+  Value annotations = Core::get(format, Value("fieldDescriptions"), empty_map);
+  Value decision_fields = Core::get(format, Value("decisionFields"), empty_map);
+  Value questions = Value::object();
+  Value names = Core::map_keys(properties);
+  Core::append(forbidden, Value("const"));
+  for (auto name : Core::iter(names)) {
+    Value field = Core::get(properties, name, Value());
+    Core::typesafe_require_object(field, name);
+    Value decision = Core::get(decision_fields, name, Value());
+    Value rich = Core::is_not_none(decision);
+    if (Core::truthy(rich)) {
+      Value array = Core::get(decision, Value("isArray"), Value(false));
+      Value optional = Core::get(decision, Value("isOptional"), Value(false));
+      Value invalid = Core::or_(array, optional);
+      if (Core::truthy(invalid)) {
+        throw AxError("runtime", "Decision providers require flat, required scalar outputs");
+      }
+      Value wire_description = Core::get(field, Value("description"), Value());
+      field = Value::object();
+      Value kind = Core::get(decision, Value("type"), Value());
+      Value class_kind = Core::eq(kind, Value("class"));
+      if (Core::truthy(class_kind)) {
+        kind = Value("string");
+      }
+      Core::set(field, Value("type"), kind);
+      Core::set(field, Value("description"), wire_description);
+      if (Core::truthy(class_kind)) {
+        Value labels = Core::get(decision, Value("options"), Value());
+        Core::set(field, Value("enum"), labels);
+      }
+    }
+    Value supported = Core::contains(required, name);
+    for (auto key : Core::iter(forbidden)) {
+      Value has_key = Core::map_contains(field, key);
+      if (Core::truthy(has_key)) {
+        supported = Value(false);
+      }
+    }
+    Value type_name = Core::get(field, Value("type"), Value());
+    Value class_options = Core::get(field, Value("enum"), Value());
+    Value is_boolean = Core::eq(type_name, Value("boolean"));
+    Value has_enum = Core::is_not_none(class_options);
+    Value no_enum = Core::not_(has_enum);
+    is_boolean = Core::and_(is_boolean, no_enum);
+    Value is_string = Core::eq(type_name, Value("string"));
+    Value is_enum = Core::type_is(class_options, Value("list"));
+    Value is_class = Core::and_(is_string, is_enum);
+    Value supported_type = Core::or_(is_boolean, is_class);
+    Value is_score = Core::eq(type_name, Value("score"));
+    supported_type = Core::or_(supported_type, is_score);
+    Value is_box = Core::eq(type_name, Value("box"));
+    supported_type = Core::or_(supported_type, is_box);
+    supported = Core::and_(supported, supported_type);
+    Value unsupported = Core::not_(supported);
+    if (Core::truthy(unsupported)) {
+      Value message = Core::string_format(Value("Typesafe cannot evaluate output {}. Use required boolean, class, rubric score or box fields, or a generative provider for other outputs"), name);
+      Value error = Core::validation_error(message);
+      Core::raise_error(error);
+    }
+    Value annotation = Core::get(annotations, name, Value());
+    Value description = Core::get(field, Value("description"), Value());
+    Value has_annotation = Core::is_not_none(annotation);
+    Value descriptions = Value::object();
+    if (Core::truthy(has_annotation)) {
+      Core::typesafe_require_object(annotation, name);
+      description = Core::get(annotation, Value("description"), Value());
+      Value has_description = Core::is_not_none(description);
+      if (Core::truthy(has_description)) {
+        Core::typesafe_require_string(description, name, Value(false));
+      }
+      descriptions = Core::get(annotation, Value("valueDescriptions"), Value());
+      Core::typesafe_require_object(descriptions, name);
+      Value type_attrs = Value::object();
+      Value annotation_type = Value("boolean");
+      if (Core::truthy(is_class)) {
+        annotation_type = Value("class");
+      }
+      Core::set(type_attrs, Value("name"), annotation_type);
+      Core::set(type_attrs, Value("options"), class_options);
+      Core::set(type_attrs, Value("value_descriptions"), descriptions);
+      Value typ = Core::record_new(Value("FieldType"), type_attrs);
+      Core::_signature_validate_value_descriptions_impl(typ, name);
+    }
+    Value instructions = Core::string_format(Value("Evaluate the output field {}."), name);
+    Value is_description_string = Core::type_is(description, Value("string"));
+    Value has_description = Core::truthy_value(description);
+    Value use_description = Core::and_(is_description_string, has_description);
+    if (Core::truthy(use_description)) {
+      instructions = Core::string_format(Value("{}: {}"), name, description);
+    }
+    Value question = Value::object();
+    Core::set(question, Value("instructions"), instructions);
+    if (Core::truthy(is_box)) {
+      Core::set(question, Value("type"), Value("box"));
+      Core::set(questions, name, question);
+      continue;
+    }
+    if (Core::truthy(is_score)) {
+      Core::set(question, Value("type"), Value("score"));
+      Value levels = Core::get(decision, Value("options"), Value());
+      Core::set(question, Value("criteria"), levels);
+      Core::set(questions, name, question);
+      continue;
+    }
+    if (Core::truthy(is_boolean)) {
+      Core::set(question, Value("type"), Value("noul"));
+      if (Core::truthy(has_annotation)) {
+        Core::set(question, Value("criteria"), descriptions);
+      }
+    }
+    if (!Core::truthy(is_boolean)) {
+      Core::set(question, Value("type"), Value("choice"));
+      Value criteria = Value::object();
+      for (auto label : Core::iter(class_options)) {
+        Core::typesafe_require_string(label, name, Value(false));
+        Value duplicate = Core::map_contains(criteria, label);
+        if (Core::truthy(duplicate)) {
+          throw AxError("runtime", "Typesafe: Choice labels must be unique");
+        }
+        description = Core::get(descriptions, label, Value());
+        Core::set(criteria, label, description);
+      }
+      Core::set(question, Value("criteria"), criteria);
+    }
+    Core::set(questions, name, question);
+  }
+  Value prompt_snake = Core::get(request, Value("chat_prompt"), empty_list);
+  Value prompt = Core::get(request, Value("chatPrompt"), prompt_snake);
+  Value messages = Value::array();
+  Value assets = Value::object();
+  Value reference_index = Value(0);
+  Value request_json = Core::json_stringify(request);
+  for (auto message : Core::iter(prompt)) {
+    Value role = Core::get(message, Value("role"), Value());
+    Value content = Core::get(message, Value("content"), Value(""));
+    Value is_tool = Core::eq(role, Value("function"));
+    Value is_tool_alt = Core::eq(role, Value("tool"));
+    is_tool = Core::or_(is_tool, is_tool_alt);
+    Value calls = Core::get(message, Value("functionCalls"), Value());
+    Value calls_snake = Core::get(message, Value("function_calls"), Value());
+    calls = Core::coalesce(calls, calls_snake);
+    Value has_calls = Core::truthy_value(calls);
+    Value audio = Core::get(message, Value("audio"), Value());
+    Value has_audio = Core::truthy_value(audio);
+    Value images = Core::get(message, Value("images"), Value());
+    Value has_images = Core::truthy_value(images);
+    Value invalid = Core::or_(is_tool, has_calls);
+    invalid = Core::or_(invalid, has_audio);
+    invalid = Core::or_(invalid, has_images);
+    if (Core::truthy(invalid)) {
+      throw AxError("runtime", "Typesafe does not support tool or media history");
+    }
+    Value is_list = Core::type_is(content, Value("list"));
+    if (Core::truthy(is_list)) {
+      Value texts = Value::array();
+      for (auto part : Core::iter(content)) {
+        Value kind = Core::get(part, Value("type"), Value());
+        Value is_text = Core::eq(kind, Value("text"));
+        if (Core::truthy(is_text)) {
+          Value text = Core::get(part, Value("text"), Value());
+          Core::typesafe_require_string(text, Value("message text"), Value(false));
+          Core::append(texts, text);
+        }
+        if (!Core::truthy(is_text)) {
+          Value is_image = Core::eq(kind, Value("image"));
+          Value is_user = Core::eq(role, Value("user"));
+          Value valid = Core::and_(is_image, is_user);
+          invalid = Core::not_(valid);
+          if (Core::truthy(invalid)) {
+            throw AxError("runtime", "Typesafe supports text and inline PNG/JPEG images only");
+          }
+          Value mime = Core::get(part, Value("mimeType"), Value());
+          Value png = Core::eq(mime, Value("image/png"));
+          Value jpeg = Core::eq(mime, Value("image/jpeg"));
+          Value jpg = Core::eq(mime, Value("image/jpg"));
+          valid = Core::or_(png, jpeg);
+          valid = Core::or_(valid, jpg);
+          invalid = Core::not_(valid);
+          if (Core::truthy(invalid)) {
+            throw AxError("runtime", "Typesafe images must be PNG or JPEG");
+          }
+          format = Value("png");
+          if (Core::truthy(jpeg)) {
+            format = Value("jpeg");
+          }
+          if (Core::truthy(jpg)) {
+            format = Value("jpg");
+          }
+          Value data = Core::get(part, Value("image"), Value());
+          Core::typesafe_require_string(data, Value("image data"), Value(true));
+          Value data_url = Core::string_starts_with(data, Value("data:"));
+          if (Core::truthy(data_url)) {
+            Value prefix = Core::string_format(Value("data:{};base64,"), mime);
+            Value matches = Core::string_starts_with(data, prefix);
+            invalid = Core::not_(matches);
+            if (Core::truthy(invalid)) {
+              throw AxError("runtime", "Typesafe image data URL must match its MIME type");
+            }
+            Value offset = Core::len(prefix);
+            data = Core::string_slice(data, offset);
+          }
+          Value reference = Value("");
+          while (true) {
+            reference = Core::string_format(Value("ax-image-{}-ref"), reference_index);
+            reference_index = Core::add(reference_index, Value(1));
+            Value collision = Core::string_index_of(request_json, reference, Value(0));
+            Value unused = Core::lt(collision, Value(0));
+            if (Core::truthy(unused)) {
+              break;
+            }
+          }
+          Value asset = Value::object();
+          Core::set(asset, Value("type"), Value("image"));
+          Core::set(asset, Value("format"), format);
+          Core::set(asset, Value("data_base64"), data);
+          Core::set(assets, reference, asset);
+          Core::append(texts, reference);
+        }
+      }
+      content = Core::string_join(Value("\n"), texts);
+    }
+    Core::typesafe_require_string(content, Value("message content"), Value(false));
+    Value entry = Value::object();
+    Core::set(entry, Value("role"), role);
+    Core::set(entry, Value("content"), content);
+    Core::append(messages, entry);
+  }
+  Value state = Value::object();
+  Core::set(state, Value("messages"), messages);
+  Value payload = Value::object();
+  Value model = Core::get(request, Value("model"), Value("jev-latest"));
+  Core::set(payload, Value("model"), model);
+  Core::set(payload, Value("state"), state);
+  Core::set(payload, Value("questions"), questions);
+  Value has_assets = Core::truthy_value(assets);
+  if (Core::truthy(has_assets)) {
+    Core::set(payload, Value("assets"), assets);
+  }
+  Core::typesafe_validate_request(payload);
+  return payload;
 }
 
 Value Core::normalize_token_usage(Value usage) {
@@ -9046,123 +9528,6 @@ Value Core::_openai_content_part_impl(Value part) {
   Core::raise_error(error);
 }
 
-Value Core::typesafe_normalize_chat_response(Value raw, Value context) {
-  axir_coverage_mark("typesafe_normalize_chat_response");
-  Value questions = Core::get(context, Value("questions"), Value());
-  Core::typesafe_require_object(questions, Value("response request questions"));
-  raw = Core::typesafe_decode_response(raw, questions);
-  Value threshold = Core::get(context, Value("trueThreshold"), Value(0.5));
-  Core::typesafe_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
-  Value answers = Core::get(raw, Value("answers"), Value());
-  Value values = Value::object();
-  Value decision_fields = Core::get(context, Value("decisionFields"), Value());
-  Value native_state = Value::object();
-  Value names = Core::map_keys(questions);
-  for (auto name : Core::iter(names)) {
-    Value answer = Core::get(answers, name, Value());
-    Value kind = Core::get(answer, Value("type"), Value());
-    Value decision = Core::get(decision_fields, name, Value());
-    Value rich = Core::is_not_none(decision);
-    if (Core::truthy(rich)) {
-      Value raw_evidence = Value::object();
-      Value native_evidence = Value::object();
-      Value refusal = Core::eq(kind, Value("refusal"));
-      if (Core::truthy(refusal)) {
-        Core::set(raw_evidence, Value("status"), Value("refused"));
-        Core::set(native_evidence, Value("refused"), Value(true));
-      }
-      if (!Core::truthy(refusal)) {
-        Value is_boolean = Core::eq(kind, Value("noul"));
-        if (Core::truthy(is_boolean)) {
-          Value p = Core::get(answer, Value("noul"), Value());
-          Core::set(raw_evidence, Value("probability"), p);
-        }
-        if (!Core::truthy(is_boolean)) {
-          Value ps = Value::object();
-          Value value = Value(0);
-          Value distribution = Core::get(answer, Value("probabilities"), Value());
-          Value score = Core::eq(kind, Value("score"));
-          if (Core::truthy(score)) {
-            Value labels = Core::get(decision, Value("options"), Value());
-            ps = Value::array();
-            Value index = Value(0);
-            for (auto label : Core::iter(labels)) {
-              Value key = Core::string_format(Value("{}"), index);
-              Value p = Core::get(distribution, key, Value());
-              Core::append(ps, p);
-              index = Core::add(index, Value(1));
-            }
-            value = Core::get(answer, Value("score"), Value());
-          }
-          if (!Core::truthy(score)) {
-            ps = distribution;
-            value = Core::get(answer, Value("choice"), Value());
-          }
-          Core::set(raw_evidence, Value("probabilities"), ps);
-          Core::set(native_evidence, Value("value"), value);
-          Value confidence = Core::get(answer, Value("confidence"), Value());
-          Value has_confidence = Core::is_not_none(confidence);
-          if (Core::truthy(has_confidence)) {
-            Core::set(native_evidence, Value("confidence"), confidence);
-          }
-        }
-      }
-      Core::set(values, name, raw_evidence);
-      Core::set(native_state, name, native_evidence);
-      continue;
-    }
-    Value is_noul = Core::eq(kind, Value("noul"));
-    Value value = Core::get(answer, Value("choice"), Value());
-    if (Core::truthy(is_noul)) {
-      Value probability = Core::get(answer, Value("noul"), Value());
-      Value below = Core::lt(probability, threshold);
-      value = Core::not_(below);
-    }
-    Core::set(values, name, value);
-  }
-  Value content = Core::json_stringify(values);
-  Value result = Value::object();
-  Value trusted = Value::object();
-  Value provenance = Value::object();
-  Core::set(provenance, Value("source"), Value("native"));
-  Core::set(provenance, Value("provider"), Value("Typesafe"));
-  Value model = Core::get(raw, Value("model"), Value());
-  Core::set(provenance, Value("model"), model);
-  Core::set(trusted, Value("provenance"), provenance);
-  Core::set(trusted, Value("native"), native_state);
-  Value has_native = Core::truthy_value(native_state);
-  if (Core::truthy(has_native)) {
-    Core::set(result, Value("decisionContext"), trusted);
-  }
-  Core::set(result, Value("index"), Value(0));
-  Core::set(result, Value("content"), content);
-  Core::set(result, Value("finishReason"), Value("stop"));
-  Value results = Value::array();
-  Core::append(results, result);
-  Value usage = Core::get(raw, Value("usage"), Value());
-  Value input = Core::get(usage, Value("input_tokens"), Value());
-  Value output = Core::get(usage, Value("output_tokens"), Value());
-  Value total = Core::add(input, output);
-  Value tokens = Value::object();
-  Core::set(tokens, Value("promptTokens"), input);
-  Core::set(tokens, Value("completionTokens"), output);
-  Core::set(tokens, Value("totalTokens"), total);
-  Value model_usage = Value::object();
-  model = Core::get(raw, Value("model"), Value());
-  Core::set(model_usage, Value("ai"), Value("Typesafe"));
-  Core::set(model_usage, Value("model"), model);
-  Core::set(model_usage, Value("tokens"), tokens);
-  Value typesafe_metadata = Value::object();
-  Core::set(typesafe_metadata, Value("answers"), answers);
-  Value metadata = Value::object();
-  Core::set(metadata, Value("typesafe"), typesafe_metadata);
-  Value response = Value::object();
-  Core::set(response, Value("results"), results);
-  Core::set(response, Value("modelUsage"), model_usage);
-  Core::set(response, Value("providerMetadata"), metadata);
-  return response;
-}
-
 Value Core::merge_usage_context(Value defaults, Value overrides) {
   axir_coverage_mark("merge_usage_context");
   Value merged = Core::map_merge(defaults, overrides);
@@ -9412,20 +9777,6 @@ Value Core::decisions_normalize_chat_response(Value raw, Value context) {
   return response;
 }
 
-Value Core::typesafe_response_context(Value payload, Value options, Value request) {
-  axir_coverage_mark("typesafe_response_context");
-  Value empty = Value::object();
-  Value context = Core::map_merge(empty, payload);
-  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
-  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
-  Core::set(context, Value("trueThreshold"), threshold);
-  Value format_snake = Core::get(request, Value("response_format"), Value());
-  Value format = Core::get(request, Value("responseFormat"), format_snake);
-  Value decision_fields = Core::get(format, Value("decisionFields"), Value());
-  Core::set(context, Value("decisionFields"), decision_fields);
-  return context;
-}
-
 Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
   axir_coverage_mark("_ai_model_usage_impl");
   Value has_usage = Core::truthy_value(usage);
@@ -9440,20 +9791,6 @@ Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
   Core::set(out, Value("model"), model);
   Core::set(out, Value("tokens"), tokens);
   return out;
-}
-
-Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
-  axir_coverage_mark("provider_validate_chat_request");
-  Value canonical = Core::provider_normalize_profile(profile);
-  Value is_decisions = Core::eq(canonical, Value("openai-decisions"));
-  if (Core::truthy(is_decisions)) {
-    Core::decisions_build_chat_request(request, options);
-  }
-  Value is_typesafe = Core::eq(canonical, Value("typesafe"));
-  if (Core::truthy(is_typesafe)) {
-    Core::typesafe_build_chat_request(request, options);
-  }
-  return Value();
 }
 
 Value Core::_openai_tool_call_to_provider_impl(Value call) {
@@ -9660,6 +9997,140 @@ Value Core::_openai_usage_with_service_tier(Value raw, Value usage) {
     Core::set(out, Value("service_tier"), tier);
   }
   return out;
+}
+
+Value Core::typesafe_normalize_chat_response(Value raw, Value context) {
+  axir_coverage_mark("typesafe_normalize_chat_response");
+  Value questions = Core::get(context, Value("questions"), Value());
+  Core::typesafe_require_object(questions, Value("response request questions"));
+  raw = Core::typesafe_decode_response(raw, questions);
+  Value threshold = Core::get(context, Value("trueThreshold"), Value(0.5));
+  Core::typesafe_require_number(threshold, Value("trueThreshold"), Value(0), Value(1));
+  Value answers = Core::get(raw, Value("answers"), Value());
+  Value values = Value::object();
+  Value decision_fields = Core::get(context, Value("decisionFields"), Value());
+  Value native_state = Value::object();
+  Value names = Core::map_keys(questions);
+  for (auto name : Core::iter(names)) {
+    Value answer = Core::get(answers, name, Value());
+    Value kind = Core::get(answer, Value("type"), Value());
+    Value decision = Core::get(decision_fields, name, Value());
+    Value rich = Core::is_not_none(decision);
+    Value box = Core::eq(kind, Value("box"));
+    if (Core::truthy(box)) {
+      Value coordinates = Core::get(answer, Value("box"), Value());
+      Value evidence = Core::get(decision, Value("evidence"), Value());
+      Value has_evidence = Core::is_not_none(evidence);
+      Value value = coordinates;
+      if (Core::truthy(has_evidence)) {
+        value = Value::object();
+        Core::set(value, Value("box"), coordinates);
+        Value native_box = Value::object();
+        Value confidence = Core::get(answer, Value("confidence"), Value());
+        Core::set(native_box, Value("confidence"), confidence);
+        Core::set(native_state, name, native_box);
+      }
+      Core::set(values, name, value);
+      continue;
+    }
+    if (Core::truthy(rich)) {
+      Value raw_evidence = Value::object();
+      Value native_evidence = Value::object();
+      Value refusal = Core::eq(kind, Value("refusal"));
+      if (Core::truthy(refusal)) {
+        Core::set(raw_evidence, Value("status"), Value("refused"));
+        Core::set(native_evidence, Value("refused"), Value(true));
+      }
+      if (!Core::truthy(refusal)) {
+        Value is_boolean = Core::eq(kind, Value("noul"));
+        if (Core::truthy(is_boolean)) {
+          Value p = Core::get(answer, Value("noul"), Value());
+          Core::set(raw_evidence, Value("probability"), p);
+        }
+        if (!Core::truthy(is_boolean)) {
+          Value ps = Value::object();
+          Value value = Value(0);
+          Value distribution = Core::get(answer, Value("probabilities"), Value());
+          Value score = Core::eq(kind, Value("score"));
+          if (Core::truthy(score)) {
+            Value labels = Core::get(decision, Value("options"), Value());
+            ps = Value::array();
+            Value index = Value(0);
+            for (auto label : Core::iter(labels)) {
+              Value key = Core::string_format(Value("{}"), index);
+              Value p = Core::get(distribution, key, Value());
+              Core::append(ps, p);
+              index = Core::add(index, Value(1));
+            }
+            value = Core::get(answer, Value("score"), Value());
+          }
+          if (!Core::truthy(score)) {
+            ps = distribution;
+            value = Core::get(answer, Value("choice"), Value());
+          }
+          Core::set(raw_evidence, Value("probabilities"), ps);
+          Core::set(native_evidence, Value("value"), value);
+          Value confidence = Core::get(answer, Value("confidence"), Value());
+          Value has_confidence = Core::is_not_none(confidence);
+          if (Core::truthy(has_confidence)) {
+            Core::set(native_evidence, Value("confidence"), confidence);
+          }
+        }
+      }
+      Core::set(values, name, raw_evidence);
+      Core::set(native_state, name, native_evidence);
+      continue;
+    }
+    Value is_noul = Core::eq(kind, Value("noul"));
+    Value value = Core::get(answer, Value("choice"), Value());
+    if (Core::truthy(is_noul)) {
+      Value probability = Core::get(answer, Value("noul"), Value());
+      Value below = Core::lt(probability, threshold);
+      value = Core::not_(below);
+    }
+    Core::set(values, name, value);
+  }
+  Value content = Core::json_stringify(values);
+  Value result = Value::object();
+  Value trusted = Value::object();
+  Value provenance = Value::object();
+  Core::set(provenance, Value("source"), Value("native"));
+  Core::set(provenance, Value("provider"), Value("Typesafe"));
+  Value model = Core::get(raw, Value("model"), Value());
+  Core::set(provenance, Value("model"), model);
+  Core::set(trusted, Value("provenance"), provenance);
+  Core::set(trusted, Value("native"), native_state);
+  Value has_native = Core::truthy_value(native_state);
+  if (Core::truthy(has_native)) {
+    Core::set(result, Value("decisionContext"), trusted);
+  }
+  Core::set(result, Value("index"), Value(0));
+  Core::set(result, Value("content"), content);
+  Core::set(result, Value("finishReason"), Value("stop"));
+  Value results = Value::array();
+  Core::append(results, result);
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Value input = Core::get(usage, Value("input_tokens"), Value());
+  Value output = Core::get(usage, Value("output_tokens"), Value());
+  Value total = Core::add(input, output);
+  Value tokens = Value::object();
+  Core::set(tokens, Value("promptTokens"), input);
+  Core::set(tokens, Value("completionTokens"), output);
+  Core::set(tokens, Value("totalTokens"), total);
+  Value model_usage = Value::object();
+  model = Core::get(raw, Value("model"), Value());
+  Core::set(model_usage, Value("ai"), Value("Typesafe"));
+  Core::set(model_usage, Value("model"), model);
+  Core::set(model_usage, Value("tokens"), tokens);
+  Value typesafe_metadata = Value::object();
+  Core::set(typesafe_metadata, Value("answers"), answers);
+  Value metadata = Value::object();
+  Core::set(metadata, Value("typesafe"), typesafe_metadata);
+  Value response = Value::object();
+  Core::set(response, Value("results"), results);
+  Core::set(response, Value("modelUsage"), model_usage);
+  Core::set(response, Value("providerMetadata"), metadata);
+  return response;
 }
 
 Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode) {
@@ -9951,6 +10422,20 @@ Value Core::chat_response_to_completion(Value response) {
   return out;
 }
 
+Value Core::typesafe_response_context(Value payload, Value options, Value request) {
+  axir_coverage_mark("typesafe_response_context");
+  Value empty = Value::object();
+  Value context = Core::map_merge(empty, payload);
+  Value threshold_snake = Core::get(options, Value("true_threshold"), Value(0.5));
+  Value threshold = Core::get(options, Value("trueThreshold"), threshold_snake);
+  Core::set(context, Value("trueThreshold"), threshold);
+  Value format_snake = Core::get(request, Value("response_format"), Value());
+  Value format = Core::get(request, Value("responseFormat"), format_snake);
+  Value decision_fields = Core::get(format, Value("decisionFields"), Value());
+  Core::set(context, Value("decisionFields"), decision_fields);
+  return context;
+}
+
 Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   axir_coverage_mark("_openai_normalize_tool_calls_impl");
   Value out = Value::array();
@@ -9979,6 +10464,20 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
     Core::append(out, normalized);
   }
   return out;
+}
+
+Value Core::provider_validate_chat_request(Value profile, Value request, Value options) {
+  axir_coverage_mark("provider_validate_chat_request");
+  Value canonical = Core::provider_normalize_profile(profile);
+  Value is_decisions = Core::eq(canonical, Value("openai-decisions"));
+  if (Core::truthy(is_decisions)) {
+    Core::decisions_build_chat_request(request, options);
+  }
+  Value is_typesafe = Core::eq(canonical, Value("typesafe"));
+  if (Core::truthy(is_typesafe)) {
+    Core::typesafe_build_chat_request(request, options);
+  }
+  return Value();
 }
 
 Value Core::_openai_finish_reason_impl(Value value) {
@@ -12376,7 +12875,7 @@ Value Core::provider_routing_stats(Value providers) {
 Value Core::provider_descriptor(Value profile) {
   axir_coverage_mark("provider_descriptor");
   Value provider_id = Core::provider_normalize_profile(profile);
-  Value descriptors = Core::json_parse(Value("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"claude-opus-5-5\",\"claude-fable-5-1\",\"claude-sonnet-5-5\"]},\"request\":{\"toolChoice\":\"unforced\"},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"]}}],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-09-23\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.6-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.5-transcribe\",\"body\":\"json\",\"method\":\"POST\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.8-flash-tts\",\"response\":\"json\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"exact\":[\"gemini-3.8-live\",\"gemini-3.8-live-extended-thinking\"],\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-3.8-live\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.6-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-09-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"));
+  Value descriptors = Core::json_parse(Value("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"claude-opus-5-5\",\"claude-fable-5-1\",\"claude-sonnet-5-5\"]},\"request\":{\"toolChoice\":\"unforced\"},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"]}}],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-09-23\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.6-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.5-transcribe\",\"body\":\"json\",\"method\":\"POST\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.8-flash-tts\",\"response\":\"json\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"exact\":[\"gemini-3.8-live\",\"gemini-3.8-live-extended-thinking\"],\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-3.8-live\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.6-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-10-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"));
   Value empty = Value::object();
   Value descriptor = Core::get(descriptors, provider_id, empty);
   return descriptor;
@@ -23367,192 +23866,6 @@ Value Core::_optimization_component_current_map(Value components) {
   return out;
 }
 
-Value Core::_evidence_decode_one_impl(Value typ, Value raw, Value context, Value path) {
-  axir_coverage_mark("_evidence_decode_one_impl");
-  Value object = Core::type_is(raw, Value("object"));
-  Value invalid = Core::not_(object);
-  if (Core::truthy(invalid)) {
-    Value error = Core::validation_error(Value("Decision evidence must be an object"));
-    Core::raise_error(error);
-  }
-  Value name = Core::get(typ, Value("name"), Value());
-  Value evidence = Core::get(typ, Value("evidence"), Value());
-  Value provenance = Core::get(context, Value("provenance"), Value());
-  Value source = Core::get(provenance, Value("source"), Value("elicited"));
-  Value native_state = Core::eq(source, Value("native"));
-  Value native_answers = Core::get(context, Value("native"), Value());
-  Value answer = Core::get(native_answers, path, Value());
-  Value status = Core::get(raw, Value("status"), Value());
-  Value missing_native = Core::is_none(answer);
-  missing_native = Core::and_(native_state, missing_native);
-  if (Core::truthy(missing_native)) {
-    Value error = Core::validation_error(Value("Missing native decision"));
-    Core::raise_error(error);
-  }
-  Value refused = Core::eq(status, Value("refused"));
-  if (Core::truthy(native_state)) {
-    refused = Core::get(answer, Value("refused"), Value(false));
-  }
-  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
-  Value return_policy = Core::eq(policy, Value("return"));
-  Value keys = Core::map_keys(raw);
-  if (Core::truthy(refused)) {
-    Value key_count = Core::len(keys);
-    Value valid_shape = Core::eq(key_count, Value(1));
-    Value valid_status = Core::eq(status, Value("refused"));
-    valid_shape = Core::and_(valid_shape, valid_status);
-    Value invalid_shape = Core::not_(valid_shape);
-    if (Core::truthy(invalid_shape)) {
-      Value error = Core::validation_error(Value("Invalid refusal evidence shape"));
-      Core::raise_error(error);
-    }
-    Value throw_policy = Core::not_(return_policy);
-    if (Core::truthy(throw_policy)) {
-      Value error = Core::decision_refusal_error(path, provenance);
-      Core::raise_error(error);
-    }
-    Value out = Value::object();
-    Core::set(out, Value("status"), Value("refused"));
-    Core::set(out, Value("provenance"), provenance);
-    return out;
-  }
-  Value elicited = Core::not_(native_state);
-  Value require_status = Core::and_(return_policy, elicited);
-  Value answered_status = Core::eq(status, Value("answered"));
-  Value invalid_status = Core::not_(answered_status);
-  invalid_status = Core::and_(require_status, invalid_status);
-  if (Core::truthy(invalid_status)) {
-    Value error = Core::validation_error(Value("Invalid decision evidence status"));
-    Core::raise_error(error);
-  }
-  Value is_boolean = Core::eq(name, Value("boolean"));
-  Value score = Core::eq(name, Value("score"));
-  Value allowed = Value::array();
-  if (Core::truthy(is_boolean)) {
-    Core::append(allowed, Value("probability"));
-  }
-  if (!Core::truthy(is_boolean)) {
-    Core::append(allowed, Value("probabilities"));
-  }
-  if (Core::truthy(return_policy)) {
-    Core::append(allowed, Value("status"));
-  }
-  for (auto key : Core::iter(keys)) {
-    Value known = Core::contains(allowed, key);
-    Value unknown = Core::not_(known);
-    if (Core::truthy(unknown)) {
-      Value error = Core::validation_error(Value("Unexpected decision evidence key"));
-      Core::raise_error(error);
-    }
-  }
-  Value out = Value::object();
-  Core::set(out, Value("provenance"), provenance);
-  if (Core::truthy(is_boolean)) {
-    Value p = Core::get(raw, Value("probability"), Value());
-    p = Core::_evidence_probability_impl(p, path);
-    Value threshold = Core::get(evidence, Value("threshold"), Value(0.5));
-    Value value = Core::gte(p, threshold);
-    Core::set(out, Value("value"), value);
-    Core::set(out, Value("probability"), p);
-    Core::set(out, Value("threshold"), threshold);
-  }
-  if (!Core::truthy(is_boolean)) {
-    Value labels = Core::get(typ, Value("options"), Value());
-    Value ps = Core::get(raw, Value("probabilities"), Value());
-    Value valid_distribution = Core::type_is(ps, Value("object"));
-    if (Core::truthy(score)) {
-      valid_distribution = Core::type_is(ps, Value("list"));
-    }
-    Value invalid_distribution = Core::not_(valid_distribution);
-    if (Core::truthy(invalid_distribution)) {
-      Value error = Core::validation_error(Value("Invalid decision distribution shape"));
-      Core::raise_error(error);
-    }
-    Value count = Core::len(labels);
-    Value actual = Core::len(ps);
-    Value wrong_count = Core::ne(count, actual);
-    if (Core::truthy(wrong_count)) {
-      Value error = Core::validation_error(Value("Decision probabilities must cover exactly their declared options"));
-      Core::raise_error(error);
-    }
-    Value sum = Value(0);
-    Value mean = Value(0);
-    Value maximum = Value(-1);
-    Value choice = Value("");
-    Value index = Value(0);
-    for (auto label : Core::iter(labels)) {
-      Value p = Core::get(ps, label, Value());
-      if (Core::truthy(score)) {
-        p = Core::list_get(ps, index);
-      }
-      p = Core::_evidence_probability_impl(p, path);
-      sum = Core::add(sum, p);
-      Value part = Core::mul(index, p);
-      mean = Core::add(mean, part);
-      Value larger = Core::gt(p, maximum);
-      if (Core::truthy(larger)) {
-        choice = label;
-        maximum = p;
-      }
-      index = Core::add(index, Value(1));
-    }
-    Value difference = Core::add(sum, Value(-1));
-    Value low = Core::lt(difference, Value(-0.01000000000001));
-    Value high = Core::gt(difference, Value(0.01000000000001));
-    Value bad_sum = Core::or_(low, high);
-    if (Core::truthy(bad_sum)) {
-      Value error = Core::validation_error(Value("Decision probabilities must sum to one"));
-      Core::raise_error(error);
-    }
-    Value value = choice;
-    if (Core::truthy(score)) {
-      value = Core::div(mean, sum);
-    }
-    if (Core::truthy(native_state)) {
-      value = Core::get(answer, Value("value"), Value());
-    }
-    Value valid_value = Core::contains(labels, value);
-    if (Core::truthy(score)) {
-      valid_value = Core::type_is(value, Value("number"));
-      if (Core::truthy(valid_value)) {
-        Value finite = Core::math_is_finite(value);
-        low = Core::gte(value, Value(0));
-        Value maximum_score = Core::add(count, Value(-1));
-        high = Core::lte(value, maximum_score);
-        valid_value = Core::and_(low, high);
-        valid_value = Core::and_(valid_value, finite);
-      }
-    }
-    Value invalid_value = Core::not_(valid_value);
-    if (Core::truthy(invalid_value)) {
-      Value error = Core::validation_error(Value("Invalid decision value"));
-      Core::raise_error(error);
-    }
-    Value has_evidence = Core::is_not_none(evidence);
-    Value plain_score = Core::not_(has_evidence);
-    plain_score = Core::and_(score, plain_score);
-    if (Core::truthy(plain_score)) {
-      return value;
-    }
-    Core::set(out, Value("value"), value);
-    Core::set(out, Value("probabilities"), ps);
-    if (Core::truthy(score)) {
-      Core::set(out, Value("levels"), labels);
-    }
-    Value confidence = Core::get(answer, Value("confidence"), Value());
-    Value has_confidence = Core::is_not_none(confidence);
-    Value copy_confidence = Core::and_(native_state, has_confidence);
-    if (Core::truthy(copy_confidence)) {
-      confidence = Core::_evidence_probability_impl(confidence, path);
-      Core::set(out, Value("confidence"), confidence);
-    }
-  }
-  if (Core::truthy(return_policy)) {
-    Core::set(out, Value("status"), Value("answered"));
-  }
-  return out;
-}
-
 Value Core::_normalize_optimization_dataset(Value dataset) {
   axir_coverage_mark("_normalize_optimization_dataset");
   Value empty_list = Value::array();
@@ -23875,6 +24188,218 @@ Value Core::_date_datetime_parts_impl(Value prefix) {
   return parts;
 }
 
+Value Core::_evidence_decode_one_impl(Value typ, Value raw, Value context, Value path) {
+  axir_coverage_mark("_evidence_decode_one_impl");
+  Value object = Core::type_is(raw, Value("object"));
+  Value invalid = Core::not_(object);
+  if (Core::truthy(invalid)) {
+    Value error = Core::validation_error(Value("Decision evidence must be an object"));
+    Core::raise_error(error);
+  }
+  Value name = Core::get(typ, Value("name"), Value());
+  Value evidence = Core::get(typ, Value("evidence"), Value());
+  Value box = Core::eq(name, Value("box"));
+  Value plain = Core::is_none(evidence);
+  Value plain_box = Core::and_(box, plain);
+  if (Core::truthy(plain_box)) {
+    Value value = Core::_box_validate_impl(raw, path);
+    return value;
+  }
+  Value provenance = Core::get(context, Value("provenance"), Value());
+  Value source = Core::get(provenance, Value("source"), Value("elicited"));
+  Value native_state = Core::eq(source, Value("native"));
+  Value native_answers = Core::get(context, Value("native"), Value());
+  Value answer = Core::get(native_answers, path, Value());
+  Value status = Core::get(raw, Value("status"), Value());
+  Value missing_native = Core::is_none(answer);
+  missing_native = Core::and_(native_state, missing_native);
+  if (Core::truthy(missing_native)) {
+    Value error = Core::validation_error(Value("Missing native decision"));
+    Core::raise_error(error);
+  }
+  Value refused = Core::eq(status, Value("refused"));
+  if (Core::truthy(native_state)) {
+    refused = Core::get(answer, Value("refused"), Value(false));
+  }
+  Value policy = Core::get(evidence, Value("onRefusal"), Value("throw"));
+  Value return_policy = Core::eq(policy, Value("return"));
+  Value keys = Core::map_keys(raw);
+  if (Core::truthy(refused)) {
+    Value key_count = Core::len(keys);
+    Value valid_shape = Core::eq(key_count, Value(1));
+    Value valid_status = Core::eq(status, Value("refused"));
+    valid_shape = Core::and_(valid_shape, valid_status);
+    Value invalid_shape = Core::not_(valid_shape);
+    if (Core::truthy(invalid_shape)) {
+      Value error = Core::validation_error(Value("Invalid refusal evidence shape"));
+      Core::raise_error(error);
+    }
+    Value throw_policy = Core::not_(return_policy);
+    if (Core::truthy(throw_policy)) {
+      Value error = Core::decision_refusal_error(path, provenance);
+      Core::raise_error(error);
+    }
+    Value out = Value::object();
+    Core::set(out, Value("status"), Value("refused"));
+    Core::set(out, Value("provenance"), provenance);
+    return out;
+  }
+  Value elicited = Core::not_(native_state);
+  Value require_status = Core::and_(return_policy, elicited);
+  Value answered_status = Core::eq(status, Value("answered"));
+  Value invalid_status = Core::not_(answered_status);
+  invalid_status = Core::and_(require_status, invalid_status);
+  if (Core::truthy(invalid_status)) {
+    Value error = Core::validation_error(Value("Invalid decision evidence status"));
+    Core::raise_error(error);
+  }
+  Value is_boolean = Core::eq(name, Value("boolean"));
+  Value score = Core::eq(name, Value("score"));
+  Value allowed = Value::array();
+  if (Core::truthy(box)) {
+    Core::append(allowed, Value("box"));
+  }
+  if (!Core::truthy(box)) {
+    if (Core::truthy(is_boolean)) {
+      Core::append(allowed, Value("probability"));
+    }
+    if (!Core::truthy(is_boolean)) {
+      Core::append(allowed, Value("probabilities"));
+    }
+  }
+  if (Core::truthy(return_policy)) {
+    Core::append(allowed, Value("status"));
+  }
+  for (auto key : Core::iter(keys)) {
+    Value known = Core::contains(allowed, key);
+    Value unknown = Core::not_(known);
+    if (Core::truthy(unknown)) {
+      Value error = Core::validation_error(Value("Unexpected decision evidence key"));
+      Core::raise_error(error);
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("provenance"), provenance);
+  if (Core::truthy(box)) {
+    Value raw_box = Core::get(raw, Value("box"), Value());
+    Value value = Core::_box_validate_impl(raw_box, path);
+    Core::set(out, Value("value"), value);
+    Value confidence = Core::get(answer, Value("confidence"), Value());
+    Value present = Core::is_not_none(confidence);
+    Value copy = Core::and_(native_state, present);
+    if (Core::truthy(copy)) {
+      confidence = Core::_evidence_probability_impl(confidence, path);
+      Core::set(out, Value("confidence"), confidence);
+    }
+  }
+  if (!Core::truthy(box)) {
+    if (Core::truthy(is_boolean)) {
+      Value p = Core::get(raw, Value("probability"), Value());
+      p = Core::_evidence_probability_impl(p, path);
+      Value threshold = Core::get(evidence, Value("threshold"), Value(0.5));
+      Value value = Core::gte(p, threshold);
+      Core::set(out, Value("value"), value);
+      Core::set(out, Value("probability"), p);
+      Core::set(out, Value("threshold"), threshold);
+    }
+    if (!Core::truthy(is_boolean)) {
+      Value labels = Core::get(typ, Value("options"), Value());
+      Value ps = Core::get(raw, Value("probabilities"), Value());
+      Value valid_distribution = Core::type_is(ps, Value("object"));
+      if (Core::truthy(score)) {
+        valid_distribution = Core::type_is(ps, Value("list"));
+      }
+      Value invalid_distribution = Core::not_(valid_distribution);
+      if (Core::truthy(invalid_distribution)) {
+        Value error = Core::validation_error(Value("Invalid decision distribution shape"));
+        Core::raise_error(error);
+      }
+      Value count = Core::len(labels);
+      Value actual = Core::len(ps);
+      Value wrong_count = Core::ne(count, actual);
+      if (Core::truthy(wrong_count)) {
+        Value error = Core::validation_error(Value("Decision probabilities must cover exactly their declared options"));
+        Core::raise_error(error);
+      }
+      Value sum = Value(0);
+      Value mean = Value(0);
+      Value maximum = Value(-1);
+      Value choice = Value("");
+      Value index = Value(0);
+      for (auto label : Core::iter(labels)) {
+        Value p = Core::get(ps, label, Value());
+        if (Core::truthy(score)) {
+          p = Core::list_get(ps, index);
+        }
+        p = Core::_evidence_probability_impl(p, path);
+        sum = Core::add(sum, p);
+        Value part = Core::mul(index, p);
+        mean = Core::add(mean, part);
+        Value larger = Core::gt(p, maximum);
+        if (Core::truthy(larger)) {
+          choice = label;
+          maximum = p;
+        }
+        index = Core::add(index, Value(1));
+      }
+      Value difference = Core::add(sum, Value(-1));
+      Value low = Core::lt(difference, Value(-0.01000000000001));
+      Value high = Core::gt(difference, Value(0.01000000000001));
+      Value bad_sum = Core::or_(low, high);
+      if (Core::truthy(bad_sum)) {
+        Value error = Core::validation_error(Value("Decision probabilities must sum to one"));
+        Core::raise_error(error);
+      }
+      Value value = choice;
+      if (Core::truthy(score)) {
+        value = Core::div(mean, sum);
+      }
+      if (Core::truthy(native_state)) {
+        value = Core::get(answer, Value("value"), Value());
+      }
+      Value valid_value = Core::contains(labels, value);
+      if (Core::truthy(score)) {
+        valid_value = Core::type_is(value, Value("number"));
+        if (Core::truthy(valid_value)) {
+          Value finite = Core::math_is_finite(value);
+          low = Core::gte(value, Value(0));
+          Value maximum_score = Core::add(count, Value(-1));
+          high = Core::lte(value, maximum_score);
+          valid_value = Core::and_(low, high);
+          valid_value = Core::and_(valid_value, finite);
+        }
+      }
+      Value invalid_value = Core::not_(valid_value);
+      if (Core::truthy(invalid_value)) {
+        Value error = Core::validation_error(Value("Invalid decision value"));
+        Core::raise_error(error);
+      }
+      Value has_evidence = Core::is_not_none(evidence);
+      Value plain_score = Core::not_(has_evidence);
+      plain_score = Core::and_(score, plain_score);
+      if (Core::truthy(plain_score)) {
+        return value;
+      }
+      Core::set(out, Value("value"), value);
+      Core::set(out, Value("probabilities"), ps);
+      if (Core::truthy(score)) {
+        Core::set(out, Value("levels"), labels);
+      }
+      Value confidence = Core::get(answer, Value("confidence"), Value());
+      Value has_confidence = Core::is_not_none(confidence);
+      Value copy_confidence = Core::and_(native_state, has_confidence);
+      if (Core::truthy(copy_confidence)) {
+        confidence = Core::_evidence_probability_impl(confidence, path);
+        Core::set(out, Value("confidence"), confidence);
+      }
+    }
+  }
+  if (Core::truthy(return_policy)) {
+    Core::set(out, Value("status"), Value("answered"));
+  }
+  return out;
+}
+
 Value Core::_stream_strip_trailing_fence_impl(Value text) {
   axir_coverage_mark("_stream_strip_trailing_fence_impl");
   Value trimmed = Core::_stream_trim_end_impl(text);
@@ -24102,61 +24627,6 @@ Value Core::_stream_markdown_list_impl(Value input) {
   return items;
 }
 
-Value Core::_evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix) {
-  axir_coverage_mark("_evidence_decode_values_impl");
-  for (auto field : Core::iter(fields)) {
-    Value name = Core::get(field, Value("name"), Value());
-    Value typ = Core::get(field, Value("type"), Value());
-    Value value = Core::get(values, name, Value());
-    Value present = Core::is_not_none(value);
-    if (Core::truthy(present)) {
-      Value path = name;
-      Value qualified = Core::ne(prefix, Value(""));
-      if (Core::truthy(qualified)) {
-        path = Core::string_format(Value("{}.{}"), prefix, name);
-      }
-      Value decision = Core::_evidence_is_type_impl(typ);
-      Value children = Core::get(typ, Value("fields"), Value());
-      Value has_children = Core::is_not_none(children);
-      Value array = Core::get(typ, Value("is_array"), Value(false));
-      Value items = Value::array();
-      if (Core::truthy(array)) {
-        items = value;
-      }
-      if (!Core::truthy(array)) {
-        Core::append(items, value);
-      }
-      Value decoded = Value::array();
-      Value index = Value(0);
-      for (auto item : Core::iter(items)) {
-        Value item_path = path;
-        if (Core::truthy(array)) {
-          item_path = Core::string_format(Value("{}[{}]"), path, index);
-        }
-        if (Core::truthy(decision)) {
-          item = Core::_evidence_decode_one_impl(typ, item, context, item_path);
-        }
-        if (!Core::truthy(decision)) {
-          if (Core::truthy(has_children)) {
-            Value nested = Core::fields_from_map(children);
-            item = Core::_evidence_decode_values_impl(nested, item, context, item_path);
-          }
-        }
-        Core::append(decoded, item);
-        index = Core::add(index, Value(1));
-      }
-      if (Core::truthy(array)) {
-        Core::set(values, name, decoded);
-      }
-      if (!Core::truthy(array)) {
-        Value single = Core::list_get(decoded, Value(0));
-        Core::set(values, name, single);
-      }
-    }
-  }
-  return values;
-}
-
 Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value zone, Value probe) {
   axir_coverage_mark("_date_zone_resolve_impl");
   Value resolved = Value::object();
@@ -24217,28 +24687,6 @@ Value Core::_date_zone_resolve_impl(Value units, Value start, Value end, Value z
   }
   Value missing_error = Core::runtime_error(unrecognized);
   Core::raise_error(missing_error);
-}
-
-Value Core::_evidence_context_impl(Value response, Value client) {
-  axir_coverage_mark("_evidence_context_impl");
-  Value trusted = Core::get(response, Value("decisionContext"), Value());
-  Value found = Core::is_not_none(trusted);
-  if (Core::truthy(found)) {
-    return trusted;
-  }
-  Value usage = Core::get(response, Value("modelUsage"), Value());
-  Value provenance = Value::object();
-  Core::set(provenance, Value("source"), Value("elicited"));
-  Value provider = Core::get(usage, Value("ai"), Value("AI"));
-  Value model = Core::get(usage, Value("model"), Value());
-  Core::set(provenance, Value("provider"), provider);
-  Value found_model = Core::is_not_none(model);
-  if (Core::truthy(found_model)) {
-    Core::set(provenance, Value("model"), model);
-  }
-  Value context = Value::object();
-  Core::set(context, Value("provenance"), provenance);
-  return context;
 }
 
 Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
@@ -25181,6 +25629,61 @@ Value Core::_regex_character_class(Value s) {
   return t43;
 }
 
+Value Core::_evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix) {
+  axir_coverage_mark("_evidence_decode_values_impl");
+  for (auto field : Core::iter(fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value typ = Core::get(field, Value("type"), Value());
+    Value value = Core::get(values, name, Value());
+    Value present = Core::is_not_none(value);
+    if (Core::truthy(present)) {
+      Value path = name;
+      Value qualified = Core::ne(prefix, Value(""));
+      if (Core::truthy(qualified)) {
+        path = Core::string_format(Value("{}.{}"), prefix, name);
+      }
+      Value decision = Core::_evidence_is_type_impl(typ);
+      Value children = Core::get(typ, Value("fields"), Value());
+      Value has_children = Core::is_not_none(children);
+      Value array = Core::get(typ, Value("is_array"), Value(false));
+      Value items = Value::array();
+      if (Core::truthy(array)) {
+        items = value;
+      }
+      if (!Core::truthy(array)) {
+        Core::append(items, value);
+      }
+      Value decoded = Value::array();
+      Value index = Value(0);
+      for (auto item : Core::iter(items)) {
+        Value item_path = path;
+        if (Core::truthy(array)) {
+          item_path = Core::string_format(Value("{}[{}]"), path, index);
+        }
+        if (Core::truthy(decision)) {
+          item = Core::_evidence_decode_one_impl(typ, item, context, item_path);
+        }
+        if (!Core::truthy(decision)) {
+          if (Core::truthy(has_children)) {
+            Value nested = Core::fields_from_map(children);
+            item = Core::_evidence_decode_values_impl(nested, item, context, item_path);
+          }
+        }
+        Core::append(decoded, item);
+        index = Core::add(index, Value(1));
+      }
+      if (Core::truthy(array)) {
+        Core::set(values, name, decoded);
+      }
+      if (!Core::truthy(array)) {
+        Value single = Core::list_get(decoded, Value(0));
+        Core::set(values, name, single);
+      }
+    }
+  }
+  return values;
+}
+
 Value Core::chat_session_observe_output(Value gen, Value state, Value event) {
   axir_coverage_mark("chat_session_observe_output");
   Value empty_map = Value::object();
@@ -25273,6 +25776,28 @@ Value Core::_date_zone_offset_seconds_impl(Value zone, Value millis) {
   Value name = Core::get(zone, Value("name"), Value());
   Value seconds = Core::date_zone_offset(name, millis);
   return seconds;
+}
+
+Value Core::_evidence_context_impl(Value response, Value client) {
+  axir_coverage_mark("_evidence_context_impl");
+  Value trusted = Core::get(response, Value("decisionContext"), Value());
+  Value found = Core::is_not_none(trusted);
+  if (Core::truthy(found)) {
+    return trusted;
+  }
+  Value usage = Core::get(response, Value("modelUsage"), Value());
+  Value provenance = Value::object();
+  Core::set(provenance, Value("source"), Value("elicited"));
+  Value provider = Core::get(usage, Value("ai"), Value("AI"));
+  Value model = Core::get(usage, Value("model"), Value());
+  Core::set(provenance, Value("provider"), provider);
+  Value found_model = Core::is_not_none(model);
+  if (Core::truthy(found_model)) {
+    Core::set(provenance, Value("model"), model);
+  }
+  Value context = Value::object();
+  Core::set(context, Value("provenance"), provenance);
+  return context;
 }
 
 Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
@@ -55197,6 +55722,7 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
   Core::set(call, "url", absolute ? endpoint : ax_call_base_url(profile_, descriptor_, base_url_) + endpoint);
   Value resolved_headers = headers();
+  if (profile_ == "typesafe") resolved_headers = Core::provider_merge_headers(resolved_headers, Core::typesafe_image_headers(payload));
   if (profile_ == "meta" && body_key == "data" && !binary_response) Core::set(resolved_headers, "Accept", "text/event-stream");
   std::string request_url = str(Core::get(call, "url"));
   std::string operation = stream ? "stream_chat" : "chat";
@@ -58723,6 +59249,10 @@ AxFlow flow(Value options) { return AxFlow(std::move(options)); }
 AxFlow flow(Value options, AxRuntimeHooks hooks) { return AxFlow(std::move(options), std::move(hooks)); }
 AxFlow flow(const std::string& mermaid, Value bindings) { return AxFlow(mermaid, std::move(bindings)); }
 AxFlow flow(const std::string& mermaid, Value bindings, AxRuntimeHooks hooks) { return AxFlow(mermaid, std::move(bindings), std::move(hooks)); }
+AxBox AxBox::from_value(Value value) {
+  Core::_box_validate_impl(value, "box");
+  return {Core::number(Core::get(value,"top")),Core::number(Core::get(value,"bottom")),Core::number(Core::get(value,"left")),Core::number(Core::get(value,"right"))};
+}
 TypesafeResponse TypesafeResponse::from_value(Value value) {
   auto raw_usage=Core::get(value,"usage");
   TypesafeResponse response{display(Core::get(value,"model")),{}, {static_cast<std::uint64_t>(Core::number(Core::get(raw_usage,"input_tokens"))),static_cast<std::uint64_t>(Core::number(Core::get(raw_usage,"output_tokens")))}};
@@ -58731,6 +59261,7 @@ TypesafeResponse TypesafeResponse::from_value(Value value) {
     auto answer=Core::get(answers,key);auto type=display(Core::get(answer,"type"));
     std::map<std::string,double> probabilities;auto raw=Core::get(answer,"probabilities");for(auto label:Core::iter(Core::map_keys(raw)))probabilities[display(label)]=Core::number(Core::get(raw,label));
     if(type=="noul")response.answers.emplace(display(key),TypesafeNoul{Core::number(Core::get(answer,"noul"))});
+    else if(type=="box")response.answers.emplace(display(key),TypesafeBox{AxBox::from_value(Core::get(answer,"box")),Core::number(Core::get(answer,"confidence"))});
     else if(type=="choice")response.answers.emplace(display(key),TypesafeChoice{display(Core::get(answer,"choice")),probabilities,Core::number(Core::get(answer,"confidence"))});
     else response.answers.emplace(display(key),TypesafeScore{Core::number(Core::get(answer,"score")),probabilities,Core::number(Core::get(answer,"confidence")),Core::get(answer,"legend")});
   }
@@ -58742,6 +59273,7 @@ Value TypesafeResponse::to_value() const {
   for(const auto& entry:answers) {
     Value answer;
     if(auto value=std::get_if<TypesafeNoul>(&entry.second))answer=Value(Object{{"type","noul"},{"noul",value->noul}});
+    else if(auto value=std::get_if<TypesafeBox>(&entry.second))answer=Value(Object{{"type","box"},{"box",value->box.to_value()},{"confidence",value->confidence}});
     else {
       Value probabilities=Value::object();
       if(auto value=std::get_if<TypesafeChoice>(&entry.second)){for(const auto& item:value->probabilities)Core::set(probabilities,item.first,item.second);answer=Value(Object{{"type","choice"},{"choice",value->choice},{"confidence",value->confidence},{"probabilities",probabilities}});}

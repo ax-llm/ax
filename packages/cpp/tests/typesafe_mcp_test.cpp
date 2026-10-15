@@ -101,4 +101,18 @@ static void decisions_client(){
   }
 }
 
-int main(){decisions_client();decisions_nested_validation();websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}
+struct BoxTransport:Transport {
+  Value call(Value request)override {
+    check(display(Core::get(Core::get(request,"headers"),"TypeSafe-Danger-Zone-Images"))=="true","experimental image header");
+    return parse_json("{\"model\":\"jev-1.14.0\",\"answers\":{\"target\":{\"type\":\"box\",\"box\":{\"top\":0.2,\"bottom\":0.8,\"left\":0.1,\"right\":0.7},\"confidence\":0}},\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}");
+  }
+};
+static void image_box(){
+  BoxTransport transport;auto client=typesafe(object({{"api_key","test"}}),&transport);
+  TypesafeRequest request{"photo",{{"target",TypesafeQuestion{"box","Find it in photo",Value()}}},"jev-1.14.0",{{"photo",TypesafeImageAsset{"png","AAAA"}}}};
+  // Large inline images must not exhaust the native regex engine's stack.
+  request.assets.at("photo").data_base64=std::string(2*1024*1024,'A');
+  auto answer=std::get<TypesafeBox>(client.system_one(request).answers.at("target"));
+  check(answer.box.top==0.2&&answer.confidence==0,"typed Box changed");
+}
+int main(){image_box();decisions_client();decisions_nested_validation();websocket();native_client();nested_validation();std::cout<<"C++ Typesafe native client and MCP WebSocket cleanup passed\n";}

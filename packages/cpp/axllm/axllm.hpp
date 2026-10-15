@@ -383,6 +383,7 @@ struct Core {
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
   static Value string_utf16_units(Value value);
+  static Value string_utf8_length(Value value);
   static Value date_zone_offset(Value name, Value epoch_ms);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
@@ -600,35 +601,37 @@ struct Core {
   static Value axgen_cache_read(Value fn, Value key);
   static Value axgen_cache_write(Value fn, Value key, Value value);
   // BEGIN AXIR CORE EMITTED DECLARATIONS
-  static Value _evidence_is_type_impl(Value typ);
+  static Value _box_schema_impl();
   static Value _signature_value_keys_impl(Value typ);
-  static Value _evidence_has_fields_impl(Value fields);
   static Value parse_signature(Value signature);
   static Value _signature_validate_value_descriptions_impl(Value typ, Value field_name);
+  static Value _box_validate_impl(Value value, Value path);
   static Value validate_signature(Value signature);
-  static Value _evidence_validate_type_impl(Value typ);
   static Value _signature_input_fields(Value signature);
   static Value _signature_output_fields(Value signature);
   static Value _signature_parse_value_description_impl(Value raw, Value field_name, Value key);
+  static Value _evidence_is_type_impl(Value typ);
+  static Value _evidence_has_fields_impl(Value fields);
   static Value _signature_parse_impl(Value signature);
   static Value _signature_parse_class_descriptions_impl(Value raw, Value field_name);
-  static Value _evidence_parse_options_impl(Value raw);
+  static Value _evidence_validate_type_impl(Value typ);
   static Value _signature_parse_fields_impl(Value text, Value output);
   static Value _signature_render_value_descriptions_impl(Value typ);
-  static Value _evidence_render_entries_impl(Value typ);
   static Value _signature_parse_field_impl(Value raw, Value output);
   static Value _signature_describe_field_values_impl(Value field);
   static Value _signature_parse_field_common_impl(Value raw, Value output, Value nested, Value parent);
+  static Value _evidence_parse_options_impl(Value raw);
   static Value _signature_nested_value_descriptions_impl(Value fields, Value prefix);
   static Value _signature_output_value_descriptions_impl(Value fields);
+  static Value _evidence_render_entries_impl(Value typ);
   static Value _signature_parse_description_impl(Value raw, Value fallback);
   static Value _signature_parse_base_type_impl(Value raw);
   static Value _signature_parse_type_expr_impl(Value raw, Value section, Value field_name);
+  static Value _signature_parse_modifier_bag_impl(Value type_name, Value section, Value field_name, Value raw);
   static Value _evidence_request_fields_impl(Value fields);
   static Value _evidence_placeholder_impl(Value typ);
-  static Value _signature_parse_modifier_bag_impl(Value type_name, Value section, Value field_name, Value raw);
-  static Value _evidence_example_values_impl(Value fields, Value values);
   static Value _signature_parse_object_fields_impl(Value raw, Value section, Value parent);
+  static Value _evidence_example_values_impl(Value fields, Value values);
   static Value signature_to_string(Value signature);
   static Value _signature_escape_string_impl(Value value);
   static Value _signature_render_modifier_bag_impl(Value typ, Value is_cached);
@@ -649,14 +652,14 @@ struct Core {
   static Value _schema_enhance_description_impl(Value base, Value typ);
   static Value _validate_output_impl(Value fields, Value values);
   static Value _validate_string_constraints_impl(Value value, Value field);
-  static Value _evidence_schema_impl(Value typ);
   static Value _validate_number_constraints_impl(Value value, Value field);
   static Value _schema_apply_constraints_impl(Value schema, Value typ);
   static Value _validate_value_impl(Value field, Value value, Value path);
-  static Value _evidence_probability_impl(Value v, Value path);
   static Value _schema_nullable_optional_impl(Value schema, Value field, Value options);
+  static Value _evidence_schema_impl(Value typ);
   static Value _schema_object_from_fields_impl(Value fields_map, Value is_nested, Value options);
   static Value _schema_field_schema_impl(Value field, Value is_nested, Value options);
+  static Value _evidence_probability_impl(Value v, Value path);
   static Value _strip_internal_fields_impl(Value fields, Value values);
   static Value _validate_keyed_fields_impl(Value fields_map);
   static Value _schema_to_json_schema_impl(Value fields, Value schema_title, Value options);
@@ -686,13 +689,16 @@ struct Core {
   static Value decisions_require_count(Value value);
   static Value decisions_validate_request(Value request);
   static Value typesafe_validate_entry(Value value, Value context);
-  static Value typesafe_validate_request(Value request);
+  static Value typesafe_utf8_size(Value text);
+  static Value typesafe_collect_strings(Value value);
   static Value _openai_apply_cache_breakpoint_impl(Value message);
+  static Value typesafe_validate_assets(Value request);
   static Value resolve_model_key(Value client_options, Value request, Value options, Value default_model, Value embed);
   static Value _openai_apply_model_config_impl(Value payload, Value model_config);
-  static Value typesafe_decode_response(Value raw, Value questions);
   static Value decisions_decode_response(Value raw, Value questions);
+  static Value typesafe_image_headers(Value request);
   static Value _openai_is_gpt56_family_impl(Value model);
+  static Value typesafe_validate_request(Value request);
   static Value _openai_is_gpt6_family_impl(Value model);
   static Value _apply_model_key_option_impl(Value options, Value entry, Value camel, Value snake);
   static Value _openai_is_gpt6_astra_impl(Value model);
@@ -700,43 +706,44 @@ struct Core {
   static Value merge_model_config(Value base, Value override, Value options);
   static Value _openai_is_bedrock_model_impl(Value model);
   static Value _openai_supports_breakpoint_caching_impl(Value model);
-  static Value typesafe_decode_models(Value raw);
   static Value _openai_supports_chat_sessions_impl(Value model);
-  static Value typesafe_build_chat_request(Value request, Value options);
   static Value validate_chat_request(Value request);
   static Value openai_reasoning_effort(Value model, Value budget);
   static Value decisions_build_chat_request(Value request, Value options);
+  static Value typesafe_decode_response(Value raw, Value questions);
   static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
   static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value build_chat_request(Value service, Value request, Value options);
   static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
+  static Value typesafe_decode_models(Value raw);
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
+  static Value typesafe_build_chat_request(Value request, Value options);
   static Value normalize_token_usage(Value usage);
   static Value _url_part_text_impl(Value part);
   static Value _openai_content_part_impl(Value part);
-  static Value typesafe_normalize_chat_response(Value raw, Value context);
   static Value merge_usage_context(Value defaults, Value overrides);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value decisions_response_context(Value payload, Value options, Value request);
   static Value decisions_normalize_chat_response(Value raw, Value context);
-  static Value typesafe_response_context(Value payload, Value options, Value request);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
-  static Value provider_validate_chat_request(Value profile, Value request, Value options);
   static Value _openai_tool_call_to_provider_impl(Value call);
   static Value ai_merge_replay_metadata(Value previous, Value incoming);
   static Value _openai_tool_spec_impl(Value fn);
   static Value openai_build_embed_request(Value request);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_usage_with_service_tier(Value raw, Value usage);
+  static Value typesafe_normalize_chat_response(Value raw, Value context);
   static Value _openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value provider_merge_headers(Value base, Value override);
   static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value chat_response_to_completion(Value response);
+  static Value typesafe_response_context(Value payload, Value options, Value request);
   static Value _openai_normalize_tool_calls_impl(Value calls);
+  static Value provider_validate_chat_request(Value profile, Value request, Value options);
   static Value _openai_finish_reason_impl(Value value);
   static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
@@ -1018,7 +1025,6 @@ struct Core {
   static Value _date_parse_offset_datetime_impl(Value units, Value start, Value end);
   static Value _stream_matches_content_impl(Value content, Value prefix, Value start);
   static Value _optimization_component_current_map(Value components);
-  static Value _evidence_decode_one_impl(Value typ, Value raw, Value context, Value path);
   static Value _normalize_optimization_dataset(Value dataset);
   static Value _date_parse_named_datetime_impl(Value text, Value units, Value start, Value end);
   static Value _stream_extract_block_impl(Value input);
@@ -1030,13 +1036,12 @@ struct Core {
   static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
   static Value _date_values_error_impl();
   static Value _date_datetime_parts_impl(Value prefix);
+  static Value _evidence_decode_one_impl(Value typ, Value raw, Value context, Value path);
   static Value _stream_strip_trailing_fence_impl(Value text);
   static Value _parse_sample_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json, Value thought_field, Value thought_prefix, Value text_contract, Value strict_mode, Value parse_state);
   static Value _date_abbreviation_offset_impl(Value units, Value start, Value end, Value zone);
   static Value _stream_markdown_list_impl(Value input);
-  static Value _evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix);
   static Value _date_zone_resolve_impl(Value units, Value start, Value end, Value zone, Value probe);
-  static Value _evidence_context_impl(Value response, Value client);
   static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value _stream_js_string_impl(Value value);
   static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
@@ -1048,10 +1053,12 @@ struct Core {
   static Value _date_offset_zone_minutes_impl(Value units, Value start, Value end);
   static Value _stream_js_number_impl(Value value);
   static Value _regex_character_class(Value s);
+  static Value _evidence_decode_values_impl(Value fields, Value values, Value context, Value prefix);
   static Value chat_session_observe_output(Value gen, Value state, Value event);
   static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
   static Value chat_session_apply_boundary_updates(Value request, Value updates, Value level);
   static Value _date_zone_offset_seconds_impl(Value zone, Value millis);
+  static Value _evidence_context_impl(Value response, Value client);
   static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
   static Value _date_parts_in_zone_impl(Value zone, Value millis);
   static Value chat_session_create_state(Value model, Value path, Value max_steps);
@@ -2185,7 +2192,17 @@ struct TypesafeNoul { double noul; };
 struct TypesafeChoice { std::string choice; std::map<std::string,double> probabilities; double confidence; };
 // Fractional, zero-based position in the caller's rubric.
 struct TypesafeScore { double score; std::map<std::string,double> probabilities; double confidence; Value legend; };
-using TypesafeAnswer = std::variant<TypesafeNoul,TypesafeChoice,TypesafeScore>;
+struct AxBox {
+  double top, bottom, left, right;
+  Value to_value() const { return Value(Object{{"top",top},{"bottom",bottom},{"left",left},{"right",right}}); }
+  static AxBox from_value(Value value);
+};
+struct TypesafeBox { AxBox box; double confidence; };
+struct TypesafeImageAsset {
+  std::string format, data_base64;
+  Value to_value() const { return Value(Object{{"type","image"},{"format",format},{"data_base64",data_base64}}); }
+};
+using TypesafeAnswer = std::variant<TypesafeNoul,TypesafeChoice,TypesafeScore,TypesafeBox>;
 struct TypesafeUsage { std::uint64_t input_tokens; std::uint64_t output_tokens; };
 struct TypesafeResponse {
   std::string model;
@@ -2208,7 +2225,8 @@ struct TypesafeRequest {
   Value state;
   std::map<std::string,TypesafeQuestion> questions;
   std::string model;
-  Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);return value;}
+  std::map<std::string,TypesafeImageAsset> assets;
+  Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);if(!assets.empty()){Value images=Value::object();for(const auto& item:assets)Core::set(images,item.first,item.second.to_value());Core::set(value,"assets",images);}return value;}
 };
 
 class AxAIOpenAIDecisionsClient {

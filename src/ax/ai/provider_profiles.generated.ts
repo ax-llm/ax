@@ -3305,6 +3305,7 @@ export const axAIProviderProfiles = {
       "requiresStructuredOutput": true,
       "thinking": false,
       "multiTurn": false,
+      "images": true,
       "serviceTiers": []
     },
     "operations": {
@@ -3318,7 +3319,7 @@ export const axAIProviderProfiles = {
       "https://github.com/typesafe-ai/typesafe-sdk-js",
       "https://docs.typesafe.ai/sdk/javascript"
     ],
-    "reviewedAt": "2026-09-15"
+    "reviewedAt": "2026-10-15"
   },
   "openai-decisions": {
     "id": "openai-decisions",

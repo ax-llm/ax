@@ -308,6 +308,7 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicMathAbs:                   "Core.mathAbs",
 	IntrinsicStringCodepointLength:     "Core.stringCodepointLength",
 	IntrinsicStringUTF16Units:          "Core.stringUTF16Units",
+	IntrinsicStringUTF8Length:          "Core.stringUTF8Length",
 	IntrinsicMathIsFinite:              "Core.mathIsFinite",
 	IntrinsicMathFloor:                 "Core.mathFloor",
 	IntrinsicMathLog:                   "Core.mathLog",

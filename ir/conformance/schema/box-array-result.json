@@ -1,0 +1,48 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "targets": {
+        "items": {
+          "additionalProperties": false,
+          "description": "",
+          "properties": {
+            "bottom": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "left": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "right": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "top": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": ["top", "bottom", "left", "right"],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "box-array-result",
+  "schema_options": {
+    "decisionMode": "result"
+  },
+  "signature": "query:string -> targets?:box[]",
+  "target": "outputs"
+}

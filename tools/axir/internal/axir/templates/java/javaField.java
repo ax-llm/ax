@@ -113,6 +113,8 @@ public final class Field {
     public AxSignature.Builder call() { return new AxSignature.Builder(); }
     public Fluent string() { return string(null); }
     public Fluent string(String description) { return new Fluent("string", description); }
+    public Fluent box() { return box(null); }
+    public Fluent box(String description) { return new Fluent("box", description); }
     public Fluent score(List<String> levels) { return score(levels, null); }
     public Fluent score(List<String> levels, String description) {
       FieldType type = new FieldType("score"); type.options = List.copyOf(levels);

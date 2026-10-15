@@ -1,0 +1,45 @@
+{
+  "name": "box-native-reversed",
+  "kind": "ai_typesafe_native",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-1.14.0",
+    "state": {
+      "image": "photo"
+    },
+    "assets": {
+      "photo": {
+        "type": "image",
+        "format": "png",
+        "data_base64": "aGVsbG8="
+      }
+    },
+    "questions": {
+      "target": {
+        "type": "box",
+        "instructions": "Find the square in photo"
+      }
+    }
+  },
+  "response": {
+    "model": "jev-1.14.0",
+    "answers": {
+      "target": {
+        "type": "box",
+        "box": {
+          "bottom": 0.8,
+          "left": 0.1,
+          "right": 0.7,
+          "top": 0.9
+        },
+        "confidence": 0.9
+      }
+    },
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 4
+    }
+  },
+  "expected_transport_request_count": 1,
+  "expected_error_contains": "box"
+}

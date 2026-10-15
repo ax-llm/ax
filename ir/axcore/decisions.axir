@@ -494,6 +494,9 @@ module @ax.decisions version "0.1" {
         core.call @decisions_require_object(%field, %name)
         %required_list = core.type_is %required type "list"
         %decision = core.get %decision_fields[%name]
+        %decision_type = core.get %decision["type"]
+        %box = core.call intrinsic.eq(%decision_type, "box")
+        core.if %box { core.raise "OpenAI Decisions does not support box outputs; use Typesafe or a generative vision provider" }
         %rich = core.call intrinsic.is_not_none(%decision)
         core.if %rich {
           %array = core.get %decision["isArray"] default false

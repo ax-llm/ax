@@ -1,0 +1,79 @@
+{
+  "name": "box-criterion-reference",
+  "kind": "ai_typesafe_native",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-1.14.0",
+    "state": null,
+    "assets": {
+      "photo": {
+        "type": "image",
+        "format": "png",
+        "data_base64": "aGVsbG8="
+      }
+    },
+    "questions": {
+      "present": {
+        "type": "noul",
+        "criteria": {
+          "true": {
+            "image": "photo"
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "model": "jev-1.14.0",
+    "answers": {
+      "present": {
+        "type": "noul",
+        "noul": 0.9
+      }
+    },
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 4
+    }
+  },
+  "expected_output": {
+    "model": "jev-1.14.0",
+    "answers": {
+      "present": {
+        "type": "noul",
+        "noul": 0.9
+      }
+    },
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 4
+    }
+  },
+  "expected_transport_request_count": 1,
+  "expected_transport_request": {
+    "json": {
+      "model": "jev-1.14.0",
+      "state": null,
+      "assets": {
+        "photo": {
+          "type": "image",
+          "format": "png",
+          "data_base64": "aGVsbG8="
+        }
+      },
+      "questions": {
+        "present": {
+          "type": "noul",
+          "criteria": {
+            "true": {
+              "image": "photo"
+            }
+          }
+        }
+      }
+    },
+    "headers": {
+      "TypeSafe-Danger-Zone-Images": "true"
+    }
+  }
+}
