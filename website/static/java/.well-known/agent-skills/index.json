@@ -6,112 +6,112 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-java-llm/SKILL.md",
-      "digest": "sha256:e6a06aa4c8fba3a79cc5852e0c916729ad98e2728f00b583ca0e691a55a3baea"
+      "digest": "sha256:23499d212f9b9728a26ff6d4751b8dd956b11406b09ca735cc15782fe2a25e4a"
     },
     {
       "name": "ax-java-ai",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:3914b21c84bda71999997d7504a7d8ccba7ea1c16bf1f12c5be4dfad8044f7cd"
+      "digest": "sha256:9b2489fc375cfd75de866f7a3ce33888f7741b4ee8cf9ff9499bf66655e579bc"
     },
     {
       "name": "ax-java-typesafe",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
       "url": "ax-java-typesafe/SKILL.md",
-      "digest": "sha256:4b7d636b53c5e8b8c91e080e98ec5fa6faf97bb025993049073de31871d10861"
+      "digest": "sha256:1c8d23ac3d479919df5635f62bedd170a4d715e6cc6dd6a359395a46c5203aa7"
     },
     {
       "name": "ax-java-audio",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-java-audio/SKILL.md",
-      "digest": "sha256:3ff15a03a5ee671df05d24b0a37cf7a0b730efdd52e0d764ab6ca5e8870865f5"
+      "digest": "sha256:e56cedd6b6eaf612a5f29cc14b99eb88983367bfa533eeb8ffd6010936882305"
     },
     {
       "name": "ax-java-signature",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-java-signature/SKILL.md",
-      "digest": "sha256:fb3b6dbc1e4388606aae02d201669baa101183602c0fdc12f1c47bbde83db41f"
+      "digest": "sha256:e25ba6b2ef07c421e2d6bbbeae555ddd48eda12360d2e6c2fb4177cbb9cedc73"
     },
     {
       "name": "ax-java-gen",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-java-gen/SKILL.md",
-      "digest": "sha256:078edeed00f4accb046eb3bd492ead5d6dbfd21d1fe6a13fc214f2ee4d77fcb9"
+      "digest": "sha256:41d3d24359814a830b62753cdd918538973dc4fcdd3a971bae9d9cf2b90f7ad4"
     },
     {
       "name": "ax-java-flow",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-java-flow/SKILL.md",
-      "digest": "sha256:c6199303f079133c7d60f91362feef61daf1aff828aa059ce8be879653d72eb6"
+      "digest": "sha256:00d5665826a7f34836883b508f76d3869c9060f89bfcd21c29df5bb6c0293f92"
     },
     {
       "name": "ax-java-agent",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-java-agent/SKILL.md",
-      "digest": "sha256:00bd50c45dcb015a20e0329d8c2cf80cc7d4c64bb48c11199d8eda9e38073329"
+      "digest": "sha256:d87b90563ec55c77a728cf9848d69627850e13e33cca0bb8fbf92f14f68d469f"
     },
     {
       "name": "ax-java-agent-rlm",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles.",
       "url": "ax-java-agent-rlm/SKILL.md",
-      "digest": "sha256:e1420e37a823aa514be883e83dde11e2ced91f4244de6d90a4dd848e80febfc9"
+      "digest": "sha256:a66b4c22ff0391ad07159c3225ee510cbbcc97f94c613a0d9a8d0d84c60e0c06"
     },
     {
       "name": "ax-java-agent-memory-skills",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-java-agent-memory-skills/SKILL.md",
-      "digest": "sha256:3d722c25489debf03f360339b5e5f64ab938e12e549e4fe7982d5563068a8c65"
+      "digest": "sha256:dbdc5b2959b88a24e1c48f5d7611fc1497e922607cc17a8230fb2c90f5c6cc51"
     },
     {
       "name": "ax-java-agent-observability",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-java-agent-observability/SKILL.md",
-      "digest": "sha256:b1cccb24ba73a7908c3b538b2ca8ac93ac6e2fe6bedc5c96dcbf33207cc2f741"
+      "digest": "sha256:aa20bac251622843a404c1a3f0c350ddaeca1b8172655999d40bc6c50710ab04"
     },
     {
       "name": "ax-java-agent-optimize",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-java-agent-optimize/SKILL.md",
-      "digest": "sha256:ad189cfa21ee57c71b842f57b2ae633e801cfe5cf5ffdfaf623184d65fc5d4b9"
+      "digest": "sha256:092f53cd2c007f84fbf58abc63f0bc5b12c17341801430261ed875e0669691cd"
     },
     {
       "name": "ax-java-agent-context",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-java-agent-context/SKILL.md",
-      "digest": "sha256:532510b85de862da813533b827295a5578036717bdece5064058c45f0f0c2957"
+      "digest": "sha256:a93c0b978f5e8e14a12224366ecd1b610df2a2d16cb4cbcbfa821e3b71914709"
     },
     {
       "name": "ax-java-gepa",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-java-gepa/SKILL.md",
-      "digest": "sha256:4516993e85dcacc463a8d1f83719202b20f454ce2de36e9c3e15714505b15da2"
+      "digest": "sha256:d5f9bf1d95b609ef733a582dcd610fb2790cf43f2d40565e338ba4c7b2c613c2"
     },
     {
       "name": "ax-java-refine",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-java-refine/SKILL.md",
-      "digest": "sha256:89021cca48058525153d9409b2077e8f38bb30a3c5a260a89d2dc138cdabd474"
+      "digest": "sha256:cc132f9ffe267644cbb222652c8316c705a446366f5a855e34c38f92343d3769"
     },
     {
       "name": "ax-java-playbook",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-java-playbook/SKILL.md",
-      "digest": "sha256:6274f77f717b660f136a04011b41316723de63d9f146dafc7a5113b13f6749e5"
+      "digest": "sha256:cfb0d2fac27c1bae09c90eab1d58b5c63259be2e7ffe213dc745eb263fea28bd"
     }
   ]
 }
