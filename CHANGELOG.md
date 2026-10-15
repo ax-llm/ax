@@ -1,5 +1,11 @@
 # Changelog
 
+## [25.4.0](https://github.com/ax-llm/ax/compare/25.3.2...25.4.0) (2026-10-15)
+
+### Features
+
+* **typesafe:** support Jev images and box signatures in TypeScript ([#848](https://github.com/ax-llm/ax/pull/848)) ([e62bbce](https://github.com/ax-llm/ax/commit/e62bbcef83d7fd5b8a0069ef043e03b0fee123c2))
+
 ## [25.3.2](https://github.com/ax-llm/ax/compare/25.3.1...25.3.2) (2026-10-13)
 
 ### Features
