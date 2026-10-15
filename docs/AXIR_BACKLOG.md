@@ -25,6 +25,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 - `axir-2026-10-15-port-jev-image-assets-and-box-signature-fields` [axai] Port Jev image assets and Box signature fields
   - Status: open
+  - Source PR: #848
   - Source commit: `3d5aa8dac28a2637e4150f022dcd02e6fc3309f0`
   - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/openai-decisions/api.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`, `src/ax/dsp/box.ts`, `src/ax/dsp/box.test.ts`, `src/ax/dsp/box.test-d.ts`
   - Impact: Port TypeScript PNG/JPEG assets and experimental headers, native Box questions, normalized box signature parsing and inference, schema validation, evidence and provenance to AxIR and generated language runtimes; update capabilities, examples, conformance and language docs.

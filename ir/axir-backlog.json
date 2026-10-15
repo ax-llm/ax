@@ -3441,7 +3441,7 @@
       "status": "open",
       "title": "Port Jev image assets and Box signature fields",
       "createdAt": "2026-10-15",
-      "sourcePR": null,
+      "sourcePR": 848,
       "sourceCommit": "3d5aa8dac28a2637e4150f022dcd02e6fc3309f0",
       "tsPaths": [
         "src/ax/ai/typesafe",
