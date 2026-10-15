@@ -3435,6 +3435,39 @@
       "completedAt": "2026-10-13",
       "completedByCommit": "225275bc0764389c992126d2d6e4deb969755421",
       "verification": "Two public-client fixtures consume consecutive complete/incomplete-to-complete streams on the same client in all five harnesses. Existing generated per-call stream state is isolated; both calls retain their own terminal usage without leaking earlier totals. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass."
+    },
+    {
+      "id": "axir-2026-10-15-port-jev-image-assets-and-box-signature-fields",
+      "status": "open",
+      "title": "Port Jev image assets and Box signature fields",
+      "createdAt": "2026-10-15",
+      "sourcePR": null,
+      "sourceCommit": "3d5aa8dac28a2637e4150f022dcd02e6fc3309f0",
+      "tsPaths": [
+        "src/ax/ai/typesafe",
+        "src/ax/ai/openai-decisions/api.ts",
+        "src/ax/dsp/decision.ts",
+        "src/ax/dsp/jsonSchema.ts",
+        "src/ax/dsp/parser.ts",
+        "src/ax/dsp/prompt.ts",
+        "src/ax/dsp/sig.ts",
+        "src/ax/dsp/sigtypes.ts",
+        "src/ax/dsp/types.ts",
+        "src/ax/dsp/util.ts",
+        "src/ax/dsp/box.ts",
+        "src/ax/dsp/box.test.ts",
+        "src/ax/dsp/box.test-d.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Port TypeScript PNG/JPEG assets and experimental headers, native Box questions, normalized box signature parsing and inference, schema validation, evidence and provenance to AxIR and generated language runtimes; update capabilities, examples, conformance and language docs.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

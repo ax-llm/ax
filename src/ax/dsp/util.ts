@@ -1,6 +1,7 @@
 /* eslint-disable functional/prefer-immutable-types */
 import { ColorLog } from '../util/log.js';
 
+import { validateBox } from './box.js';
 import { isDecisionField } from './decision.js';
 import type { AxField } from './sig.js';
 import type { AxFieldValue, AxGenDeltaOut, AxProgramUsage } from './types.js';
@@ -17,6 +18,13 @@ export const validateValue = (
     expectedType: string,
     val: Readonly<AxFieldValue>
   ): boolean => {
+    if (expectedType === 'box') {
+      const v = val as unknown as Record<string, unknown> | null;
+      if (ft.evidence?.onRefusal === 'return' && v?.status === 'refused')
+        return true;
+      validateBox(ft.evidence ? (v?.value ?? v?.box ?? val) : val, field.name);
+      return true;
+    }
     if (isDecisionField(field)) {
       if (typeof val === 'object' && val !== null) return !Array.isArray(val);
       // Labels-only demonstrations are valid; no distribution is manufactured.

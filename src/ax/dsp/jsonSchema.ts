@@ -1,4 +1,5 @@
 import type { AxFunctionJSONSchema } from '../ai/types.js';
+import { boxSchema } from './box.js';
 import { decisionEvidenceSchema, isDecisionField } from './decision.js';
 import type { AxField } from './sig.js';
 import { describeFieldValues } from './valueDescriptions.js';
@@ -233,11 +234,14 @@ function fieldToSchema(
     let schema: any = decisionEvidenceSchema(type);
     if (options?.decisionMode === 'result') {
       if (!type.evidence)
-        schema = {
-          type: 'number',
-          minimum: 0,
-          maximum: type.options!.length - 1,
-        };
+        schema =
+          type.name === 'box'
+            ? boxSchema()
+            : {
+                type: 'number',
+                minimum: 0,
+                maximum: type.options!.length - 1,
+              };
       else {
         const provenance = {
           type: 'object',
@@ -253,13 +257,15 @@ function fieldToSchema(
           value:
             type.name === 'boolean'
               ? { type: 'boolean' }
-              : type.name === 'class'
-                ? { type: 'string', enum: type.options }
-                : {
-                    type: 'number',
-                    minimum: 0,
-                    maximum: type.options!.length - 1,
-                  },
+              : type.name === 'box'
+                ? boxSchema()
+                : type.name === 'class'
+                  ? { type: 'string', enum: type.options }
+                  : {
+                      type: 'number',
+                      minimum: 0,
+                      maximum: type.options!.length - 1,
+                    },
           provenance,
         };
         if (type.name === 'boolean') {
@@ -271,7 +277,7 @@ function fieldToSchema(
             type: 'array',
             items: { type: 'number', minimum: 0, maximum: 1 },
           };
-        } else
+        } else if (type.name !== 'box')
           props.probabilities = {
             type: 'object',
             properties: Object.fromEntries(
@@ -322,9 +328,11 @@ function fieldToSchema(
     const guidance =
       type.name === 'boolean'
         ? 'Return the probability of true.'
-        : type.name === 'score'
-          ? `Return probabilities in the declared rubric order, from lowest to highest: ${type.options!.map((label, i) => `${i}: ${label}`).join('; ')}.`
-          : 'Return a probability for every declared class.';
+        : type.name === 'box'
+          ? 'Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right.'
+          : type.name === 'score'
+            ? `Return probabilities in the declared rubric order, from lowest to highest: ${type.options!.map((label, i) => `${i}: ${label}`).join('; ')}.`
+            : 'Return a probability for every declared class.';
     schema.description = [
       describeFieldValues(field),
       options?.decisionMode === 'result' ? '' : guidance,

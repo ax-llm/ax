@@ -1,5 +1,7 @@
+import type { AxBox } from './box.js';
 import type {
   AxBooleanEvidence,
+  AxBoxEvidence,
   AxClassEvidence,
   AxDecisionResult,
   AxScoreEvidence,
@@ -81,6 +83,7 @@ export interface InputTypeMap {
   string: string;
   number: number;
   score: number;
+  box: AxBox;
   boolean: boolean;
   json: any; // Flexible type - accepts any JSON value
   date: Date;
@@ -340,7 +343,9 @@ type ResolveEvidence<T extends string> = T extends `class[]|${infer L}`
       ? AxBooleanEvidence
       : T extends `class|${infer L}`
         ? AxClassEvidence<ParseClassOptions<L>>
-        : AxScoreEvidence;
+        : T extends 'box'
+          ? AxBoxEvidence
+          : AxScoreEvidence;
 type ModifierTokens<
   S extends string,
   Out extends string = '',
@@ -353,10 +358,9 @@ type ModifierTokens<
     : S extends `${infer Char}${infer Rest}`
       ? ModifierTokens<Rest, `${Out}${Char}`>
       : Out;
-type DecisionTypeTag<
-  S extends string,
-  Tag extends string,
-> = S extends `boolean(${infer Bag}`
+type DecisionTypeTag<S extends string, Tag extends string> = S extends
+  | `boolean(${infer Bag}`
+  | `box(${infer Bag}`
   ? EvidenceTag<ModifierTokens<Bag>, Tag>
   : S extends `class${infer Tail}` | `score${infer Tail}`
     ? Trim<Tail> extends `[]${infer Rest}`

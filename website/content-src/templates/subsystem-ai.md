@@ -113,9 +113,15 @@ question design, native requests, transport options, and runnable examples.
 
 Use the `typesafe` provider profile for these signatures.
 Numeric outputs, including bounded numbers, are rejected: bounds do not define a
-rating rubric. Freeform text, optional outputs, arrays, nested objects, media,
+rating rubric; use an explicit score field. Freeform text, optional outputs, arrays, nested objects,
 tools, and generation controls such as temperature are also unsupported.
 Typesafe has no token streaming API; its stream interface delivers a completed result.
+
+TypeScript also supports PNG/JPEG image inputs and `box` signature outputs.
+Use Jev 1.14 for Box. Ax sends the required experimental images header, validates
+normalized coordinates, and exposes native confidence with `box(evidence)`.
+Other generated languages retain their existing text-only Jev support until the
+tracked AxIR parity work is complete. See the Typesafe skill for image limits.
 
 Use the separate `typesafe` native client for rich Noul/Choice/Score
 questions and structured state. `systemOne({ state, questions, model? })` returns

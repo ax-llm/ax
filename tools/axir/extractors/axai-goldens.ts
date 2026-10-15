@@ -12364,11 +12364,11 @@ for (const [label, patch, errorText] of [
       chatPrompt: [
         {
           role: 'user',
-          content: [{ type: 'image', mimeType: 'image/png', image: 'AAAA' }],
+          content: [{ type: 'audio', format: 'wav', data: 'AAAA' }],
         },
       ],
     },
-    'text input only',
+    'Typesafe supports text',
   ],
 ] as const) {
   const request = { ...typesafeMultiRequest, ...patch };

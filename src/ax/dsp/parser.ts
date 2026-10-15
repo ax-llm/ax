@@ -28,6 +28,7 @@ import { validateValueDescriptions } from './valueDescriptions.js';
 export type TypeNotClass =
   | 'string'
   | 'score'
+  | 'box'
   | 'class'
   | 'number'
   | 'boolean'
@@ -674,6 +675,7 @@ class SignatureParser {
       'string',
       'number',
       'score',
+      'box',
       'class',
       'boolean',
       'json',
@@ -920,8 +922,8 @@ class SignatureParser {
       switch (token) {
         case 'evidence':
           markSeen(token);
-          if (!['boolean', 'score', 'class'].includes(typeName))
-            bagError('Evidence requires boolean, class or score');
+          if (!['boolean', 'score', 'class', 'box'].includes(typeName))
+            bagError('Evidence requires boolean, class, score or box');
           constraints.evidence = { ...constraints.evidence };
           break;
         case 'threshold': {
