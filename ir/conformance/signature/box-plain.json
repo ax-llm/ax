@@ -1,0 +1,35 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "photo",
+        "title": "Photo",
+        "type": {
+          "isArray": false,
+          "name": "image"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "target",
+        "title": "Target",
+        "type": {
+          "isArray": false,
+          "name": "box"
+        }
+      }
+    ]
+  },
+  "expected_to_string": "photo:image -> target:box",
+  "kind": "signature",
+  "name": "box-plain",
+  "signature": "photo:image -> target:box"
+}

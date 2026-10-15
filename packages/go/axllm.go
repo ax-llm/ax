@@ -1692,6 +1692,7 @@ func _core_div(left Value, right Value) Value {
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
 // A lone surrogate (WTF-8, see markLoneSurrogateEscapes) is one UTF-16 unit
 // and one code point, as in a JS string.
+func _core_string_utf8_length(value Value) Value { return len(display(value)) }
 func _core_string_utf16_units(value Value) Value {
 	text := display(value)
 	out := []Value{}
@@ -3148,27 +3149,37 @@ func _core_flow_dispatch_group(flowValue, clientValue, groupSteps, state, option
 }
 
 // BEGIN AXIR CORE EMITTED FUNCTIONS
-func _evidence_is_type_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_is_type_impl")
-	var v_typ Value
-	var v_evidence Value
-	var v_name Value
-	var v_present Value
-	var v_result Value
-	var v_score Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_evidence
-	_ = v_name
-	_ = v_present
-	_ = v_result
-	_ = v_score
-	v_evidence = coreGet(v_typ, "evidence", nil)
-	v_present = _core_is_not_none(v_evidence)
-	v_name = coreGet(v_typ, "name", nil)
-	v_score = _core_eq(v_name, "score")
-	v_result = _core_or(v_present, v_score)
-	return v_result, nil
+func _box_schema_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_box_schema_impl")
+	var v_edge Value
+	var v_edges Value
+	var v_number Value
+	var v_properties Value
+	var v_schema Value
+	_ = v_edge
+	_ = v_edges
+	_ = v_number
+	_ = v_properties
+	_ = v_schema
+	v_edges = MutableArray()
+	v_edges = coreAppend(v_edges, "top")
+	v_edges = coreAppend(v_edges, "bottom")
+	v_edges = coreAppend(v_edges, "left")
+	v_edges = coreAppend(v_edges, "right")
+	v_properties = Object()
+	for _, v_edge = range coreIter(v_edges) {
+		v_number = Object()
+		if err := coreSet(v_number, "type", "number"); err != nil { return nil, err }
+		if err := coreSet(v_number, "minimum", 0); err != nil { return nil, err }
+		if err := coreSet(v_number, "maximum", 1); err != nil { return nil, err }
+		if err := coreSet(v_properties, v_edge, v_number); err != nil { return nil, err }
+	}
+	v_schema = Object()
+	if err := coreSet(v_schema, "type", "object"); err != nil { return nil, err }
+	if err := coreSet(v_schema, "properties", v_properties); err != nil { return nil, err }
+	if err := coreSet(v_schema, "required", v_edges); err != nil { return nil, err }
+	if err := coreSet(v_schema, "additionalProperties", false); err != nil { return nil, err }
+	return v_schema, nil
 }
 
 func _signature_value_keys_impl(args ...Value) (Value, error) {
@@ -3199,48 +3210,6 @@ func _signature_value_keys_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_keys, nil
-}
-
-func _evidence_has_fields_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_has_fields_impl")
-	var v_fields Value
-	var v_children Value
-	var v_decision Value
-	var v_field Value
-	var v_nested Value
-	var v_present Value
-	var v_typ Value
-	if len(args) > 0 { v_fields = args[0] }
-	_ = v_fields
-	_ = v_children
-	_ = v_decision
-	_ = v_field
-	_ = v_nested
-	_ = v_present
-	_ = v_typ
-	for _, v_field = range coreIter(v_fields) {
-		v_typ = coreGet(v_field, "type", nil)
-		{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
-		if coreTruthy(v_decision) {
-			return true, nil
-		} else {
-		// empty
-		}
-		v_children = coreGet(v_typ, "fields", nil)
-		v_present = _core_is_not_none(v_children)
-		if coreTruthy(v_present) {
-			v_nested = _core_fields_from_map(v_children)
-			{ v, err := _evidence_has_fields_impl(v_nested); if err != nil { return nil, err }; v_decision = v }
-			if coreTruthy(v_decision) {
-				return true, nil
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-	}
-	return false, nil
 }
 
 func parse_signature(args ...Value) (Value, error) {
@@ -3353,195 +3322,104 @@ func _signature_validate_value_descriptions_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _box_validate_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_box_validate_impl")
+	var v_value Value
+	var v_path Value
+	var v_bottom Value
+	var v_count Value
+	var v_edge Value
+	var v_edges Value
+	var v_error Value
+	var v_finite Value
+	var v_high Value
+	var v_horizontal Value
+	var v_invalid Value
+	var v_left Value
+	var v_low Value
+	var v_message Value
+	var v_number Value
+	var v_right Value
+	var v_top Value
+	var v_v Value
+	var v_valid Value
+	var v_vertical Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	_ = v_bottom
+	_ = v_count
+	_ = v_edge
+	_ = v_edges
+	_ = v_error
+	_ = v_finite
+	_ = v_high
+	_ = v_horizontal
+	_ = v_invalid
+	_ = v_left
+	_ = v_low
+	_ = v_message
+	_ = v_number
+	_ = v_right
+	_ = v_top
+	_ = v_v
+	_ = v_valid
+	_ = v_vertical
+	v_valid = coreTypeIs(v_value, "object")
+	if coreTruthy(v_valid) {
+		v_count = _core_len(v_value)
+		v_valid = _core_eq(v_count, 4)
+	} else {
+	// empty
+	}
+	v_edges = MutableArray()
+	v_edges = coreAppend(v_edges, "top")
+	v_edges = coreAppend(v_edges, "bottom")
+	v_edges = coreAppend(v_edges, "left")
+	v_edges = coreAppend(v_edges, "right")
+	for _, v_edge = range coreIter(v_edges) {
+		v_v = coreGet(v_value, v_edge, nil)
+		v_number = coreTypeIs(v_v, "number")
+		if coreTruthy(v_number) {
+			v_finite = _core_math_is_finite(v_v)
+			v_low = _core_gte(v_v, 0)
+			v_high = _core_lte(v_v, 1)
+			v_number = _core_and(v_low, v_high)
+			v_number = _core_and(v_number, v_finite)
+		} else {
+		// empty
+		}
+		v_valid = _core_and(v_valid, v_number)
+	}
+	if coreTruthy(v_valid) {
+		v_top = coreGet(v_value, "top", nil)
+		v_bottom = coreGet(v_value, "bottom", nil)
+		v_left = coreGet(v_value, "left", nil)
+		v_right = coreGet(v_value, "right", nil)
+		v_vertical = _core_lt(v_top, v_bottom)
+		v_horizontal = _core_lt(v_left, v_right)
+		v_valid = _core_and(v_vertical, v_horizontal)
+	} else {
+	// empty
+	}
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_message = _core_string_format("Invalid box for {}: four finite edges in [0, 1], top < bottom and left < right are required", v_path)
+		v_error = _core_validation_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_value, nil
+}
+
 func validate_signature(args ...Value) (Value, error) {
 	axirCoverageMark("validate_signature")
 	var v_signature Value
 	if len(args) > 0 { v_signature = args[0] }
 	_ = v_signature
 	if _, err := _signature_validate_impl(v_signature); err != nil { return nil, err }
-	return nil, nil
-}
-
-func _evidence_validate_type_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_validate_type_impl")
-	var v_typ Value
-	var v_allowed Value
-	var v_count Value
-	var v_duplicate Value
-	var v_empty Value
-	var v_evidence Value
-	var v_finite Value
-	var v_has_threshold Value
-	var v_high Value
-	var v_invalid Value
-	var v_is_boolean Value
-	var v_key Value
-	var v_keys Value
-	var v_known Value
-	var v_label Value
-	var v_labels Value
-	var v_list Value
-	var v_low Value
-	var v_name Value
-	var v_number Value
-	var v_object Value
-	var v_policy Value
-	var v_present Value
-	var v_range Value
-	var v_return_policy Value
-	var v_score Value
-	var v_seen Value
-	var v_string Value
-	var v_supported Value
-	var v_threshold Value
-	var v_throw_policy Value
-	var v_trimmed Value
-	var v_unknown Value
-	var v_valid Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_allowed
-	_ = v_count
-	_ = v_duplicate
-	_ = v_empty
-	_ = v_evidence
-	_ = v_finite
-	_ = v_has_threshold
-	_ = v_high
-	_ = v_invalid
-	_ = v_is_boolean
-	_ = v_key
-	_ = v_keys
-	_ = v_known
-	_ = v_label
-	_ = v_labels
-	_ = v_list
-	_ = v_low
-	_ = v_name
-	_ = v_number
-	_ = v_object
-	_ = v_policy
-	_ = v_present
-	_ = v_range
-	_ = v_return_policy
-	_ = v_score
-	_ = v_seen
-	_ = v_string
-	_ = v_supported
-	_ = v_threshold
-	_ = v_throw_policy
-	_ = v_trimmed
-	_ = v_unknown
-	_ = v_valid
-	v_name = coreGet(v_typ, "name", nil)
-	v_evidence = coreGet(v_typ, "evidence", nil)
-	v_present = _core_is_not_none(v_evidence)
-	if coreTruthy(v_present) {
-		v_supported = MutableArray()
-		v_supported = coreAppend(v_supported, "boolean")
-		v_supported = coreAppend(v_supported, "class")
-		v_supported = coreAppend(v_supported, "score")
-		v_valid = _core_contains(v_supported, v_name)
-		v_object = coreTypeIs(v_evidence, "object")
-		v_valid = _core_and(v_valid, v_object)
-		v_invalid = _core_not(v_valid)
-		if coreTruthy(v_invalid) {
-			return nil, AxError{Category: "runtime", Message: "Evidence requires a boolean, class or score field"}
-		} else {
-		// empty
-		}
-		v_keys = _core_map_keys(v_evidence)
-		v_allowed = MutableArray()
-		v_allowed = coreAppend(v_allowed, "threshold")
-		v_allowed = coreAppend(v_allowed, "onRefusal")
-		for _, v_key = range coreIter(v_keys) {
-			v_known = _core_contains(v_allowed, v_key)
-			v_unknown = _core_not(v_known)
-			if coreTruthy(v_unknown) {
-				return nil, AxError{Category: "runtime", Message: "Unknown evidence option"}
-			} else {
-			// empty
-			}
-		}
-		v_threshold = coreGet(v_evidence, "threshold", nil)
-		v_has_threshold = _core_is_not_none(v_threshold)
-		if coreTruthy(v_has_threshold) {
-			v_is_boolean = _core_eq(v_name, "boolean")
-			v_number = coreTypeIs(v_threshold, "number")
-			v_valid = _core_and(v_is_boolean, v_number)
-			if coreTruthy(v_valid) {
-				v_finite = _core_math_is_finite(v_threshold)
-				v_low = _core_gte(v_threshold, 0)
-				v_high = _core_lte(v_threshold, 1)
-				v_range = _core_and(v_low, v_high)
-				v_valid = _core_and(v_finite, v_range)
-			} else {
-			// empty
-			}
-			v_invalid = _core_not(v_valid)
-			if coreTruthy(v_invalid) {
-				return nil, AxError{Category: "runtime", Message: "threshold requires a boolean field and a finite value in [0, 1]"}
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_policy = coreGet(v_evidence, "onRefusal", "throw")
-		v_throw_policy = _core_eq(v_policy, "throw")
-		v_return_policy = _core_eq(v_policy, "return")
-		v_valid = _core_or(v_throw_policy, v_return_policy)
-		v_invalid = _core_not(v_valid)
-		if coreTruthy(v_invalid) {
-			return nil, AxError{Category: "runtime", Message: "onRefusal must be throw or return"}
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	v_score = _core_eq(v_name, "score")
-	if coreTruthy(v_score) {
-		v_labels = coreGet(v_typ, "options", nil)
-		v_list = coreTypeIs(v_labels, "list")
-		v_invalid = _core_not(v_list)
-		if coreTruthy(v_invalid) {
-			return nil, AxError{Category: "runtime", Message: "Score requires 2-10 distinct, nonempty ordered rubric labels"}
-		} else {
-		// empty
-		}
-		v_count = _core_len(v_labels)
-		v_low = _core_lt(v_count, 2)
-		v_high = _core_gt(v_count, 10)
-		v_invalid = _core_or(v_low, v_high)
-		if coreTruthy(v_invalid) {
-			return nil, AxError{Category: "runtime", Message: "Score requires 2-10 distinct, nonempty ordered rubric labels"}
-		} else {
-		// empty
-		}
-		v_seen = MutableArray()
-		for _, v_label = range coreIter(v_labels) {
-			v_string = coreTypeIs(v_label, "string")
-			v_invalid = _core_not(v_string)
-			if coreTruthy(v_invalid) {
-				return nil, AxError{Category: "runtime", Message: "Score labels must be strings"}
-			} else {
-			// empty
-			}
-			v_trimmed = coreStringTrim(v_label)
-			v_empty = _core_eq(v_trimmed, "")
-			v_duplicate = _core_contains(v_seen, v_label)
-			v_invalid = _core_or(v_empty, v_duplicate)
-			if coreTruthy(v_invalid) {
-				return nil, AxError{Category: "runtime", Message: "Score requires distinct, nonempty ordered rubric labels"}
-			} else {
-			// empty
-			}
-			v_seen = coreAppend(v_seen, v_label)
-		}
-	} else {
-	// empty
-	}
 	return nil, nil
 }
 
@@ -3693,6 +3571,75 @@ func _signature_parse_value_description_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_description, nil
+}
+
+func _evidence_is_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_is_type_impl")
+	var v_typ Value
+	var v_box Value
+	var v_evidence Value
+	var v_name Value
+	var v_present Value
+	var v_result Value
+	var v_score Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_box
+	_ = v_evidence
+	_ = v_name
+	_ = v_present
+	_ = v_result
+	_ = v_score
+	v_evidence = coreGet(v_typ, "evidence", nil)
+	v_present = _core_is_not_none(v_evidence)
+	v_name = coreGet(v_typ, "name", nil)
+	v_score = _core_eq(v_name, "score")
+	v_box = _core_eq(v_name, "box")
+	v_result = _core_or(v_present, v_score)
+	v_result = _core_or(v_result, v_box)
+	return v_result, nil
+}
+
+func _evidence_has_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_has_fields_impl")
+	var v_fields Value
+	var v_children Value
+	var v_decision Value
+	var v_field Value
+	var v_nested Value
+	var v_present Value
+	var v_typ Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	_ = v_children
+	_ = v_decision
+	_ = v_field
+	_ = v_nested
+	_ = v_present
+	_ = v_typ
+	for _, v_field = range coreIter(v_fields) {
+		v_typ = coreGet(v_field, "type", nil)
+		{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
+		if coreTruthy(v_decision) {
+			return true, nil
+		} else {
+		// empty
+		}
+		v_children = coreGet(v_typ, "fields", nil)
+		v_present = _core_is_not_none(v_children)
+		if coreTruthy(v_present) {
+			v_nested = _core_fields_from_map(v_children)
+			{ v, err := _evidence_has_fields_impl(v_nested); if err != nil { return nil, err }; v_decision = v }
+			if coreTruthy(v_decision) {
+				return true, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	return false, nil
 }
 
 func _signature_parse_impl(args ...Value) (Value, error) {
@@ -3914,121 +3861,198 @@ func _signature_parse_class_descriptions_impl(args ...Value) (Value, error) {
 	return v_descriptions, nil
 }
 
-func _evidence_parse_options_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_parse_options_impl")
-	var v_raw Value
-	var v_arg Value
-	var v_bad Value
+func _evidence_validate_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_validate_type_impl")
+	var v_typ Value
+	var v_allowed Value
 	var v_count Value
 	var v_duplicate Value
-	var v_e Value
+	var v_empty Value
+	var v_error Value
 	var v_evidence Value
-	var v_has_evidence Value
-	var v_has_policy Value
+	var v_finite Value
+	var v_has_threshold Value
+	var v_high Value
 	var v_invalid Value
-	var v_missing_evidence Value
-	var v_modifier Value
+	var v_is_boolean Value
+	var v_key Value
+	var v_keys Value
+	var v_known Value
+	var v_label Value
+	var v_labels Value
+	var v_list Value
+	var v_low Value
+	var v_name Value
 	var v_number Value
-	var v_out Value
-	var v_part Value
-	var v_parts Value
-	var v_r Value
-	var v_remaining Value
-	var v_rest Value
+	var v_object Value
+	var v_policy Value
+	var v_present Value
+	var v_range Value
+	var v_return_policy Value
+	var v_score Value
 	var v_seen Value
-	var v_t Value
-	var v_token Value
-	var v_words Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_arg
-	_ = v_bad
+	var v_string Value
+	var v_supported Value
+	var v_threshold Value
+	var v_throw_policy Value
+	var v_trimmed Value
+	var v_unknown Value
+	var v_valid Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_allowed
 	_ = v_count
 	_ = v_duplicate
-	_ = v_e
+	_ = v_empty
+	_ = v_error
 	_ = v_evidence
-	_ = v_has_evidence
-	_ = v_has_policy
+	_ = v_finite
+	_ = v_has_threshold
+	_ = v_high
 	_ = v_invalid
-	_ = v_missing_evidence
-	_ = v_modifier
+	_ = v_is_boolean
+	_ = v_key
+	_ = v_keys
+	_ = v_known
+	_ = v_label
+	_ = v_labels
+	_ = v_list
+	_ = v_low
+	_ = v_name
 	_ = v_number
-	_ = v_out
-	_ = v_part
-	_ = v_parts
-	_ = v_r
-	_ = v_remaining
-	_ = v_rest
+	_ = v_object
+	_ = v_policy
+	_ = v_present
+	_ = v_range
+	_ = v_return_policy
+	_ = v_score
 	_ = v_seen
-	_ = v_t
-	_ = v_token
-	_ = v_words
-	{ v, err := _core_string_split_top_level(v_raw, ","); if err != nil { return nil, err }; v_parts = v }
-	v_evidence = Object()
-	v_seen = MutableArray()
-	v_remaining = MutableArray()
-	for _, v_part = range coreIter(v_parts) {
-		v_part = coreStringTrim(v_part)
-		v_words = _core_string_words(v_part)
-		v_token = _core_list_get(v_words, 0, "")
-		v_e = _core_eq(v_token, "evidence")
-		v_t = _core_eq(v_token, "threshold")
-		v_r = _core_eq(v_token, "refusal")
-		v_modifier = _core_or(v_e, v_t)
-		v_modifier = _core_or(v_modifier, v_r)
-		if coreTruthy(v_modifier) {
-			v_duplicate = _core_contains(v_seen, v_token)
-			if coreTruthy(v_duplicate) {
-				return nil, AxError{Category: "runtime", Message: "Duplicate evidence modifier"}
+	_ = v_string
+	_ = v_supported
+	_ = v_threshold
+	_ = v_throw_policy
+	_ = v_trimmed
+	_ = v_unknown
+	_ = v_valid
+	v_name = coreGet(v_typ, "name", nil)
+	v_evidence = coreGet(v_typ, "evidence", nil)
+	v_present = _core_is_not_none(v_evidence)
+	if coreTruthy(v_present) {
+		v_supported = MutableArray()
+		v_supported = coreAppend(v_supported, "boolean")
+		v_supported = coreAppend(v_supported, "class")
+		v_supported = coreAppend(v_supported, "score")
+		v_supported = coreAppend(v_supported, "box")
+		v_valid = _core_contains(v_supported, v_name)
+		v_object = coreTypeIs(v_evidence, "object")
+		v_valid = _core_and(v_valid, v_object)
+		v_invalid = _core_not(v_valid)
+		if coreTruthy(v_invalid) {
+			v_error = _core_signature_error("Evidence requires a boolean, class, score or box field")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_keys = _core_map_keys(v_evidence)
+		v_allowed = MutableArray()
+		v_allowed = coreAppend(v_allowed, "threshold")
+		v_allowed = coreAppend(v_allowed, "onRefusal")
+		for _, v_key = range coreIter(v_keys) {
+			v_known = _core_contains(v_allowed, v_key)
+			v_unknown = _core_not(v_known)
+			if coreTruthy(v_unknown) {
+				v_error = _core_signature_error("Unknown evidence option")
+				return nil, asError(v_error)
 			} else {
 			// empty
 			}
-			v_seen = coreAppend(v_seen, v_token)
-			v_count = _core_len(v_words)
-			v_arg = _core_list_get(v_words, 1, "")
-			if coreTruthy(v_e) {
-				v_bad = _core_ne(v_count, 1)
-				if coreTruthy(v_bad) {
-					return nil, AxError{Category: "runtime", Message: "evidence does not take an argument"}
-				} else {
-				// empty
-				}
+		}
+		v_threshold = coreGet(v_evidence, "threshold", nil)
+		v_has_threshold = _core_is_not_none(v_threshold)
+		if coreTruthy(v_has_threshold) {
+			v_is_boolean = _core_eq(v_name, "boolean")
+			v_number = coreTypeIs(v_threshold, "number")
+			v_valid = _core_and(v_is_boolean, v_number)
+			if coreTruthy(v_valid) {
+				v_finite = _core_math_is_finite(v_threshold)
+				v_low = _core_gte(v_threshold, 0)
+				v_high = _core_lte(v_threshold, 1)
+				v_range = _core_and(v_low, v_high)
+				v_valid = _core_and(v_finite, v_range)
 			} else {
-				v_bad = _core_ne(v_count, 2)
-				if coreTruthy(v_bad) {
-					return nil, AxError{Category: "runtime", Message: "Evidence modifier requires one argument"}
-				} else {
-				// empty
-				}
-				if coreTruthy(v_t) {
-					{ v, err := _core_json_parse(v_arg); if err != nil { return nil, err }; v_number = v }
-					if err := coreSet(v_evidence, "threshold", v_number); err != nil { return nil, err }
-				} else {
-					if err := coreSet(v_evidence, "onRefusal", v_arg); err != nil { return nil, err }
-				}
+			// empty
+			}
+			v_invalid = _core_not(v_valid)
+			if coreTruthy(v_invalid) {
+				v_error = _core_signature_error("threshold requires a boolean field and a finite value in [0, 1]")
+				return nil, asError(v_error)
+			} else {
+			// empty
 			}
 		} else {
-			v_remaining = coreAppend(v_remaining, v_part)
+		// empty
 		}
-	}
-	v_has_evidence = _core_contains(v_seen, "evidence")
-	v_has_policy = _core_truthy(v_seen)
-	v_missing_evidence = _core_not(v_has_evidence)
-	v_invalid = _core_and(v_has_policy, v_missing_evidence)
-	if coreTruthy(v_invalid) {
-		return nil, AxError{Category: "runtime", Message: "threshold and refusal require the evidence modifier"}
+		v_policy = coreGet(v_evidence, "onRefusal", "throw")
+		v_throw_policy = _core_eq(v_policy, "throw")
+		v_return_policy = _core_eq(v_policy, "return")
+		v_valid = _core_or(v_throw_policy, v_return_policy)
+		v_invalid = _core_not(v_valid)
+		if coreTruthy(v_invalid) {
+			v_error = _core_signature_error("onRefusal must be throw or return")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
-	v_out = Object()
-	if coreTruthy(v_has_evidence) {
-		if err := coreSet(v_out, "evidence", v_evidence); err != nil { return nil, err }
+	v_score = _core_eq(v_name, "score")
+	if coreTruthy(v_score) {
+		v_labels = coreGet(v_typ, "options", nil)
+		v_list = coreTypeIs(v_labels, "list")
+		v_invalid = _core_not(v_list)
+		if coreTruthy(v_invalid) {
+			v_error = _core_signature_error("Score requires 2-10 distinct, nonempty ordered rubric labels")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_count = _core_len(v_labels)
+		v_low = _core_lt(v_count, 2)
+		v_high = _core_gt(v_count, 10)
+		v_invalid = _core_or(v_low, v_high)
+		if coreTruthy(v_invalid) {
+			v_error = _core_signature_error("Score requires 2-10 distinct, nonempty ordered rubric labels")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_seen = MutableArray()
+		for _, v_label = range coreIter(v_labels) {
+			v_string = coreTypeIs(v_label, "string")
+			v_invalid = _core_not(v_string)
+			if coreTruthy(v_invalid) {
+				v_error = _core_signature_error("Score labels must be strings")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_trimmed = coreStringTrim(v_label)
+			v_empty = _core_eq(v_trimmed, "")
+			v_duplicate = _core_contains(v_seen, v_label)
+			v_invalid = _core_or(v_empty, v_duplicate)
+			if coreTruthy(v_invalid) {
+				v_error = _core_signature_error("Score requires distinct, nonempty ordered rubric labels")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, v_label)
+		}
 	} else {
 	// empty
 	}
-	v_rest = _core_string_join(", ", v_remaining)
-	if err := coreSet(v_out, "rest", v_rest); err != nil { return nil, err }
-	return v_out, nil
+	return nil, nil
 }
 
 func _signature_parse_fields_impl(args ...Value) (Value, error) {
@@ -4124,50 +4148,6 @@ func _signature_render_value_descriptions_impl(args ...Value) (Value, error) {
 		} else {
 		// empty
 		}
-	}
-	return v_entries, nil
-}
-
-func _evidence_render_entries_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_render_entries_impl")
-	var v_typ Value
-	var v_entries Value
-	var v_entry Value
-	var v_evidence Value
-	var v_policy Value
-	var v_present Value
-	var v_threshold Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_entries
-	_ = v_entry
-	_ = v_evidence
-	_ = v_policy
-	_ = v_present
-	_ = v_threshold
-	v_entries = MutableArray()
-	v_evidence = coreGet(v_typ, "evidence", nil)
-	v_present = _core_is_not_none(v_evidence)
-	if coreTruthy(v_present) {
-		v_entries = coreAppend(v_entries, "evidence")
-		v_threshold = coreGet(v_evidence, "threshold", nil)
-		v_present = _core_is_not_none(v_threshold)
-		if coreTruthy(v_present) {
-			v_entry = _core_string_format("threshold {}", v_threshold)
-			v_entries = coreAppend(v_entries, v_entry)
-		} else {
-		// empty
-		}
-		v_policy = coreGet(v_evidence, "onRefusal", nil)
-		v_present = _core_is_not_none(v_policy)
-		if coreTruthy(v_present) {
-			v_entry = _core_string_format("refusal {}", v_policy)
-			v_entries = coreAppend(v_entries, v_entry)
-		} else {
-		// empty
-		}
-	} else {
-	// empty
 	}
 	return v_entries, nil
 }
@@ -4509,6 +4489,123 @@ func _signature_parse_field_common_impl(args ...Value) (Value, error) {
 	return v_field, nil
 }
 
+func _evidence_parse_options_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_parse_options_impl")
+	var v_raw Value
+	var v_arg Value
+	var v_bad Value
+	var v_count Value
+	var v_duplicate Value
+	var v_e Value
+	var v_evidence Value
+	var v_has_evidence Value
+	var v_has_policy Value
+	var v_invalid Value
+	var v_missing_evidence Value
+	var v_modifier Value
+	var v_number Value
+	var v_out Value
+	var v_part Value
+	var v_parts Value
+	var v_r Value
+	var v_remaining Value
+	var v_rest Value
+	var v_seen Value
+	var v_t Value
+	var v_token Value
+	var v_words Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_arg
+	_ = v_bad
+	_ = v_count
+	_ = v_duplicate
+	_ = v_e
+	_ = v_evidence
+	_ = v_has_evidence
+	_ = v_has_policy
+	_ = v_invalid
+	_ = v_missing_evidence
+	_ = v_modifier
+	_ = v_number
+	_ = v_out
+	_ = v_part
+	_ = v_parts
+	_ = v_r
+	_ = v_remaining
+	_ = v_rest
+	_ = v_seen
+	_ = v_t
+	_ = v_token
+	_ = v_words
+	{ v, err := _core_string_split_top_level(v_raw, ","); if err != nil { return nil, err }; v_parts = v }
+	v_evidence = Object()
+	v_seen = MutableArray()
+	v_remaining = MutableArray()
+	for _, v_part = range coreIter(v_parts) {
+		v_part = coreStringTrim(v_part)
+		v_words = _core_string_words(v_part)
+		v_token = _core_list_get(v_words, 0, "")
+		v_e = _core_eq(v_token, "evidence")
+		v_t = _core_eq(v_token, "threshold")
+		v_r = _core_eq(v_token, "refusal")
+		v_modifier = _core_or(v_e, v_t)
+		v_modifier = _core_or(v_modifier, v_r)
+		if coreTruthy(v_modifier) {
+			v_duplicate = _core_contains(v_seen, v_token)
+			if coreTruthy(v_duplicate) {
+				return nil, AxError{Category: "runtime", Message: "Duplicate evidence modifier"}
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, v_token)
+			v_count = _core_len(v_words)
+			v_arg = _core_list_get(v_words, 1, "")
+			if coreTruthy(v_e) {
+				v_bad = _core_ne(v_count, 1)
+				if coreTruthy(v_bad) {
+					return nil, AxError{Category: "runtime", Message: "evidence does not take an argument"}
+				} else {
+				// empty
+				}
+			} else {
+				v_bad = _core_ne(v_count, 2)
+				if coreTruthy(v_bad) {
+					return nil, AxError{Category: "runtime", Message: "Evidence modifier requires one argument"}
+				} else {
+				// empty
+				}
+				if coreTruthy(v_t) {
+					{ v, err := _core_json_parse(v_arg); if err != nil { return nil, err }; v_number = v }
+					if err := coreSet(v_evidence, "threshold", v_number); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_evidence, "onRefusal", v_arg); err != nil { return nil, err }
+				}
+			}
+		} else {
+			v_remaining = coreAppend(v_remaining, v_part)
+		}
+	}
+	v_has_evidence = _core_contains(v_seen, "evidence")
+	v_has_policy = _core_truthy(v_seen)
+	v_missing_evidence = _core_not(v_has_evidence)
+	v_invalid = _core_and(v_has_policy, v_missing_evidence)
+	if coreTruthy(v_invalid) {
+		return nil, AxError{Category: "runtime", Message: "threshold and refusal require the evidence modifier"}
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if coreTruthy(v_has_evidence) {
+		if err := coreSet(v_out, "evidence", v_evidence); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_rest = _core_string_join(", ", v_remaining)
+	if err := coreSet(v_out, "rest", v_rest); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _signature_nested_value_descriptions_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_signature_nested_value_descriptions_impl")
 	var v_fields Value
@@ -4629,6 +4726,50 @@ func _signature_output_value_descriptions_impl(args ...Value) (Value, error) {
 		}
 	}
 	return v_out, nil
+}
+
+func _evidence_render_entries_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_render_entries_impl")
+	var v_typ Value
+	var v_entries Value
+	var v_entry Value
+	var v_evidence Value
+	var v_policy Value
+	var v_present Value
+	var v_threshold Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_entries
+	_ = v_entry
+	_ = v_evidence
+	_ = v_policy
+	_ = v_present
+	_ = v_threshold
+	v_entries = MutableArray()
+	v_evidence = coreGet(v_typ, "evidence", nil)
+	v_present = _core_is_not_none(v_evidence)
+	if coreTruthy(v_present) {
+		v_entries = coreAppend(v_entries, "evidence")
+		v_threshold = coreGet(v_evidence, "threshold", nil)
+		v_present = _core_is_not_none(v_threshold)
+		if coreTruthy(v_present) {
+			v_entry = _core_string_format("threshold {}", v_threshold)
+			v_entries = coreAppend(v_entries, v_entry)
+		} else {
+		// empty
+		}
+		v_policy = coreGet(v_evidence, "onRefusal", nil)
+		v_present = _core_is_not_none(v_policy)
+		if coreTruthy(v_present) {
+			v_entry = _core_string_format("refusal {}", v_policy)
+			v_entries = coreAppend(v_entries, v_entry)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_entries, nil
 }
 
 func _signature_parse_description_impl(args ...Value) (Value, error) {
@@ -4753,6 +4894,7 @@ func _signature_parse_base_type_impl(args ...Value) (Value, error) {
 	v_types = coreAppend(v_types, "object")
 	v_types = coreAppend(v_types, "class")
 	v_types = coreAppend(v_types, "score")
+	v_types = coreAppend(v_types, "box")
 	v_types = coreAppend(v_types, "image")
 	v_types = coreAppend(v_types, "audio")
 	v_types = coreAppend(v_types, "file")
@@ -5180,129 +5322,6 @@ func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
 	v_is_cached = coreGet(v_modifier_state, "is_cached", false)
 	if err := coreSet(v_out, "is_cached", v_is_cached); err != nil { return nil, err }
 	if err := coreSet(v_out, "rest", v_rest); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func _evidence_request_fields_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_request_fields_impl")
-	var v_fields Value
-	var v_array Value
-	var v_decision Value
-	var v_entry Value
-	var v_evidence Value
-	var v_field Value
-	var v_key Value
-	var v_labels Value
-	var v_name Value
-	var v_optional Value
-	var v_out Value
-	var v_typ Value
-	if len(args) > 0 { v_fields = args[0] }
-	_ = v_fields
-	_ = v_array
-	_ = v_decision
-	_ = v_entry
-	_ = v_evidence
-	_ = v_field
-	_ = v_key
-	_ = v_labels
-	_ = v_name
-	_ = v_optional
-	_ = v_out
-	_ = v_typ
-	v_out = Object()
-	for _, v_field = range coreIter(v_fields) {
-		v_typ = coreGet(v_field, "type", nil)
-		{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
-		if coreTruthy(v_decision) {
-			v_entry = Object()
-			v_name = coreGet(v_typ, "name", nil)
-			v_labels = coreGet(v_typ, "options", nil)
-			v_evidence = coreGet(v_typ, "evidence", nil)
-			v_array = coreGet(v_typ, "is_array", false)
-			v_optional = coreGet(v_field, "is_optional", false)
-			if err := coreSet(v_entry, "type", v_name); err != nil { return nil, err }
-			if err := coreSet(v_entry, "options", v_labels); err != nil { return nil, err }
-			if err := coreSet(v_entry, "evidence", v_evidence); err != nil { return nil, err }
-			if err := coreSet(v_entry, "isArray", v_array); err != nil { return nil, err }
-			if err := coreSet(v_entry, "isOptional", v_optional); err != nil { return nil, err }
-			v_key = coreGet(v_field, "name", nil)
-			if err := coreSet(v_out, v_key, v_entry); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	return v_out, nil
-}
-
-func _evidence_placeholder_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_placeholder_impl")
-	var v_typ Value
-	var v_array Value
-	var v_evidence Value
-	var v_is_boolean Value
-	var v_label Value
-	var v_labels Value
-	var v_name Value
-	var v_out Value
-	var v_policy Value
-	var v_ps Value
-	var v_return_policy Value
-	var v_score Value
-	var v_wrapped Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_array
-	_ = v_evidence
-	_ = v_is_boolean
-	_ = v_label
-	_ = v_labels
-	_ = v_name
-	_ = v_out
-	_ = v_policy
-	_ = v_ps
-	_ = v_return_policy
-	_ = v_score
-	_ = v_wrapped
-	v_name = coreGet(v_typ, "name", nil)
-	v_is_boolean = _core_eq(v_name, "boolean")
-	v_score = _core_eq(v_name, "score")
-	v_out = Object()
-	if coreTruthy(v_is_boolean) {
-		if err := coreSet(v_out, "probability", "<probability of true, 0 to 1>"); err != nil { return nil, err }
-	} else {
-		v_labels = coreGet(v_typ, "options", nil)
-		v_ps = Object()
-		if coreTruthy(v_score) {
-			v_ps = MutableArray()
-		} else {
-		// empty
-		}
-		for _, v_label = range coreIter(v_labels) {
-			if coreTruthy(v_score) {
-				v_ps = coreAppend(v_ps, "<probability, 0 to 1>")
-			} else {
-				if err := coreSet(v_ps, v_label, "<probability, 0 to 1>"); err != nil { return nil, err }
-			}
-		}
-		if err := coreSet(v_out, "probabilities", v_ps); err != nil { return nil, err }
-	}
-	v_evidence = coreGet(v_typ, "evidence", nil)
-	v_policy = coreGet(v_evidence, "onRefusal", "throw")
-	v_return_policy = _core_eq(v_policy, "return")
-	if coreTruthy(v_return_policy) {
-		if err := coreSet(v_out, "status", "answered"); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_array = coreGet(v_typ, "is_array", false)
-	if coreTruthy(v_array) {
-		v_wrapped = MutableArray()
-		v_wrapped = coreAppend(v_wrapped, v_out)
-		return v_wrapped, nil
-	} else {
-	// empty
-	}
 	return v_out, nil
 }
 
@@ -5826,139 +5845,156 @@ func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _evidence_example_values_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_example_values_impl")
+func _evidence_request_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_request_fields_impl")
 	var v_fields Value
-	var v_values Value
 	var v_array Value
-	var v_children Value
-	var v_converted Value
 	var v_decision Value
-	var v_empty Value
+	var v_entry Value
 	var v_evidence Value
 	var v_field Value
-	var v_has_children Value
-	var v_is_boolean Value
-	var v_item Value
-	var v_items Value
 	var v_key Value
+	var v_labels Value
 	var v_name Value
-	var v_nested Value
-	var v_object Value
+	var v_optional Value
 	var v_out Value
-	var v_policy Value
-	var v_present Value
-	var v_probabilities Value
-	var v_raw Value
-	var v_refused Value
-	var v_return_policy Value
-	var v_single Value
-	var v_status Value
 	var v_typ Value
-	var v_type_name Value
-	var v_value Value
 	if len(args) > 0 { v_fields = args[0] }
 	_ = v_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
 	_ = v_array
-	_ = v_children
-	_ = v_converted
 	_ = v_decision
-	_ = v_empty
+	_ = v_entry
 	_ = v_evidence
 	_ = v_field
-	_ = v_has_children
-	_ = v_is_boolean
-	_ = v_item
-	_ = v_items
 	_ = v_key
+	_ = v_labels
 	_ = v_name
-	_ = v_nested
-	_ = v_object
+	_ = v_optional
 	_ = v_out
-	_ = v_policy
-	_ = v_present
-	_ = v_probabilities
-	_ = v_raw
-	_ = v_refused
-	_ = v_return_policy
-	_ = v_single
-	_ = v_status
 	_ = v_typ
-	_ = v_type_name
-	_ = v_value
-	v_empty = Object()
-	v_out = _core_map_merge(v_empty, v_values)
+	v_out = Object()
 	for _, v_field = range coreIter(v_fields) {
-		v_name = coreGet(v_field, "name", nil)
 		v_typ = coreGet(v_field, "type", nil)
-		v_value = coreGet(v_out, v_name, nil)
-		v_present = _core_is_not_none(v_value)
-		if coreTruthy(v_present) {
-			{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
-			v_children = coreGet(v_typ, "fields", nil)
-			v_has_children = _core_is_not_none(v_children)
+		{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
+		if coreTruthy(v_decision) {
+			v_entry = Object()
+			v_name = coreGet(v_typ, "name", nil)
+			v_labels = coreGet(v_typ, "options", nil)
+			v_evidence = coreGet(v_typ, "evidence", nil)
 			v_array = coreGet(v_typ, "is_array", false)
-			v_items = MutableArray()
-			if coreTruthy(v_array) {
-				v_items = v_value
-			} else {
-				v_items = coreAppend(v_items, v_value)
-			}
-			v_converted = MutableArray()
-			for _, v_item = range coreIter(v_items) {
-				v_object = coreTypeIs(v_item, "object")
-				if coreTruthy(v_object) {
-					if coreTruthy(v_decision) {
-						v_raw = Object()
-						v_status = coreGet(v_item, "status", nil)
-						v_refused = _core_eq(v_status, "refused")
-						if coreTruthy(v_refused) {
-							if err := coreSet(v_raw, "status", "refused"); err != nil { return nil, err }
-						} else {
-							v_type_name = coreGet(v_typ, "name", nil)
-							v_is_boolean = _core_eq(v_type_name, "boolean")
-							v_key = "probabilities"
-							if coreTruthy(v_is_boolean) {
-								v_key = "probability"
-							} else {
-							// empty
-							}
-							v_probabilities = coreGet(v_item, v_key, nil)
-							if err := coreSet(v_raw, v_key, v_probabilities); err != nil { return nil, err }
-							v_evidence = coreGet(v_typ, "evidence", nil)
-							v_policy = coreGet(v_evidence, "onRefusal", nil)
-							v_return_policy = _core_eq(v_policy, "return")
-							if coreTruthy(v_return_policy) {
-								if err := coreSet(v_raw, "status", "answered"); err != nil { return nil, err }
-							} else {
-							// empty
-							}
-						}
-						v_item = v_raw
-					} else {
-						if coreTruthy(v_has_children) {
-							v_nested = _core_fields_from_map(v_children)
-							{ v, err := _evidence_example_values_impl(v_nested, v_item); if err != nil { return nil, err }; v_item = v }
-						} else {
-						// empty
-						}
-					}
-				} else {
-				// empty
-				}
-				v_converted = coreAppend(v_converted, v_item)
-			}
-			if coreTruthy(v_array) {
-				if err := coreSet(v_out, v_name, v_converted); err != nil { return nil, err }
-			} else {
-				v_single = _core_list_get(v_converted, 0)
-				if err := coreSet(v_out, v_name, v_single); err != nil { return nil, err }
-			}
+			v_optional = coreGet(v_field, "is_optional", false)
+			if err := coreSet(v_entry, "type", v_name); err != nil { return nil, err }
+			if err := coreSet(v_entry, "options", v_labels); err != nil { return nil, err }
+			if err := coreSet(v_entry, "evidence", v_evidence); err != nil { return nil, err }
+			if err := coreSet(v_entry, "isArray", v_array); err != nil { return nil, err }
+			if err := coreSet(v_entry, "isOptional", v_optional); err != nil { return nil, err }
+			v_key = coreGet(v_field, "name", nil)
+			if err := coreSet(v_out, v_key, v_entry); err != nil { return nil, err }
 		} else {
 		// empty
 		}
+	}
+	return v_out, nil
+}
+
+func _evidence_placeholder_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_placeholder_impl")
+	var v_typ Value
+	var v_array Value
+	var v_box Value
+	var v_coordinates Value
+	var v_empty Value
+	var v_evidence Value
+	var v_is_boolean Value
+	var v_label Value
+	var v_labels Value
+	var v_labels_raw Value
+	var v_name Value
+	var v_out Value
+	var v_plain Value
+	var v_policy Value
+	var v_ps Value
+	var v_return_policy Value
+	var v_score Value
+	var v_wrapped Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_array
+	_ = v_box
+	_ = v_coordinates
+	_ = v_empty
+	_ = v_evidence
+	_ = v_is_boolean
+	_ = v_label
+	_ = v_labels
+	_ = v_labels_raw
+	_ = v_name
+	_ = v_out
+	_ = v_plain
+	_ = v_policy
+	_ = v_ps
+	_ = v_return_policy
+	_ = v_score
+	_ = v_wrapped
+	v_name = coreGet(v_typ, "name", nil)
+	v_is_boolean = _core_eq(v_name, "boolean")
+	v_score = _core_eq(v_name, "score")
+	v_out = Object()
+	if coreTruthy(v_is_boolean) {
+		if err := coreSet(v_out, "probability", "<probability of true, 0 to 1>"); err != nil { return nil, err }
+	} else {
+		v_empty = MutableArray()
+		v_labels_raw = coreGet(v_typ, "options", nil)
+		v_labels = _core_coalesce(v_labels_raw, v_empty)
+		v_ps = Object()
+		if coreTruthy(v_score) {
+			v_ps = MutableArray()
+		} else {
+		// empty
+		}
+		for _, v_label = range coreIter(v_labels) {
+			if coreTruthy(v_score) {
+				v_ps = coreAppend(v_ps, "<probability, 0 to 1>")
+			} else {
+				if err := coreSet(v_ps, v_label, "<probability, 0 to 1>"); err != nil { return nil, err }
+			}
+		}
+		if err := coreSet(v_out, "probabilities", v_ps); err != nil { return nil, err }
+	}
+	v_box = _core_eq(v_name, "box")
+	if coreTruthy(v_box) {
+		v_coordinates = Object()
+		if err := coreSet(v_coordinates, "top", "<top edge, 0 to 1>"); err != nil { return nil, err }
+		if err := coreSet(v_coordinates, "bottom", "<bottom edge, greater than top, up to 1>"); err != nil { return nil, err }
+		if err := coreSet(v_coordinates, "left", "<left edge, 0 to 1>"); err != nil { return nil, err }
+		if err := coreSet(v_coordinates, "right", "<right edge, greater than left, up to 1>"); err != nil { return nil, err }
+		v_out = Object()
+		if err := coreSet(v_out, "box", v_coordinates); err != nil { return nil, err }
+		v_evidence = coreGet(v_typ, "evidence", nil)
+		v_plain = _core_is_none(v_evidence)
+		if coreTruthy(v_plain) {
+			v_out = v_coordinates
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_evidence = coreGet(v_typ, "evidence", nil)
+	v_policy = coreGet(v_evidence, "onRefusal", "throw")
+	v_return_policy = _core_eq(v_policy, "return")
+	if coreTruthy(v_return_policy) {
+		if err := coreSet(v_out, "status", "answered"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_array = coreGet(v_typ, "is_array", false)
+	if coreTruthy(v_array) {
+		v_wrapped = MutableArray()
+		v_wrapped = coreAppend(v_wrapped, v_out)
+		return v_wrapped, nil
+	} else {
+	// empty
 	}
 	return v_out, nil
 }
@@ -6035,6 +6071,169 @@ func _signature_parse_object_fields_impl(args ...Value) (Value, error) {
 		if err := coreSet(v_fields, v_name, v_field); err != nil { return nil, err }
 	}
 	return v_fields, nil
+}
+
+func _evidence_example_values_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_example_values_impl")
+	var v_fields Value
+	var v_values Value
+	var v_array Value
+	var v_box Value
+	var v_children Value
+	var v_converted Value
+	var v_coordinates Value
+	var v_decision Value
+	var v_empty Value
+	var v_evidence Value
+	var v_field Value
+	var v_has_children Value
+	var v_is_boolean Value
+	var v_item Value
+	var v_items Value
+	var v_key Value
+	var v_name Value
+	var v_nested Value
+	var v_object Value
+	var v_out Value
+	var v_plain Value
+	var v_policy Value
+	var v_present Value
+	var v_probabilities Value
+	var v_raw Value
+	var v_refused Value
+	var v_return_policy Value
+	var v_single Value
+	var v_status Value
+	var v_typ Value
+	var v_type_name Value
+	var v_value Value
+	var v_wire_box Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	_ = v_array
+	_ = v_box
+	_ = v_children
+	_ = v_converted
+	_ = v_coordinates
+	_ = v_decision
+	_ = v_empty
+	_ = v_evidence
+	_ = v_field
+	_ = v_has_children
+	_ = v_is_boolean
+	_ = v_item
+	_ = v_items
+	_ = v_key
+	_ = v_name
+	_ = v_nested
+	_ = v_object
+	_ = v_out
+	_ = v_plain
+	_ = v_policy
+	_ = v_present
+	_ = v_probabilities
+	_ = v_raw
+	_ = v_refused
+	_ = v_return_policy
+	_ = v_single
+	_ = v_status
+	_ = v_typ
+	_ = v_type_name
+	_ = v_value
+	_ = v_wire_box
+	v_empty = Object()
+	v_out = _core_map_merge(v_empty, v_values)
+	for _, v_field = range coreIter(v_fields) {
+		v_name = coreGet(v_field, "name", nil)
+		v_typ = coreGet(v_field, "type", nil)
+		v_value = coreGet(v_out, v_name, nil)
+		v_present = _core_is_not_none(v_value)
+		if coreTruthy(v_present) {
+			{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
+			v_children = coreGet(v_typ, "fields", nil)
+			v_has_children = _core_is_not_none(v_children)
+			v_array = coreGet(v_typ, "is_array", false)
+			v_items = MutableArray()
+			if coreTruthy(v_array) {
+				v_items = v_value
+			} else {
+				v_items = coreAppend(v_items, v_value)
+			}
+			v_converted = MutableArray()
+			for _, v_item = range coreIter(v_items) {
+				v_object = coreTypeIs(v_item, "object")
+				if coreTruthy(v_object) {
+					if coreTruthy(v_decision) {
+						v_raw = Object()
+						v_status = coreGet(v_item, "status", nil)
+						v_refused = _core_eq(v_status, "refused")
+						if coreTruthy(v_refused) {
+							if err := coreSet(v_raw, "status", "refused"); err != nil { return nil, err }
+						} else {
+							v_type_name = coreGet(v_typ, "name", nil)
+							v_is_boolean = _core_eq(v_type_name, "boolean")
+							v_key = "probabilities"
+							if coreTruthy(v_is_boolean) {
+								v_key = "probability"
+							} else {
+							// empty
+							}
+							v_probabilities = coreGet(v_item, v_key, nil)
+							if err := coreSet(v_raw, v_key, v_probabilities); err != nil { return nil, err }
+							v_box = _core_eq(v_type_name, "box")
+							if coreTruthy(v_box) {
+								v_coordinates = coreGet(v_item, "value", nil)
+								v_wire_box = coreGet(v_item, "box", v_item)
+								v_coordinates = _core_coalesce(v_coordinates, v_wire_box)
+								{ v, err := _box_validate_impl(v_coordinates, v_name); if err != nil { return nil, err }; v_coordinates = v }
+								v_raw = Object()
+								if err := coreSet(v_raw, "box", v_coordinates); err != nil { return nil, err }
+								v_evidence = coreGet(v_typ, "evidence", nil)
+								v_plain = _core_is_none(v_evidence)
+								if coreTruthy(v_plain) {
+									v_raw = v_coordinates
+								} else {
+								// empty
+								}
+							} else {
+							// empty
+							}
+							v_evidence = coreGet(v_typ, "evidence", nil)
+							v_policy = coreGet(v_evidence, "onRefusal", nil)
+							v_return_policy = _core_eq(v_policy, "return")
+							if coreTruthy(v_return_policy) {
+								if err := coreSet(v_raw, "status", "answered"); err != nil { return nil, err }
+							} else {
+							// empty
+							}
+						}
+						v_item = v_raw
+					} else {
+						if coreTruthy(v_has_children) {
+							v_nested = _core_fields_from_map(v_children)
+							{ v, err := _evidence_example_values_impl(v_nested, v_item); if err != nil { return nil, err }; v_item = v }
+						} else {
+						// empty
+						}
+					}
+				} else {
+				// empty
+				}
+				v_converted = coreAppend(v_converted, v_item)
+			}
+			if coreTruthy(v_array) {
+				if err := coreSet(v_out, v_name, v_converted); err != nil { return nil, err }
+			} else {
+				v_single = _core_list_get(v_converted, 0)
+				if err := coreSet(v_out, v_name, v_single); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
 }
 
 func signature_to_string(args ...Value) (Value, error) {
@@ -6691,6 +6890,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	v_valid_types = coreAppend(v_valid_types, "boolean")
 	v_valid_types = coreAppend(v_valid_types, "class")
 	v_valid_types = coreAppend(v_valid_types, "score")
+	v_valid_types = coreAppend(v_valid_types, "box")
 	v_valid_types = coreAppend(v_valid_types, "code")
 	v_valid_types = coreAppend(v_valid_types, "date")
 	v_valid_types = coreAppend(v_valid_types, "dateRange")
@@ -7594,152 +7794,6 @@ func _validate_string_constraints_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _evidence_schema_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_schema_impl")
-	var v_typ Value
-	var v_alternatives Value
-	var v_answered Value
-	var v_array Value
-	var v_count Value
-	var v_distribution Value
-	var v_evidence Value
-	var v_hint Value
-	var v_is_boolean Value
-	var v_keys Value
-	var v_label Value
-	var v_labels Value
-	var v_name Value
-	var v_order Value
-	var v_p Value
-	var v_policy Value
-	var v_props Value
-	var v_ps Value
-	var v_refusal_props Value
-	var v_refusal_status Value
-	var v_refused Value
-	var v_required Value
-	var v_return_policy Value
-	var v_schema Value
-	var v_score Value
-	var v_status Value
-	var v_tags Value
-	var v_wrapped Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	_ = v_alternatives
-	_ = v_answered
-	_ = v_array
-	_ = v_count
-	_ = v_distribution
-	_ = v_evidence
-	_ = v_hint
-	_ = v_is_boolean
-	_ = v_keys
-	_ = v_label
-	_ = v_labels
-	_ = v_name
-	_ = v_order
-	_ = v_p
-	_ = v_policy
-	_ = v_props
-	_ = v_ps
-	_ = v_refusal_props
-	_ = v_refusal_status
-	_ = v_refused
-	_ = v_required
-	_ = v_return_policy
-	_ = v_schema
-	_ = v_score
-	_ = v_status
-	_ = v_tags
-	_ = v_wrapped
-	v_name = coreGet(v_typ, "name", nil)
-	v_labels = coreGet(v_typ, "options", nil)
-	v_p = Object()
-	if err := coreSet(v_p, "type", "number"); err != nil { return nil, err }
-	if err := coreSet(v_p, "minimum", 0); err != nil { return nil, err }
-	if err := coreSet(v_p, "maximum", 1); err != nil { return nil, err }
-	v_props = Object()
-	v_is_boolean = _core_eq(v_name, "boolean")
-	v_score = _core_eq(v_name, "score")
-	v_required = MutableArray()
-	if coreTruthy(v_is_boolean) {
-		if err := coreSet(v_props, "probability", v_p); err != nil { return nil, err }
-		v_required = coreAppend(v_required, "probability")
-	} else {
-		v_distribution = Object()
-		if coreTruthy(v_score) {
-			if err := coreSet(v_distribution, "type", "array"); err != nil { return nil, err }
-			if err := coreSet(v_distribution, "items", v_p); err != nil { return nil, err }
-			v_count = _core_len(v_labels)
-			if err := coreSet(v_distribution, "minItems", v_count); err != nil { return nil, err }
-			if err := coreSet(v_distribution, "maxItems", v_count); err != nil { return nil, err }
-			v_order = _core_string_join(", ", v_labels)
-			v_hint = _core_string_format("Probabilities in rubric order, lowest to highest: {}", v_order)
-			if err := coreSet(v_distribution, "description", v_hint); err != nil { return nil, err }
-		} else {
-			if err := coreSet(v_distribution, "type", "object"); err != nil { return nil, err }
-			v_ps = Object()
-			for _, v_label = range coreIter(v_labels) {
-				if err := coreSet(v_ps, v_label, v_p); err != nil { return nil, err }
-			}
-			if err := coreSet(v_distribution, "properties", v_ps); err != nil { return nil, err }
-			if err := coreSet(v_distribution, "required", v_labels); err != nil { return nil, err }
-			if err := coreSet(v_distribution, "additionalProperties", false); err != nil { return nil, err }
-		}
-		if err := coreSet(v_props, "probabilities", v_distribution); err != nil { return nil, err }
-		v_required = coreAppend(v_required, "probabilities")
-	}
-	v_schema = Object()
-	if err := coreSet(v_schema, "type", "object"); err != nil { return nil, err }
-	if err := coreSet(v_schema, "properties", v_props); err != nil { return nil, err }
-	if err := coreSet(v_schema, "required", v_required); err != nil { return nil, err }
-	if err := coreSet(v_schema, "additionalProperties", false); err != nil { return nil, err }
-	v_evidence = coreGet(v_typ, "evidence", nil)
-	v_policy = coreGet(v_evidence, "onRefusal", "throw")
-	v_return_policy = _core_eq(v_policy, "return")
-	if coreTruthy(v_return_policy) {
-		v_status = Object()
-		if err := coreSet(v_status, "type", "string"); err != nil { return nil, err }
-		v_answered = MutableArray()
-		v_answered = coreAppend(v_answered, "answered")
-		if err := coreSet(v_status, "enum", v_answered); err != nil { return nil, err }
-		if err := coreSet(v_props, "status", v_status); err != nil { return nil, err }
-		v_required = coreAppend(v_required, "status")
-		v_refused = Object()
-		if err := coreSet(v_refused, "type", "object"); err != nil { return nil, err }
-		v_refusal_props = Object()
-		v_refusal_status = Object()
-		if err := coreSet(v_refusal_status, "type", "string"); err != nil { return nil, err }
-		v_tags = MutableArray()
-		v_tags = coreAppend(v_tags, "refused")
-		if err := coreSet(v_refusal_status, "enum", v_tags); err != nil { return nil, err }
-		if err := coreSet(v_refusal_props, "status", v_refusal_status); err != nil { return nil, err }
-		if err := coreSet(v_refused, "properties", v_refusal_props); err != nil { return nil, err }
-		v_keys = MutableArray()
-		v_keys = coreAppend(v_keys, "status")
-		if err := coreSet(v_refused, "required", v_keys); err != nil { return nil, err }
-		if err := coreSet(v_refused, "additionalProperties", false); err != nil { return nil, err }
-		v_alternatives = MutableArray()
-		v_alternatives = coreAppend(v_alternatives, v_schema)
-		v_alternatives = coreAppend(v_alternatives, v_refused)
-		v_schema = Object()
-		if err := coreSet(v_schema, "anyOf", v_alternatives); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_array = coreGet(v_typ, "is_array", false)
-	if coreTruthy(v_array) {
-		v_wrapped = Object()
-		if err := coreSet(v_wrapped, "type", "array"); err != nil { return nil, err }
-		if err := coreSet(v_wrapped, "items", v_schema); err != nil { return nil, err }
-		v_schema = v_wrapped
-	} else {
-	// empty
-	}
-	return v_schema, nil
-}
-
 func _validate_number_constraints_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_validate_number_constraints_impl")
 	var v_value Value
@@ -7945,9 +7999,13 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_field Value
 	var v_value Value
 	var v_path Value
+	var v_allow_refusal Value
+	var v_box Value
+	var v_coordinates Value
 	var v_date_types Value
 	var v_decision Value
 	var v_error Value
+	var v_evidence Value
 	var v_field_name Value
 	var v_field_title Value
 	var v_has_bounds Value
@@ -7997,8 +8055,13 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_not_object Value
 	var v_not_string Value
 	var v_options Value
+	var v_policy Value
 	var v_range_object Value
 	var v_range_types Value
+	var v_refused Value
+	var v_return_refusal Value
+	var v_rich Value
+	var v_status Value
 	var v_string_types Value
 	var v_typ Value
 	var v_type_name Value
@@ -8009,15 +8072,20 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	var v_valid_image Value
 	var v_valid_url Value
 	var v_valid_url_shape Value
+	var v_wire Value
 	if len(args) > 0 { v_field = args[0] }
 	_ = v_field
 	if len(args) > 1 { v_value = args[1] }
 	_ = v_value
 	if len(args) > 2 { v_path = args[2] }
 	_ = v_path
+	_ = v_allow_refusal
+	_ = v_box
+	_ = v_coordinates
 	_ = v_date_types
 	_ = v_decision
 	_ = v_error
+	_ = v_evidence
 	_ = v_field_name
 	_ = v_field_title
 	_ = v_has_bounds
@@ -8067,8 +8135,13 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_not_object
 	_ = v_not_string
 	_ = v_options
+	_ = v_policy
 	_ = v_range_object
 	_ = v_range_types
+	_ = v_refused
+	_ = v_return_refusal
+	_ = v_rich
+	_ = v_status
 	_ = v_string_types
 	_ = v_typ
 	_ = v_type_name
@@ -8079,6 +8152,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	_ = v_valid_image
 	_ = v_valid_url
 	_ = v_valid_url_shape
+	_ = v_wire
 	v_field_name = coreGet(v_field, "name", nil)
 	v_typ = coreGet(v_field, "type", nil)
 	v_type_name = coreGet(v_typ, "name", nil)
@@ -8097,6 +8171,32 @@ func _validate_value_impl(args ...Value) (Value, error) {
 		for _, v_item = range coreIter(v_value) {
 			if _, err := _validate_value_impl(v_item_field, v_item, v_path); err != nil { return nil, err }
 		}
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_box = _core_eq(v_type_name, "box")
+	if coreTruthy(v_box) {
+		v_evidence = coreGet(v_typ, "evidence", nil)
+		v_rich = _core_is_not_none(v_evidence)
+		v_coordinates = v_value
+		if coreTruthy(v_rich) {
+			v_policy = coreGet(v_evidence, "onRefusal", nil)
+			v_return_refusal = _core_eq(v_policy, "return")
+			v_status = coreGet(v_value, "status", nil)
+			v_refused = _core_eq(v_status, "refused")
+			v_allow_refusal = _core_and(v_return_refusal, v_refused)
+			if coreTruthy(v_allow_refusal) {
+				return nil, nil
+			} else {
+			// empty
+			}
+			v_wire = coreGet(v_value, "box", v_value)
+			v_coordinates = coreGet(v_value, "value", v_wire)
+		} else {
+		// empty
+		}
+		if _, err := _box_validate_impl(v_coordinates, v_path); err != nil { return nil, err }
 		return nil, nil
 	} else {
 	// empty
@@ -8336,51 +8436,6 @@ func _validate_value_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func _evidence_probability_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_probability_impl")
-	var v_v Value
-	var v_path Value
-	var v_error Value
-	var v_finite Value
-	var v_high Value
-	var v_invalid Value
-	var v_low Value
-	var v_message Value
-	var v_range Value
-	var v_valid Value
-	if len(args) > 0 { v_v = args[0] }
-	_ = v_v
-	if len(args) > 1 { v_path = args[1] }
-	_ = v_path
-	_ = v_error
-	_ = v_finite
-	_ = v_high
-	_ = v_invalid
-	_ = v_low
-	_ = v_message
-	_ = v_range
-	_ = v_valid
-	v_valid = coreTypeIs(v_v, "number")
-	if coreTruthy(v_valid) {
-		v_finite = _core_math_is_finite(v_v)
-		v_low = _core_gte(v_v, 0)
-		v_high = _core_lte(v_v, 1)
-		v_range = _core_and(v_low, v_high)
-		v_valid = _core_and(v_finite, v_range)
-	} else {
-	// empty
-	}
-	v_invalid = _core_not(v_valid)
-	if coreTruthy(v_invalid) {
-		v_message = _core_string_format("Invalid probability for {}", v_path)
-		v_error = _core_validation_error(v_message)
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	return v_v, nil
-}
-
 func _schema_nullable_optional_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_schema_nullable_optional_impl")
 	var v_schema Value
@@ -8464,6 +8519,190 @@ func _schema_nullable_optional_impl(args ...Value) (Value, error) {
 	return v_schema, nil
 }
 
+func _evidence_schema_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_schema_impl")
+	var v_typ Value
+	var v_alternatives Value
+	var v_answered Value
+	var v_array Value
+	var v_box Value
+	var v_coordinates Value
+	var v_count Value
+	var v_distribution Value
+	var v_evidence Value
+	var v_hint Value
+	var v_is_boolean Value
+	var v_keys Value
+	var v_label Value
+	var v_labels Value
+	var v_name Value
+	var v_order Value
+	var v_p Value
+	var v_plain Value
+	var v_policy Value
+	var v_props Value
+	var v_ps Value
+	var v_refusal_props Value
+	var v_refusal_status Value
+	var v_refused Value
+	var v_required Value
+	var v_return_policy Value
+	var v_schema Value
+	var v_score Value
+	var v_status Value
+	var v_tags Value
+	var v_wrapped Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	_ = v_alternatives
+	_ = v_answered
+	_ = v_array
+	_ = v_box
+	_ = v_coordinates
+	_ = v_count
+	_ = v_distribution
+	_ = v_evidence
+	_ = v_hint
+	_ = v_is_boolean
+	_ = v_keys
+	_ = v_label
+	_ = v_labels
+	_ = v_name
+	_ = v_order
+	_ = v_p
+	_ = v_plain
+	_ = v_policy
+	_ = v_props
+	_ = v_ps
+	_ = v_refusal_props
+	_ = v_refusal_status
+	_ = v_refused
+	_ = v_required
+	_ = v_return_policy
+	_ = v_schema
+	_ = v_score
+	_ = v_status
+	_ = v_tags
+	_ = v_wrapped
+	v_name = coreGet(v_typ, "name", nil)
+	v_labels = coreGet(v_typ, "options", nil)
+	v_p = Object()
+	if err := coreSet(v_p, "type", "number"); err != nil { return nil, err }
+	if err := coreSet(v_p, "minimum", 0); err != nil { return nil, err }
+	if err := coreSet(v_p, "maximum", 1); err != nil { return nil, err }
+	v_props = Object()
+	v_is_boolean = _core_eq(v_name, "boolean")
+	v_score = _core_eq(v_name, "score")
+	v_box = _core_eq(v_name, "box")
+	v_required = MutableArray()
+	if coreTruthy(v_box) {
+		{ v, err := _box_schema_impl(); if err != nil { return nil, err }; v_coordinates = v }
+		v_evidence = coreGet(v_typ, "evidence", nil)
+		v_plain = _core_is_none(v_evidence)
+		if coreTruthy(v_plain) {
+			v_array = coreGet(v_typ, "is_array", false)
+			if coreTruthy(v_array) {
+				v_wrapped = Object()
+				if err := coreSet(v_wrapped, "type", "array"); err != nil { return nil, err }
+				if err := coreSet(v_wrapped, "items", v_coordinates); err != nil { return nil, err }
+				return v_wrapped, nil
+			} else {
+			// empty
+			}
+			return v_coordinates, nil
+		} else {
+		// empty
+		}
+		if err := coreSet(v_props, "box", v_coordinates); err != nil { return nil, err }
+		v_required = coreAppend(v_required, "box")
+	} else {
+		if coreTruthy(v_is_boolean) {
+			if err := coreSet(v_props, "probability", v_p); err != nil { return nil, err }
+			v_required = coreAppend(v_required, "probability")
+		} else {
+			v_distribution = Object()
+			if coreTruthy(v_score) {
+				if err := coreSet(v_distribution, "type", "array"); err != nil { return nil, err }
+				if err := coreSet(v_distribution, "items", v_p); err != nil { return nil, err }
+				v_count = _core_len(v_labels)
+				if err := coreSet(v_distribution, "minItems", v_count); err != nil { return nil, err }
+				if err := coreSet(v_distribution, "maxItems", v_count); err != nil { return nil, err }
+				v_order = _core_string_join(", ", v_labels)
+				v_hint = _core_string_format("Probabilities in rubric order, lowest to highest: {}", v_order)
+				if err := coreSet(v_distribution, "description", v_hint); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_distribution, "type", "object"); err != nil { return nil, err }
+				v_ps = Object()
+				for _, v_label = range coreIter(v_labels) {
+					if err := coreSet(v_ps, v_label, v_p); err != nil { return nil, err }
+				}
+				if err := coreSet(v_distribution, "properties", v_ps); err != nil { return nil, err }
+				if err := coreSet(v_distribution, "required", v_labels); err != nil { return nil, err }
+				if err := coreSet(v_distribution, "additionalProperties", false); err != nil { return nil, err }
+			}
+			if err := coreSet(v_props, "probabilities", v_distribution); err != nil { return nil, err }
+			v_required = coreAppend(v_required, "probabilities")
+		}
+	}
+	v_schema = Object()
+	if err := coreSet(v_schema, "type", "object"); err != nil { return nil, err }
+	if err := coreSet(v_schema, "properties", v_props); err != nil { return nil, err }
+	if err := coreSet(v_schema, "required", v_required); err != nil { return nil, err }
+	if err := coreSet(v_schema, "additionalProperties", false); err != nil { return nil, err }
+	v_evidence = coreGet(v_typ, "evidence", nil)
+	v_policy = coreGet(v_evidence, "onRefusal", "throw")
+	v_return_policy = _core_eq(v_policy, "return")
+	if coreTruthy(v_return_policy) {
+		v_status = Object()
+		if err := coreSet(v_status, "type", "string"); err != nil { return nil, err }
+		v_answered = MutableArray()
+		v_answered = coreAppend(v_answered, "answered")
+		if err := coreSet(v_status, "enum", v_answered); err != nil { return nil, err }
+		if err := coreSet(v_props, "status", v_status); err != nil { return nil, err }
+		v_required = coreAppend(v_required, "status")
+		if err := coreSet(v_schema, "required", v_required); err != nil { return nil, err }
+		if coreTruthy(v_box) {
+			v_required = MutableArray()
+			v_required = coreAppend(v_required, "status")
+			v_required = coreAppend(v_required, "box")
+			if err := coreSet(v_schema, "required", v_required); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_refused = Object()
+		if err := coreSet(v_refused, "type", "object"); err != nil { return nil, err }
+		v_refusal_props = Object()
+		v_refusal_status = Object()
+		if err := coreSet(v_refusal_status, "type", "string"); err != nil { return nil, err }
+		v_tags = MutableArray()
+		v_tags = coreAppend(v_tags, "refused")
+		if err := coreSet(v_refusal_status, "enum", v_tags); err != nil { return nil, err }
+		if err := coreSet(v_refusal_props, "status", v_refusal_status); err != nil { return nil, err }
+		if err := coreSet(v_refused, "properties", v_refusal_props); err != nil { return nil, err }
+		v_keys = MutableArray()
+		v_keys = coreAppend(v_keys, "status")
+		if err := coreSet(v_refused, "required", v_keys); err != nil { return nil, err }
+		if err := coreSet(v_refused, "additionalProperties", false); err != nil { return nil, err }
+		v_alternatives = MutableArray()
+		v_alternatives = coreAppend(v_alternatives, v_schema)
+		v_alternatives = coreAppend(v_alternatives, v_refused)
+		v_schema = Object()
+		if err := coreSet(v_schema, "anyOf", v_alternatives); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_array = coreGet(v_typ, "is_array", false)
+	if coreTruthy(v_array) {
+		v_wrapped = Object()
+		if err := coreSet(v_wrapped, "type", "array"); err != nil { return nil, err }
+		if err := coreSet(v_wrapped, "items", v_schema); err != nil { return nil, err }
+		v_schema = v_wrapped
+	} else {
+	// empty
+	}
+	return v_schema, nil
+}
+
 func _schema_object_from_fields_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_schema_object_from_fields_impl")
 	var v_fields_map Value
@@ -8528,7 +8767,10 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	var v_field Value
 	var v_is_nested Value
 	var v_options Value
+	var v_array Value
 	var v_audio_description Value
+	var v_box Value
+	var v_box_array Value
 	var v_class_options Value
 	var v_decision Value
 	var v_decision_mode Value
@@ -8539,8 +8781,10 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	var v_flexible_string Value
 	var v_has_description Value
 	var v_has_fields Value
+	var v_has_hint Value
 	var v_has_item_description Value
 	var v_has_type_description Value
+	var v_hint Value
 	var v_is_array Value
 	var v_is_audio Value
 	var v_is_class Value
@@ -8549,6 +8793,7 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	var v_is_shaped_object Value
 	var v_item_base_description Value
 	var v_item_description Value
+	var v_item_field Value
 	var v_items Value
 	var v_items_with_constraints Value
 	var v_json_description Value
@@ -8565,13 +8810,17 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	var v_type_description Value
 	var v_type_name Value
 	var v_updated Value
+	var v_wrapped Value
 	if len(args) > 0 { v_field = args[0] }
 	_ = v_field
 	if len(args) > 1 { v_is_nested = args[1] }
 	_ = v_is_nested
 	if len(args) > 2 { v_options = args[2] }
 	_ = v_options
+	_ = v_array
 	_ = v_audio_description
+	_ = v_box
+	_ = v_box_array
 	_ = v_class_options
 	_ = v_decision
 	_ = v_decision_mode
@@ -8582,8 +8831,10 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	_ = v_flexible_string
 	_ = v_has_description
 	_ = v_has_fields
+	_ = v_has_hint
 	_ = v_has_item_description
 	_ = v_has_type_description
+	_ = v_hint
 	_ = v_is_array
 	_ = v_is_audio
 	_ = v_is_class
@@ -8592,6 +8843,7 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	_ = v_is_shaped_object
 	_ = v_item_base_description
 	_ = v_item_description
+	_ = v_item_field
 	_ = v_items
 	_ = v_items_with_constraints
 	_ = v_json_description
@@ -8608,10 +8860,19 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	_ = v_type_description
 	_ = v_type_name
 	_ = v_updated
+	_ = v_wrapped
 	v_typ = coreGet(v_field, "type", nil)
 	v_type_name = coreGet(v_typ, "name", nil)
 	{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
 	if coreTruthy(v_decision) {
+		v_box = _core_eq(v_type_name, "box")
+		v_array = coreGet(v_typ, "is_array", false)
+		if coreTruthy(v_box) {
+			v_item_field = _core_field_item(v_field)
+			v_typ = coreGet(v_item_field, "type", nil)
+		} else {
+		// empty
+		}
 		{ v, err := _evidence_schema_impl(v_typ); if err != nil { return nil, err }; v_schema = v }
 		v_decision_mode = coreGet(v_options, "decisionMode", "request")
 		v_result_mode = _core_eq(v_decision_mode, "result")
@@ -8621,7 +8882,37 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 		// empty
 		}
 		{ v, err := _signature_describe_field_values_impl(v_field); if err != nil { return nil, err }; v_description = v }
+		if coreTruthy(v_box) {
+			v_hint = "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right."
+			if coreTruthy(v_result_mode) {
+				v_hint = ""
+			} else {
+			// empty
+			}
+			v_has_description = _core_truthy(v_description)
+			if coreTruthy(v_has_description) {
+				v_has_hint = _core_truthy(v_hint)
+				if coreTruthy(v_has_hint) {
+					v_description = _core_string_format("{} {}", v_description, v_hint)
+				} else {
+				// empty
+				}
+			} else {
+				v_description = v_hint
+			}
+		} else {
+		// empty
+		}
 		if err := coreSet(v_schema, "description", v_description); err != nil { return nil, err }
+		v_box_array = _core_and(v_box, v_array)
+		if coreTruthy(v_box_array) {
+			v_wrapped = Object()
+			if err := coreSet(v_wrapped, "type", "array"); err != nil { return nil, err }
+			if err := coreSet(v_wrapped, "items", v_schema); err != nil { return nil, err }
+			v_schema = v_wrapped
+		} else {
+		// empty
+		}
 		{ v, err := _schema_nullable_optional_impl(v_schema, v_field, v_options); if err != nil { return nil, err }; v_nullable = v }
 		return v_nullable, nil
 	} else {
@@ -8754,6 +9045,51 @@ func _schema_field_schema_impl(args ...Value) (Value, error) {
 	{ v, err := _schema_apply_constraints_impl(v_schema, v_typ); if err != nil { return nil, err }; v_schema_with_constraints = v }
 	{ v, err := _schema_nullable_optional_impl(v_schema_with_constraints, v_field, v_options); if err != nil { return nil, err }; v_nullable = v }
 	return v_nullable, nil
+}
+
+func _evidence_probability_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_probability_impl")
+	var v_v Value
+	var v_path Value
+	var v_error Value
+	var v_finite Value
+	var v_high Value
+	var v_invalid Value
+	var v_low Value
+	var v_message Value
+	var v_range Value
+	var v_valid Value
+	if len(args) > 0 { v_v = args[0] }
+	_ = v_v
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	_ = v_error
+	_ = v_finite
+	_ = v_high
+	_ = v_invalid
+	_ = v_low
+	_ = v_message
+	_ = v_range
+	_ = v_valid
+	v_valid = coreTypeIs(v_v, "number")
+	if coreTruthy(v_valid) {
+		v_finite = _core_math_is_finite(v_v)
+		v_low = _core_gte(v_v, 0)
+		v_high = _core_lte(v_v, 1)
+		v_range = _core_and(v_low, v_high)
+		v_valid = _core_and(v_finite, v_range)
+	} else {
+	// empty
+	}
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		v_message = _core_string_format("Invalid probability for {}", v_path)
+		v_error = _core_validation_error(v_message)
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	return v_v, nil
 }
 
 func _strip_internal_fields_impl(args ...Value) (Value, error) {
@@ -8911,6 +9247,7 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 	var v_alternatives Value
 	var v_answered Value
 	var v_array Value
+	var v_box Value
 	var v_count Value
 	var v_evidence Value
 	var v_is_boolean Value
@@ -8920,9 +9257,11 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 	var v_maximum Value
 	var v_name Value
 	var v_non_boolean Value
+	var v_not_box Value
 	var v_p Value
 	var v_plain Value
 	var v_plain_score Value
+	var v_plain_value Value
 	var v_policy Value
 	var v_probability_props Value
 	var v_props Value
@@ -8951,6 +9290,7 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 	_ = v_alternatives
 	_ = v_answered
 	_ = v_array
+	_ = v_box
 	_ = v_count
 	_ = v_evidence
 	_ = v_is_boolean
@@ -8960,9 +9300,11 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 	_ = v_maximum
 	_ = v_name
 	_ = v_non_boolean
+	_ = v_not_box
 	_ = v_p
 	_ = v_plain
 	_ = v_plain_score
+	_ = v_plain_value
 	_ = v_policy
 	_ = v_probability_props
 	_ = v_props
@@ -9010,8 +9352,15 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 			if err := coreSet(v_value, "enum", v_levels); err != nil { return nil, err }
 		}
 	}
+	v_box = _core_eq(v_name, "box")
+	if coreTruthy(v_box) {
+		{ v, err := _box_schema_impl(); if err != nil { return nil, err }; v_value = v }
+	} else {
+	// empty
+	}
 	v_plain = _core_is_none(v_evidence)
-	v_plain_score = _core_and(v_plain, v_score)
+	v_plain_value = _core_or(v_score, v_box)
+	v_plain_score = _core_and(v_plain, v_plain_value)
 	v_schema = v_value
 	v_rich = _core_not(v_plain_score)
 	if coreTruthy(v_rich) {
@@ -9040,29 +9389,34 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 		if err := coreSet(v_provenance, "required", v_provenance_required); err != nil { return nil, err }
 		if err := coreSet(v_provenance, "additionalProperties", false); err != nil { return nil, err }
 		if err := coreSet(v_props, "provenance", v_provenance); err != nil { return nil, err }
-		if coreTruthy(v_is_boolean) {
-			if err := coreSet(v_props, "probability", v_p); err != nil { return nil, err }
-			if err := coreSet(v_props, "threshold", v_p); err != nil { return nil, err }
-		} else {
-			v_ps = Object()
-			if coreTruthy(v_score) {
-				if err := coreSet(v_ps, "type", "array"); err != nil { return nil, err }
-				if err := coreSet(v_ps, "items", v_p); err != nil { return nil, err }
-				v_labels = Object()
-				if err := coreSet(v_labels, "type", "array"); err != nil { return nil, err }
-				if err := coreSet(v_labels, "items", v_text); err != nil { return nil, err }
-				if err := coreSet(v_props, "levels", v_labels); err != nil { return nil, err }
+		v_not_box = _core_not(v_box)
+		if coreTruthy(v_not_box) {
+			if coreTruthy(v_is_boolean) {
+				if err := coreSet(v_props, "probability", v_p); err != nil { return nil, err }
+				if err := coreSet(v_props, "threshold", v_p); err != nil { return nil, err }
 			} else {
-				if err := coreSet(v_ps, "type", "object"); err != nil { return nil, err }
-				v_probability_props = Object()
-				for _, v_label = range coreIter(v_levels) {
-					if err := coreSet(v_probability_props, v_label, v_p); err != nil { return nil, err }
+				v_ps = Object()
+				if coreTruthy(v_score) {
+					if err := coreSet(v_ps, "type", "array"); err != nil { return nil, err }
+					if err := coreSet(v_ps, "items", v_p); err != nil { return nil, err }
+					v_labels = Object()
+					if err := coreSet(v_labels, "type", "array"); err != nil { return nil, err }
+					if err := coreSet(v_labels, "items", v_text); err != nil { return nil, err }
+					if err := coreSet(v_props, "levels", v_labels); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_ps, "type", "object"); err != nil { return nil, err }
+					v_probability_props = Object()
+					for _, v_label = range coreIter(v_levels) {
+						if err := coreSet(v_probability_props, v_label, v_p); err != nil { return nil, err }
+					}
+					if err := coreSet(v_ps, "properties", v_probability_props); err != nil { return nil, err }
+					if err := coreSet(v_ps, "required", v_levels); err != nil { return nil, err }
+					if err := coreSet(v_ps, "additionalProperties", false); err != nil { return nil, err }
 				}
-				if err := coreSet(v_ps, "properties", v_probability_props); err != nil { return nil, err }
-				if err := coreSet(v_ps, "required", v_levels); err != nil { return nil, err }
-				if err := coreSet(v_ps, "additionalProperties", false); err != nil { return nil, err }
+				if err := coreSet(v_props, "probabilities", v_ps); err != nil { return nil, err }
 			}
-			if err := coreSet(v_props, "probabilities", v_ps); err != nil { return nil, err }
+		} else {
+		// empty
 		}
 		v_required = _core_map_keys(v_props)
 		if err := coreSet(v_schema, "required", v_required); err != nil { return nil, err }
@@ -9084,6 +9438,7 @@ func _evidence_result_schema_impl(args ...Value) (Value, error) {
 			if err := coreSet(v_status, "enum", v_answered); err != nil { return nil, err }
 			if err := coreSet(v_props, "status", v_status); err != nil { return nil, err }
 			v_required = coreAppend(v_required, "status")
+			if err := coreSet(v_schema, "required", v_required); err != nil { return nil, err }
 			v_refusal = Object()
 			if err := coreSet(v_refusal, "type", "object"); err != nil { return nil, err }
 			v_refusal_props = Object()
@@ -10484,175 +10839,71 @@ func typesafe_validate_entry(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func typesafe_validate_request(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_validate_request")
-	var v_request Value
-	var v_count Value
-	var v_criteria Value
-	var v_empty Value
-	var v_entry Value
-	var v_error Value
-	var v_false_label Value
-	var v_has_criteria Value
-	var v_has_state Value
-	var v_instructions Value
-	var v_invalid_label Value
-	var v_invalid_size Value
-	var v_is_choice Value
-	var v_is_list Value
-	var v_is_noul Value
-	var v_is_score Value
+func typesafe_utf8_size(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_utf8_size")
+	var v_text Value
+	var v_size Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_size
+	v_size = _core_string_utf8_length(v_text)
+	return v_size, nil
+}
+
+func typesafe_collect_strings(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_collect_strings")
+	var v_value Value
+	var v_item Value
+	var v_items Value
 	var v_key Value
 	var v_keys Value
-	var v_kind Value
-	var v_label Value
-	var v_labels Value
-	var v_message Value
-	var v_missing_state Value
-	var v_model Value
-	var v_not_list Value
-	var v_question Value
-	var v_questions Value
-	var v_size Value
-	var v_state Value
-	var v_too_large Value
-	var v_too_small Value
-	var v_true_label Value
-	var v_valid_label Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	_ = v_count
-	_ = v_criteria
-	_ = v_empty
-	_ = v_entry
-	_ = v_error
-	_ = v_false_label
-	_ = v_has_criteria
-	_ = v_has_state
-	_ = v_instructions
-	_ = v_invalid_label
-	_ = v_invalid_size
-	_ = v_is_choice
-	_ = v_is_list
-	_ = v_is_noul
-	_ = v_is_score
+	var v_list Value
+	var v_object Value
+	var v_out Value
+	var v_string Value
+	var v_strings Value
+	var v_text Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_item
+	_ = v_items
 	_ = v_key
 	_ = v_keys
-	_ = v_kind
-	_ = v_label
-	_ = v_labels
-	_ = v_message
-	_ = v_missing_state
-	_ = v_model
-	_ = v_not_list
-	_ = v_question
-	_ = v_questions
-	_ = v_size
-	_ = v_state
-	_ = v_too_large
-	_ = v_too_small
-	_ = v_true_label
-	_ = v_valid_label
-	if _, err := typesafe_require_object(v_request, "request"); err != nil { return nil, err }
-	v_model = coreGet(v_request, "model", nil)
-	if _, err := typesafe_require_string(v_model, "model", true); err != nil { return nil, err }
-	v_has_state = _core_map_contains(v_request, "state")
-	v_missing_state = _core_not(v_has_state)
-	if coreTruthy(v_missing_state) {
-		return nil, AxError{Category: "runtime", Message: "Typesafe: state is required (null is allowed)"}
+	_ = v_list
+	_ = v_object
+	_ = v_out
+	_ = v_string
+	_ = v_strings
+	_ = v_text
+	v_out = MutableArray()
+	v_string = coreTypeIs(v_value, "string")
+	if coreTruthy(v_string) {
+		v_out = coreAppend(v_out, v_value)
 	} else {
-	// empty
-	}
-	v_state = coreGet(v_request, "state", nil)
-	if _, err := typesafe_validate_entry(v_state, "state"); err != nil { return nil, err }
-	v_questions = coreGet(v_request, "questions", nil)
-	if _, err := typesafe_require_object(v_questions, "questions"); err != nil { return nil, err }
-	v_keys = _core_map_keys(v_questions)
-	v_count = _core_len(v_keys)
-	v_empty = _core_eq(v_count, 0)
-	if coreTruthy(v_empty) {
-		return nil, AxError{Category: "runtime", Message: "Typesafe: questions must not be empty"}
-	} else {
-	// empty
-	}
-	for _, v_key = range coreIter(v_keys) {
-		v_question = coreGet(v_questions, v_key, nil)
-		if _, err := typesafe_require_object(v_question, v_key); err != nil { return nil, err }
-		v_instructions = coreGet(v_question, "instructions", nil)
-		if _, err := typesafe_validate_entry(v_instructions, v_key); err != nil { return nil, err }
-		v_kind = coreGet(v_question, "type", nil)
-		v_criteria = coreGet(v_question, "criteria", nil)
-		v_is_noul = _core_eq(v_kind, "noul")
-		v_is_choice = _core_eq(v_kind, "choice")
-		v_is_score = _core_eq(v_kind, "score")
-		if coreTruthy(v_is_noul) {
-			v_has_criteria = _core_is_not_none(v_criteria)
-			if coreTruthy(v_has_criteria) {
-				if _, err := typesafe_require_object(v_criteria, v_key); err != nil { return nil, err }
-				v_labels = _core_map_keys(v_criteria)
-				for _, v_label = range coreIter(v_labels) {
-					v_true_label = _core_eq(v_label, "true")
-					v_false_label = _core_eq(v_label, "false")
-					v_valid_label = _core_or(v_true_label, v_false_label)
-					v_invalid_label = _core_not(v_valid_label)
-					if coreTruthy(v_invalid_label) {
-						return nil, AxError{Category: "runtime", Message: "Typesafe: Noul criteria only accept true and false"}
-					} else {
-					// empty
-					}
-					v_entry = coreGet(v_criteria, v_label, nil)
-					if _, err := typesafe_validate_entry(v_entry, v_key); err != nil { return nil, err }
-				}
+		v_object = coreTypeIs(v_value, "object")
+		v_list = coreTypeIs(v_value, "list")
+		v_items = MutableArray()
+		if coreTruthy(v_object) {
+			v_keys = _core_map_keys(v_value)
+			for _, v_key = range coreIter(v_keys) {
+				v_item = coreGet(v_value, v_key, nil)
+				v_items = coreAppend(v_items, v_item)
+			}
+		} else {
+			if coreTruthy(v_list) {
+				v_items = v_value
 			} else {
 			// empty
 			}
-		} else {
-			if coreTruthy(v_is_choice) {
-				if _, err := typesafe_require_object(v_criteria, v_key); err != nil { return nil, err }
-				v_labels = _core_map_keys(v_criteria)
-				v_size = _core_len(v_labels)
-				v_too_small = _core_lt(v_size, 1)
-				v_too_large = _core_gt(v_size, 255)
-				v_invalid_size = _core_or(v_too_small, v_too_large)
-				if coreTruthy(v_invalid_size) {
-					return nil, AxError{Category: "runtime", Message: "Typesafe: Choice requires 1 to 255 options"}
-				} else {
-				// empty
-				}
-				for _, v_label = range coreIter(v_labels) {
-					v_entry = coreGet(v_criteria, v_label, nil)
-					if _, err := typesafe_validate_entry(v_entry, v_key); err != nil { return nil, err }
-				}
-			} else {
-				if coreTruthy(v_is_score) {
-					v_is_list = coreTypeIs(v_criteria, "list")
-					v_not_list = _core_not(v_is_list)
-					if coreTruthy(v_not_list) {
-						return nil, AxError{Category: "runtime", Message: "Typesafe: Score requires an array of 2 to 10 levels"}
-					} else {
-					// empty
-					}
-					v_size = _core_len(v_criteria)
-					v_too_small = _core_lt(v_size, 2)
-					v_too_large = _core_gt(v_size, 10)
-					v_invalid_size = _core_or(v_too_small, v_too_large)
-					if coreTruthy(v_invalid_size) {
-						return nil, AxError{Category: "runtime", Message: "Typesafe: Score requires 2 to 10 levels"}
-					} else {
-					// empty
-					}
-					for _, v_entry = range coreIter(v_criteria) {
-						if _, err := typesafe_validate_entry(v_entry, v_key); err != nil { return nil, err }
-					}
-				} else {
-					v_message = _core_string_format("Typesafe: unknown question type for {}", v_key)
-					v_error = _core_validation_error(v_message)
-					return nil, asError(v_error)
-				}
+		}
+		for _, v_item = range coreIter(v_items) {
+			{ v, err := typesafe_collect_strings(v_item); if err != nil { return nil, err }; v_strings = v }
+			for _, v_text = range coreIter(v_strings) {
+				v_out = coreAppend(v_out, v_text)
 			}
 		}
 	}
-	return nil, nil
+	return v_out, nil
 }
 
 func _openai_apply_cache_breakpoint_impl(args ...Value) (Value, error) {
@@ -10763,6 +11014,243 @@ func _openai_apply_cache_breakpoint_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
+}
+
+func typesafe_validate_assets(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_validate_assets")
+	var v_request Value
+	var v_absent Value
+	var v_asset Value
+	var v_assets Value
+	var v_base64 Value
+	var v_bytes Value
+	var v_cr Value
+	var v_criteria Value
+	var v_data Value
+	var v_empty Value
+	var v_entries Value
+	var v_entry Value
+	var v_format Value
+	var v_formats Value
+	var v_found Value
+	var v_groups Value
+	var v_index Value
+	var v_instructions Value
+	var v_invalid Value
+	var v_json Value
+	var v_key Value
+	var v_keys Value
+	var v_kind Value
+	var v_length Value
+	var v_lf Value
+	var v_long_key Value
+	var v_multipart Value
+	var v_name Value
+	var v_newline Value
+	var v_no_newline Value
+	var v_not_image Value
+	var v_one_padding Value
+	var v_padded Value
+	var v_present Value
+	var v_question Value
+	var v_question_keys Value
+	var v_questions Value
+	var v_size Value
+	var v_state Value
+	var v_strings Value
+	var v_text Value
+	var v_texts Value
+	var v_too_large Value
+	var v_too_many Value
+	var v_total_key_bytes Value
+	var v_trimmed Value
+	var v_two_padding Value
+	var v_unused Value
+	var v_used Value
+	var v_valid Value
+	var v_whole Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_absent
+	_ = v_asset
+	_ = v_assets
+	_ = v_base64
+	_ = v_bytes
+	_ = v_cr
+	_ = v_criteria
+	_ = v_data
+	_ = v_empty
+	_ = v_entries
+	_ = v_entry
+	_ = v_format
+	_ = v_formats
+	_ = v_found
+	_ = v_groups
+	_ = v_index
+	_ = v_instructions
+	_ = v_invalid
+	_ = v_json
+	_ = v_key
+	_ = v_keys
+	_ = v_kind
+	_ = v_length
+	_ = v_lf
+	_ = v_long_key
+	_ = v_multipart
+	_ = v_name
+	_ = v_newline
+	_ = v_no_newline
+	_ = v_not_image
+	_ = v_one_padding
+	_ = v_padded
+	_ = v_present
+	_ = v_question
+	_ = v_question_keys
+	_ = v_questions
+	_ = v_size
+	_ = v_state
+	_ = v_strings
+	_ = v_text
+	_ = v_texts
+	_ = v_too_large
+	_ = v_too_many
+	_ = v_total_key_bytes
+	_ = v_trimmed
+	_ = v_two_padding
+	_ = v_unused
+	_ = v_used
+	_ = v_valid
+	_ = v_whole
+	v_present = _core_map_contains(v_request, "assets")
+	v_absent = _core_not(v_present)
+	if coreTruthy(v_absent) {
+		return nil, nil
+	} else {
+	// empty
+	}
+	v_assets = coreGet(v_request, "assets", nil)
+	if _, err := typesafe_require_object(v_assets, "assets"); err != nil { return nil, err }
+	v_state = coreGet(v_request, "state", nil)
+	{ v, err := typesafe_collect_strings(v_state); if err != nil { return nil, err }; v_strings = v }
+	v_questions = coreGet(v_request, "questions", nil)
+	if _, err := typesafe_validate_json(v_questions); err != nil { return nil, err }
+	v_question_keys = _core_map_keys(v_questions)
+	for _, v_name = range coreIter(v_question_keys) {
+		v_question = coreGet(v_questions, v_name, nil)
+		v_instructions = coreGet(v_question, "instructions", nil)
+		v_criteria = coreGet(v_question, "criteria", nil)
+		v_entries = MutableArray()
+		v_entries = coreAppend(v_entries, v_instructions)
+		v_entries = coreAppend(v_entries, v_criteria)
+		for _, v_entry = range coreIter(v_entries) {
+			{ v, err := typesafe_collect_strings(v_entry); if err != nil { return nil, err }; v_texts = v }
+			for _, v_text = range coreIter(v_texts) {
+				v_strings = coreAppend(v_strings, v_text)
+			}
+		}
+	}
+	v_keys = _core_map_keys(v_assets)
+	v_total_key_bytes = 0
+	for _, v_key = range coreIter(v_keys) {
+		v_trimmed = coreStringTrim(v_key)
+		{ v, err := typesafe_utf8_size(v_key); if err != nil { return nil, err }; v_bytes = v }
+		v_total_key_bytes = _core_add(v_total_key_bytes, v_bytes)
+		v_empty = _core_eq(v_trimmed, "")
+		v_long_key = _core_gt(v_bytes, 1024)
+		v_too_many = _core_gt(v_total_key_bytes, 65536)
+		v_invalid = _core_or(v_empty, v_long_key)
+		v_invalid = _core_or(v_invalid, v_too_many)
+		if coreTruthy(v_invalid) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: invalid image reference length"}
+		} else {
+		// empty
+		}
+		v_used = false
+		for _, v_text = range coreIter(v_strings) {
+			v_index = _core_string_index_of(v_text, v_key, 0)
+			v_found = _core_gte(v_index, 0)
+			v_used = _core_or(v_used, v_found)
+		}
+		v_unused = _core_not(v_used)
+		if coreTruthy(v_unused) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: image asset is not referenced"}
+		} else {
+		// empty
+		}
+		v_asset = coreGet(v_assets, v_key, nil)
+		if _, err := typesafe_require_object(v_asset, "image asset"); err != nil { return nil, err }
+		v_kind = coreGet(v_asset, "type", "image")
+		v_not_image = _core_ne(v_kind, "image")
+		if coreTruthy(v_not_image) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: assets must be images"}
+		} else {
+		// empty
+		}
+		v_multipart = _core_map_contains(v_asset, "part")
+		if coreTruthy(v_multipart) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: multipart assets are not supported; use data_base64"}
+		} else {
+		// empty
+		}
+		v_format = coreGet(v_asset, "format", nil)
+		v_formats = MutableArray()
+		v_formats = coreAppend(v_formats, "png")
+		v_formats = coreAppend(v_formats, "jpg")
+		v_formats = coreAppend(v_formats, "jpeg")
+		v_valid = _core_contains(v_formats, v_format)
+		v_invalid = _core_not(v_valid)
+		if coreTruthy(v_invalid) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: images must be PNG or JPEG"}
+		} else {
+		// empty
+		}
+		v_data = coreGet(v_asset, "data_base64", nil)
+		if _, err := typesafe_require_string(v_data, "image data_base64", true); err != nil { return nil, err }
+		v_length = _core_len(v_data)
+		v_groups = _core_div(v_length, 4)
+		v_whole = _core_math_floor(v_groups)
+		v_padded = _core_eq(v_groups, v_whole)
+		v_base64 = coreRegexMatch("^[A-Za-z0-9+/]+={0,2}$", v_data)
+		v_lf = _core_string_ends_with(v_data, "\n")
+		v_cr = _core_string_ends_with(v_data, "\r")
+		v_newline = _core_or(v_lf, v_cr)
+		v_no_newline = _core_not(v_newline)
+		v_base64 = _core_and(v_base64, v_no_newline)
+		v_valid = _core_and(v_padded, v_base64)
+		v_invalid = _core_not(v_valid)
+		if coreTruthy(v_invalid) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: image data_base64 must be padded base64 without a data URL prefix"}
+		} else {
+		// empty
+		}
+		v_bytes = _core_mul(v_groups, 3)
+		v_two_padding = _core_string_ends_with(v_data, "==")
+		v_one_padding = _core_string_ends_with(v_data, "=")
+		if coreTruthy(v_two_padding) {
+			v_bytes = _core_add(v_bytes, -2)
+		} else {
+			if coreTruthy(v_one_padding) {
+				v_bytes = _core_add(v_bytes, -1)
+			} else {
+			// empty
+			}
+		}
+		v_too_large = _core_gt(v_bytes, 16777216)
+		if coreTruthy(v_too_large) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: image exceeds 16 MiB"}
+		} else {
+		// empty
+		}
+	}
+	v_json = _core_json_stringify(v_request)
+	{ v, err := typesafe_utf8_size(v_json); if err != nil { return nil, err }; v_size = v }
+	v_too_large = _core_gt(v_size, 33554432)
+	if coreTruthy(v_too_large) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe: image request exceeds 32 MiB"}
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func resolve_model_key(args ...Value) (Value, error) {
@@ -11066,227 +11554,6 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func typesafe_decode_response(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_decode_response")
-	var v_raw Value
-	var v_questions Value
-	var v_answer Value
-	var v_answer_kind Value
-	var v_answers Value
-	var v_choice Value
-	var v_confidence Value
-	var v_count Value
-	var v_criteria Value
-	var v_difference Value
-	var v_entry Value
-	var v_error Value
-	var v_expected_size Value
-	var v_index Value
-	var v_integer Value
-	var v_invalid Value
-	var v_invalid_sum Value
-	var v_is_choice Value
-	var v_is_noul Value
-	var v_key Value
-	var v_keys Value
-	var v_kind Value
-	var v_known Value
-	var v_label Value
-	var v_labels Value
-	var v_legend Value
-	var v_legend_keys Value
-	var v_legend_size Value
-	var v_message Value
-	var v_mismatch Value
-	var v_missing Value
-	var v_model Value
-	var v_present Value
-	var v_probabilities Value
-	var v_probability Value
-	var v_probability_keys Value
-	var v_question Value
-	var v_roundoff Value
-	var v_score Value
-	var v_size Value
-	var v_token_keys Value
-	var v_tolerance Value
-	var v_total Value
-	var v_unknown Value
-	var v_upper Value
-	var v_usage Value
-	var v_wrong_size Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_questions = args[1] }
-	_ = v_questions
-	_ = v_answer
-	_ = v_answer_kind
-	_ = v_answers
-	_ = v_choice
-	_ = v_confidence
-	_ = v_count
-	_ = v_criteria
-	_ = v_difference
-	_ = v_entry
-	_ = v_error
-	_ = v_expected_size
-	_ = v_index
-	_ = v_integer
-	_ = v_invalid
-	_ = v_invalid_sum
-	_ = v_is_choice
-	_ = v_is_noul
-	_ = v_key
-	_ = v_keys
-	_ = v_kind
-	_ = v_known
-	_ = v_label
-	_ = v_labels
-	_ = v_legend
-	_ = v_legend_keys
-	_ = v_legend_size
-	_ = v_message
-	_ = v_mismatch
-	_ = v_missing
-	_ = v_model
-	_ = v_present
-	_ = v_probabilities
-	_ = v_probability
-	_ = v_probability_keys
-	_ = v_question
-	_ = v_roundoff
-	_ = v_score
-	_ = v_size
-	_ = v_token_keys
-	_ = v_tolerance
-	_ = v_total
-	_ = v_unknown
-	_ = v_upper
-	_ = v_usage
-	_ = v_wrong_size
-	if _, err := typesafe_require_object(v_raw, "response"); err != nil { return nil, err }
-	v_model = coreGet(v_raw, "model", nil)
-	if _, err := typesafe_require_string(v_model, "response.model", true); err != nil { return nil, err }
-	v_usage = coreGet(v_raw, "usage", nil)
-	if _, err := typesafe_require_object(v_usage, "usage"); err != nil { return nil, err }
-	v_token_keys = MutableArray()
-	v_token_keys = coreAppend(v_token_keys, "input_tokens")
-	v_token_keys = coreAppend(v_token_keys, "output_tokens")
-	for _, v_key = range coreIter(v_token_keys) {
-		v_count = coreGet(v_usage, v_key, nil)
-		if _, err := typesafe_require_number(v_count, v_key, 0, 9007199254740991); err != nil { return nil, err }
-		v_integer = _core_math_floor(v_count)
-		v_invalid = _core_ne(v_count, v_integer)
-		if coreTruthy(v_invalid) {
-			return nil, AxError{Category: "runtime", Message: "Typesafe: token counts must be nonnegative safe integers"}
-		} else {
-		// empty
-		}
-	}
-	v_answers = coreGet(v_raw, "answers", nil)
-	if _, err := typesafe_require_object(v_answers, "answers"); err != nil { return nil, err }
-	v_keys = _core_map_keys(v_questions)
-	for _, v_key = range coreIter(v_keys) {
-		v_question = coreGet(v_questions, v_key, nil)
-		v_kind = coreGet(v_question, "type", nil)
-		v_answer = coreGet(v_answers, v_key, nil)
-		if _, err := typesafe_require_object(v_answer, v_key); err != nil { return nil, err }
-		v_answer_kind = coreGet(v_answer, "type", nil)
-		v_mismatch = _core_ne(v_kind, v_answer_kind)
-		if coreTruthy(v_mismatch) {
-			v_message = _core_string_format("Typesafe: answer type mismatch for {}", v_key)
-			v_error = _core_validation_error(v_message)
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_is_noul = _core_eq(v_kind, "noul")
-		if coreTruthy(v_is_noul) {
-			v_probability = coreGet(v_answer, "noul", nil)
-			if _, err := typesafe_require_number(v_probability, v_key, 0, 1); err != nil { return nil, err }
-		} else {
-			v_confidence = coreGet(v_answer, "confidence", nil)
-			if _, err := typesafe_require_number(v_confidence, "confidence", 0, 1); err != nil { return nil, err }
-			v_criteria = coreGet(v_question, "criteria", nil)
-			v_is_choice = _core_eq(v_kind, "choice")
-			v_labels = MutableArray()
-			if coreTruthy(v_is_choice) {
-				v_labels = _core_map_keys(v_criteria)
-				v_choice = coreGet(v_answer, "choice", nil)
-				if _, err := typesafe_require_string(v_choice, v_key, false); err != nil { return nil, err }
-				v_known = _core_contains(v_labels, v_choice)
-				v_unknown = _core_not(v_known)
-				if coreTruthy(v_unknown) {
-					v_message = _core_string_format("Typesafe: invalid selected Choice label for {}", v_key)
-					v_error = _core_validation_error(v_message)
-					return nil, asError(v_error)
-				} else {
-				// empty
-				}
-			} else {
-				v_index = 0
-				for _, v_entry = range coreIter(v_criteria) {
-					v_label = _core_string_format("{}", v_index)
-					v_labels = coreAppend(v_labels, v_label)
-					v_index = _core_add(v_index, 1)
-				}
-				v_upper = _core_add(v_index, -1)
-				v_score = coreGet(v_answer, "score", nil)
-				if _, err := typesafe_require_number(v_score, v_key, 0, v_upper); err != nil { return nil, err }
-				v_legend = coreGet(v_answer, "legend", nil)
-				if _, err := typesafe_require_object(v_legend, "legend"); err != nil { return nil, err }
-				v_legend_keys = _core_map_keys(v_legend)
-				v_legend_size = _core_len(v_legend_keys)
-				v_wrong_size = _core_ne(v_legend_size, v_index)
-				if coreTruthy(v_wrong_size) {
-					return nil, AxError{Category: "runtime", Message: "Typesafe: Score legend must match rubric indices"}
-				} else {
-				// empty
-				}
-				for _, v_label = range coreIter(v_labels) {
-					v_present = _core_map_contains(v_legend, v_label)
-					v_missing = _core_not(v_present)
-					if coreTruthy(v_missing) {
-						return nil, AxError{Category: "runtime", Message: "Typesafe: Score legend must match rubric indices"}
-					} else {
-					// empty
-					}
-					v_entry = coreGet(v_legend, v_label, nil)
-					if _, err := typesafe_validate_entry(v_entry, "legend"); err != nil { return nil, err }
-				}
-			}
-			v_probabilities = coreGet(v_answer, "probabilities", nil)
-			if _, err := typesafe_require_object(v_probabilities, "probabilities"); err != nil { return nil, err }
-			v_probability_keys = _core_map_keys(v_probabilities)
-			v_size = _core_len(v_probability_keys)
-			v_expected_size = _core_len(v_labels)
-			v_wrong_size = _core_ne(v_size, v_expected_size)
-			if coreTruthy(v_wrong_size) {
-				return nil, AxError{Category: "runtime", Message: "Typesafe: probabilities must match criteria keys"}
-			} else {
-			// empty
-			}
-			v_total = 0
-			for _, v_label = range coreIter(v_labels) {
-				v_probability = coreGet(v_probabilities, v_label, nil)
-				if _, err := typesafe_require_number(v_probability, v_label, 0, 1); err != nil { return nil, err }
-				v_total = _core_add(v_total, v_probability)
-			}
-			v_difference = _core_add(v_total, -1)
-			v_difference = _core_math_abs(v_difference)
-			v_roundoff = _core_mul(0.0000000000000002220446049250313, v_expected_size)
-			v_tolerance = _core_add(0.01, v_roundoff)
-			v_invalid_sum = _core_gt(v_difference, v_tolerance)
-			if coreTruthy(v_invalid_sum) {
-				return nil, AxError{Category: "runtime", Message: "Typesafe: probabilities must sum to one"}
-			} else {
-			// empty
-			}
-		}
-	}
-	return v_raw, nil
-}
-
 func decisions_decode_response(args ...Value) (Value, error) {
 	axirCoverageMark("decisions_decode_response")
 	var v_raw Value
@@ -11556,6 +11823,48 @@ func decisions_decode_response(args ...Value) (Value, error) {
 	return v_raw, nil
 }
 
+func typesafe_image_headers(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_image_headers")
+	var v_request Value
+	var v_assets Value
+	var v_box Value
+	var v_enabled Value
+	var v_headers Value
+	var v_key Value
+	var v_keys Value
+	var v_kind Value
+	var v_question Value
+	var v_questions Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_assets
+	_ = v_box
+	_ = v_enabled
+	_ = v_headers
+	_ = v_key
+	_ = v_keys
+	_ = v_kind
+	_ = v_question
+	_ = v_questions
+	v_assets = coreGet(v_request, "assets", nil)
+	v_enabled = _core_truthy(v_assets)
+	v_questions = coreGet(v_request, "questions", nil)
+	v_keys = _core_map_keys(v_questions)
+	for _, v_key = range coreIter(v_keys) {
+		v_question = coreGet(v_questions, v_key, nil)
+		v_kind = coreGet(v_question, "type", nil)
+		v_box = _core_eq(v_kind, "box")
+		v_enabled = _core_or(v_enabled, v_box)
+	}
+	v_headers = Object()
+	if coreTruthy(v_enabled) {
+		if err := coreSet(v_headers, "TypeSafe-Danger-Zone-Images", "true"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_headers, nil
+}
+
 func _openai_is_gpt56_family_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_is_gpt56_family_impl")
 	var v_model Value
@@ -11565,6 +11874,226 @@ func _openai_is_gpt56_family_impl(args ...Value) (Value, error) {
 	_ = v_is_gpt56
 	v_is_gpt56 = coreRegexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)", v_model)
 	return v_is_gpt56, nil
+}
+
+func typesafe_validate_request(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_validate_request")
+	var v_request Value
+	var v_assets Value
+	var v_count Value
+	var v_criteria Value
+	var v_empty Value
+	var v_entry Value
+	var v_error Value
+	var v_false_label Value
+	var v_has_criteria Value
+	var v_has_images Value
+	var v_has_instructions Value
+	var v_has_state Value
+	var v_instructions Value
+	var v_invalid_label Value
+	var v_invalid_size Value
+	var v_is_box Value
+	var v_is_choice Value
+	var v_is_list Value
+	var v_is_noul Value
+	var v_is_score Value
+	var v_key Value
+	var v_keys Value
+	var v_kind Value
+	var v_label Value
+	var v_labels Value
+	var v_message Value
+	var v_missing Value
+	var v_missing_state Value
+	var v_model Value
+	var v_not_list Value
+	var v_question Value
+	var v_questions Value
+	var v_size Value
+	var v_state Value
+	var v_string Value
+	var v_too_large Value
+	var v_too_small Value
+	var v_trimmed Value
+	var v_true_label Value
+	var v_valid_label Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	_ = v_assets
+	_ = v_count
+	_ = v_criteria
+	_ = v_empty
+	_ = v_entry
+	_ = v_error
+	_ = v_false_label
+	_ = v_has_criteria
+	_ = v_has_images
+	_ = v_has_instructions
+	_ = v_has_state
+	_ = v_instructions
+	_ = v_invalid_label
+	_ = v_invalid_size
+	_ = v_is_box
+	_ = v_is_choice
+	_ = v_is_list
+	_ = v_is_noul
+	_ = v_is_score
+	_ = v_key
+	_ = v_keys
+	_ = v_kind
+	_ = v_label
+	_ = v_labels
+	_ = v_message
+	_ = v_missing
+	_ = v_missing_state
+	_ = v_model
+	_ = v_not_list
+	_ = v_question
+	_ = v_questions
+	_ = v_size
+	_ = v_state
+	_ = v_string
+	_ = v_too_large
+	_ = v_too_small
+	_ = v_trimmed
+	_ = v_true_label
+	_ = v_valid_label
+	if _, err := typesafe_require_object(v_request, "request"); err != nil { return nil, err }
+	v_model = coreGet(v_request, "model", nil)
+	if _, err := typesafe_require_string(v_model, "model", true); err != nil { return nil, err }
+	v_has_state = _core_map_contains(v_request, "state")
+	v_missing_state = _core_not(v_has_state)
+	if coreTruthy(v_missing_state) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe: state is required (null is allowed)"}
+	} else {
+	// empty
+	}
+	v_state = coreGet(v_request, "state", nil)
+	if _, err := typesafe_validate_entry(v_state, "state"); err != nil { return nil, err }
+	v_questions = coreGet(v_request, "questions", nil)
+	if _, err := typesafe_require_object(v_questions, "questions"); err != nil { return nil, err }
+	if _, err := typesafe_validate_assets(v_request); err != nil { return nil, err }
+	v_keys = _core_map_keys(v_questions)
+	v_count = _core_len(v_keys)
+	v_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_empty) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe: questions must not be empty"}
+	} else {
+	// empty
+	}
+	for _, v_key = range coreIter(v_keys) {
+		v_question = coreGet(v_questions, v_key, nil)
+		if _, err := typesafe_require_object(v_question, v_key); err != nil { return nil, err }
+		v_instructions = coreGet(v_question, "instructions", nil)
+		if _, err := typesafe_validate_entry(v_instructions, v_key); err != nil { return nil, err }
+		v_kind = coreGet(v_question, "type", nil)
+		v_criteria = coreGet(v_question, "criteria", nil)
+		v_is_box = _core_eq(v_kind, "box")
+		if coreTruthy(v_is_box) {
+			v_has_instructions = _core_is_not_none(v_instructions)
+			v_string = coreTypeIs(v_instructions, "string")
+			if coreTruthy(v_string) {
+				v_trimmed = coreStringTrim(v_instructions)
+				v_has_instructions = _core_ne(v_trimmed, "")
+			} else {
+			// empty
+			}
+			v_missing = _core_not(v_has_instructions)
+			if coreTruthy(v_missing) {
+				return nil, AxError{Category: "runtime", Message: "Typesafe: Box requires instructions"}
+			} else {
+			// empty
+			}
+			v_has_criteria = _core_map_contains(v_question, "criteria")
+			if coreTruthy(v_has_criteria) {
+				return nil, AxError{Category: "runtime", Message: "Typesafe: Box does not accept criteria"}
+			} else {
+			// empty
+			}
+			v_assets = coreGet(v_request, "assets", nil)
+			v_has_images = _core_truthy(v_assets)
+			v_missing = _core_not(v_has_images)
+			if coreTruthy(v_missing) {
+				return nil, AxError{Category: "runtime", Message: "Typesafe: Box requires an image asset"}
+			} else {
+			// empty
+			}
+			continue
+		} else {
+		// empty
+		}
+		v_is_noul = _core_eq(v_kind, "noul")
+		v_is_choice = _core_eq(v_kind, "choice")
+		v_is_score = _core_eq(v_kind, "score")
+		if coreTruthy(v_is_noul) {
+			v_has_criteria = _core_is_not_none(v_criteria)
+			if coreTruthy(v_has_criteria) {
+				if _, err := typesafe_require_object(v_criteria, v_key); err != nil { return nil, err }
+				v_labels = _core_map_keys(v_criteria)
+				for _, v_label = range coreIter(v_labels) {
+					v_true_label = _core_eq(v_label, "true")
+					v_false_label = _core_eq(v_label, "false")
+					v_valid_label = _core_or(v_true_label, v_false_label)
+					v_invalid_label = _core_not(v_valid_label)
+					if coreTruthy(v_invalid_label) {
+						return nil, AxError{Category: "runtime", Message: "Typesafe: Noul criteria only accept true and false"}
+					} else {
+					// empty
+					}
+					v_entry = coreGet(v_criteria, v_label, nil)
+					if _, err := typesafe_validate_entry(v_entry, v_key); err != nil { return nil, err }
+				}
+			} else {
+			// empty
+			}
+		} else {
+			if coreTruthy(v_is_choice) {
+				if _, err := typesafe_require_object(v_criteria, v_key); err != nil { return nil, err }
+				v_labels = _core_map_keys(v_criteria)
+				v_size = _core_len(v_labels)
+				v_too_small = _core_lt(v_size, 1)
+				v_too_large = _core_gt(v_size, 255)
+				v_invalid_size = _core_or(v_too_small, v_too_large)
+				if coreTruthy(v_invalid_size) {
+					return nil, AxError{Category: "runtime", Message: "Typesafe: Choice requires 1 to 255 options"}
+				} else {
+				// empty
+				}
+				for _, v_label = range coreIter(v_labels) {
+					v_entry = coreGet(v_criteria, v_label, nil)
+					if _, err := typesafe_validate_entry(v_entry, v_key); err != nil { return nil, err }
+				}
+			} else {
+				if coreTruthy(v_is_score) {
+					v_is_list = coreTypeIs(v_criteria, "list")
+					v_not_list = _core_not(v_is_list)
+					if coreTruthy(v_not_list) {
+						return nil, AxError{Category: "runtime", Message: "Typesafe: Score requires an array of 2 to 10 levels"}
+					} else {
+					// empty
+					}
+					v_size = _core_len(v_criteria)
+					v_too_small = _core_lt(v_size, 2)
+					v_too_large = _core_gt(v_size, 10)
+					v_invalid_size = _core_or(v_too_small, v_too_large)
+					if coreTruthy(v_invalid_size) {
+						return nil, AxError{Category: "runtime", Message: "Typesafe: Score requires 2 to 10 levels"}
+					} else {
+					// empty
+					}
+					for _, v_entry = range coreIter(v_criteria) {
+						if _, err := typesafe_validate_entry(v_entry, v_key); err != nil { return nil, err }
+					}
+				} else {
+					v_message = _core_string_format("Typesafe: unknown question type for {}", v_key)
+					v_error = _core_validation_error(v_message)
+					return nil, asError(v_error)
+				}
+			}
+		}
+	}
+	return nil, nil
 }
 
 func _openai_is_gpt6_family_impl(args ...Value) (Value, error) {
@@ -11788,46 +12317,6 @@ func _openai_supports_breakpoint_caching_impl(args ...Value) (Value, error) {
 	return v_supported, nil
 }
 
-func typesafe_decode_models(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_decode_models")
-	var v_raw Value
-	var v_description Value
-	var v_invalid Value
-	var v_is_list Value
-	var v_model Value
-	var v_models Value
-	var v_name Value
-	var v_release_date Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_description
-	_ = v_invalid
-	_ = v_is_list
-	_ = v_model
-	_ = v_models
-	_ = v_name
-	_ = v_release_date
-	if _, err := typesafe_require_object(v_raw, "model catalog"); err != nil { return nil, err }
-	v_models = coreGet(v_raw, "models", nil)
-	v_is_list = coreTypeIs(v_models, "list")
-	v_invalid = _core_not(v_is_list)
-	if coreTruthy(v_invalid) {
-		return nil, AxError{Category: "runtime", Message: "Typesafe: models must be an array"}
-	} else {
-	// empty
-	}
-	for _, v_model = range coreIter(v_models) {
-		if _, err := typesafe_require_object(v_model, "model"); err != nil { return nil, err }
-		v_name = coreGet(v_model, "name", nil)
-		v_description = coreGet(v_model, "description", nil)
-		v_release_date = coreGet(v_model, "release_date", nil)
-		if _, err := typesafe_require_string(v_name, "model.name", true); err != nil { return nil, err }
-		if _, err := typesafe_require_string(v_description, "model.description", false); err != nil { return nil, err }
-		if _, err := typesafe_require_string(v_release_date, "model.release_date", false); err != nil { return nil, err }
-	}
-	return v_models, nil
-}
-
 func _openai_supports_chat_sessions_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_supports_chat_sessions_impl")
 	var v_model Value
@@ -11846,513 +12335,6 @@ func _openai_supports_chat_sessions_impl(args ...Value) (Value, error) {
 	v_on_openai = _core_not(v_is_bedrock)
 	v_supported = _core_and(v_is_astra, v_on_openai)
 	return v_supported, nil
-}
-
-func typesafe_build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_build_chat_request")
-	var v_request Value
-	var v_options Value
-	var v_allowed Value
-	var v_allowed_n Value
-	var v_annotation Value
-	var v_annotation_type Value
-	var v_annotations Value
-	var v_array Value
-	var v_audio Value
-	var v_calls Value
-	var v_calls_snake Value
-	var v_class_kind Value
-	var v_class_options Value
-	var v_config Value
-	var v_config_snake Value
-	var v_content Value
-	var v_control Value
-	var v_controls Value
-	var v_criteria Value
-	var v_decision Value
-	var v_decision_fields Value
-	var v_description Value
-	var v_descriptions Value
-	var v_duplicate Value
-	var v_empty_list Value
-	var v_empty_map Value
-	var v_entry Value
-	var v_error Value
-	var v_field Value
-	var v_flat Value
-	var v_forbidden Value
-	var v_format Value
-	var v_format_snake Value
-	var v_format_type Value
-	var v_function_call Value
-	var v_function_call_snake Value
-	var v_functions Value
-	var v_has_annotation Value
-	var v_has_audio Value
-	var v_has_call Value
-	var v_has_call_value Value
-	var v_has_calls Value
-	var v_has_description Value
-	var v_has_enum Value
-	var v_has_functions Value
-	var v_has_images Value
-	var v_has_key Value
-	var v_has_value Value
-	var v_images Value
-	var v_instructions Value
-	var v_invalid Value
-	var v_is_boolean Value
-	var v_is_class Value
-	var v_is_description_string Value
-	var v_is_enum Value
-	var v_is_list Value
-	var v_is_n Value
-	var v_is_score Value
-	var v_is_stream Value
-	var v_is_string Value
-	var v_is_tool Value
-	var v_is_tool_alt Value
-	var v_key Value
-	var v_kind Value
-	var v_label Value
-	var v_labels Value
-	var v_levels Value
-	var v_message Value
-	var v_messages Value
-	var v_model Value
-	var v_name Value
-	var v_names Value
-	var v_no_enum Value
-	var v_nontext Value
-	var v_not_flat Value
-	var v_numeric Value
-	var v_one Value
-	var v_optional Value
-	var v_part Value
-	var v_payload Value
-	var v_present Value
-	var v_prompt Value
-	var v_prompt_snake Value
-	var v_properties Value
-	var v_question Value
-	var v_questions Value
-	var v_required Value
-	var v_rich Value
-	var v_role Value
-	var v_root_type Value
-	var v_schema Value
-	var v_state Value
-	var v_supported Value
-	var v_supported_type Value
-	var v_text Value
-	var v_texts Value
-	var v_threshold Value
-	var v_threshold_snake Value
-	var v_tools Value
-	var v_typ Value
-	var v_type_attrs Value
-	var v_type_name Value
-	var v_unsupported Value
-	var v_use_description Value
-	var v_value Value
-	var v_wire_description Value
-	var v_wrapper Value
-	var v_wrong_format Value
-	if len(args) > 0 { v_request = args[0] }
-	_ = v_request
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	_ = v_allowed
-	_ = v_allowed_n
-	_ = v_annotation
-	_ = v_annotation_type
-	_ = v_annotations
-	_ = v_array
-	_ = v_audio
-	_ = v_calls
-	_ = v_calls_snake
-	_ = v_class_kind
-	_ = v_class_options
-	_ = v_config
-	_ = v_config_snake
-	_ = v_content
-	_ = v_control
-	_ = v_controls
-	_ = v_criteria
-	_ = v_decision
-	_ = v_decision_fields
-	_ = v_description
-	_ = v_descriptions
-	_ = v_duplicate
-	_ = v_empty_list
-	_ = v_empty_map
-	_ = v_entry
-	_ = v_error
-	_ = v_field
-	_ = v_flat
-	_ = v_forbidden
-	_ = v_format
-	_ = v_format_snake
-	_ = v_format_type
-	_ = v_function_call
-	_ = v_function_call_snake
-	_ = v_functions
-	_ = v_has_annotation
-	_ = v_has_audio
-	_ = v_has_call
-	_ = v_has_call_value
-	_ = v_has_calls
-	_ = v_has_description
-	_ = v_has_enum
-	_ = v_has_functions
-	_ = v_has_images
-	_ = v_has_key
-	_ = v_has_value
-	_ = v_images
-	_ = v_instructions
-	_ = v_invalid
-	_ = v_is_boolean
-	_ = v_is_class
-	_ = v_is_description_string
-	_ = v_is_enum
-	_ = v_is_list
-	_ = v_is_n
-	_ = v_is_score
-	_ = v_is_stream
-	_ = v_is_string
-	_ = v_is_tool
-	_ = v_is_tool_alt
-	_ = v_key
-	_ = v_kind
-	_ = v_label
-	_ = v_labels
-	_ = v_levels
-	_ = v_message
-	_ = v_messages
-	_ = v_model
-	_ = v_name
-	_ = v_names
-	_ = v_no_enum
-	_ = v_nontext
-	_ = v_not_flat
-	_ = v_numeric
-	_ = v_one
-	_ = v_optional
-	_ = v_part
-	_ = v_payload
-	_ = v_present
-	_ = v_prompt
-	_ = v_prompt_snake
-	_ = v_properties
-	_ = v_question
-	_ = v_questions
-	_ = v_required
-	_ = v_rich
-	_ = v_role
-	_ = v_root_type
-	_ = v_schema
-	_ = v_state
-	_ = v_supported
-	_ = v_supported_type
-	_ = v_text
-	_ = v_texts
-	_ = v_threshold
-	_ = v_threshold_snake
-	_ = v_tools
-	_ = v_typ
-	_ = v_type_attrs
-	_ = v_type_name
-	_ = v_unsupported
-	_ = v_use_description
-	_ = v_value
-	_ = v_wire_description
-	_ = v_wrapper
-	_ = v_wrong_format
-	v_empty_map = Object()
-	v_empty_list = MutableArray()
-	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
-	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
-	if _, err := typesafe_require_number(v_threshold, "trueThreshold", 0, 1); err != nil { return nil, err }
-	v_functions = coreGet(v_request, "functions", v_empty_list)
-	v_function_call_snake = coreGet(v_request, "function_call", "none")
-	v_function_call = coreGet(v_request, "functionCall", v_function_call_snake)
-	v_has_functions = _core_truthy(v_functions)
-	v_has_call = _core_ne(v_function_call, "none")
-	v_has_call_value = _core_truthy(v_function_call)
-	v_has_call = _core_and(v_has_call, v_has_call_value)
-	v_tools = _core_or(v_has_functions, v_has_call)
-	if coreTruthy(v_tools) {
-		return nil, AxError{Category: "runtime", Message: "Typesafe does not support tools; use a generative provider for tool execution"}
-	} else {
-	// empty
-	}
-	v_config_snake = coreGet(v_request, "model_config", v_empty_map)
-	v_config = coreGet(v_request, "modelConfig", v_config_snake)
-	v_controls = _core_map_keys(v_config)
-	for _, v_control = range coreIter(v_controls) {
-		v_value = coreGet(v_config, v_control, nil)
-		v_present = _core_is_not_none(v_value)
-		if coreTruthy(v_present) {
-			v_is_stream = _core_eq(v_control, "stream")
-			v_is_n = _core_eq(v_control, "n")
-			v_one = _core_eq(v_value, 1)
-			v_numeric = coreTypeIs(v_value, "number")
-			v_one = _core_and(v_one, v_numeric)
-			v_allowed_n = _core_and(v_is_n, v_one)
-			v_allowed = _core_or(v_is_stream, v_allowed_n)
-			v_unsupported = _core_not(v_allowed)
-			if coreTruthy(v_unsupported) {
-				v_message = _core_string_format("Typesafe does not support generation control {}", v_control)
-				v_error = _core_validation_error(v_message)
-				return nil, asError(v_error)
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-	}
-	v_format_snake = coreGet(v_request, "response_format", nil)
-	v_format = coreGet(v_request, "responseFormat", v_format_snake)
-	v_format_type = coreGet(v_format, "type", nil)
-	v_wrong_format = _core_ne(v_format_type, "json_schema")
-	if coreTruthy(v_wrong_format) {
-		return nil, AxError{Category: "runtime", Message: "Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs"}
-	} else {
-	// empty
-	}
-	v_wrapper = coreGet(v_format, "schema", nil)
-	if _, err := typesafe_require_object(v_wrapper, "responseFormat.schema"); err != nil { return nil, err }
-	v_schema = coreGet(v_wrapper, "schema", nil)
-	if _, err := typesafe_require_object(v_schema, "output schema"); err != nil { return nil, err }
-	v_root_type = coreGet(v_schema, "type", nil)
-	v_flat = _core_eq(v_root_type, "object")
-	v_forbidden = MutableArray()
-	v_forbidden = coreAppend(v_forbidden, "anyOf")
-	v_forbidden = coreAppend(v_forbidden, "oneOf")
-	v_forbidden = coreAppend(v_forbidden, "allOf")
-	v_forbidden = coreAppend(v_forbidden, "$ref")
-	for _, v_key = range coreIter(v_forbidden) {
-		v_value = coreGet(v_schema, v_key, nil)
-		v_has_value = _core_truthy(v_value)
-		if coreTruthy(v_has_value) {
-			v_flat = false
-		} else {
-		// empty
-		}
-	}
-	v_not_flat = _core_not(v_flat)
-	if coreTruthy(v_not_flat) {
-		return nil, AxError{Category: "runtime", Message: "Typesafe requires a flat object output schema"}
-	} else {
-	// empty
-	}
-	v_properties = coreGet(v_schema, "properties", nil)
-	if _, err := typesafe_require_object(v_properties, "output properties"); err != nil { return nil, err }
-	v_required = coreGet(v_schema, "required", v_empty_list)
-	v_annotations = coreGet(v_format, "fieldDescriptions", v_empty_map)
-	v_decision_fields = coreGet(v_format, "decisionFields", v_empty_map)
-	v_questions = Object()
-	v_names = _core_map_keys(v_properties)
-	v_forbidden = coreAppend(v_forbidden, "const")
-	for _, v_name = range coreIter(v_names) {
-		v_field = coreGet(v_properties, v_name, nil)
-		if _, err := typesafe_require_object(v_field, v_name); err != nil { return nil, err }
-		v_decision = coreGet(v_decision_fields, v_name, nil)
-		v_rich = _core_is_not_none(v_decision)
-		if coreTruthy(v_rich) {
-			v_array = coreGet(v_decision, "isArray", false)
-			v_optional = coreGet(v_decision, "isOptional", false)
-			v_invalid = _core_or(v_array, v_optional)
-			if coreTruthy(v_invalid) {
-				return nil, AxError{Category: "runtime", Message: "Decision providers require flat, required scalar outputs"}
-			} else {
-			// empty
-			}
-			v_wire_description = coreGet(v_field, "description", nil)
-			v_field = Object()
-			v_kind = coreGet(v_decision, "type", nil)
-			v_class_kind = _core_eq(v_kind, "class")
-			if coreTruthy(v_class_kind) {
-				v_kind = "string"
-			} else {
-			// empty
-			}
-			if err := coreSet(v_field, "type", v_kind); err != nil { return nil, err }
-			if err := coreSet(v_field, "description", v_wire_description); err != nil { return nil, err }
-			if coreTruthy(v_class_kind) {
-				v_labels = coreGet(v_decision, "options", nil)
-				if err := coreSet(v_field, "enum", v_labels); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_supported = _core_contains(v_required, v_name)
-		for _, v_key = range coreIter(v_forbidden) {
-			v_has_key = _core_map_contains(v_field, v_key)
-			if coreTruthy(v_has_key) {
-				v_supported = false
-			} else {
-			// empty
-			}
-		}
-		v_type_name = coreGet(v_field, "type", nil)
-		v_class_options = coreGet(v_field, "enum", nil)
-		v_is_boolean = _core_eq(v_type_name, "boolean")
-		v_has_enum = _core_is_not_none(v_class_options)
-		v_no_enum = _core_not(v_has_enum)
-		v_is_boolean = _core_and(v_is_boolean, v_no_enum)
-		v_is_string = _core_eq(v_type_name, "string")
-		v_is_enum = coreTypeIs(v_class_options, "list")
-		v_is_class = _core_and(v_is_string, v_is_enum)
-		v_supported_type = _core_or(v_is_boolean, v_is_class)
-		v_is_score = _core_eq(v_type_name, "score")
-		v_supported_type = _core_or(v_supported_type, v_is_score)
-		v_supported = _core_and(v_supported, v_supported_type)
-		v_unsupported = _core_not(v_supported)
-		if coreTruthy(v_unsupported) {
-			v_message = _core_string_format("Typesafe cannot evaluate output {}. Use required boolean, class or rubric score fields, or a generative provider for other outputs", v_name)
-			v_error = _core_validation_error(v_message)
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_annotation = coreGet(v_annotations, v_name, nil)
-		v_description = coreGet(v_field, "description", nil)
-		v_has_annotation = _core_is_not_none(v_annotation)
-		v_descriptions = Object()
-		if coreTruthy(v_has_annotation) {
-			if _, err := typesafe_require_object(v_annotation, v_name); err != nil { return nil, err }
-			v_description = coreGet(v_annotation, "description", nil)
-			v_has_description = _core_is_not_none(v_description)
-			if coreTruthy(v_has_description) {
-				if _, err := typesafe_require_string(v_description, v_name, false); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-			v_descriptions = coreGet(v_annotation, "valueDescriptions", nil)
-			if _, err := typesafe_require_object(v_descriptions, v_name); err != nil { return nil, err }
-			v_type_attrs = Object()
-			v_annotation_type = "boolean"
-			if coreTruthy(v_is_class) {
-				v_annotation_type = "class"
-			} else {
-			// empty
-			}
-			if err := coreSet(v_type_attrs, "name", v_annotation_type); err != nil { return nil, err }
-			if err := coreSet(v_type_attrs, "options", v_class_options); err != nil { return nil, err }
-			if err := coreSet(v_type_attrs, "value_descriptions", v_descriptions); err != nil { return nil, err }
-			v_typ = _core_record_new("FieldType", v_type_attrs)
-			if _, err := _signature_validate_value_descriptions_impl(v_typ, v_name); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		v_instructions = _core_string_format("Evaluate the output field {}.", v_name)
-		v_is_description_string = coreTypeIs(v_description, "string")
-		v_has_description = _core_truthy(v_description)
-		v_use_description = _core_and(v_is_description_string, v_has_description)
-		if coreTruthy(v_use_description) {
-			v_instructions = _core_string_format("{}: {}", v_name, v_description)
-		} else {
-		// empty
-		}
-		v_question = Object()
-		if err := coreSet(v_question, "instructions", v_instructions); err != nil { return nil, err }
-		if coreTruthy(v_is_score) {
-			if err := coreSet(v_question, "type", "score"); err != nil { return nil, err }
-			v_levels = coreGet(v_decision, "options", nil)
-			if err := coreSet(v_question, "criteria", v_levels); err != nil { return nil, err }
-			if err := coreSet(v_questions, v_name, v_question); err != nil { return nil, err }
-			continue
-		} else {
-		// empty
-		}
-		if coreTruthy(v_is_boolean) {
-			if err := coreSet(v_question, "type", "noul"); err != nil { return nil, err }
-			if coreTruthy(v_has_annotation) {
-				if err := coreSet(v_question, "criteria", v_descriptions); err != nil { return nil, err }
-			} else {
-			// empty
-			}
-		} else {
-			if err := coreSet(v_question, "type", "choice"); err != nil { return nil, err }
-			v_criteria = Object()
-			for _, v_label = range coreIter(v_class_options) {
-				if _, err := typesafe_require_string(v_label, v_name, false); err != nil { return nil, err }
-				v_duplicate = _core_map_contains(v_criteria, v_label)
-				if coreTruthy(v_duplicate) {
-					return nil, AxError{Category: "runtime", Message: "Typesafe: Choice labels must be unique"}
-				} else {
-				// empty
-				}
-				v_description = coreGet(v_descriptions, v_label, nil)
-				if err := coreSet(v_criteria, v_label, v_description); err != nil { return nil, err }
-			}
-			if err := coreSet(v_question, "criteria", v_criteria); err != nil { return nil, err }
-		}
-		if err := coreSet(v_questions, v_name, v_question); err != nil { return nil, err }
-	}
-	v_prompt_snake = coreGet(v_request, "chat_prompt", v_empty_list)
-	v_prompt = coreGet(v_request, "chatPrompt", v_prompt_snake)
-	v_messages = MutableArray()
-	for _, v_message = range coreIter(v_prompt) {
-		v_role = coreGet(v_message, "role", nil)
-		v_content = coreGet(v_message, "content", "")
-		v_is_tool = _core_eq(v_role, "function")
-		v_is_tool_alt = _core_eq(v_role, "tool")
-		v_is_tool = _core_or(v_is_tool, v_is_tool_alt)
-		v_calls = coreGet(v_message, "functionCalls", nil)
-		v_calls_snake = coreGet(v_message, "function_calls", nil)
-		v_calls = _core_coalesce(v_calls, v_calls_snake)
-		v_has_calls = _core_truthy(v_calls)
-		v_audio = coreGet(v_message, "audio", nil)
-		v_has_audio = _core_truthy(v_audio)
-		v_images = coreGet(v_message, "images", nil)
-		v_has_images = _core_truthy(v_images)
-		v_invalid = _core_or(v_is_tool, v_has_calls)
-		v_invalid = _core_or(v_invalid, v_has_audio)
-		v_invalid = _core_or(v_invalid, v_has_images)
-		if coreTruthy(v_invalid) {
-			return nil, AxError{Category: "runtime", Message: "Typesafe does not support tool or media history"}
-		} else {
-		// empty
-		}
-		v_is_list = coreTypeIs(v_content, "list")
-		if coreTruthy(v_is_list) {
-			v_texts = MutableArray()
-			for _, v_part = range coreIter(v_content) {
-				v_kind = coreGet(v_part, "type", nil)
-				v_nontext = _core_ne(v_kind, "text")
-				if coreTruthy(v_nontext) {
-					return nil, AxError{Category: "runtime", Message: "Typesafe supports text input only"}
-				} else {
-				// empty
-				}
-				v_text = coreGet(v_part, "text", nil)
-				if _, err := typesafe_require_string(v_text, "message text", false); err != nil { return nil, err }
-				v_texts = coreAppend(v_texts, v_text)
-			}
-			v_content = _core_string_join("\n", v_texts)
-		} else {
-		// empty
-		}
-		if _, err := typesafe_require_string(v_content, "message content", false); err != nil { return nil, err }
-		v_entry = Object()
-		if err := coreSet(v_entry, "role", v_role); err != nil { return nil, err }
-		if err := coreSet(v_entry, "content", v_content); err != nil { return nil, err }
-		v_messages = coreAppend(v_messages, v_entry)
-	}
-	v_state = Object()
-	if err := coreSet(v_state, "messages", v_messages); err != nil { return nil, err }
-	v_payload = Object()
-	v_model = coreGet(v_request, "model", "jev-latest")
-	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_payload, "state", v_state); err != nil { return nil, err }
-	if err := coreSet(v_payload, "questions", v_questions); err != nil { return nil, err }
-	if _, err := typesafe_validate_request(v_payload); err != nil { return nil, err }
-	return v_payload, nil
 }
 
 func validate_chat_request(args ...Value) (Value, error) {
@@ -12730,6 +12712,7 @@ func decisions_build_chat_request(args ...Value) (Value, error) {
 	var v_annotations Value
 	var v_array Value
 	var v_audio Value
+	var v_box Value
 	var v_calls Value
 	var v_calls_snake Value
 	var v_class_kind Value
@@ -12743,6 +12726,7 @@ func decisions_build_chat_request(args ...Value) (Value, error) {
 	var v_data Value
 	var v_decision Value
 	var v_decision_fields Value
+	var v_decision_type Value
 	var v_described Value
 	var v_description Value
 	var v_description_keys Value
@@ -12853,6 +12837,7 @@ func decisions_build_chat_request(args ...Value) (Value, error) {
 	_ = v_annotations
 	_ = v_array
 	_ = v_audio
+	_ = v_box
 	_ = v_calls
 	_ = v_calls_snake
 	_ = v_class_kind
@@ -12866,6 +12851,7 @@ func decisions_build_chat_request(args ...Value) (Value, error) {
 	_ = v_data
 	_ = v_decision
 	_ = v_decision_fields
+	_ = v_decision_type
 	_ = v_described
 	_ = v_description
 	_ = v_description_keys
@@ -13057,6 +13043,13 @@ func decisions_build_chat_request(args ...Value) (Value, error) {
 		if _, err := decisions_require_object(v_field, v_name); err != nil { return nil, err }
 		v_required_list = coreTypeIs(v_required, "list")
 		v_decision = coreGet(v_decision_fields, v_name, nil)
+		v_decision_type = coreGet(v_decision, "type", nil)
+		v_box = _core_eq(v_decision_type, "box")
+		if coreTruthy(v_box) {
+			return nil, AxError{Category: "runtime", Message: "OpenAI Decisions does not support box outputs; use Typesafe or a generative vision provider"}
+		} else {
+		// empty
+		}
 		v_rich = _core_is_not_none(v_decision)
 		if coreTruthy(v_rich) {
 			v_array = coreGet(v_decision, "isArray", false)
@@ -13324,6 +13317,239 @@ func decisions_build_chat_request(args ...Value) (Value, error) {
 	}
 	if _, err := decisions_validate_request(v_payload); err != nil { return nil, err }
 	return v_payload, nil
+}
+
+func typesafe_decode_response(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_decode_response")
+	var v_raw Value
+	var v_questions Value
+	var v_answer Value
+	var v_answer_kind Value
+	var v_answers Value
+	var v_box Value
+	var v_choice Value
+	var v_confidence Value
+	var v_count Value
+	var v_criteria Value
+	var v_difference Value
+	var v_entry Value
+	var v_error Value
+	var v_expected_size Value
+	var v_index Value
+	var v_integer Value
+	var v_invalid Value
+	var v_invalid_sum Value
+	var v_is_box Value
+	var v_is_choice Value
+	var v_is_noul Value
+	var v_key Value
+	var v_keys Value
+	var v_kind Value
+	var v_known Value
+	var v_label Value
+	var v_labels Value
+	var v_legend Value
+	var v_legend_keys Value
+	var v_legend_size Value
+	var v_message Value
+	var v_mismatch Value
+	var v_missing Value
+	var v_model Value
+	var v_present Value
+	var v_probabilities Value
+	var v_probability Value
+	var v_probability_keys Value
+	var v_question Value
+	var v_roundoff Value
+	var v_score Value
+	var v_size Value
+	var v_token_keys Value
+	var v_tolerance Value
+	var v_total Value
+	var v_unknown Value
+	var v_upper Value
+	var v_usage Value
+	var v_wrong_size Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_questions = args[1] }
+	_ = v_questions
+	_ = v_answer
+	_ = v_answer_kind
+	_ = v_answers
+	_ = v_box
+	_ = v_choice
+	_ = v_confidence
+	_ = v_count
+	_ = v_criteria
+	_ = v_difference
+	_ = v_entry
+	_ = v_error
+	_ = v_expected_size
+	_ = v_index
+	_ = v_integer
+	_ = v_invalid
+	_ = v_invalid_sum
+	_ = v_is_box
+	_ = v_is_choice
+	_ = v_is_noul
+	_ = v_key
+	_ = v_keys
+	_ = v_kind
+	_ = v_known
+	_ = v_label
+	_ = v_labels
+	_ = v_legend
+	_ = v_legend_keys
+	_ = v_legend_size
+	_ = v_message
+	_ = v_mismatch
+	_ = v_missing
+	_ = v_model
+	_ = v_present
+	_ = v_probabilities
+	_ = v_probability
+	_ = v_probability_keys
+	_ = v_question
+	_ = v_roundoff
+	_ = v_score
+	_ = v_size
+	_ = v_token_keys
+	_ = v_tolerance
+	_ = v_total
+	_ = v_unknown
+	_ = v_upper
+	_ = v_usage
+	_ = v_wrong_size
+	if _, err := typesafe_require_object(v_raw, "response"); err != nil { return nil, err }
+	v_model = coreGet(v_raw, "model", nil)
+	if _, err := typesafe_require_string(v_model, "response.model", true); err != nil { return nil, err }
+	v_usage = coreGet(v_raw, "usage", nil)
+	if _, err := typesafe_require_object(v_usage, "usage"); err != nil { return nil, err }
+	v_token_keys = MutableArray()
+	v_token_keys = coreAppend(v_token_keys, "input_tokens")
+	v_token_keys = coreAppend(v_token_keys, "output_tokens")
+	for _, v_key = range coreIter(v_token_keys) {
+		v_count = coreGet(v_usage, v_key, nil)
+		if _, err := typesafe_require_number(v_count, v_key, 0, 9007199254740991); err != nil { return nil, err }
+		v_integer = _core_math_floor(v_count)
+		v_invalid = _core_ne(v_count, v_integer)
+		if coreTruthy(v_invalid) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe: token counts must be nonnegative safe integers"}
+		} else {
+		// empty
+		}
+	}
+	v_answers = coreGet(v_raw, "answers", nil)
+	if _, err := typesafe_require_object(v_answers, "answers"); err != nil { return nil, err }
+	v_keys = _core_map_keys(v_questions)
+	for _, v_key = range coreIter(v_keys) {
+		v_question = coreGet(v_questions, v_key, nil)
+		v_kind = coreGet(v_question, "type", nil)
+		v_answer = coreGet(v_answers, v_key, nil)
+		if _, err := typesafe_require_object(v_answer, v_key); err != nil { return nil, err }
+		v_answer_kind = coreGet(v_answer, "type", nil)
+		v_mismatch = _core_ne(v_kind, v_answer_kind)
+		if coreTruthy(v_mismatch) {
+			v_message = _core_string_format("Typesafe: answer type mismatch for {}", v_key)
+			v_error = _core_validation_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_is_noul = _core_eq(v_kind, "noul")
+		if coreTruthy(v_is_noul) {
+			v_probability = coreGet(v_answer, "noul", nil)
+			if _, err := typesafe_require_number(v_probability, v_key, 0, 1); err != nil { return nil, err }
+		} else {
+			v_confidence = coreGet(v_answer, "confidence", nil)
+			if _, err := typesafe_require_number(v_confidence, "confidence", 0, 1); err != nil { return nil, err }
+			v_is_box = _core_eq(v_kind, "box")
+			if coreTruthy(v_is_box) {
+				v_box = coreGet(v_answer, "box", nil)
+				if _, err := _box_validate_impl(v_box, v_key); err != nil { return nil, err }
+				continue
+			} else {
+			// empty
+			}
+			v_criteria = coreGet(v_question, "criteria", nil)
+			v_is_choice = _core_eq(v_kind, "choice")
+			v_labels = MutableArray()
+			if coreTruthy(v_is_choice) {
+				v_labels = _core_map_keys(v_criteria)
+				v_choice = coreGet(v_answer, "choice", nil)
+				if _, err := typesafe_require_string(v_choice, v_key, false); err != nil { return nil, err }
+				v_known = _core_contains(v_labels, v_choice)
+				v_unknown = _core_not(v_known)
+				if coreTruthy(v_unknown) {
+					v_message = _core_string_format("Typesafe: invalid selected Choice label for {}", v_key)
+					v_error = _core_validation_error(v_message)
+					return nil, asError(v_error)
+				} else {
+				// empty
+				}
+			} else {
+				v_index = 0
+				for _, v_entry = range coreIter(v_criteria) {
+					v_label = _core_string_format("{}", v_index)
+					v_labels = coreAppend(v_labels, v_label)
+					v_index = _core_add(v_index, 1)
+				}
+				v_upper = _core_add(v_index, -1)
+				v_score = coreGet(v_answer, "score", nil)
+				if _, err := typesafe_require_number(v_score, v_key, 0, v_upper); err != nil { return nil, err }
+				v_legend = coreGet(v_answer, "legend", nil)
+				if _, err := typesafe_require_object(v_legend, "legend"); err != nil { return nil, err }
+				v_legend_keys = _core_map_keys(v_legend)
+				v_legend_size = _core_len(v_legend_keys)
+				v_wrong_size = _core_ne(v_legend_size, v_index)
+				if coreTruthy(v_wrong_size) {
+					return nil, AxError{Category: "runtime", Message: "Typesafe: Score legend must match rubric indices"}
+				} else {
+				// empty
+				}
+				for _, v_label = range coreIter(v_labels) {
+					v_present = _core_map_contains(v_legend, v_label)
+					v_missing = _core_not(v_present)
+					if coreTruthy(v_missing) {
+						return nil, AxError{Category: "runtime", Message: "Typesafe: Score legend must match rubric indices"}
+					} else {
+					// empty
+					}
+					v_entry = coreGet(v_legend, v_label, nil)
+					if _, err := typesafe_validate_entry(v_entry, "legend"); err != nil { return nil, err }
+				}
+			}
+			v_probabilities = coreGet(v_answer, "probabilities", nil)
+			if _, err := typesafe_require_object(v_probabilities, "probabilities"); err != nil { return nil, err }
+			v_probability_keys = _core_map_keys(v_probabilities)
+			v_size = _core_len(v_probability_keys)
+			v_expected_size = _core_len(v_labels)
+			v_wrong_size = _core_ne(v_size, v_expected_size)
+			if coreTruthy(v_wrong_size) {
+				return nil, AxError{Category: "runtime", Message: "Typesafe: probabilities must match criteria keys"}
+			} else {
+			// empty
+			}
+			v_total = 0
+			for _, v_label = range coreIter(v_labels) {
+				v_probability = coreGet(v_probabilities, v_label, nil)
+				if _, err := typesafe_require_number(v_probability, v_label, 0, 1); err != nil { return nil, err }
+				v_total = _core_add(v_total, v_probability)
+			}
+			v_difference = _core_add(v_total, -1)
+			v_difference = _core_math_abs(v_difference)
+			v_roundoff = _core_mul(0.0000000000000002220446049250313, v_expected_size)
+			v_tolerance = _core_add(0.01, v_roundoff)
+			v_invalid_sum = _core_gt(v_difference, v_tolerance)
+			if coreTruthy(v_invalid_sum) {
+				return nil, AxError{Category: "runtime", Message: "Typesafe: probabilities must sum to one"}
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_raw, nil
 }
 
 func openai_chat_reasoning_effort(args ...Value) (Value, error) {
@@ -13655,6 +13881,46 @@ func normalize_stream_delta(args ...Value) (Value, error) {
 	return v_response, nil
 }
 
+func typesafe_decode_models(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_decode_models")
+	var v_raw Value
+	var v_description Value
+	var v_invalid Value
+	var v_is_list Value
+	var v_model Value
+	var v_models Value
+	var v_name Value
+	var v_release_date Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_description
+	_ = v_invalid
+	_ = v_is_list
+	_ = v_model
+	_ = v_models
+	_ = v_name
+	_ = v_release_date
+	if _, err := typesafe_require_object(v_raw, "model catalog"); err != nil { return nil, err }
+	v_models = coreGet(v_raw, "models", nil)
+	v_is_list = coreTypeIs(v_models, "list")
+	v_invalid = _core_not(v_is_list)
+	if coreTruthy(v_invalid) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe: models must be an array"}
+	} else {
+	// empty
+	}
+	for _, v_model = range coreIter(v_models) {
+		if _, err := typesafe_require_object(v_model, "model"); err != nil { return nil, err }
+		v_name = coreGet(v_model, "name", nil)
+		v_description = coreGet(v_model, "description", nil)
+		v_release_date = coreGet(v_model, "release_date", nil)
+		if _, err := typesafe_require_string(v_name, "model.name", true); err != nil { return nil, err }
+		if _, err := typesafe_require_string(v_description, "model.description", false); err != nil { return nil, err }
+		if _, err := typesafe_require_string(v_release_date, "model.release_date", false); err != nil { return nil, err }
+	}
+	return v_models, nil
+}
+
 func build_embed_request(args ...Value) (Value, error) {
 	axirCoverageMark("build_embed_request")
 	var v_service Value
@@ -13681,6 +13947,638 @@ func normalize_embed_response(args ...Value) (Value, error) {
 	_ = v_response
 	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
 	return v_response, nil
+}
+
+func typesafe_build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_build_chat_request")
+	var v_request Value
+	var v_options Value
+	var v_allowed Value
+	var v_allowed_n Value
+	var v_annotation Value
+	var v_annotation_type Value
+	var v_annotations Value
+	var v_array Value
+	var v_asset Value
+	var v_assets Value
+	var v_audio Value
+	var v_calls Value
+	var v_calls_snake Value
+	var v_class_kind Value
+	var v_class_options Value
+	var v_collision Value
+	var v_config Value
+	var v_config_snake Value
+	var v_content Value
+	var v_control Value
+	var v_controls Value
+	var v_criteria Value
+	var v_data Value
+	var v_data_url Value
+	var v_decision Value
+	var v_decision_fields Value
+	var v_description Value
+	var v_descriptions Value
+	var v_duplicate Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_entry Value
+	var v_error Value
+	var v_field Value
+	var v_flat Value
+	var v_forbidden Value
+	var v_format Value
+	var v_format_snake Value
+	var v_format_type Value
+	var v_function_call Value
+	var v_function_call_snake Value
+	var v_functions Value
+	var v_has_annotation Value
+	var v_has_assets Value
+	var v_has_audio Value
+	var v_has_call Value
+	var v_has_call_value Value
+	var v_has_calls Value
+	var v_has_description Value
+	var v_has_enum Value
+	var v_has_functions Value
+	var v_has_images Value
+	var v_has_key Value
+	var v_has_value Value
+	var v_images Value
+	var v_instructions Value
+	var v_invalid Value
+	var v_is_boolean Value
+	var v_is_box Value
+	var v_is_class Value
+	var v_is_description_string Value
+	var v_is_enum Value
+	var v_is_image Value
+	var v_is_list Value
+	var v_is_n Value
+	var v_is_score Value
+	var v_is_stream Value
+	var v_is_string Value
+	var v_is_text Value
+	var v_is_tool Value
+	var v_is_tool_alt Value
+	var v_is_user Value
+	var v_jpeg Value
+	var v_jpg Value
+	var v_key Value
+	var v_kind Value
+	var v_label Value
+	var v_labels Value
+	var v_levels Value
+	var v_matches Value
+	var v_message Value
+	var v_messages Value
+	var v_mime Value
+	var v_model Value
+	var v_name Value
+	var v_names Value
+	var v_no_enum Value
+	var v_not_flat Value
+	var v_numeric Value
+	var v_offset Value
+	var v_one Value
+	var v_optional Value
+	var v_part Value
+	var v_payload Value
+	var v_png Value
+	var v_prefix Value
+	var v_present Value
+	var v_prompt Value
+	var v_prompt_snake Value
+	var v_properties Value
+	var v_question Value
+	var v_questions Value
+	var v_reference Value
+	var v_reference_index Value
+	var v_request_json Value
+	var v_required Value
+	var v_rich Value
+	var v_role Value
+	var v_root_type Value
+	var v_schema Value
+	var v_state Value
+	var v_supported Value
+	var v_supported_type Value
+	var v_text Value
+	var v_texts Value
+	var v_threshold Value
+	var v_threshold_snake Value
+	var v_tools Value
+	var v_typ Value
+	var v_type_attrs Value
+	var v_type_name Value
+	var v_unsupported Value
+	var v_unused Value
+	var v_use_description Value
+	var v_valid Value
+	var v_value Value
+	var v_wire_description Value
+	var v_wrapper Value
+	var v_wrong_format Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_allowed
+	_ = v_allowed_n
+	_ = v_annotation
+	_ = v_annotation_type
+	_ = v_annotations
+	_ = v_array
+	_ = v_asset
+	_ = v_assets
+	_ = v_audio
+	_ = v_calls
+	_ = v_calls_snake
+	_ = v_class_kind
+	_ = v_class_options
+	_ = v_collision
+	_ = v_config
+	_ = v_config_snake
+	_ = v_content
+	_ = v_control
+	_ = v_controls
+	_ = v_criteria
+	_ = v_data
+	_ = v_data_url
+	_ = v_decision
+	_ = v_decision_fields
+	_ = v_description
+	_ = v_descriptions
+	_ = v_duplicate
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_entry
+	_ = v_error
+	_ = v_field
+	_ = v_flat
+	_ = v_forbidden
+	_ = v_format
+	_ = v_format_snake
+	_ = v_format_type
+	_ = v_function_call
+	_ = v_function_call_snake
+	_ = v_functions
+	_ = v_has_annotation
+	_ = v_has_assets
+	_ = v_has_audio
+	_ = v_has_call
+	_ = v_has_call_value
+	_ = v_has_calls
+	_ = v_has_description
+	_ = v_has_enum
+	_ = v_has_functions
+	_ = v_has_images
+	_ = v_has_key
+	_ = v_has_value
+	_ = v_images
+	_ = v_instructions
+	_ = v_invalid
+	_ = v_is_boolean
+	_ = v_is_box
+	_ = v_is_class
+	_ = v_is_description_string
+	_ = v_is_enum
+	_ = v_is_image
+	_ = v_is_list
+	_ = v_is_n
+	_ = v_is_score
+	_ = v_is_stream
+	_ = v_is_string
+	_ = v_is_text
+	_ = v_is_tool
+	_ = v_is_tool_alt
+	_ = v_is_user
+	_ = v_jpeg
+	_ = v_jpg
+	_ = v_key
+	_ = v_kind
+	_ = v_label
+	_ = v_labels
+	_ = v_levels
+	_ = v_matches
+	_ = v_message
+	_ = v_messages
+	_ = v_mime
+	_ = v_model
+	_ = v_name
+	_ = v_names
+	_ = v_no_enum
+	_ = v_not_flat
+	_ = v_numeric
+	_ = v_offset
+	_ = v_one
+	_ = v_optional
+	_ = v_part
+	_ = v_payload
+	_ = v_png
+	_ = v_prefix
+	_ = v_present
+	_ = v_prompt
+	_ = v_prompt_snake
+	_ = v_properties
+	_ = v_question
+	_ = v_questions
+	_ = v_reference
+	_ = v_reference_index
+	_ = v_request_json
+	_ = v_required
+	_ = v_rich
+	_ = v_role
+	_ = v_root_type
+	_ = v_schema
+	_ = v_state
+	_ = v_supported
+	_ = v_supported_type
+	_ = v_text
+	_ = v_texts
+	_ = v_threshold
+	_ = v_threshold_snake
+	_ = v_tools
+	_ = v_typ
+	_ = v_type_attrs
+	_ = v_type_name
+	_ = v_unsupported
+	_ = v_unused
+	_ = v_use_description
+	_ = v_valid
+	_ = v_value
+	_ = v_wire_description
+	_ = v_wrapper
+	_ = v_wrong_format
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
+	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
+	if _, err := typesafe_require_number(v_threshold, "trueThreshold", 0, 1); err != nil { return nil, err }
+	v_functions = coreGet(v_request, "functions", v_empty_list)
+	v_function_call_snake = coreGet(v_request, "function_call", "none")
+	v_function_call = coreGet(v_request, "functionCall", v_function_call_snake)
+	v_has_functions = _core_truthy(v_functions)
+	v_has_call = _core_ne(v_function_call, "none")
+	v_has_call_value = _core_truthy(v_function_call)
+	v_has_call = _core_and(v_has_call, v_has_call_value)
+	v_tools = _core_or(v_has_functions, v_has_call)
+	if coreTruthy(v_tools) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe does not support tools; use a generative provider for tool execution"}
+	} else {
+	// empty
+	}
+	v_config_snake = coreGet(v_request, "model_config", v_empty_map)
+	v_config = coreGet(v_request, "modelConfig", v_config_snake)
+	v_controls = _core_map_keys(v_config)
+	for _, v_control = range coreIter(v_controls) {
+		v_value = coreGet(v_config, v_control, nil)
+		v_present = _core_is_not_none(v_value)
+		if coreTruthy(v_present) {
+			v_is_stream = _core_eq(v_control, "stream")
+			v_is_n = _core_eq(v_control, "n")
+			v_one = _core_eq(v_value, 1)
+			v_numeric = coreTypeIs(v_value, "number")
+			v_one = _core_and(v_one, v_numeric)
+			v_allowed_n = _core_and(v_is_n, v_one)
+			v_allowed = _core_or(v_is_stream, v_allowed_n)
+			v_unsupported = _core_not(v_allowed)
+			if coreTruthy(v_unsupported) {
+				v_message = _core_string_format("Typesafe does not support generation control {}", v_control)
+				v_error = _core_validation_error(v_message)
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_format_snake = coreGet(v_request, "response_format", nil)
+	v_format = coreGet(v_request, "responseFormat", v_format_snake)
+	v_format_type = coreGet(v_format, "type", nil)
+	v_wrong_format = _core_ne(v_format_type, "json_schema")
+	if coreTruthy(v_wrong_format) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs"}
+	} else {
+	// empty
+	}
+	v_wrapper = coreGet(v_format, "schema", nil)
+	if _, err := typesafe_require_object(v_wrapper, "responseFormat.schema"); err != nil { return nil, err }
+	v_schema = coreGet(v_wrapper, "schema", nil)
+	if _, err := typesafe_require_object(v_schema, "output schema"); err != nil { return nil, err }
+	v_root_type = coreGet(v_schema, "type", nil)
+	v_flat = _core_eq(v_root_type, "object")
+	v_forbidden = MutableArray()
+	v_forbidden = coreAppend(v_forbidden, "anyOf")
+	v_forbidden = coreAppend(v_forbidden, "oneOf")
+	v_forbidden = coreAppend(v_forbidden, "allOf")
+	v_forbidden = coreAppend(v_forbidden, "$ref")
+	for _, v_key = range coreIter(v_forbidden) {
+		v_value = coreGet(v_schema, v_key, nil)
+		v_has_value = _core_truthy(v_value)
+		if coreTruthy(v_has_value) {
+			v_flat = false
+		} else {
+		// empty
+		}
+	}
+	v_not_flat = _core_not(v_flat)
+	if coreTruthy(v_not_flat) {
+		return nil, AxError{Category: "runtime", Message: "Typesafe requires a flat object output schema"}
+	} else {
+	// empty
+	}
+	v_properties = coreGet(v_schema, "properties", nil)
+	if _, err := typesafe_require_object(v_properties, "output properties"); err != nil { return nil, err }
+	v_required = coreGet(v_schema, "required", v_empty_list)
+	v_annotations = coreGet(v_format, "fieldDescriptions", v_empty_map)
+	v_decision_fields = coreGet(v_format, "decisionFields", v_empty_map)
+	v_questions = Object()
+	v_names = _core_map_keys(v_properties)
+	v_forbidden = coreAppend(v_forbidden, "const")
+	for _, v_name = range coreIter(v_names) {
+		v_field = coreGet(v_properties, v_name, nil)
+		if _, err := typesafe_require_object(v_field, v_name); err != nil { return nil, err }
+		v_decision = coreGet(v_decision_fields, v_name, nil)
+		v_rich = _core_is_not_none(v_decision)
+		if coreTruthy(v_rich) {
+			v_array = coreGet(v_decision, "isArray", false)
+			v_optional = coreGet(v_decision, "isOptional", false)
+			v_invalid = _core_or(v_array, v_optional)
+			if coreTruthy(v_invalid) {
+				return nil, AxError{Category: "runtime", Message: "Decision providers require flat, required scalar outputs"}
+			} else {
+			// empty
+			}
+			v_wire_description = coreGet(v_field, "description", nil)
+			v_field = Object()
+			v_kind = coreGet(v_decision, "type", nil)
+			v_class_kind = _core_eq(v_kind, "class")
+			if coreTruthy(v_class_kind) {
+				v_kind = "string"
+			} else {
+			// empty
+			}
+			if err := coreSet(v_field, "type", v_kind); err != nil { return nil, err }
+			if err := coreSet(v_field, "description", v_wire_description); err != nil { return nil, err }
+			if coreTruthy(v_class_kind) {
+				v_labels = coreGet(v_decision, "options", nil)
+				if err := coreSet(v_field, "enum", v_labels); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_supported = _core_contains(v_required, v_name)
+		for _, v_key = range coreIter(v_forbidden) {
+			v_has_key = _core_map_contains(v_field, v_key)
+			if coreTruthy(v_has_key) {
+				v_supported = false
+			} else {
+			// empty
+			}
+		}
+		v_type_name = coreGet(v_field, "type", nil)
+		v_class_options = coreGet(v_field, "enum", nil)
+		v_is_boolean = _core_eq(v_type_name, "boolean")
+		v_has_enum = _core_is_not_none(v_class_options)
+		v_no_enum = _core_not(v_has_enum)
+		v_is_boolean = _core_and(v_is_boolean, v_no_enum)
+		v_is_string = _core_eq(v_type_name, "string")
+		v_is_enum = coreTypeIs(v_class_options, "list")
+		v_is_class = _core_and(v_is_string, v_is_enum)
+		v_supported_type = _core_or(v_is_boolean, v_is_class)
+		v_is_score = _core_eq(v_type_name, "score")
+		v_supported_type = _core_or(v_supported_type, v_is_score)
+		v_is_box = _core_eq(v_type_name, "box")
+		v_supported_type = _core_or(v_supported_type, v_is_box)
+		v_supported = _core_and(v_supported, v_supported_type)
+		v_unsupported = _core_not(v_supported)
+		if coreTruthy(v_unsupported) {
+			v_message = _core_string_format("Typesafe cannot evaluate output {}. Use required boolean, class, rubric score or box fields, or a generative provider for other outputs", v_name)
+			v_error = _core_validation_error(v_message)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_annotation = coreGet(v_annotations, v_name, nil)
+		v_description = coreGet(v_field, "description", nil)
+		v_has_annotation = _core_is_not_none(v_annotation)
+		v_descriptions = Object()
+		if coreTruthy(v_has_annotation) {
+			if _, err := typesafe_require_object(v_annotation, v_name); err != nil { return nil, err }
+			v_description = coreGet(v_annotation, "description", nil)
+			v_has_description = _core_is_not_none(v_description)
+			if coreTruthy(v_has_description) {
+				if _, err := typesafe_require_string(v_description, v_name, false); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_descriptions = coreGet(v_annotation, "valueDescriptions", nil)
+			if _, err := typesafe_require_object(v_descriptions, v_name); err != nil { return nil, err }
+			v_type_attrs = Object()
+			v_annotation_type = "boolean"
+			if coreTruthy(v_is_class) {
+				v_annotation_type = "class"
+			} else {
+			// empty
+			}
+			if err := coreSet(v_type_attrs, "name", v_annotation_type); err != nil { return nil, err }
+			if err := coreSet(v_type_attrs, "options", v_class_options); err != nil { return nil, err }
+			if err := coreSet(v_type_attrs, "value_descriptions", v_descriptions); err != nil { return nil, err }
+			v_typ = _core_record_new("FieldType", v_type_attrs)
+			if _, err := _signature_validate_value_descriptions_impl(v_typ, v_name); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_instructions = _core_string_format("Evaluate the output field {}.", v_name)
+		v_is_description_string = coreTypeIs(v_description, "string")
+		v_has_description = _core_truthy(v_description)
+		v_use_description = _core_and(v_is_description_string, v_has_description)
+		if coreTruthy(v_use_description) {
+			v_instructions = _core_string_format("{}: {}", v_name, v_description)
+		} else {
+		// empty
+		}
+		v_question = Object()
+		if err := coreSet(v_question, "instructions", v_instructions); err != nil { return nil, err }
+		if coreTruthy(v_is_box) {
+			if err := coreSet(v_question, "type", "box"); err != nil { return nil, err }
+			if err := coreSet(v_questions, v_name, v_question); err != nil { return nil, err }
+			continue
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_score) {
+			if err := coreSet(v_question, "type", "score"); err != nil { return nil, err }
+			v_levels = coreGet(v_decision, "options", nil)
+			if err := coreSet(v_question, "criteria", v_levels); err != nil { return nil, err }
+			if err := coreSet(v_questions, v_name, v_question); err != nil { return nil, err }
+			continue
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_boolean) {
+			if err := coreSet(v_question, "type", "noul"); err != nil { return nil, err }
+			if coreTruthy(v_has_annotation) {
+				if err := coreSet(v_question, "criteria", v_descriptions); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+			if err := coreSet(v_question, "type", "choice"); err != nil { return nil, err }
+			v_criteria = Object()
+			for _, v_label = range coreIter(v_class_options) {
+				if _, err := typesafe_require_string(v_label, v_name, false); err != nil { return nil, err }
+				v_duplicate = _core_map_contains(v_criteria, v_label)
+				if coreTruthy(v_duplicate) {
+					return nil, AxError{Category: "runtime", Message: "Typesafe: Choice labels must be unique"}
+				} else {
+				// empty
+				}
+				v_description = coreGet(v_descriptions, v_label, nil)
+				if err := coreSet(v_criteria, v_label, v_description); err != nil { return nil, err }
+			}
+			if err := coreSet(v_question, "criteria", v_criteria); err != nil { return nil, err }
+		}
+		if err := coreSet(v_questions, v_name, v_question); err != nil { return nil, err }
+	}
+	v_prompt_snake = coreGet(v_request, "chat_prompt", v_empty_list)
+	v_prompt = coreGet(v_request, "chatPrompt", v_prompt_snake)
+	v_messages = MutableArray()
+	v_assets = Object()
+	v_reference_index = 0
+	v_request_json = _core_json_stringify(v_request)
+	for _, v_message = range coreIter(v_prompt) {
+		v_role = coreGet(v_message, "role", nil)
+		v_content = coreGet(v_message, "content", "")
+		v_is_tool = _core_eq(v_role, "function")
+		v_is_tool_alt = _core_eq(v_role, "tool")
+		v_is_tool = _core_or(v_is_tool, v_is_tool_alt)
+		v_calls = coreGet(v_message, "functionCalls", nil)
+		v_calls_snake = coreGet(v_message, "function_calls", nil)
+		v_calls = _core_coalesce(v_calls, v_calls_snake)
+		v_has_calls = _core_truthy(v_calls)
+		v_audio = coreGet(v_message, "audio", nil)
+		v_has_audio = _core_truthy(v_audio)
+		v_images = coreGet(v_message, "images", nil)
+		v_has_images = _core_truthy(v_images)
+		v_invalid = _core_or(v_is_tool, v_has_calls)
+		v_invalid = _core_or(v_invalid, v_has_audio)
+		v_invalid = _core_or(v_invalid, v_has_images)
+		if coreTruthy(v_invalid) {
+			return nil, AxError{Category: "runtime", Message: "Typesafe does not support tool or media history"}
+		} else {
+		// empty
+		}
+		v_is_list = coreTypeIs(v_content, "list")
+		if coreTruthy(v_is_list) {
+			v_texts = MutableArray()
+			for _, v_part = range coreIter(v_content) {
+				v_kind = coreGet(v_part, "type", nil)
+				v_is_text = _core_eq(v_kind, "text")
+				if coreTruthy(v_is_text) {
+					v_text = coreGet(v_part, "text", nil)
+					if _, err := typesafe_require_string(v_text, "message text", false); err != nil { return nil, err }
+					v_texts = coreAppend(v_texts, v_text)
+				} else {
+					v_is_image = _core_eq(v_kind, "image")
+					v_is_user = _core_eq(v_role, "user")
+					v_valid = _core_and(v_is_image, v_is_user)
+					v_invalid = _core_not(v_valid)
+					if coreTruthy(v_invalid) {
+						return nil, AxError{Category: "runtime", Message: "Typesafe supports text and inline PNG/JPEG images only"}
+					} else {
+					// empty
+					}
+					v_mime = coreGet(v_part, "mimeType", nil)
+					v_png = _core_eq(v_mime, "image/png")
+					v_jpeg = _core_eq(v_mime, "image/jpeg")
+					v_jpg = _core_eq(v_mime, "image/jpg")
+					v_valid = _core_or(v_png, v_jpeg)
+					v_valid = _core_or(v_valid, v_jpg)
+					v_invalid = _core_not(v_valid)
+					if coreTruthy(v_invalid) {
+						return nil, AxError{Category: "runtime", Message: "Typesafe images must be PNG or JPEG"}
+					} else {
+					// empty
+					}
+					v_format = "png"
+					if coreTruthy(v_jpeg) {
+						v_format = "jpeg"
+					} else {
+					// empty
+					}
+					if coreTruthy(v_jpg) {
+						v_format = "jpg"
+					} else {
+					// empty
+					}
+					v_data = coreGet(v_part, "image", nil)
+					if _, err := typesafe_require_string(v_data, "image data", true); err != nil { return nil, err }
+					v_data_url = _core_string_starts_with(v_data, "data:")
+					if coreTruthy(v_data_url) {
+						v_prefix = _core_string_format("data:{};base64,", v_mime)
+						v_matches = _core_string_starts_with(v_data, v_prefix)
+						v_invalid = _core_not(v_matches)
+						if coreTruthy(v_invalid) {
+							return nil, AxError{Category: "runtime", Message: "Typesafe image data URL must match its MIME type"}
+						} else {
+						// empty
+						}
+						v_offset = _core_len(v_prefix)
+						v_data = _core_string_slice(v_data, v_offset)
+					} else {
+					// empty
+					}
+					v_reference = ""
+					for {
+						v_reference = _core_string_format("ax-image-{}-ref", v_reference_index)
+						v_reference_index = _core_add(v_reference_index, 1)
+						v_collision = _core_string_index_of(v_request_json, v_reference, 0)
+						v_unused = _core_lt(v_collision, 0)
+						if coreTruthy(v_unused) {
+							break
+						} else {
+						// empty
+						}
+					}
+					v_asset = Object()
+					if err := coreSet(v_asset, "type", "image"); err != nil { return nil, err }
+					if err := coreSet(v_asset, "format", v_format); err != nil { return nil, err }
+					if err := coreSet(v_asset, "data_base64", v_data); err != nil { return nil, err }
+					if err := coreSet(v_assets, v_reference, v_asset); err != nil { return nil, err }
+					v_texts = coreAppend(v_texts, v_reference)
+				}
+			}
+			v_content = _core_string_join("\n", v_texts)
+		} else {
+		// empty
+		}
+		if _, err := typesafe_require_string(v_content, "message content", false); err != nil { return nil, err }
+		v_entry = Object()
+		if err := coreSet(v_entry, "role", v_role); err != nil { return nil, err }
+		if err := coreSet(v_entry, "content", v_content); err != nil { return nil, err }
+		v_messages = coreAppend(v_messages, v_entry)
+	}
+	v_state = Object()
+	if err := coreSet(v_state, "messages", v_messages); err != nil { return nil, err }
+	v_payload = Object()
+	v_model = coreGet(v_request, "model", "jev-latest")
+	if err := coreSet(v_payload, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_payload, "state", v_state); err != nil { return nil, err }
+	if err := coreSet(v_payload, "questions", v_questions); err != nil { return nil, err }
+	v_has_assets = _core_truthy(v_assets)
+	if coreTruthy(v_has_assets) {
+		if err := coreSet(v_payload, "assets", v_assets); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if _, err := typesafe_validate_request(v_payload); err != nil { return nil, err }
+	return v_payload, nil
 }
 
 func normalize_token_usage(args ...Value) (Value, error) {
@@ -14229,226 +15127,6 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	return nil, asError(v_error)
 }
 
-func typesafe_normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_normalize_chat_response")
-	var v_raw Value
-	var v_context Value
-	var v_answer Value
-	var v_answers Value
-	var v_below Value
-	var v_confidence Value
-	var v_content Value
-	var v_decision Value
-	var v_decision_fields Value
-	var v_distribution Value
-	var v_has_confidence Value
-	var v_has_native Value
-	var v_index Value
-	var v_input Value
-	var v_is_boolean Value
-	var v_is_noul Value
-	var v_key Value
-	var v_kind Value
-	var v_label Value
-	var v_labels Value
-	var v_metadata Value
-	var v_model Value
-	var v_model_usage Value
-	var v_name Value
-	var v_names Value
-	var v_native_evidence Value
-	var v_native_state Value
-	var v_output Value
-	var v_p Value
-	var v_probability Value
-	var v_provenance Value
-	var v_ps Value
-	var v_questions Value
-	var v_raw_evidence Value
-	var v_refusal Value
-	var v_response Value
-	var v_result Value
-	var v_results Value
-	var v_rich Value
-	var v_score Value
-	var v_threshold Value
-	var v_tokens Value
-	var v_total Value
-	var v_trusted Value
-	var v_typesafe_metadata Value
-	var v_usage Value
-	var v_value Value
-	var v_values Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_context = args[1] }
-	_ = v_context
-	_ = v_answer
-	_ = v_answers
-	_ = v_below
-	_ = v_confidence
-	_ = v_content
-	_ = v_decision
-	_ = v_decision_fields
-	_ = v_distribution
-	_ = v_has_confidence
-	_ = v_has_native
-	_ = v_index
-	_ = v_input
-	_ = v_is_boolean
-	_ = v_is_noul
-	_ = v_key
-	_ = v_kind
-	_ = v_label
-	_ = v_labels
-	_ = v_metadata
-	_ = v_model
-	_ = v_model_usage
-	_ = v_name
-	_ = v_names
-	_ = v_native_evidence
-	_ = v_native_state
-	_ = v_output
-	_ = v_p
-	_ = v_probability
-	_ = v_provenance
-	_ = v_ps
-	_ = v_questions
-	_ = v_raw_evidence
-	_ = v_refusal
-	_ = v_response
-	_ = v_result
-	_ = v_results
-	_ = v_rich
-	_ = v_score
-	_ = v_threshold
-	_ = v_tokens
-	_ = v_total
-	_ = v_trusted
-	_ = v_typesafe_metadata
-	_ = v_usage
-	_ = v_value
-	_ = v_values
-	v_questions = coreGet(v_context, "questions", nil)
-	if _, err := typesafe_require_object(v_questions, "response request questions"); err != nil { return nil, err }
-	{ v, err := typesafe_decode_response(v_raw, v_questions); if err != nil { return nil, err }; v_raw = v }
-	v_threshold = coreGet(v_context, "trueThreshold", 0.5)
-	if _, err := typesafe_require_number(v_threshold, "trueThreshold", 0, 1); err != nil { return nil, err }
-	v_answers = coreGet(v_raw, "answers", nil)
-	v_values = Object()
-	v_decision_fields = coreGet(v_context, "decisionFields", nil)
-	v_native_state = Object()
-	v_names = _core_map_keys(v_questions)
-	for _, v_name = range coreIter(v_names) {
-		v_answer = coreGet(v_answers, v_name, nil)
-		v_kind = coreGet(v_answer, "type", nil)
-		v_decision = coreGet(v_decision_fields, v_name, nil)
-		v_rich = _core_is_not_none(v_decision)
-		if coreTruthy(v_rich) {
-			v_raw_evidence = Object()
-			v_native_evidence = Object()
-			v_refusal = _core_eq(v_kind, "refusal")
-			if coreTruthy(v_refusal) {
-				if err := coreSet(v_raw_evidence, "status", "refused"); err != nil { return nil, err }
-				if err := coreSet(v_native_evidence, "refused", true); err != nil { return nil, err }
-			} else {
-				v_is_boolean = _core_eq(v_kind, "noul")
-				if coreTruthy(v_is_boolean) {
-					v_p = coreGet(v_answer, "noul", nil)
-					if err := coreSet(v_raw_evidence, "probability", v_p); err != nil { return nil, err }
-				} else {
-					v_ps = Object()
-					v_value = 0
-					v_distribution = coreGet(v_answer, "probabilities", nil)
-					v_score = _core_eq(v_kind, "score")
-					if coreTruthy(v_score) {
-						v_labels = coreGet(v_decision, "options", nil)
-						v_ps = MutableArray()
-						v_index = 0
-						for _, v_label = range coreIter(v_labels) {
-							v_key = _core_string_format("{}", v_index)
-							v_p = coreGet(v_distribution, v_key, nil)
-							v_ps = coreAppend(v_ps, v_p)
-							v_index = _core_add(v_index, 1)
-						}
-						v_value = coreGet(v_answer, "score", nil)
-					} else {
-						v_ps = v_distribution
-						v_value = coreGet(v_answer, "choice", nil)
-					}
-					if err := coreSet(v_raw_evidence, "probabilities", v_ps); err != nil { return nil, err }
-					if err := coreSet(v_native_evidence, "value", v_value); err != nil { return nil, err }
-					v_confidence = coreGet(v_answer, "confidence", nil)
-					v_has_confidence = _core_is_not_none(v_confidence)
-					if coreTruthy(v_has_confidence) {
-						if err := coreSet(v_native_evidence, "confidence", v_confidence); err != nil { return nil, err }
-					} else {
-					// empty
-					}
-				}
-			}
-			if err := coreSet(v_values, v_name, v_raw_evidence); err != nil { return nil, err }
-			if err := coreSet(v_native_state, v_name, v_native_evidence); err != nil { return nil, err }
-			continue
-		} else {
-		// empty
-		}
-		v_is_noul = _core_eq(v_kind, "noul")
-		v_value = coreGet(v_answer, "choice", nil)
-		if coreTruthy(v_is_noul) {
-			v_probability = coreGet(v_answer, "noul", nil)
-			v_below = _core_lt(v_probability, v_threshold)
-			v_value = _core_not(v_below)
-		} else {
-		// empty
-		}
-		if err := coreSet(v_values, v_name, v_value); err != nil { return nil, err }
-	}
-	v_content = _core_json_stringify(v_values)
-	v_result = Object()
-	v_trusted = Object()
-	v_provenance = Object()
-	if err := coreSet(v_provenance, "source", "native"); err != nil { return nil, err }
-	if err := coreSet(v_provenance, "provider", "Typesafe"); err != nil { return nil, err }
-	v_model = coreGet(v_raw, "model", nil)
-	if err := coreSet(v_provenance, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_trusted, "provenance", v_provenance); err != nil { return nil, err }
-	if err := coreSet(v_trusted, "native", v_native_state); err != nil { return nil, err }
-	v_has_native = _core_truthy(v_native_state)
-	if coreTruthy(v_has_native) {
-		if err := coreSet(v_result, "decisionContext", v_trusted); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	if err := coreSet(v_result, "index", 0); err != nil { return nil, err }
-	if err := coreSet(v_result, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_result, "finishReason", "stop"); err != nil { return nil, err }
-	v_results = MutableArray()
-	v_results = coreAppend(v_results, v_result)
-	v_usage = coreGet(v_raw, "usage", nil)
-	v_input = coreGet(v_usage, "input_tokens", nil)
-	v_output = coreGet(v_usage, "output_tokens", nil)
-	v_total = _core_add(v_input, v_output)
-	v_tokens = Object()
-	if err := coreSet(v_tokens, "promptTokens", v_input); err != nil { return nil, err }
-	if err := coreSet(v_tokens, "completionTokens", v_output); err != nil { return nil, err }
-	if err := coreSet(v_tokens, "totalTokens", v_total); err != nil { return nil, err }
-	v_model_usage = Object()
-	v_model = coreGet(v_raw, "model", nil)
-	if err := coreSet(v_model_usage, "ai", "Typesafe"); err != nil { return nil, err }
-	if err := coreSet(v_model_usage, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_model_usage, "tokens", v_tokens); err != nil { return nil, err }
-	v_typesafe_metadata = Object()
-	if err := coreSet(v_typesafe_metadata, "answers", v_answers); err != nil { return nil, err }
-	v_metadata = Object()
-	if err := coreSet(v_metadata, "typesafe", v_typesafe_metadata); err != nil { return nil, err }
-	v_response = Object()
-	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
-	if err := coreSet(v_response, "modelUsage", v_model_usage); err != nil { return nil, err }
-	if err := coreSet(v_response, "providerMetadata", v_metadata); err != nil { return nil, err }
-	return v_response, nil
-}
-
 func merge_usage_context(args ...Value) (Value, error) {
 	axirCoverageMark("merge_usage_context")
 	var v_defaults Value
@@ -14972,43 +15650,6 @@ func decisions_normalize_chat_response(args ...Value) (Value, error) {
 	return v_response, nil
 }
 
-func typesafe_response_context(args ...Value) (Value, error) {
-	axirCoverageMark("typesafe_response_context")
-	var v_payload Value
-	var v_options Value
-	var v_request Value
-	var v_context Value
-	var v_decision_fields Value
-	var v_empty Value
-	var v_format Value
-	var v_format_snake Value
-	var v_threshold Value
-	var v_threshold_snake Value
-	if len(args) > 0 { v_payload = args[0] }
-	_ = v_payload
-	if len(args) > 1 { v_options = args[1] }
-	_ = v_options
-	if len(args) > 2 { v_request = args[2] }
-	_ = v_request
-	_ = v_context
-	_ = v_decision_fields
-	_ = v_empty
-	_ = v_format
-	_ = v_format_snake
-	_ = v_threshold
-	_ = v_threshold_snake
-	v_empty = Object()
-	v_context = _core_map_merge(v_empty, v_payload)
-	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
-	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
-	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
-	v_format_snake = coreGet(v_request, "response_format", nil)
-	v_format = coreGet(v_request, "responseFormat", v_format_snake)
-	v_decision_fields = coreGet(v_format, "decisionFields", nil)
-	if err := coreSet(v_context, "decisionFields", v_decision_fields); err != nil { return nil, err }
-	return v_context, nil
-}
-
 func _ai_model_usage_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_ai_model_usage_impl")
 	var v_ai_name Value
@@ -15044,39 +15685,6 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
 	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func provider_validate_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("provider_validate_chat_request")
-	var v_profile Value
-	var v_request Value
-	var v_options Value
-	var v_canonical Value
-	var v_is_decisions Value
-	var v_is_typesafe Value
-	if len(args) > 0 { v_profile = args[0] }
-	_ = v_profile
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_canonical
-	_ = v_is_decisions
-	_ = v_is_typesafe
-	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
-	v_is_decisions = _core_eq(v_canonical, "openai-decisions")
-	if coreTruthy(v_is_decisions) {
-		if _, err := decisions_build_chat_request(v_request, v_options); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_is_typesafe = _core_eq(v_canonical, "typesafe")
-	if coreTruthy(v_is_typesafe) {
-		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return nil, nil
 }
 
 func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
@@ -15483,6 +16091,257 @@ func _openai_usage_with_service_tier(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
+}
+
+func typesafe_normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_normalize_chat_response")
+	var v_raw Value
+	var v_context Value
+	var v_answer Value
+	var v_answers Value
+	var v_below Value
+	var v_box Value
+	var v_confidence Value
+	var v_content Value
+	var v_coordinates Value
+	var v_decision Value
+	var v_decision_fields Value
+	var v_distribution Value
+	var v_evidence Value
+	var v_has_confidence Value
+	var v_has_evidence Value
+	var v_has_native Value
+	var v_index Value
+	var v_input Value
+	var v_is_boolean Value
+	var v_is_noul Value
+	var v_key Value
+	var v_kind Value
+	var v_label Value
+	var v_labels Value
+	var v_metadata Value
+	var v_model Value
+	var v_model_usage Value
+	var v_name Value
+	var v_names Value
+	var v_native_box Value
+	var v_native_evidence Value
+	var v_native_state Value
+	var v_output Value
+	var v_p Value
+	var v_probability Value
+	var v_provenance Value
+	var v_ps Value
+	var v_questions Value
+	var v_raw_evidence Value
+	var v_refusal Value
+	var v_response Value
+	var v_result Value
+	var v_results Value
+	var v_rich Value
+	var v_score Value
+	var v_threshold Value
+	var v_tokens Value
+	var v_total Value
+	var v_trusted Value
+	var v_typesafe_metadata Value
+	var v_usage Value
+	var v_value Value
+	var v_values Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_context = args[1] }
+	_ = v_context
+	_ = v_answer
+	_ = v_answers
+	_ = v_below
+	_ = v_box
+	_ = v_confidence
+	_ = v_content
+	_ = v_coordinates
+	_ = v_decision
+	_ = v_decision_fields
+	_ = v_distribution
+	_ = v_evidence
+	_ = v_has_confidence
+	_ = v_has_evidence
+	_ = v_has_native
+	_ = v_index
+	_ = v_input
+	_ = v_is_boolean
+	_ = v_is_noul
+	_ = v_key
+	_ = v_kind
+	_ = v_label
+	_ = v_labels
+	_ = v_metadata
+	_ = v_model
+	_ = v_model_usage
+	_ = v_name
+	_ = v_names
+	_ = v_native_box
+	_ = v_native_evidence
+	_ = v_native_state
+	_ = v_output
+	_ = v_p
+	_ = v_probability
+	_ = v_provenance
+	_ = v_ps
+	_ = v_questions
+	_ = v_raw_evidence
+	_ = v_refusal
+	_ = v_response
+	_ = v_result
+	_ = v_results
+	_ = v_rich
+	_ = v_score
+	_ = v_threshold
+	_ = v_tokens
+	_ = v_total
+	_ = v_trusted
+	_ = v_typesafe_metadata
+	_ = v_usage
+	_ = v_value
+	_ = v_values
+	v_questions = coreGet(v_context, "questions", nil)
+	if _, err := typesafe_require_object(v_questions, "response request questions"); err != nil { return nil, err }
+	{ v, err := typesafe_decode_response(v_raw, v_questions); if err != nil { return nil, err }; v_raw = v }
+	v_threshold = coreGet(v_context, "trueThreshold", 0.5)
+	if _, err := typesafe_require_number(v_threshold, "trueThreshold", 0, 1); err != nil { return nil, err }
+	v_answers = coreGet(v_raw, "answers", nil)
+	v_values = Object()
+	v_decision_fields = coreGet(v_context, "decisionFields", nil)
+	v_native_state = Object()
+	v_names = _core_map_keys(v_questions)
+	for _, v_name = range coreIter(v_names) {
+		v_answer = coreGet(v_answers, v_name, nil)
+		v_kind = coreGet(v_answer, "type", nil)
+		v_decision = coreGet(v_decision_fields, v_name, nil)
+		v_rich = _core_is_not_none(v_decision)
+		v_box = _core_eq(v_kind, "box")
+		if coreTruthy(v_box) {
+			v_coordinates = coreGet(v_answer, "box", nil)
+			v_evidence = coreGet(v_decision, "evidence", nil)
+			v_has_evidence = _core_is_not_none(v_evidence)
+			v_value = v_coordinates
+			if coreTruthy(v_has_evidence) {
+				v_value = Object()
+				if err := coreSet(v_value, "box", v_coordinates); err != nil { return nil, err }
+				v_native_box = Object()
+				v_confidence = coreGet(v_answer, "confidence", nil)
+				if err := coreSet(v_native_box, "confidence", v_confidence); err != nil { return nil, err }
+				if err := coreSet(v_native_state, v_name, v_native_box); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_values, v_name, v_value); err != nil { return nil, err }
+			continue
+		} else {
+		// empty
+		}
+		if coreTruthy(v_rich) {
+			v_raw_evidence = Object()
+			v_native_evidence = Object()
+			v_refusal = _core_eq(v_kind, "refusal")
+			if coreTruthy(v_refusal) {
+				if err := coreSet(v_raw_evidence, "status", "refused"); err != nil { return nil, err }
+				if err := coreSet(v_native_evidence, "refused", true); err != nil { return nil, err }
+			} else {
+				v_is_boolean = _core_eq(v_kind, "noul")
+				if coreTruthy(v_is_boolean) {
+					v_p = coreGet(v_answer, "noul", nil)
+					if err := coreSet(v_raw_evidence, "probability", v_p); err != nil { return nil, err }
+				} else {
+					v_ps = Object()
+					v_value = 0
+					v_distribution = coreGet(v_answer, "probabilities", nil)
+					v_score = _core_eq(v_kind, "score")
+					if coreTruthy(v_score) {
+						v_labels = coreGet(v_decision, "options", nil)
+						v_ps = MutableArray()
+						v_index = 0
+						for _, v_label = range coreIter(v_labels) {
+							v_key = _core_string_format("{}", v_index)
+							v_p = coreGet(v_distribution, v_key, nil)
+							v_ps = coreAppend(v_ps, v_p)
+							v_index = _core_add(v_index, 1)
+						}
+						v_value = coreGet(v_answer, "score", nil)
+					} else {
+						v_ps = v_distribution
+						v_value = coreGet(v_answer, "choice", nil)
+					}
+					if err := coreSet(v_raw_evidence, "probabilities", v_ps); err != nil { return nil, err }
+					if err := coreSet(v_native_evidence, "value", v_value); err != nil { return nil, err }
+					v_confidence = coreGet(v_answer, "confidence", nil)
+					v_has_confidence = _core_is_not_none(v_confidence)
+					if coreTruthy(v_has_confidence) {
+						if err := coreSet(v_native_evidence, "confidence", v_confidence); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				}
+			}
+			if err := coreSet(v_values, v_name, v_raw_evidence); err != nil { return nil, err }
+			if err := coreSet(v_native_state, v_name, v_native_evidence); err != nil { return nil, err }
+			continue
+		} else {
+		// empty
+		}
+		v_is_noul = _core_eq(v_kind, "noul")
+		v_value = coreGet(v_answer, "choice", nil)
+		if coreTruthy(v_is_noul) {
+			v_probability = coreGet(v_answer, "noul", nil)
+			v_below = _core_lt(v_probability, v_threshold)
+			v_value = _core_not(v_below)
+		} else {
+		// empty
+		}
+		if err := coreSet(v_values, v_name, v_value); err != nil { return nil, err }
+	}
+	v_content = _core_json_stringify(v_values)
+	v_result = Object()
+	v_trusted = Object()
+	v_provenance = Object()
+	if err := coreSet(v_provenance, "source", "native"); err != nil { return nil, err }
+	if err := coreSet(v_provenance, "provider", "Typesafe"); err != nil { return nil, err }
+	v_model = coreGet(v_raw, "model", nil)
+	if err := coreSet(v_provenance, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_trusted, "provenance", v_provenance); err != nil { return nil, err }
+	if err := coreSet(v_trusted, "native", v_native_state); err != nil { return nil, err }
+	v_has_native = _core_truthy(v_native_state)
+	if coreTruthy(v_has_native) {
+		if err := coreSet(v_result, "decisionContext", v_trusted); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_result, "index", 0); err != nil { return nil, err }
+	if err := coreSet(v_result, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_result, "finishReason", "stop"); err != nil { return nil, err }
+	v_results = MutableArray()
+	v_results = coreAppend(v_results, v_result)
+	v_usage = coreGet(v_raw, "usage", nil)
+	v_input = coreGet(v_usage, "input_tokens", nil)
+	v_output = coreGet(v_usage, "output_tokens", nil)
+	v_total = _core_add(v_input, v_output)
+	v_tokens = Object()
+	if err := coreSet(v_tokens, "promptTokens", v_input); err != nil { return nil, err }
+	if err := coreSet(v_tokens, "completionTokens", v_output); err != nil { return nil, err }
+	if err := coreSet(v_tokens, "totalTokens", v_total); err != nil { return nil, err }
+	v_model_usage = Object()
+	v_model = coreGet(v_raw, "model", nil)
+	if err := coreSet(v_model_usage, "ai", "Typesafe"); err != nil { return nil, err }
+	if err := coreSet(v_model_usage, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_model_usage, "tokens", v_tokens); err != nil { return nil, err }
+	v_typesafe_metadata = Object()
+	if err := coreSet(v_typesafe_metadata, "answers", v_answers); err != nil { return nil, err }
+	v_metadata = Object()
+	if err := coreSet(v_metadata, "typesafe", v_typesafe_metadata); err != nil { return nil, err }
+	v_response = Object()
+	if err := coreSet(v_response, "results", v_results); err != nil { return nil, err }
+	if err := coreSet(v_response, "modelUsage", v_model_usage); err != nil { return nil, err }
+	if err := coreSet(v_response, "providerMetadata", v_metadata); err != nil { return nil, err }
+	return v_response, nil
 }
 
 func _openai_normalize_chat_response_impl(args ...Value) (Value, error) {
@@ -16139,6 +16998,43 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func typesafe_response_context(args ...Value) (Value, error) {
+	axirCoverageMark("typesafe_response_context")
+	var v_payload Value
+	var v_options Value
+	var v_request Value
+	var v_context Value
+	var v_decision_fields Value
+	var v_empty Value
+	var v_format Value
+	var v_format_snake Value
+	var v_threshold Value
+	var v_threshold_snake Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	if len(args) > 2 { v_request = args[2] }
+	_ = v_request
+	_ = v_context
+	_ = v_decision_fields
+	_ = v_empty
+	_ = v_format
+	_ = v_format_snake
+	_ = v_threshold
+	_ = v_threshold_snake
+	v_empty = Object()
+	v_context = _core_map_merge(v_empty, v_payload)
+	v_threshold_snake = coreGet(v_options, "true_threshold", 0.5)
+	v_threshold = coreGet(v_options, "trueThreshold", v_threshold_snake)
+	if err := coreSet(v_context, "trueThreshold", v_threshold); err != nil { return nil, err }
+	v_format_snake = coreGet(v_request, "response_format", nil)
+	v_format = coreGet(v_request, "responseFormat", v_format_snake)
+	v_decision_fields = coreGet(v_format, "decisionFields", nil)
+	if err := coreSet(v_context, "decisionFields", v_decision_fields); err != nil { return nil, err }
+	return v_context, nil
+}
+
 func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_normalize_tool_calls_impl")
 	var v_calls Value
@@ -16199,6 +17095,39 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 		v_out = coreAppend(v_out, v_normalized)
 	}
 	return v_out, nil
+}
+
+func provider_validate_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_validate_chat_request")
+	var v_profile Value
+	var v_request Value
+	var v_options Value
+	var v_canonical Value
+	var v_is_decisions Value
+	var v_is_typesafe Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_canonical
+	_ = v_is_decisions
+	_ = v_is_typesafe
+	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_canonical = v }
+	v_is_decisions = _core_eq(v_canonical, "openai-decisions")
+	if coreTruthy(v_is_decisions) {
+		if _, err := decisions_build_chat_request(v_request, v_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_is_typesafe = _core_eq(v_canonical, "typesafe")
+	if coreTruthy(v_is_typesafe) {
+		if _, err := typesafe_build_chat_request(v_request, v_options); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _openai_finish_reason_impl(args ...Value) (Value, error) {
@@ -21367,7 +22296,7 @@ func provider_descriptor(args ...Value) (Value, error) {
 	_ = v_empty
 	_ = v_provider_id
 	{ v, err := provider_normalize_profile(v_profile); if err != nil { return nil, err }; v_provider_id = v }
-	{ v, err := _core_json_parse("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"claude-opus-5-5\",\"claude-fable-5-1\",\"claude-sonnet-5-5\"]},\"request\":{\"toolChoice\":\"unforced\"},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"]}}],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-09-23\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.6-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.5-transcribe\",\"body\":\"json\",\"method\":\"POST\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.8-flash-tts\",\"response\":\"json\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"exact\":[\"gemini-3.8-live\",\"gemini-3.8-live-extended-thinking\"],\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-3.8-live\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.6-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-09-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"); if err != nil { return nil, err }; v_descriptors = v }
+	{ v, err := _core_json_parse("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"claude-opus-5-5\",\"claude-fable-5-1\",\"claude-sonnet-5-5\"]},\"request\":{\"toolChoice\":\"unforced\"},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"]}}],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-09-23\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.6-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.5-transcribe\",\"body\":\"json\",\"method\":\"POST\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.8-flash-tts\",\"response\":\"json\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"exact\":[\"gemini-3.8-live\",\"gemini-3.8-live-extended-thinking\"],\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-3.8-live\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.6-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-10-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"); if err != nil { return nil, err }; v_descriptors = v }
 	v_empty = Object()
 	v_descriptor = coreGet(v_descriptors, v_provider_id, v_empty)
 	return v_descriptor, nil
@@ -44526,376 +45455,6 @@ func _optimization_component_current_map(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _evidence_decode_one_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_decode_one_impl")
-	var v_typ Value
-	var v_raw Value
-	var v_context Value
-	var v_path Value
-	var v_actual Value
-	var v_allowed Value
-	var v_answer Value
-	var v_answered_status Value
-	var v_bad_sum Value
-	var v_choice Value
-	var v_confidence Value
-	var v_copy_confidence Value
-	var v_count Value
-	var v_difference Value
-	var v_elicited Value
-	var v_error Value
-	var v_evidence Value
-	var v_finite Value
-	var v_has_confidence Value
-	var v_has_evidence Value
-	var v_high Value
-	var v_index Value
-	var v_invalid Value
-	var v_invalid_distribution Value
-	var v_invalid_shape Value
-	var v_invalid_status Value
-	var v_invalid_value Value
-	var v_is_boolean Value
-	var v_key Value
-	var v_key_count Value
-	var v_keys Value
-	var v_known Value
-	var v_label Value
-	var v_labels Value
-	var v_larger Value
-	var v_low Value
-	var v_maximum Value
-	var v_maximum_score Value
-	var v_mean Value
-	var v_missing_native Value
-	var v_name Value
-	var v_native_answers Value
-	var v_native_state Value
-	var v_object Value
-	var v_out Value
-	var v_p Value
-	var v_part Value
-	var v_plain_score Value
-	var v_policy Value
-	var v_provenance Value
-	var v_ps Value
-	var v_refused Value
-	var v_require_status Value
-	var v_return_policy Value
-	var v_score Value
-	var v_source Value
-	var v_status Value
-	var v_sum Value
-	var v_threshold Value
-	var v_throw_policy Value
-	var v_unknown Value
-	var v_valid_distribution Value
-	var v_valid_shape Value
-	var v_valid_status Value
-	var v_valid_value Value
-	var v_value Value
-	var v_wrong_count Value
-	if len(args) > 0 { v_typ = args[0] }
-	_ = v_typ
-	if len(args) > 1 { v_raw = args[1] }
-	_ = v_raw
-	if len(args) > 2 { v_context = args[2] }
-	_ = v_context
-	if len(args) > 3 { v_path = args[3] }
-	_ = v_path
-	_ = v_actual
-	_ = v_allowed
-	_ = v_answer
-	_ = v_answered_status
-	_ = v_bad_sum
-	_ = v_choice
-	_ = v_confidence
-	_ = v_copy_confidence
-	_ = v_count
-	_ = v_difference
-	_ = v_elicited
-	_ = v_error
-	_ = v_evidence
-	_ = v_finite
-	_ = v_has_confidence
-	_ = v_has_evidence
-	_ = v_high
-	_ = v_index
-	_ = v_invalid
-	_ = v_invalid_distribution
-	_ = v_invalid_shape
-	_ = v_invalid_status
-	_ = v_invalid_value
-	_ = v_is_boolean
-	_ = v_key
-	_ = v_key_count
-	_ = v_keys
-	_ = v_known
-	_ = v_label
-	_ = v_labels
-	_ = v_larger
-	_ = v_low
-	_ = v_maximum
-	_ = v_maximum_score
-	_ = v_mean
-	_ = v_missing_native
-	_ = v_name
-	_ = v_native_answers
-	_ = v_native_state
-	_ = v_object
-	_ = v_out
-	_ = v_p
-	_ = v_part
-	_ = v_plain_score
-	_ = v_policy
-	_ = v_provenance
-	_ = v_ps
-	_ = v_refused
-	_ = v_require_status
-	_ = v_return_policy
-	_ = v_score
-	_ = v_source
-	_ = v_status
-	_ = v_sum
-	_ = v_threshold
-	_ = v_throw_policy
-	_ = v_unknown
-	_ = v_valid_distribution
-	_ = v_valid_shape
-	_ = v_valid_status
-	_ = v_valid_value
-	_ = v_value
-	_ = v_wrong_count
-	v_object = coreTypeIs(v_raw, "object")
-	v_invalid = _core_not(v_object)
-	if coreTruthy(v_invalid) {
-		v_error = _core_validation_error("Decision evidence must be an object")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_name = coreGet(v_typ, "name", nil)
-	v_evidence = coreGet(v_typ, "evidence", nil)
-	v_provenance = coreGet(v_context, "provenance", nil)
-	v_source = coreGet(v_provenance, "source", "elicited")
-	v_native_state = _core_eq(v_source, "native")
-	v_native_answers = coreGet(v_context, "native", nil)
-	v_answer = coreGet(v_native_answers, v_path, nil)
-	v_status = coreGet(v_raw, "status", nil)
-	v_missing_native = _core_is_none(v_answer)
-	v_missing_native = _core_and(v_native_state, v_missing_native)
-	if coreTruthy(v_missing_native) {
-		v_error = _core_validation_error("Missing native decision")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_refused = _core_eq(v_status, "refused")
-	if coreTruthy(v_native_state) {
-		v_refused = coreGet(v_answer, "refused", false)
-	} else {
-	// empty
-	}
-	v_policy = coreGet(v_evidence, "onRefusal", "throw")
-	v_return_policy = _core_eq(v_policy, "return")
-	v_keys = _core_map_keys(v_raw)
-	if coreTruthy(v_refused) {
-		v_key_count = _core_len(v_keys)
-		v_valid_shape = _core_eq(v_key_count, 1)
-		v_valid_status = _core_eq(v_status, "refused")
-		v_valid_shape = _core_and(v_valid_shape, v_valid_status)
-		v_invalid_shape = _core_not(v_valid_shape)
-		if coreTruthy(v_invalid_shape) {
-			v_error = _core_validation_error("Invalid refusal evidence shape")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_throw_policy = _core_not(v_return_policy)
-		if coreTruthy(v_throw_policy) {
-			v_error = _core_decision_refusal_error(v_path, v_provenance)
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_out = Object()
-		if err := coreSet(v_out, "status", "refused"); err != nil { return nil, err }
-		if err := coreSet(v_out, "provenance", v_provenance); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_elicited = _core_not(v_native_state)
-	v_require_status = _core_and(v_return_policy, v_elicited)
-	v_answered_status = _core_eq(v_status, "answered")
-	v_invalid_status = _core_not(v_answered_status)
-	v_invalid_status = _core_and(v_require_status, v_invalid_status)
-	if coreTruthy(v_invalid_status) {
-		v_error = _core_validation_error("Invalid decision evidence status")
-		return nil, asError(v_error)
-	} else {
-	// empty
-	}
-	v_is_boolean = _core_eq(v_name, "boolean")
-	v_score = _core_eq(v_name, "score")
-	v_allowed = MutableArray()
-	if coreTruthy(v_is_boolean) {
-		v_allowed = coreAppend(v_allowed, "probability")
-	} else {
-		v_allowed = coreAppend(v_allowed, "probabilities")
-	}
-	if coreTruthy(v_return_policy) {
-		v_allowed = coreAppend(v_allowed, "status")
-	} else {
-	// empty
-	}
-	for _, v_key = range coreIter(v_keys) {
-		v_known = _core_contains(v_allowed, v_key)
-		v_unknown = _core_not(v_known)
-		if coreTruthy(v_unknown) {
-			v_error = _core_validation_error("Unexpected decision evidence key")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-	}
-	v_out = Object()
-	if err := coreSet(v_out, "provenance", v_provenance); err != nil { return nil, err }
-	if coreTruthy(v_is_boolean) {
-		v_p = coreGet(v_raw, "probability", nil)
-		{ v, err := _evidence_probability_impl(v_p, v_path); if err != nil { return nil, err }; v_p = v }
-		v_threshold = coreGet(v_evidence, "threshold", 0.5)
-		v_value = _core_gte(v_p, v_threshold)
-		if err := coreSet(v_out, "value", v_value); err != nil { return nil, err }
-		if err := coreSet(v_out, "probability", v_p); err != nil { return nil, err }
-		if err := coreSet(v_out, "threshold", v_threshold); err != nil { return nil, err }
-	} else {
-		v_labels = coreGet(v_typ, "options", nil)
-		v_ps = coreGet(v_raw, "probabilities", nil)
-		v_valid_distribution = coreTypeIs(v_ps, "object")
-		if coreTruthy(v_score) {
-			v_valid_distribution = coreTypeIs(v_ps, "list")
-		} else {
-		// empty
-		}
-		v_invalid_distribution = _core_not(v_valid_distribution)
-		if coreTruthy(v_invalid_distribution) {
-			v_error = _core_validation_error("Invalid decision distribution shape")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_count = _core_len(v_labels)
-		v_actual = _core_len(v_ps)
-		v_wrong_count = _core_ne(v_count, v_actual)
-		if coreTruthy(v_wrong_count) {
-			v_error = _core_validation_error("Decision probabilities must cover exactly their declared options")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_sum = 0
-		v_mean = 0
-		v_maximum = -1
-		v_choice = ""
-		v_index = 0
-		for _, v_label = range coreIter(v_labels) {
-			v_p = coreGet(v_ps, v_label, nil)
-			if coreTruthy(v_score) {
-				v_p = _core_list_get(v_ps, v_index)
-			} else {
-			// empty
-			}
-			{ v, err := _evidence_probability_impl(v_p, v_path); if err != nil { return nil, err }; v_p = v }
-			v_sum = _core_add(v_sum, v_p)
-			v_part = _core_mul(v_index, v_p)
-			v_mean = _core_add(v_mean, v_part)
-			v_larger = _core_gt(v_p, v_maximum)
-			if coreTruthy(v_larger) {
-				v_choice = v_label
-				v_maximum = v_p
-			} else {
-			// empty
-			}
-			v_index = _core_add(v_index, 1)
-		}
-		v_difference = _core_add(v_sum, -1)
-		v_low = _core_lt(v_difference, -0.01000000000001)
-		v_high = _core_gt(v_difference, 0.01000000000001)
-		v_bad_sum = _core_or(v_low, v_high)
-		if coreTruthy(v_bad_sum) {
-			v_error = _core_validation_error("Decision probabilities must sum to one")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_value = v_choice
-		if coreTruthy(v_score) {
-			v_value = _core_div(v_mean, v_sum)
-		} else {
-		// empty
-		}
-		if coreTruthy(v_native_state) {
-			v_value = coreGet(v_answer, "value", nil)
-		} else {
-		// empty
-		}
-		v_valid_value = _core_contains(v_labels, v_value)
-		if coreTruthy(v_score) {
-			v_valid_value = coreTypeIs(v_value, "number")
-			if coreTruthy(v_valid_value) {
-				v_finite = _core_math_is_finite(v_value)
-				v_low = _core_gte(v_value, 0)
-				v_maximum_score = _core_add(v_count, -1)
-				v_high = _core_lte(v_value, v_maximum_score)
-				v_valid_value = _core_and(v_low, v_high)
-				v_valid_value = _core_and(v_valid_value, v_finite)
-			} else {
-			// empty
-			}
-		} else {
-		// empty
-		}
-		v_invalid_value = _core_not(v_valid_value)
-		if coreTruthy(v_invalid_value) {
-			v_error = _core_validation_error("Invalid decision value")
-			return nil, asError(v_error)
-		} else {
-		// empty
-		}
-		v_has_evidence = _core_is_not_none(v_evidence)
-		v_plain_score = _core_not(v_has_evidence)
-		v_plain_score = _core_and(v_score, v_plain_score)
-		if coreTruthy(v_plain_score) {
-			return v_value, nil
-		} else {
-		// empty
-		}
-		if err := coreSet(v_out, "value", v_value); err != nil { return nil, err }
-		if err := coreSet(v_out, "probabilities", v_ps); err != nil { return nil, err }
-		if coreTruthy(v_score) {
-			if err := coreSet(v_out, "levels", v_labels); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-		v_confidence = coreGet(v_answer, "confidence", nil)
-		v_has_confidence = _core_is_not_none(v_confidence)
-		v_copy_confidence = _core_and(v_native_state, v_has_confidence)
-		if coreTruthy(v_copy_confidence) {
-			{ v, err := _evidence_probability_impl(v_confidence, v_path); if err != nil { return nil, err }; v_confidence = v }
-			if err := coreSet(v_out, "confidence", v_confidence); err != nil { return nil, err }
-		} else {
-		// empty
-		}
-	}
-	if coreTruthy(v_return_policy) {
-		if err := coreSet(v_out, "status", "answered"); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
 func _normalize_optimization_dataset(args ...Value) (Value, error) {
 	axirCoverageMark("_normalize_optimization_dataset")
 	var v_dataset Value
@@ -45588,6 +46147,416 @@ func _date_datetime_parts_impl(args ...Value) (Value, error) {
 	return v_parts, nil
 }
 
+func _evidence_decode_one_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_decode_one_impl")
+	var v_typ Value
+	var v_raw Value
+	var v_context Value
+	var v_path Value
+	var v_actual Value
+	var v_allowed Value
+	var v_answer Value
+	var v_answered_status Value
+	var v_bad_sum Value
+	var v_box Value
+	var v_choice Value
+	var v_confidence Value
+	var v_copy Value
+	var v_copy_confidence Value
+	var v_count Value
+	var v_difference Value
+	var v_elicited Value
+	var v_error Value
+	var v_evidence Value
+	var v_finite Value
+	var v_has_confidence Value
+	var v_has_evidence Value
+	var v_high Value
+	var v_index Value
+	var v_invalid Value
+	var v_invalid_distribution Value
+	var v_invalid_shape Value
+	var v_invalid_status Value
+	var v_invalid_value Value
+	var v_is_boolean Value
+	var v_key Value
+	var v_key_count Value
+	var v_keys Value
+	var v_known Value
+	var v_label Value
+	var v_labels Value
+	var v_larger Value
+	var v_low Value
+	var v_maximum Value
+	var v_maximum_score Value
+	var v_mean Value
+	var v_missing_native Value
+	var v_name Value
+	var v_native_answers Value
+	var v_native_state Value
+	var v_object Value
+	var v_out Value
+	var v_p Value
+	var v_part Value
+	var v_plain Value
+	var v_plain_box Value
+	var v_plain_score Value
+	var v_policy Value
+	var v_present Value
+	var v_provenance Value
+	var v_ps Value
+	var v_raw_box Value
+	var v_refused Value
+	var v_require_status Value
+	var v_return_policy Value
+	var v_score Value
+	var v_source Value
+	var v_status Value
+	var v_sum Value
+	var v_threshold Value
+	var v_throw_policy Value
+	var v_unknown Value
+	var v_valid_distribution Value
+	var v_valid_shape Value
+	var v_valid_status Value
+	var v_valid_value Value
+	var v_value Value
+	var v_wrong_count Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	if len(args) > 1 { v_raw = args[1] }
+	_ = v_raw
+	if len(args) > 2 { v_context = args[2] }
+	_ = v_context
+	if len(args) > 3 { v_path = args[3] }
+	_ = v_path
+	_ = v_actual
+	_ = v_allowed
+	_ = v_answer
+	_ = v_answered_status
+	_ = v_bad_sum
+	_ = v_box
+	_ = v_choice
+	_ = v_confidence
+	_ = v_copy
+	_ = v_copy_confidence
+	_ = v_count
+	_ = v_difference
+	_ = v_elicited
+	_ = v_error
+	_ = v_evidence
+	_ = v_finite
+	_ = v_has_confidence
+	_ = v_has_evidence
+	_ = v_high
+	_ = v_index
+	_ = v_invalid
+	_ = v_invalid_distribution
+	_ = v_invalid_shape
+	_ = v_invalid_status
+	_ = v_invalid_value
+	_ = v_is_boolean
+	_ = v_key
+	_ = v_key_count
+	_ = v_keys
+	_ = v_known
+	_ = v_label
+	_ = v_labels
+	_ = v_larger
+	_ = v_low
+	_ = v_maximum
+	_ = v_maximum_score
+	_ = v_mean
+	_ = v_missing_native
+	_ = v_name
+	_ = v_native_answers
+	_ = v_native_state
+	_ = v_object
+	_ = v_out
+	_ = v_p
+	_ = v_part
+	_ = v_plain
+	_ = v_plain_box
+	_ = v_plain_score
+	_ = v_policy
+	_ = v_present
+	_ = v_provenance
+	_ = v_ps
+	_ = v_raw_box
+	_ = v_refused
+	_ = v_require_status
+	_ = v_return_policy
+	_ = v_score
+	_ = v_source
+	_ = v_status
+	_ = v_sum
+	_ = v_threshold
+	_ = v_throw_policy
+	_ = v_unknown
+	_ = v_valid_distribution
+	_ = v_valid_shape
+	_ = v_valid_status
+	_ = v_valid_value
+	_ = v_value
+	_ = v_wrong_count
+	v_object = coreTypeIs(v_raw, "object")
+	v_invalid = _core_not(v_object)
+	if coreTruthy(v_invalid) {
+		v_error = _core_validation_error("Decision evidence must be an object")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_name = coreGet(v_typ, "name", nil)
+	v_evidence = coreGet(v_typ, "evidence", nil)
+	v_box = _core_eq(v_name, "box")
+	v_plain = _core_is_none(v_evidence)
+	v_plain_box = _core_and(v_box, v_plain)
+	if coreTruthy(v_plain_box) {
+		{ v, err := _box_validate_impl(v_raw, v_path); if err != nil { return nil, err }; v_value = v }
+		return v_value, nil
+	} else {
+	// empty
+	}
+	v_provenance = coreGet(v_context, "provenance", nil)
+	v_source = coreGet(v_provenance, "source", "elicited")
+	v_native_state = _core_eq(v_source, "native")
+	v_native_answers = coreGet(v_context, "native", nil)
+	v_answer = coreGet(v_native_answers, v_path, nil)
+	v_status = coreGet(v_raw, "status", nil)
+	v_missing_native = _core_is_none(v_answer)
+	v_missing_native = _core_and(v_native_state, v_missing_native)
+	if coreTruthy(v_missing_native) {
+		v_error = _core_validation_error("Missing native decision")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_refused = _core_eq(v_status, "refused")
+	if coreTruthy(v_native_state) {
+		v_refused = coreGet(v_answer, "refused", false)
+	} else {
+	// empty
+	}
+	v_policy = coreGet(v_evidence, "onRefusal", "throw")
+	v_return_policy = _core_eq(v_policy, "return")
+	v_keys = _core_map_keys(v_raw)
+	if coreTruthy(v_refused) {
+		v_key_count = _core_len(v_keys)
+		v_valid_shape = _core_eq(v_key_count, 1)
+		v_valid_status = _core_eq(v_status, "refused")
+		v_valid_shape = _core_and(v_valid_shape, v_valid_status)
+		v_invalid_shape = _core_not(v_valid_shape)
+		if coreTruthy(v_invalid_shape) {
+			v_error = _core_validation_error("Invalid refusal evidence shape")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_throw_policy = _core_not(v_return_policy)
+		if coreTruthy(v_throw_policy) {
+			v_error = _core_decision_refusal_error(v_path, v_provenance)
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+		v_out = Object()
+		if err := coreSet(v_out, "status", "refused"); err != nil { return nil, err }
+		if err := coreSet(v_out, "provenance", v_provenance); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_elicited = _core_not(v_native_state)
+	v_require_status = _core_and(v_return_policy, v_elicited)
+	v_answered_status = _core_eq(v_status, "answered")
+	v_invalid_status = _core_not(v_answered_status)
+	v_invalid_status = _core_and(v_require_status, v_invalid_status)
+	if coreTruthy(v_invalid_status) {
+		v_error = _core_validation_error("Invalid decision evidence status")
+		return nil, asError(v_error)
+	} else {
+	// empty
+	}
+	v_is_boolean = _core_eq(v_name, "boolean")
+	v_score = _core_eq(v_name, "score")
+	v_allowed = MutableArray()
+	if coreTruthy(v_box) {
+		v_allowed = coreAppend(v_allowed, "box")
+	} else {
+		if coreTruthy(v_is_boolean) {
+			v_allowed = coreAppend(v_allowed, "probability")
+		} else {
+			v_allowed = coreAppend(v_allowed, "probabilities")
+		}
+	}
+	if coreTruthy(v_return_policy) {
+		v_allowed = coreAppend(v_allowed, "status")
+	} else {
+	// empty
+	}
+	for _, v_key = range coreIter(v_keys) {
+		v_known = _core_contains(v_allowed, v_key)
+		v_unknown = _core_not(v_known)
+		if coreTruthy(v_unknown) {
+			v_error = _core_validation_error("Unexpected decision evidence key")
+			return nil, asError(v_error)
+		} else {
+		// empty
+		}
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "provenance", v_provenance); err != nil { return nil, err }
+	if coreTruthy(v_box) {
+		v_raw_box = coreGet(v_raw, "box", nil)
+		{ v, err := _box_validate_impl(v_raw_box, v_path); if err != nil { return nil, err }; v_value = v }
+		if err := coreSet(v_out, "value", v_value); err != nil { return nil, err }
+		v_confidence = coreGet(v_answer, "confidence", nil)
+		v_present = _core_is_not_none(v_confidence)
+		v_copy = _core_and(v_native_state, v_present)
+		if coreTruthy(v_copy) {
+			{ v, err := _evidence_probability_impl(v_confidence, v_path); if err != nil { return nil, err }; v_confidence = v }
+			if err := coreSet(v_out, "confidence", v_confidence); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+		if coreTruthy(v_is_boolean) {
+			v_p = coreGet(v_raw, "probability", nil)
+			{ v, err := _evidence_probability_impl(v_p, v_path); if err != nil { return nil, err }; v_p = v }
+			v_threshold = coreGet(v_evidence, "threshold", 0.5)
+			v_value = _core_gte(v_p, v_threshold)
+			if err := coreSet(v_out, "value", v_value); err != nil { return nil, err }
+			if err := coreSet(v_out, "probability", v_p); err != nil { return nil, err }
+			if err := coreSet(v_out, "threshold", v_threshold); err != nil { return nil, err }
+		} else {
+			v_labels = coreGet(v_typ, "options", nil)
+			v_ps = coreGet(v_raw, "probabilities", nil)
+			v_valid_distribution = coreTypeIs(v_ps, "object")
+			if coreTruthy(v_score) {
+				v_valid_distribution = coreTypeIs(v_ps, "list")
+			} else {
+			// empty
+			}
+			v_invalid_distribution = _core_not(v_valid_distribution)
+			if coreTruthy(v_invalid_distribution) {
+				v_error = _core_validation_error("Invalid decision distribution shape")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_count = _core_len(v_labels)
+			v_actual = _core_len(v_ps)
+			v_wrong_count = _core_ne(v_count, v_actual)
+			if coreTruthy(v_wrong_count) {
+				v_error = _core_validation_error("Decision probabilities must cover exactly their declared options")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_sum = 0
+			v_mean = 0
+			v_maximum = -1
+			v_choice = ""
+			v_index = 0
+			for _, v_label = range coreIter(v_labels) {
+				v_p = coreGet(v_ps, v_label, nil)
+				if coreTruthy(v_score) {
+					v_p = _core_list_get(v_ps, v_index)
+				} else {
+				// empty
+				}
+				{ v, err := _evidence_probability_impl(v_p, v_path); if err != nil { return nil, err }; v_p = v }
+				v_sum = _core_add(v_sum, v_p)
+				v_part = _core_mul(v_index, v_p)
+				v_mean = _core_add(v_mean, v_part)
+				v_larger = _core_gt(v_p, v_maximum)
+				if coreTruthy(v_larger) {
+					v_choice = v_label
+					v_maximum = v_p
+				} else {
+				// empty
+				}
+				v_index = _core_add(v_index, 1)
+			}
+			v_difference = _core_add(v_sum, -1)
+			v_low = _core_lt(v_difference, -0.01000000000001)
+			v_high = _core_gt(v_difference, 0.01000000000001)
+			v_bad_sum = _core_or(v_low, v_high)
+			if coreTruthy(v_bad_sum) {
+				v_error = _core_validation_error("Decision probabilities must sum to one")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_value = v_choice
+			if coreTruthy(v_score) {
+				v_value = _core_div(v_mean, v_sum)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_native_state) {
+				v_value = coreGet(v_answer, "value", nil)
+			} else {
+			// empty
+			}
+			v_valid_value = _core_contains(v_labels, v_value)
+			if coreTruthy(v_score) {
+				v_valid_value = coreTypeIs(v_value, "number")
+				if coreTruthy(v_valid_value) {
+					v_finite = _core_math_is_finite(v_value)
+					v_low = _core_gte(v_value, 0)
+					v_maximum_score = _core_add(v_count, -1)
+					v_high = _core_lte(v_value, v_maximum_score)
+					v_valid_value = _core_and(v_low, v_high)
+					v_valid_value = _core_and(v_valid_value, v_finite)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			v_invalid_value = _core_not(v_valid_value)
+			if coreTruthy(v_invalid_value) {
+				v_error = _core_validation_error("Invalid decision value")
+				return nil, asError(v_error)
+			} else {
+			// empty
+			}
+			v_has_evidence = _core_is_not_none(v_evidence)
+			v_plain_score = _core_not(v_has_evidence)
+			v_plain_score = _core_and(v_score, v_plain_score)
+			if coreTruthy(v_plain_score) {
+				return v_value, nil
+			} else {
+			// empty
+			}
+			if err := coreSet(v_out, "value", v_value); err != nil { return nil, err }
+			if err := coreSet(v_out, "probabilities", v_ps); err != nil { return nil, err }
+			if coreTruthy(v_score) {
+				if err := coreSet(v_out, "levels", v_labels); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_confidence = coreGet(v_answer, "confidence", nil)
+			v_has_confidence = _core_is_not_none(v_confidence)
+			v_copy_confidence = _core_and(v_native_state, v_has_confidence)
+			if coreTruthy(v_copy_confidence) {
+				{ v, err := _evidence_probability_impl(v_confidence, v_path); if err != nil { return nil, err }; v_confidence = v }
+				if err := coreSet(v_out, "confidence", v_confidence); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	}
+	if coreTruthy(v_return_policy) {
+		if err := coreSet(v_out, "status", "answered"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
 func _stream_strip_trailing_fence_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_stream_strip_trailing_fence_impl")
 	var v_text Value
@@ -46091,114 +47060,6 @@ func _stream_markdown_list_impl(args ...Value) (Value, error) {
 	return v_items, nil
 }
 
-func _evidence_decode_values_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_decode_values_impl")
-	var v_fields Value
-	var v_values Value
-	var v_context Value
-	var v_prefix Value
-	var v_array Value
-	var v_children Value
-	var v_decision Value
-	var v_decoded Value
-	var v_field Value
-	var v_has_children Value
-	var v_index Value
-	var v_item Value
-	var v_item_path Value
-	var v_items Value
-	var v_name Value
-	var v_nested Value
-	var v_path Value
-	var v_present Value
-	var v_qualified Value
-	var v_single Value
-	var v_typ Value
-	var v_value Value
-	if len(args) > 0 { v_fields = args[0] }
-	_ = v_fields
-	if len(args) > 1 { v_values = args[1] }
-	_ = v_values
-	if len(args) > 2 { v_context = args[2] }
-	_ = v_context
-	if len(args) > 3 { v_prefix = args[3] }
-	_ = v_prefix
-	_ = v_array
-	_ = v_children
-	_ = v_decision
-	_ = v_decoded
-	_ = v_field
-	_ = v_has_children
-	_ = v_index
-	_ = v_item
-	_ = v_item_path
-	_ = v_items
-	_ = v_name
-	_ = v_nested
-	_ = v_path
-	_ = v_present
-	_ = v_qualified
-	_ = v_single
-	_ = v_typ
-	_ = v_value
-	for _, v_field = range coreIter(v_fields) {
-		v_name = coreGet(v_field, "name", nil)
-		v_typ = coreGet(v_field, "type", nil)
-		v_value = coreGet(v_values, v_name, nil)
-		v_present = _core_is_not_none(v_value)
-		if coreTruthy(v_present) {
-			v_path = v_name
-			v_qualified = _core_ne(v_prefix, "")
-			if coreTruthy(v_qualified) {
-				v_path = _core_string_format("{}.{}", v_prefix, v_name)
-			} else {
-			// empty
-			}
-			{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
-			v_children = coreGet(v_typ, "fields", nil)
-			v_has_children = _core_is_not_none(v_children)
-			v_array = coreGet(v_typ, "is_array", false)
-			v_items = MutableArray()
-			if coreTruthy(v_array) {
-				v_items = v_value
-			} else {
-				v_items = coreAppend(v_items, v_value)
-			}
-			v_decoded = MutableArray()
-			v_index = 0
-			for _, v_item = range coreIter(v_items) {
-				v_item_path = v_path
-				if coreTruthy(v_array) {
-					v_item_path = _core_string_format("{}[{}]", v_path, v_index)
-				} else {
-				// empty
-				}
-				if coreTruthy(v_decision) {
-					{ v, err := _evidence_decode_one_impl(v_typ, v_item, v_context, v_item_path); if err != nil { return nil, err }; v_item = v }
-				} else {
-					if coreTruthy(v_has_children) {
-						v_nested = _core_fields_from_map(v_children)
-						{ v, err := _evidence_decode_values_impl(v_nested, v_item, v_context, v_item_path); if err != nil { return nil, err }; v_item = v }
-					} else {
-					// empty
-					}
-				}
-				v_decoded = coreAppend(v_decoded, v_item)
-				v_index = _core_add(v_index, 1)
-			}
-			if coreTruthy(v_array) {
-				if err := coreSet(v_values, v_name, v_decoded); err != nil { return nil, err }
-			} else {
-				v_single = _core_list_get(v_decoded, 0)
-				if err := coreSet(v_values, v_name, v_single); err != nil { return nil, err }
-			}
-		} else {
-		// empty
-		}
-	}
-	return v_values, nil
-}
-
 func _date_zone_resolve_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_date_zone_resolve_impl")
 	var v_units Value
@@ -46341,54 +47202,6 @@ func _date_zone_resolve_impl(args ...Value) (Value, error) {
 	}
 	v_missing_error = _core_runtime_error(v_unrecognized)
 	return nil, asError(v_missing_error)
-}
-
-func _evidence_context_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_evidence_context_impl")
-	var v_response Value
-	var v_client Value
-	var v_context Value
-	var v_found Value
-	var v_found_model Value
-	var v_model Value
-	var v_provenance Value
-	var v_provider Value
-	var v_trusted Value
-	var v_usage Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	if len(args) > 1 { v_client = args[1] }
-	_ = v_client
-	_ = v_context
-	_ = v_found
-	_ = v_found_model
-	_ = v_model
-	_ = v_provenance
-	_ = v_provider
-	_ = v_trusted
-	_ = v_usage
-	v_trusted = coreGet(v_response, "decisionContext", nil)
-	v_found = _core_is_not_none(v_trusted)
-	if coreTruthy(v_found) {
-		return v_trusted, nil
-	} else {
-	// empty
-	}
-	v_usage = coreGet(v_response, "modelUsage", nil)
-	v_provenance = Object()
-	if err := coreSet(v_provenance, "source", "elicited"); err != nil { return nil, err }
-	v_provider = coreGet(v_usage, "ai", "AI")
-	v_model = coreGet(v_usage, "model", nil)
-	if err := coreSet(v_provenance, "provider", v_provider); err != nil { return nil, err }
-	v_found_model = _core_is_not_none(v_model)
-	if coreTruthy(v_found_model) {
-		if err := coreSet(v_provenance, "model", v_model); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_context = Object()
-	if err := coreSet(v_context, "provenance", v_provenance); err != nil { return nil, err }
-	return v_context, nil
 }
 
 func _build_optimization_eval_row(args ...Value) (Value, error) {
@@ -48406,6 +49219,114 @@ func _regex_character_class(args ...Value) (Value, error) {
 	return v_t43, nil
 }
 
+func _evidence_decode_values_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_decode_values_impl")
+	var v_fields Value
+	var v_values Value
+	var v_context Value
+	var v_prefix Value
+	var v_array Value
+	var v_children Value
+	var v_decision Value
+	var v_decoded Value
+	var v_field Value
+	var v_has_children Value
+	var v_index Value
+	var v_item Value
+	var v_item_path Value
+	var v_items Value
+	var v_name Value
+	var v_nested Value
+	var v_path Value
+	var v_present Value
+	var v_qualified Value
+	var v_single Value
+	var v_typ Value
+	var v_value Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_values = args[1] }
+	_ = v_values
+	if len(args) > 2 { v_context = args[2] }
+	_ = v_context
+	if len(args) > 3 { v_prefix = args[3] }
+	_ = v_prefix
+	_ = v_array
+	_ = v_children
+	_ = v_decision
+	_ = v_decoded
+	_ = v_field
+	_ = v_has_children
+	_ = v_index
+	_ = v_item
+	_ = v_item_path
+	_ = v_items
+	_ = v_name
+	_ = v_nested
+	_ = v_path
+	_ = v_present
+	_ = v_qualified
+	_ = v_single
+	_ = v_typ
+	_ = v_value
+	for _, v_field = range coreIter(v_fields) {
+		v_name = coreGet(v_field, "name", nil)
+		v_typ = coreGet(v_field, "type", nil)
+		v_value = coreGet(v_values, v_name, nil)
+		v_present = _core_is_not_none(v_value)
+		if coreTruthy(v_present) {
+			v_path = v_name
+			v_qualified = _core_ne(v_prefix, "")
+			if coreTruthy(v_qualified) {
+				v_path = _core_string_format("{}.{}", v_prefix, v_name)
+			} else {
+			// empty
+			}
+			{ v, err := _evidence_is_type_impl(v_typ); if err != nil { return nil, err }; v_decision = v }
+			v_children = coreGet(v_typ, "fields", nil)
+			v_has_children = _core_is_not_none(v_children)
+			v_array = coreGet(v_typ, "is_array", false)
+			v_items = MutableArray()
+			if coreTruthy(v_array) {
+				v_items = v_value
+			} else {
+				v_items = coreAppend(v_items, v_value)
+			}
+			v_decoded = MutableArray()
+			v_index = 0
+			for _, v_item = range coreIter(v_items) {
+				v_item_path = v_path
+				if coreTruthy(v_array) {
+					v_item_path = _core_string_format("{}[{}]", v_path, v_index)
+				} else {
+				// empty
+				}
+				if coreTruthy(v_decision) {
+					{ v, err := _evidence_decode_one_impl(v_typ, v_item, v_context, v_item_path); if err != nil { return nil, err }; v_item = v }
+				} else {
+					if coreTruthy(v_has_children) {
+						v_nested = _core_fields_from_map(v_children)
+						{ v, err := _evidence_decode_values_impl(v_nested, v_item, v_context, v_item_path); if err != nil { return nil, err }; v_item = v }
+					} else {
+					// empty
+					}
+				}
+				v_decoded = coreAppend(v_decoded, v_item)
+				v_index = _core_add(v_index, 1)
+			}
+			if coreTruthy(v_array) {
+				if err := coreSet(v_values, v_name, v_decoded); err != nil { return nil, err }
+			} else {
+				v_single = _core_list_get(v_decoded, 0)
+				if err := coreSet(v_values, v_name, v_single); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_values, nil
+}
+
 func chat_session_observe_output(args ...Value) (Value, error) {
 	axirCoverageMark("chat_session_observe_output")
 	var v_gen Value
@@ -48606,6 +49527,54 @@ func _date_zone_offset_seconds_impl(args ...Value) (Value, error) {
 	v_name = coreGet(v_zone, "name", nil)
 	{ v, err := _core_date_zone_offset(v_name, v_millis); if err != nil { return nil, err }; v_seconds = v }
 	return v_seconds, nil
+}
+
+func _evidence_context_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_evidence_context_impl")
+	var v_response Value
+	var v_client Value
+	var v_context Value
+	var v_found Value
+	var v_found_model Value
+	var v_model Value
+	var v_provenance Value
+	var v_provider Value
+	var v_trusted Value
+	var v_usage Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_client = args[1] }
+	_ = v_client
+	_ = v_context
+	_ = v_found
+	_ = v_found_model
+	_ = v_model
+	_ = v_provenance
+	_ = v_provider
+	_ = v_trusted
+	_ = v_usage
+	v_trusted = coreGet(v_response, "decisionContext", nil)
+	v_found = _core_is_not_none(v_trusted)
+	if coreTruthy(v_found) {
+		return v_trusted, nil
+	} else {
+	// empty
+	}
+	v_usage = coreGet(v_response, "modelUsage", nil)
+	v_provenance = Object()
+	if err := coreSet(v_provenance, "source", "elicited"); err != nil { return nil, err }
+	v_provider = coreGet(v_usage, "ai", "AI")
+	v_model = coreGet(v_usage, "model", nil)
+	if err := coreSet(v_provenance, "provider", v_provider); err != nil { return nil, err }
+	v_found_model = _core_is_not_none(v_model)
+	if coreTruthy(v_found_model) {
+		if err := coreSet(v_provenance, "model", v_model); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_context = Object()
+	if err := coreSet(v_context, "provenance", v_provenance); err != nil { return nil, err }
+	return v_context, nil
 }
 
 func _prepare_optimizer_run(args ...Value) (Value, error) {
@@ -106543,6 +107512,7 @@ func (t FieldType) WithEvidence(options ...map[string]Value) FieldType {
     mustCore(_evidence_validate_type_impl(t))
     return t
 }
+func Box() FieldType { return FieldType{Name:"box"} }
 func Score(levels []string) FieldType {
     t := FieldType{Name:"score", Options:append([]string(nil), levels...)}
     mustCore(_evidence_validate_type_impl(t))
@@ -107509,19 +108479,25 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}, Headers: headers}, nil
 }
 
-// TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
-// are respectively true/false entries, named entries, or two to ten rubric entries.
+// TypesafeQuestion describes a native Noul, Choice, Score, or Box question.
+// Noul/Choice/Score criteria are true/false entries, named entries, or rubric entries.
+// Box requires instructions and an image asset and omits criteria.
 type TypesafeQuestion struct {
     Type string `json:"type"`
     Instructions Value `json:"instructions"`
     Criteria Value `json:"criteria,omitempty"`
 }
+// AxBox contains normalized image edges; Ax validates finite ranges and ordering.
+type AxBox struct { Top float64 `json:"top"`; Bottom float64 `json:"bottom"`; Left float64 `json:"left"`; Right float64 `json:"right"` }
+type TypesafeImageAsset struct { Type string `json:"type,omitempty"`; Format string `json:"format"`; DataBase64 string `json:"data_base64"` }
 type TypesafeRequest struct {
     State Value `json:"state"`
     Questions map[string]TypesafeQuestion `json:"questions"`
     Model string `json:"model,omitempty"`
+    Assets map[string]TypesafeImageAsset `json:"assets,omitempty"`
 }
 type TypesafeAnswer struct {
+    Box AxBox `json:"box,omitempty"`
     Type string `json:"type"`
     Noul float64 `json:"noul,omitempty"`
     Choice string `json:"choice,omitempty"`
@@ -107532,7 +108508,7 @@ type TypesafeAnswer struct {
 }
 func (a TypesafeAnswer) MarshalJSON()([]byte,error){
     out:=map[string]Value{"type":a.Type}
-    switch a.Type {case "noul":out["noul"]=a.Noul;case "choice":out["choice"]=a.Choice;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;case "score":out["score"]=a.Score;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;out["legend"]=a.Legend;default:return nil,fmt.Errorf("Invalid Typesafe answer type %q",a.Type)}
+    switch a.Type {case "box":out["box"]=a.Box;out["confidence"]=a.Confidence;case "noul":out["noul"]=a.Noul;case "choice":out["choice"]=a.Choice;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;case "score":out["score"]=a.Score;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;out["legend"]=a.Legend;default:return nil,fmt.Errorf("Invalid Typesafe answer type %q",a.Type)}
     return json.Marshal(out)
 }
 type TypesafeUsage struct { InputTokens int64 `json:"input_tokens"`; OutputTokens int64 `json:"output_tokens"` }
@@ -108654,6 +109630,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	}
 	headers = asMap(mustCore(provider_merge_headers(headers,coreGet(descriptor,"headers",Object()))))
 	headers = asMap(mustCore(provider_merge_headers(headers,coreGet(opts,"headers",Object()))))
+    if c.Profile=="typesafe" { headers=asMap(mustCore(provider_merge_headers(headers,mustCore(typesafe_image_headers(payload))))) }
 	if c.Profile == "meta" && operation == "transcribe" && (coreGet(request, "partialMode", coreGet(request, "partial_mode", nil)) != nil || coreTruthy(coreGet(request, "emitAudioProgress", coreGet(request, "emit_audio_progress", false)))) {
 		coreSet(headers, "Accept", "text/event-stream")
 	}
@@ -116748,8 +117725,13 @@ func runConformanceFixtureKind(fixture map[string]Value) {
         result:=expectMaybeFixtureError(func() Value {
             var result any;var err error
             if display(coreGet(fixture,"operation",nil))=="models" {result,err=client.ListModels(context.Background(),nil)} else {
+                // Validate the protocol shape before typed decoding drops unknown
+                // fields or turns explicit null criteria into an omitted field.
+                rawRequest:=cloneMap(asMap(coreGet(fixture,"request",nil)))
+                if _,present:=rawRequest["model"];!present{rawRequest["model"]="jev-latest"}
+                mustCore(typesafe_validate_request(rawRequest))
                 var request TypesafeRequest
-                err=json.Unmarshal([]byte(stableStringify(coreGet(fixture,"request",nil))),&request);if err!=nil{panic(err)}
+                err=json.Unmarshal([]byte(stableStringify(rawRequest)),&request);if err!=nil{panic(err)}
                 result,err=client.SystemOne(context.Background(),request,nil)
             }
             if err!=nil{panic(err)}
@@ -117743,6 +118725,7 @@ func conformanceFieldPayload(f Field) Value {
 }
 func conformanceFieldTypePayload(t FieldType) Value {
 	out := Object("isArray", t.IsArray, "name", t.Name)
+    if t.Evidence!=nil { coreSet(out,"evidence",t.Evidence) }
 	if len(t.Options) > 0 {
 		a := Array()
 		for _, v := range t.Options {

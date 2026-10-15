@@ -382,12 +382,34 @@ module @ax.schema version "0.1" {
       %type_name = core.get %typ["name"]
       %decision = core.call @evidence_is_type_impl(%typ)
       core.if %decision {
+        %box = core.call intrinsic.eq(%type_name, "box")
+        %array = core.get %typ["is_array"] default false
+        core.if %box {
+          %item_field = core.call intrinsic.field.item(%field)
+          %typ = core.get %item_field["type"]
+        }
         %schema = core.call @evidence_schema_impl(%typ)
         %decision_mode = core.get %options["decisionMode"] default "request"
         %result_mode = core.call intrinsic.eq(%decision_mode, "result")
         core.if %result_mode { %schema = core.call @evidence_result_schema_impl(%typ) }
         %description = core.call @signature_describe_field_values_impl(%field)
+        core.if %box {
+          %hint = core.let "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right."
+          core.if %result_mode { %hint = core.let "" }
+          %has_description = core.call intrinsic.truthy(%description)
+          core.if %has_description {
+            %has_hint = core.call intrinsic.truthy(%hint)
+            core.if %has_hint { %description = core.call intrinsic.string.format("{} {}", %description, %hint) }
+          } else { %description = core.let %hint }
+        }
         core.set %schema["description"] = %description
+        %box_array = core.call intrinsic.and(%box, %array)
+        core.if %box_array {
+          %wrapped = core.map
+          core.set %wrapped["type"] = "array"
+          core.set %wrapped["items"] = %schema
+          %schema = core.let %wrapped
+        }
         %nullable = core.call @schema_nullable_optional_impl(%schema, %field, %options)
         core.return %nullable
       }

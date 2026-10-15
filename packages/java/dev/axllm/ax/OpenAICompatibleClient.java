@@ -1018,6 +1018,7 @@ public class OpenAICompatibleClient extends AxBaseAI implements AxChatSession.Pr
     Object timeoutMs = "transcribe".equals(operation) || "speak".equals(operation) ? null : Core.provider_call_timeout_ms(errorOptions == null ? Map.of() : errorOptions);
     call.put("url", requestUrl);
     Map<String, Object> resolvedHeaders = headers();
+    if ("typesafe".equals(profile)) resolvedHeaders = Core.asMap(Core.provider_merge_headers(resolvedHeaders, Core.typesafe_image_headers(payload)));
     if ("meta".equals(profile) && "transcribe".equals(operation)) resolvedHeaders.put("Accept", "text/event-stream");
     if (credentialProvider != null) {
       Map<String, String> fresh = credentialProvider.credentials(

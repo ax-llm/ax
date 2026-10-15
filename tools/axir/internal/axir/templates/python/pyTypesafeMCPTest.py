@@ -17,6 +17,28 @@ class Socket:
     def respond(self, id, value): self.inbound.put(json.dumps({'jsonrpc':'2.0','id':id,'result':value}))
 
 class ParityTests(unittest.TestCase):
+    def test_box_native_types_and_utf8_limits(self):
+        from axllm import f, AxBox, TypesafeImageAsset, TypesafeRequest
+        from axllm.ai import typesafe_validate_request
+        box: AxBox = dict(top=0.2, bottom=0.8, left=0.1, right=0.7)
+        image: TypesafeImageAsset = dict(format="png", data_base64="AAAA")
+        request: TypesafeRequest = dict(state="photo", assets={"photo":image}, questions={"target":dict(type="box",instructions="Find it in photo")})
+        def transport(call):
+            self.assertEqual(call["headers"]["TypeSafe-Danger-Zone-Images"], "true")
+            return dict(model="jev-1.14.0",answers={"target":dict(type="box",box=box,confidence=0)},usage=dict(input_tokens=1,output_tokens=1))
+        answer = typesafe(api_key="test",transport=transport).system_one(request)["answers"]["target"]
+        self.assertEqual((answer["box"],answer["confidence"]),(box,0))
+        self.assertEqual(f.box().with_evidence().type.name,"box")
+        for count in (256,257):
+            key="😀"*count
+            candidate=dict(model="jev-1.14.0",state=key,assets={key:image},questions=request["questions"])
+            if count==256: typesafe_validate_request(candidate)
+            else:
+                with self.assertRaisesRegex(Exception,"reference length"): typesafe_validate_request(candidate)
+        # A large image exercises large base64 validation, without network IO.
+        image["data_base64"]="AAAA"*(4*1024*1024)
+        typesafe_validate_request(dict(request,model="jev-1.14.0"))
+
     def test_decisions_credentials_retry_snapshot_and_cancellation(self):
         from axllm import openai_decisions
         response = {'model':'gpt-6-luna','answers':[{'type':'predicate','name':'flag','probability':0.8}],

@@ -23,13 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-10-15-port-jev-image-assets-and-box-signature-fields` [axai] Port Jev image assets and Box signature fields
-  - Status: open
-  - Source PR: #848
-  - Source commit: `3d5aa8dac28a2637e4150f022dcd02e6fc3309f0`
-  - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/openai-decisions/api.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`, `src/ax/dsp/box.ts`, `src/ax/dsp/box.test.ts`, `src/ax/dsp/box.test-d.ts`
-  - Impact: Port TypeScript PNG/JPEG assets and experimental headers, native Box questions, normalized box signature parsing and inference, schema validation, evidence and provenance to AxIR and generated language runtimes; update capabilities, examples, conformance and language docs.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1396,6 +1390,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-07
   - Completed by: `63721bbecacbbdfec0b52117b647272cf38b709b`
   - Verification: `All 1817 conformance fixtures pass in Python, Java, C++, Go and Rust, including 64 TypeScript-derived Decisions cases. Final native tests cover case-insensitive header precedence, credential refresh on retry, inherited and per-call cancellation, routing exclusion, nested balancers and completed streaming. Ten public signature/native examples pass against OpenAI across all five languages. Strict Core checks, lint, provenance, profile and conformance synchronization, package freshness, skills, parity ledger, anti-facade and website checks pass.`
+- `axir-2026-10-13-clear-responses-usage-when-a-new-stream-starts` [axai] Clear Responses usage when a new stream starts
+  - Status: done
+  - Source PR: #843
+  - Source commit: `01935de00e8b6b57dd64544a4ed49d3862e59d03`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.stream-usage.test.ts`
+  - Impact: TypeScript clears the stored token usage of the OpenAI Responses client on response.created, so a reused client never reports the previous call's usage during the chunks of the next stream. Generated languages that keep usage across streams report stale totals.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-13
+  - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
+  - Verification: `Two public-client fixtures consume consecutive complete/incomplete-to-complete streams on the same client in all five harnesses. Existing generated per-call stream state is isolated; both calls retain their own terminal usage without leaking earlier totals. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
 - `axir-2026-10-13-map-incomplete-responses-by-their-reason-and-keep-their-usage` [axai] Map incomplete Responses by their reason and keep their usage
   - Status: done
   - Source PR: #841
@@ -1416,13 +1420,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-13
   - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
   - Verification: `Current TS-derived streaming and overload-retry fixtures cover cumulative input/cache usage, explicit zero, null and omitted fields, successive deltas, and retained speed metadata. The shared stream state keeps the latest normalized usage. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
-- `axir-2026-10-13-clear-responses-usage-when-a-new-stream-starts` [axai] Clear Responses usage when a new stream starts
+- `axir-2026-10-15-port-jev-image-assets-and-box-signature-fields` [axai] Port Jev image assets and Box signature fields
   - Status: done
-  - Source PR: #843
-  - Source commit: `01935de00e8b6b57dd64544a4ed49d3862e59d03`
-  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.stream-usage.test.ts`
-  - Impact: TypeScript clears the stored token usage of the OpenAI Responses client on response.created, so a reused client never reports the previous call's usage during the chunks of the next stream. Generated languages that keep usage across streams report stale totals.
+  - Source PR: #848
+  - Source commit: `3d5aa8dac28a2637e4150f022dcd02e6fc3309f0`
+  - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/openai-decisions/api.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`, `src/ax/dsp/box.ts`, `src/ax/dsp/box.test.ts`, `src/ax/dsp/box.test-d.ts`
+  - Impact: Port TypeScript PNG/JPEG assets and experimental headers, native Box questions, normalized box signature parsing and inference, schema validation, evidence and provenance to AxIR and generated language runtimes; update capabilities, examples, conformance and language docs.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-  - Completed at: 2026-10-13
-  - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
-  - Verification: `Two public-client fixtures consume consecutive complete/incomplete-to-complete streams on the same client in all five harnesses. Existing generated per-call stream state is isolated; both calls retain their own terminal usage without leaking earlier totals. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
+  - Completed at: 2026-10-15
+  - Completed by: `ac97e1f260ccb09bf777842ea69be9bf7fa3a67e`
+  - Verification: `41 TypeScript-derived image and Box regressions and 1956 conformance cases pass across Python, Java, C++, Go and Rust. Native typed APIs, PNG/JPEG references, experimental headers, Box schemas, evidence, refusal handling, streaming and Decisions rejection are covered. All five public localization examples pass against live Jev 1.14.0. Full TypeScript checks pass with 3937 tests and one skip; 72 CI compiler tests, fixture synchronization, generated package freshness, provider profiles and the 1992-page website checks pass.`

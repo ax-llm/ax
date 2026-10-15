@@ -383,6 +383,7 @@ struct Core {
   static Value math_abs(Value value);
   static Value string_codepoint_length(Value value);
   static Value string_utf16_units(Value value);
+  static Value string_utf8_length(Value value);
   static Value date_zone_offset(Value name, Value epoch_ms);
   static Value math_is_finite(Value value);
   static Value math_floor(Value value);
@@ -1105,7 +1106,17 @@ struct TypesafeNoul { double noul; };
 struct TypesafeChoice { std::string choice; std::map<std::string,double> probabilities; double confidence; };
 // Fractional, zero-based position in the caller's rubric.
 struct TypesafeScore { double score; std::map<std::string,double> probabilities; double confidence; Value legend; };
-using TypesafeAnswer = std::variant<TypesafeNoul,TypesafeChoice,TypesafeScore>;
+struct AxBox {
+  double top, bottom, left, right;
+  Value to_value() const { return Value(Object{{"top",top},{"bottom",bottom},{"left",left},{"right",right}}); }
+  static AxBox from_value(Value value);
+};
+struct TypesafeBox { AxBox box; double confidence; };
+struct TypesafeImageAsset {
+  std::string format, data_base64;
+  Value to_value() const { return Value(Object{{"type","image"},{"format",format},{"data_base64",data_base64}}); }
+};
+using TypesafeAnswer = std::variant<TypesafeNoul,TypesafeChoice,TypesafeScore,TypesafeBox>;
 struct TypesafeUsage { std::uint64_t input_tokens; std::uint64_t output_tokens; };
 struct TypesafeResponse {
   std::string model;
@@ -1128,7 +1139,8 @@ struct TypesafeRequest {
   Value state;
   std::map<std::string,TypesafeQuestion> questions;
   std::string model;
-  Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);return value;}
+  std::map<std::string,TypesafeImageAsset> assets;
+  Value to_value() const {Value entries=Value::object();for(const auto& entry:questions)Core::set(entries,entry.first,entry.second.to_value());Value value=Value(Object{{"state",state},{"questions",entries}});if(!model.empty())Core::set(value,"model",model);if(!assets.empty()){Value images=Value::object();for(const auto& item:assets)Core::set(images,item.first,item.second.to_value());Core::set(value,"assets",images);}return value;}
 };
 
 class AxAIOpenAIDecisionsClient {

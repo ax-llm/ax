@@ -24,8 +24,14 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Protocol, TypedDict, Literal
 from .signature import (
+    _box_validate_impl,
     _signature_validate_value_descriptions_impl,
 )
+from .signature import _core_string_utf8_length
+
+def _core_string_index_of(value, needle, start=0):
+    return str(value).find(str(needle), max(0, int(start)))
+
 from .signature import _core_record_new, _core_regex_match, _js_json_dumps, _js_number_text, _js_format, _js_text
 import warnings
 
@@ -1922,6 +1928,8 @@ class ProviderOperationClient(AxBaseAI):
         request_base_url = (base_url or self.base_url).rstrip("/")
         request_url = endpoint if endpoint.startswith(("http://", "https://")) else request_base_url + endpoint
         headers = self._headers()
+        if self.profile == "typesafe":
+            headers = provider_merge_headers(headers, typesafe_image_headers(payload))
         if accept:
             headers["Accept"] = accept
         if self.credential_provider:
@@ -2140,10 +2148,24 @@ class _TypesafeQuestionOptions(TypedDict, total=False):
     criteria: dict[str, TypesafeEntry] | list[TypesafeEntry] | None
 
 class TypesafeQuestion(_TypesafeQuestionOptions):
-    type: Literal["noul", "choice", "score"]
+    type: Literal["noul", "choice", "score", "box"]
+
+class AxBox(TypedDict):
+    top: float
+    bottom: float
+    left: float
+    right: float
+
+class _TypesafeImageAssetOptions(TypedDict, total=False):
+    type: Literal["image"]
+
+class TypesafeImageAsset(_TypesafeImageAssetOptions):
+    format: Literal["png", "jpg", "jpeg"]
+    data_base64: str
 
 class _TypesafeRequestOptions(TypedDict, total=False):
     model: str
+    assets: dict[str, TypesafeImageAsset]
 
 class TypesafeRequest(_TypesafeRequestOptions):
     state: TypesafeEntry
@@ -2166,7 +2188,12 @@ class TypesafeScore(TypedDict):
     confidence: float
     legend: dict[str, TypesafeEntry]
 
-TypesafeAnswer = TypesafeNoul | TypesafeChoice | TypesafeScore
+class TypesafeBox(TypedDict):
+    type: Literal["box"]
+    box: AxBox
+    confidence: float
+
+TypesafeAnswer = TypesafeNoul | TypesafeChoice | TypesafeScore | TypesafeBox
 
 class TypesafeUsage(TypedDict):
     input_tokens: int
@@ -4126,94 +4153,37 @@ def typesafe_validate_entry(value: Any, context: str) -> None:
     return None
 
 
-def typesafe_validate_request(request: Any) -> None:
-    _core_coverage_mark("typesafe_validate_request")
-    typesafe_require_object(request, "request")
-    model = _core_get(request, "model", None)
-    typesafe_require_string(model, "model", True)
-    has_state = _core_map_contains(request, "state")
-    missing_state = _core_not(has_state)
-    if missing_state:
-        raise RuntimeError("Typesafe: state is required (null is allowed)")
+def typesafe_utf8_size(text: str) -> i64:
+    _core_coverage_mark("typesafe_utf8_size")
+    size = _core_string_utf8_length(text)
+    return size
+
+
+def typesafe_collect_strings(value: Any) -> list[Any]:
+    _core_coverage_mark("typesafe_collect_strings")
+    out = []
+    string = _core_type_is(value, "string")
+    if string:
+        out.append(value)
     else:
-        pass
-    state = _core_get(request, "state", None)
-    typesafe_validate_entry(state, "state")
-    questions = _core_get(request, "questions", None)
-    typesafe_require_object(questions, "questions")
-    keys = _core_map_keys(questions)
-    count = _core_len(keys)
-    empty = _core_eq(count, 0)
-    if empty:
-        raise RuntimeError("Typesafe: questions must not be empty")
-    else:
-        pass
-    for key in keys:
-        question = _core_get(questions, key, None)
-        typesafe_require_object(question, key)
-        instructions = _core_get(question, "instructions", None)
-        typesafe_validate_entry(instructions, key)
-        kind = _core_get(question, "type", None)
-        criteria = _core_get(question, "criteria", None)
-        is_noul = _core_eq(kind, "noul")
-        is_choice = _core_eq(kind, "choice")
-        is_score = _core_eq(kind, "score")
-        if is_noul:
-            has_criteria = _core_is_not_none(criteria)
-            if has_criteria:
-                typesafe_require_object(criteria, key)
-                labels = _core_map_keys(criteria)
-                for label in labels:
-                    true_label = _core_eq(label, "true")
-                    false_label = _core_eq(label, "false")
-                    valid_label = _core_or(true_label, false_label)
-                    invalid_label = _core_not(valid_label)
-                    if invalid_label:
-                        raise RuntimeError("Typesafe: Noul criteria only accept true and false")
-                    else:
-                        pass
-                    entry = _core_get(criteria, label, None)
-                    typesafe_validate_entry(entry, key)
+        object = _core_type_is(value, "object")
+        list = _core_type_is(value, "list")
+        items = []
+        if object:
+            keys = _core_map_keys(value)
+            for key in keys:
+                item = _core_get(value, key, None)
+                items.append(item)
+        else:
+            if list:
+                items = value
             else:
                 pass
-        else:
-            if is_choice:
-                typesafe_require_object(criteria, key)
-                labels = _core_map_keys(criteria)
-                size = _core_len(labels)
-                too_small = _core_lt(size, 1)
-                too_large = _core_gt(size, 255)
-                invalid_size = _core_or(too_small, too_large)
-                if invalid_size:
-                    raise RuntimeError("Typesafe: Choice requires 1 to 255 options")
-                else:
-                    pass
-                for label in labels:
-                    entry = _core_get(criteria, label, None)
-                    typesafe_validate_entry(entry, key)
-            else:
-                if is_score:
-                    is_list = _core_type_is(criteria, "list")
-                    not_list = _core_not(is_list)
-                    if not_list:
-                        raise RuntimeError("Typesafe: Score requires an array of 2 to 10 levels")
-                    else:
-                        pass
-                    size = _core_len(criteria)
-                    too_small = _core_lt(size, 2)
-                    too_large = _core_gt(size, 10)
-                    invalid_size = _core_or(too_small, too_large)
-                    if invalid_size:
-                        raise RuntimeError("Typesafe: Score requires 2 to 10 levels")
-                    else:
-                        pass
-                    for entry in criteria:
-                        typesafe_validate_entry(entry, key)
-                else:
-                    message = _core_string_format("Typesafe: unknown question type for {}", key)
-                    error = _core_validation_error(message)
-                    raise error
-    return None
+        for item in items:
+            strings = typesafe_collect_strings(item)
+            for text in strings:
+                out.append(text)
+    return out
 
 
 def _openai_apply_cache_breakpoint_impl(message: Any) -> Any:
@@ -4275,6 +4245,124 @@ def _openai_apply_cache_breakpoint_impl(message: Any) -> Any:
     else:
         pass
     return out
+
+
+def typesafe_validate_assets(request: Any) -> None:
+    _core_coverage_mark("typesafe_validate_assets")
+    present = _core_map_contains(request, "assets")
+    absent = _core_not(present)
+    if absent:
+        return None
+    else:
+        pass
+    assets = _core_get(request, "assets", None)
+    typesafe_require_object(assets, "assets")
+    state = _core_get(request, "state", None)
+    strings = typesafe_collect_strings(state)
+    questions = _core_get(request, "questions", None)
+    typesafe_validate_json(questions)
+    question_keys = _core_map_keys(questions)
+    for name in question_keys:
+        question = _core_get(questions, name, None)
+        instructions = _core_get(question, "instructions", None)
+        criteria = _core_get(question, "criteria", None)
+        entries = []
+        entries.append(instructions)
+        entries.append(criteria)
+        for entry in entries:
+            texts = typesafe_collect_strings(entry)
+            for text in texts:
+                strings.append(text)
+    keys = _core_map_keys(assets)
+    total_key_bytes = 0
+    for key in keys:
+        trimmed = str(key).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+        bytes = typesafe_utf8_size(key)
+        total_key_bytes = _core_add(total_key_bytes, bytes)
+        empty = _core_eq(trimmed, "")
+        long_key = _core_gt(bytes, 1024)
+        too_many = _core_gt(total_key_bytes, 65536)
+        invalid = _core_or(empty, long_key)
+        invalid = _core_or(invalid, too_many)
+        if invalid:
+            raise RuntimeError("Typesafe: invalid image reference length")
+        else:
+            pass
+        used = False
+        for text in strings:
+            index = _core_string_index_of(text, key, 0)
+            found = _core_gte(index, 0)
+            used = _core_or(used, found)
+        unused = _core_not(used)
+        if unused:
+            raise RuntimeError("Typesafe: image asset is not referenced")
+        else:
+            pass
+        asset = _core_get(assets, key, None)
+        typesafe_require_object(asset, "image asset")
+        kind = _core_get(asset, "type", "image")
+        not_image = _core_ne(kind, "image")
+        if not_image:
+            raise RuntimeError("Typesafe: assets must be images")
+        else:
+            pass
+        multipart = _core_map_contains(asset, "part")
+        if multipart:
+            raise RuntimeError("Typesafe: multipart assets are not supported; use data_base64")
+        else:
+            pass
+        format = _core_get(asset, "format", None)
+        formats = []
+        formats.append("png")
+        formats.append("jpg")
+        formats.append("jpeg")
+        valid = _core_contains(formats, format)
+        invalid = _core_not(valid)
+        if invalid:
+            raise RuntimeError("Typesafe: images must be PNG or JPEG")
+        else:
+            pass
+        data = _core_get(asset, "data_base64", None)
+        typesafe_require_string(data, "image data_base64", True)
+        length = _core_len(data)
+        groups = _core_div(length, 4)
+        whole = _core_math_floor(groups)
+        padded = _core_eq(groups, whole)
+        base64 = _core_regex_match("^[A-Za-z0-9+/]+={0,2}$", data)
+        lf = _core_string_ends_with(data, "\n")
+        cr = _core_string_ends_with(data, "\r")
+        newline = _core_or(lf, cr)
+        no_newline = _core_not(newline)
+        base64 = _core_and(base64, no_newline)
+        valid = _core_and(padded, base64)
+        invalid = _core_not(valid)
+        if invalid:
+            raise RuntimeError("Typesafe: image data_base64 must be padded base64 without a data URL prefix")
+        else:
+            pass
+        bytes = _core_mul(groups, 3)
+        two_padding = _core_string_ends_with(data, "==")
+        one_padding = _core_string_ends_with(data, "=")
+        if two_padding:
+            bytes = _core_add(bytes, -2)
+        else:
+            if one_padding:
+                bytes = _core_add(bytes, -1)
+            else:
+                pass
+        too_large = _core_gt(bytes, 16777216)
+        if too_large:
+            raise RuntimeError("Typesafe: image exceeds 16 MiB")
+        else:
+            pass
+    json = _core_json_stringify(request)
+    size = typesafe_utf8_size(json)
+    too_large = _core_gt(size, 33554432)
+    if too_large:
+        raise RuntimeError("Typesafe: image request exceeds 32 MiB")
+    else:
+        pass
+    return None
 
 
 def resolve_model_key(client_options: Any, request: Any, options: Any, default_model: Any, embed: bool) -> Any:
@@ -4436,117 +4524,6 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     return None
 
 
-def typesafe_decode_response(raw: Any, questions: Any) -> Any:
-    _core_coverage_mark("typesafe_decode_response")
-    typesafe_require_object(raw, "response")
-    model = _core_get(raw, "model", None)
-    typesafe_require_string(model, "response.model", True)
-    usage = _core_get(raw, "usage", None)
-    typesafe_require_object(usage, "usage")
-    token_keys = []
-    token_keys.append("input_tokens")
-    token_keys.append("output_tokens")
-    for key in token_keys:
-        count = _core_get(usage, key, None)
-        typesafe_require_number(count, key, 0, 9007199254740991)
-        integer = _core_math_floor(count)
-        invalid = _core_ne(count, integer)
-        if invalid:
-            raise RuntimeError("Typesafe: token counts must be nonnegative safe integers")
-        else:
-            pass
-    answers = _core_get(raw, "answers", None)
-    typesafe_require_object(answers, "answers")
-    keys = _core_map_keys(questions)
-    for key in keys:
-        question = _core_get(questions, key, None)
-        kind = _core_get(question, "type", None)
-        answer = _core_get(answers, key, None)
-        typesafe_require_object(answer, key)
-        answer_kind = _core_get(answer, "type", None)
-        mismatch = _core_ne(kind, answer_kind)
-        if mismatch:
-            message = _core_string_format("Typesafe: answer type mismatch for {}", key)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        is_noul = _core_eq(kind, "noul")
-        if is_noul:
-            probability = _core_get(answer, "noul", None)
-            typesafe_require_number(probability, key, 0, 1)
-        else:
-            confidence = _core_get(answer, "confidence", None)
-            typesafe_require_number(confidence, "confidence", 0, 1)
-            criteria = _core_get(question, "criteria", None)
-            is_choice = _core_eq(kind, "choice")
-            labels = []
-            if is_choice:
-                labels = _core_map_keys(criteria)
-                choice = _core_get(answer, "choice", None)
-                typesafe_require_string(choice, key, False)
-                known = _core_contains(labels, choice)
-                unknown = _core_not(known)
-                if unknown:
-                    message = _core_string_format("Typesafe: invalid selected Choice label for {}", key)
-                    error = _core_validation_error(message)
-                    raise error
-                else:
-                    pass
-            else:
-                index = 0
-                for entry in criteria:
-                    label = _core_string_format("{}", index)
-                    labels.append(label)
-                    index = _core_add(index, 1)
-                upper = _core_add(index, -1)
-                score = _core_get(answer, "score", None)
-                typesafe_require_number(score, key, 0, upper)
-                legend = _core_get(answer, "legend", None)
-                typesafe_require_object(legend, "legend")
-                legend_keys = _core_map_keys(legend)
-                legend_size = _core_len(legend_keys)
-                wrong_size = _core_ne(legend_size, index)
-                if wrong_size:
-                    raise RuntimeError("Typesafe: Score legend must match rubric indices")
-                else:
-                    pass
-                for label in labels:
-                    present = _core_map_contains(legend, label)
-                    missing = _core_not(present)
-                    if missing:
-                        raise RuntimeError("Typesafe: Score legend must match rubric indices")
-                    else:
-                        pass
-                    entry = _core_get(legend, label, None)
-                    typesafe_validate_entry(entry, "legend")
-            probabilities = _core_get(answer, "probabilities", None)
-            typesafe_require_object(probabilities, "probabilities")
-            probability_keys = _core_map_keys(probabilities)
-            size = _core_len(probability_keys)
-            expected_size = _core_len(labels)
-            wrong_size = _core_ne(size, expected_size)
-            if wrong_size:
-                raise RuntimeError("Typesafe: probabilities must match criteria keys")
-            else:
-                pass
-            total = 0
-            for label in labels:
-                probability = _core_get(probabilities, label, None)
-                typesafe_require_number(probability, label, 0, 1)
-                total = _core_add(total, probability)
-            difference = _core_add(total, -1)
-            difference = _core_math_abs(difference)
-            roundoff = _core_mul(0.0000000000000002220446049250313, expected_size)
-            tolerance = _core_add(0.01, roundoff)
-            invalid_sum = _core_gt(difference, tolerance)
-            if invalid_sum:
-                raise RuntimeError("Typesafe: probabilities must sum to one")
-            else:
-                pass
-    return raw
-
-
 def decisions_decode_response(raw: Any, questions: Any) -> Any:
     _core_coverage_mark("decisions_decode_response")
     decisions_require_object(raw, "response")
@@ -4687,10 +4664,149 @@ def decisions_decode_response(raw: Any, questions: Any) -> Any:
     return raw
 
 
+def typesafe_image_headers(request: Any) -> Any:
+    _core_coverage_mark("typesafe_image_headers")
+    assets = _core_get(request, "assets", None)
+    enabled = _core_truthy(assets)
+    questions = _core_get(request, "questions", None)
+    keys = _core_map_keys(questions)
+    for key in keys:
+        question = _core_get(questions, key, None)
+        kind = _core_get(question, "type", None)
+        box = _core_eq(kind, "box")
+        enabled = _core_or(enabled, box)
+    headers = {}
+    if enabled:
+        headers["TypeSafe-Danger-Zone-Images"] = "true"
+    else:
+        pass
+    return headers
+
+
 def _openai_is_gpt56_family_impl(model: str) -> bool:
     _core_coverage_mark("_openai_is_gpt56_family_impl")
     is_gpt56 = _core_regex_match("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)", model)
     return is_gpt56
+
+
+def typesafe_validate_request(request: Any) -> None:
+    _core_coverage_mark("typesafe_validate_request")
+    typesafe_require_object(request, "request")
+    model = _core_get(request, "model", None)
+    typesafe_require_string(model, "model", True)
+    has_state = _core_map_contains(request, "state")
+    missing_state = _core_not(has_state)
+    if missing_state:
+        raise RuntimeError("Typesafe: state is required (null is allowed)")
+    else:
+        pass
+    state = _core_get(request, "state", None)
+    typesafe_validate_entry(state, "state")
+    questions = _core_get(request, "questions", None)
+    typesafe_require_object(questions, "questions")
+    typesafe_validate_assets(request)
+    keys = _core_map_keys(questions)
+    count = _core_len(keys)
+    empty = _core_eq(count, 0)
+    if empty:
+        raise RuntimeError("Typesafe: questions must not be empty")
+    else:
+        pass
+    for key in keys:
+        question = _core_get(questions, key, None)
+        typesafe_require_object(question, key)
+        instructions = _core_get(question, "instructions", None)
+        typesafe_validate_entry(instructions, key)
+        kind = _core_get(question, "type", None)
+        criteria = _core_get(question, "criteria", None)
+        is_box = _core_eq(kind, "box")
+        if is_box:
+            has_instructions = _core_is_not_none(instructions)
+            string = _core_type_is(instructions, "string")
+            if string:
+                trimmed = str(instructions).strip("\t\n\x0b\x0c\r \xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+                has_instructions = _core_ne(trimmed, "")
+            else:
+                pass
+            missing = _core_not(has_instructions)
+            if missing:
+                raise RuntimeError("Typesafe: Box requires instructions")
+            else:
+                pass
+            has_criteria = _core_map_contains(question, "criteria")
+            if has_criteria:
+                raise RuntimeError("Typesafe: Box does not accept criteria")
+            else:
+                pass
+            assets = _core_get(request, "assets", None)
+            has_images = _core_truthy(assets)
+            missing = _core_not(has_images)
+            if missing:
+                raise RuntimeError("Typesafe: Box requires an image asset")
+            else:
+                pass
+            continue
+        else:
+            pass
+        is_noul = _core_eq(kind, "noul")
+        is_choice = _core_eq(kind, "choice")
+        is_score = _core_eq(kind, "score")
+        if is_noul:
+            has_criteria = _core_is_not_none(criteria)
+            if has_criteria:
+                typesafe_require_object(criteria, key)
+                labels = _core_map_keys(criteria)
+                for label in labels:
+                    true_label = _core_eq(label, "true")
+                    false_label = _core_eq(label, "false")
+                    valid_label = _core_or(true_label, false_label)
+                    invalid_label = _core_not(valid_label)
+                    if invalid_label:
+                        raise RuntimeError("Typesafe: Noul criteria only accept true and false")
+                    else:
+                        pass
+                    entry = _core_get(criteria, label, None)
+                    typesafe_validate_entry(entry, key)
+            else:
+                pass
+        else:
+            if is_choice:
+                typesafe_require_object(criteria, key)
+                labels = _core_map_keys(criteria)
+                size = _core_len(labels)
+                too_small = _core_lt(size, 1)
+                too_large = _core_gt(size, 255)
+                invalid_size = _core_or(too_small, too_large)
+                if invalid_size:
+                    raise RuntimeError("Typesafe: Choice requires 1 to 255 options")
+                else:
+                    pass
+                for label in labels:
+                    entry = _core_get(criteria, label, None)
+                    typesafe_validate_entry(entry, key)
+            else:
+                if is_score:
+                    is_list = _core_type_is(criteria, "list")
+                    not_list = _core_not(is_list)
+                    if not_list:
+                        raise RuntimeError("Typesafe: Score requires an array of 2 to 10 levels")
+                    else:
+                        pass
+                    size = _core_len(criteria)
+                    too_small = _core_lt(size, 2)
+                    too_large = _core_gt(size, 10)
+                    invalid_size = _core_or(too_small, too_large)
+                    if invalid_size:
+                        raise RuntimeError("Typesafe: Score requires 2 to 10 levels")
+                    else:
+                        pass
+                    for entry in criteria:
+                        typesafe_validate_entry(entry, key)
+                else:
+                    message = _core_string_format("Typesafe: unknown question type for {}", key)
+                    error = _core_validation_error(message)
+                    raise error
+    return None
 
 
 def _openai_is_gpt6_family_impl(model: str) -> bool:
@@ -4794,27 +4910,6 @@ def _openai_supports_breakpoint_caching_impl(model: str) -> bool:
     return supported
 
 
-def typesafe_decode_models(raw: Any) -> Any:
-    _core_coverage_mark("typesafe_decode_models")
-    typesafe_require_object(raw, "model catalog")
-    models = _core_get(raw, "models", None)
-    is_list = _core_type_is(models, "list")
-    invalid = _core_not(is_list)
-    if invalid:
-        raise RuntimeError("Typesafe: models must be an array")
-    else:
-        pass
-    for model in models:
-        typesafe_require_object(model, "model")
-        name = _core_get(model, "name", None)
-        description = _core_get(model, "description", None)
-        release_date = _core_get(model, "release_date", None)
-        typesafe_require_string(name, "model.name", True)
-        typesafe_require_string(description, "model.description", False)
-        typesafe_require_string(release_date, "model.release_date", False)
-    return models
-
-
 def _openai_supports_chat_sessions_impl(model: str) -> bool:
     _core_coverage_mark("_openai_supports_chat_sessions_impl")
     is_astra = _openai_is_gpt6_astra_impl(model)
@@ -4822,265 +4917,6 @@ def _openai_supports_chat_sessions_impl(model: str) -> bool:
     on_openai = _core_not(is_bedrock)
     supported = _core_and(is_astra, on_openai)
     return supported
-
-
-def typesafe_build_chat_request(request: Any, options: Any) -> Any:
-    _core_coverage_mark("typesafe_build_chat_request")
-    empty_map = {}
-    empty_list = []
-    threshold_snake = _core_get(options, "true_threshold", 0.5)
-    threshold = _core_get(options, "trueThreshold", threshold_snake)
-    typesafe_require_number(threshold, "trueThreshold", 0, 1)
-    functions = _core_get(request, "functions", empty_list)
-    function_call_snake = _core_get(request, "function_call", "none")
-    function_call = _core_get(request, "functionCall", function_call_snake)
-    has_functions = _core_truthy(functions)
-    has_call = _core_ne(function_call, "none")
-    has_call_value = _core_truthy(function_call)
-    has_call = _core_and(has_call, has_call_value)
-    tools = _core_or(has_functions, has_call)
-    if tools:
-        raise RuntimeError("Typesafe does not support tools; use a generative provider for tool execution")
-    else:
-        pass
-    config_snake = _core_get(request, "model_config", empty_map)
-    config = _core_get(request, "modelConfig", config_snake)
-    controls = _core_map_keys(config)
-    for control in controls:
-        value = _core_get(config, control, None)
-        present = _core_is_not_none(value)
-        if present:
-            is_stream = _core_eq(control, "stream")
-            is_n = _core_eq(control, "n")
-            one = _core_eq(value, 1)
-            numeric = _core_type_is(value, "number")
-            one = _core_and(one, numeric)
-            allowed_n = _core_and(is_n, one)
-            allowed = _core_or(is_stream, allowed_n)
-            unsupported = _core_not(allowed)
-            if unsupported:
-                message = _core_string_format("Typesafe does not support generation control {}", control)
-                error = _core_validation_error(message)
-                raise error
-            else:
-                pass
-        else:
-            pass
-    format_snake = _core_get(request, "response_format", None)
-    format = _core_get(request, "responseFormat", format_snake)
-    format_type = _core_get(format, "type", None)
-    wrong_format = _core_ne(format_type, "json_schema")
-    if wrong_format:
-        raise RuntimeError("Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs")
-    else:
-        pass
-    wrapper = _core_get(format, "schema", None)
-    typesafe_require_object(wrapper, "responseFormat.schema")
-    schema = _core_get(wrapper, "schema", None)
-    typesafe_require_object(schema, "output schema")
-    root_type = _core_get(schema, "type", None)
-    flat = _core_eq(root_type, "object")
-    forbidden = []
-    forbidden.append("anyOf")
-    forbidden.append("oneOf")
-    forbidden.append("allOf")
-    forbidden.append("$ref")
-    for key in forbidden:
-        value = _core_get(schema, key, None)
-        has_value = _core_truthy(value)
-        if has_value:
-            flat = False
-        else:
-            pass
-    not_flat = _core_not(flat)
-    if not_flat:
-        raise RuntimeError("Typesafe requires a flat object output schema")
-    else:
-        pass
-    properties = _core_get(schema, "properties", None)
-    typesafe_require_object(properties, "output properties")
-    required = _core_get(schema, "required", empty_list)
-    annotations = _core_get(format, "fieldDescriptions", empty_map)
-    decision_fields = _core_get(format, "decisionFields", empty_map)
-    questions = {}
-    names = _core_map_keys(properties)
-    forbidden.append("const")
-    for name in names:
-        field = _core_get(properties, name, None)
-        typesafe_require_object(field, name)
-        decision = _core_get(decision_fields, name, None)
-        rich = _core_is_not_none(decision)
-        if rich:
-            array = _core_get(decision, "isArray", False)
-            optional = _core_get(decision, "isOptional", False)
-            invalid = _core_or(array, optional)
-            if invalid:
-                raise RuntimeError("Decision providers require flat, required scalar outputs")
-            else:
-                pass
-            wire_description = _core_get(field, "description", None)
-            field = {}
-            kind = _core_get(decision, "type", None)
-            class_kind = _core_eq(kind, "class")
-            if class_kind:
-                kind = "string"
-            else:
-                pass
-            field["type"] = kind
-            field["description"] = wire_description
-            if class_kind:
-                labels = _core_get(decision, "options", None)
-                field["enum"] = labels
-            else:
-                pass
-        else:
-            pass
-        supported = _core_contains(required, name)
-        for key in forbidden:
-            has_key = _core_map_contains(field, key)
-            if has_key:
-                supported = False
-            else:
-                pass
-        type_name = _core_get(field, "type", None)
-        class_options = _core_get(field, "enum", None)
-        is_boolean = _core_eq(type_name, "boolean")
-        has_enum = _core_is_not_none(class_options)
-        no_enum = _core_not(has_enum)
-        is_boolean = _core_and(is_boolean, no_enum)
-        is_string = _core_eq(type_name, "string")
-        is_enum = _core_type_is(class_options, "list")
-        is_class = _core_and(is_string, is_enum)
-        supported_type = _core_or(is_boolean, is_class)
-        is_score = _core_eq(type_name, "score")
-        supported_type = _core_or(supported_type, is_score)
-        supported = _core_and(supported, supported_type)
-        unsupported = _core_not(supported)
-        if unsupported:
-            message = _core_string_format("Typesafe cannot evaluate output {}. Use required boolean, class or rubric score fields, or a generative provider for other outputs", name)
-            error = _core_validation_error(message)
-            raise error
-        else:
-            pass
-        annotation = _core_get(annotations, name, None)
-        description = _core_get(field, "description", None)
-        has_annotation = _core_is_not_none(annotation)
-        descriptions = {}
-        if has_annotation:
-            typesafe_require_object(annotation, name)
-            description = _core_get(annotation, "description", None)
-            has_description = _core_is_not_none(description)
-            if has_description:
-                typesafe_require_string(description, name, False)
-            else:
-                pass
-            descriptions = _core_get(annotation, "valueDescriptions", None)
-            typesafe_require_object(descriptions, name)
-            type_attrs = {}
-            annotation_type = "boolean"
-            if is_class:
-                annotation_type = "class"
-            else:
-                pass
-            type_attrs["name"] = annotation_type
-            type_attrs["options"] = class_options
-            type_attrs["value_descriptions"] = descriptions
-            typ = _core_record_new("FieldType", type_attrs)
-            _signature_validate_value_descriptions_impl(typ, name)
-        else:
-            pass
-        instructions = _core_string_format("Evaluate the output field {}.", name)
-        is_description_string = _core_type_is(description, "string")
-        has_description = _core_truthy(description)
-        use_description = _core_and(is_description_string, has_description)
-        if use_description:
-            instructions = _core_string_format("{}: {}", name, description)
-        else:
-            pass
-        question = {}
-        question["instructions"] = instructions
-        if is_score:
-            question["type"] = "score"
-            levels = _core_get(decision, "options", None)
-            question["criteria"] = levels
-            questions[name] = question
-            continue
-        else:
-            pass
-        if is_boolean:
-            question["type"] = "noul"
-            if has_annotation:
-                question["criteria"] = descriptions
-            else:
-                pass
-        else:
-            question["type"] = "choice"
-            criteria = {}
-            for label in class_options:
-                typesafe_require_string(label, name, False)
-                duplicate = _core_map_contains(criteria, label)
-                if duplicate:
-                    raise RuntimeError("Typesafe: Choice labels must be unique")
-                else:
-                    pass
-                description = _core_get(descriptions, label, None)
-                criteria[label] = description
-            question["criteria"] = criteria
-        questions[name] = question
-    prompt_snake = _core_get(request, "chat_prompt", empty_list)
-    prompt = _core_get(request, "chatPrompt", prompt_snake)
-    messages = []
-    for message in prompt:
-        role = _core_get(message, "role", None)
-        content = _core_get(message, "content", "")
-        is_tool = _core_eq(role, "function")
-        is_tool_alt = _core_eq(role, "tool")
-        is_tool = _core_or(is_tool, is_tool_alt)
-        calls = _core_get(message, "functionCalls", None)
-        calls_snake = _core_get(message, "function_calls", None)
-        calls = _core_coalesce(calls, calls_snake)
-        has_calls = _core_truthy(calls)
-        audio = _core_get(message, "audio", None)
-        has_audio = _core_truthy(audio)
-        images = _core_get(message, "images", None)
-        has_images = _core_truthy(images)
-        invalid = _core_or(is_tool, has_calls)
-        invalid = _core_or(invalid, has_audio)
-        invalid = _core_or(invalid, has_images)
-        if invalid:
-            raise RuntimeError("Typesafe does not support tool or media history")
-        else:
-            pass
-        is_list = _core_type_is(content, "list")
-        if is_list:
-            texts = []
-            for part in content:
-                kind = _core_get(part, "type", None)
-                nontext = _core_ne(kind, "text")
-                if nontext:
-                    raise RuntimeError("Typesafe supports text input only")
-                else:
-                    pass
-                text = _core_get(part, "text", None)
-                typesafe_require_string(text, "message text", False)
-                texts.append(text)
-            content = _core_string_join("\n", texts)
-        else:
-            pass
-        typesafe_require_string(content, "message content", False)
-        entry = {}
-        entry["role"] = role
-        entry["content"] = content
-        messages.append(entry)
-    state = {}
-    state["messages"] = messages
-    payload = {}
-    model = _core_get(request, "model", "jev-latest")
-    payload["model"] = model
-    payload["state"] = state
-    payload["questions"] = questions
-    typesafe_validate_request(payload)
-    return payload
 
 
 def validate_chat_request(request: AxChatRequest) -> None:
@@ -5351,6 +5187,12 @@ def decisions_build_chat_request(request: Any, options: Any) -> Any:
         decisions_require_object(field, name)
         required_list = _core_type_is(required, "list")
         decision = _core_get(decision_fields, name, None)
+        decision_type = _core_get(decision, "type", None)
+        box = _core_eq(decision_type, "box")
+        if box:
+            raise RuntimeError("OpenAI Decisions does not support box outputs; use Typesafe or a generative vision provider")
+        else:
+            pass
         rich = _core_is_not_none(decision)
         if rich:
             array = _core_get(decision, "isArray", False)
@@ -5590,6 +5432,124 @@ def decisions_build_chat_request(request: Any, options: Any) -> Any:
     return payload
 
 
+def typesafe_decode_response(raw: Any, questions: Any) -> Any:
+    _core_coverage_mark("typesafe_decode_response")
+    typesafe_require_object(raw, "response")
+    model = _core_get(raw, "model", None)
+    typesafe_require_string(model, "response.model", True)
+    usage = _core_get(raw, "usage", None)
+    typesafe_require_object(usage, "usage")
+    token_keys = []
+    token_keys.append("input_tokens")
+    token_keys.append("output_tokens")
+    for key in token_keys:
+        count = _core_get(usage, key, None)
+        typesafe_require_number(count, key, 0, 9007199254740991)
+        integer = _core_math_floor(count)
+        invalid = _core_ne(count, integer)
+        if invalid:
+            raise RuntimeError("Typesafe: token counts must be nonnegative safe integers")
+        else:
+            pass
+    answers = _core_get(raw, "answers", None)
+    typesafe_require_object(answers, "answers")
+    keys = _core_map_keys(questions)
+    for key in keys:
+        question = _core_get(questions, key, None)
+        kind = _core_get(question, "type", None)
+        answer = _core_get(answers, key, None)
+        typesafe_require_object(answer, key)
+        answer_kind = _core_get(answer, "type", None)
+        mismatch = _core_ne(kind, answer_kind)
+        if mismatch:
+            message = _core_string_format("Typesafe: answer type mismatch for {}", key)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        is_noul = _core_eq(kind, "noul")
+        if is_noul:
+            probability = _core_get(answer, "noul", None)
+            typesafe_require_number(probability, key, 0, 1)
+        else:
+            confidence = _core_get(answer, "confidence", None)
+            typesafe_require_number(confidence, "confidence", 0, 1)
+            is_box = _core_eq(kind, "box")
+            if is_box:
+                box = _core_get(answer, "box", None)
+                _box_validate_impl(box, key)
+                continue
+            else:
+                pass
+            criteria = _core_get(question, "criteria", None)
+            is_choice = _core_eq(kind, "choice")
+            labels = []
+            if is_choice:
+                labels = _core_map_keys(criteria)
+                choice = _core_get(answer, "choice", None)
+                typesafe_require_string(choice, key, False)
+                known = _core_contains(labels, choice)
+                unknown = _core_not(known)
+                if unknown:
+                    message = _core_string_format("Typesafe: invalid selected Choice label for {}", key)
+                    error = _core_validation_error(message)
+                    raise error
+                else:
+                    pass
+            else:
+                index = 0
+                for entry in criteria:
+                    label = _core_string_format("{}", index)
+                    labels.append(label)
+                    index = _core_add(index, 1)
+                upper = _core_add(index, -1)
+                score = _core_get(answer, "score", None)
+                typesafe_require_number(score, key, 0, upper)
+                legend = _core_get(answer, "legend", None)
+                typesafe_require_object(legend, "legend")
+                legend_keys = _core_map_keys(legend)
+                legend_size = _core_len(legend_keys)
+                wrong_size = _core_ne(legend_size, index)
+                if wrong_size:
+                    raise RuntimeError("Typesafe: Score legend must match rubric indices")
+                else:
+                    pass
+                for label in labels:
+                    present = _core_map_contains(legend, label)
+                    missing = _core_not(present)
+                    if missing:
+                        raise RuntimeError("Typesafe: Score legend must match rubric indices")
+                    else:
+                        pass
+                    entry = _core_get(legend, label, None)
+                    typesafe_validate_entry(entry, "legend")
+            probabilities = _core_get(answer, "probabilities", None)
+            typesafe_require_object(probabilities, "probabilities")
+            probability_keys = _core_map_keys(probabilities)
+            size = _core_len(probability_keys)
+            expected_size = _core_len(labels)
+            wrong_size = _core_ne(size, expected_size)
+            if wrong_size:
+                raise RuntimeError("Typesafe: probabilities must match criteria keys")
+            else:
+                pass
+            total = 0
+            for label in labels:
+                probability = _core_get(probabilities, label, None)
+                typesafe_require_number(probability, label, 0, 1)
+                total = _core_add(total, probability)
+            difference = _core_add(total, -1)
+            difference = _core_math_abs(difference)
+            roundoff = _core_mul(0.0000000000000002220446049250313, expected_size)
+            tolerance = _core_add(0.01, roundoff)
+            invalid_sum = _core_gt(difference, tolerance)
+            if invalid_sum:
+                raise RuntimeError("Typesafe: probabilities must sum to one")
+            else:
+                pass
+    return raw
+
+
 def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
     _core_coverage_mark("openai_chat_reasoning_effort")
     effort = openai_reasoning_effort(model, budget)
@@ -5744,6 +5704,27 @@ def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
     return response
 
 
+def typesafe_decode_models(raw: Any) -> Any:
+    _core_coverage_mark("typesafe_decode_models")
+    typesafe_require_object(raw, "model catalog")
+    models = _core_get(raw, "models", None)
+    is_list = _core_type_is(models, "list")
+    invalid = _core_not(is_list)
+    if invalid:
+        raise RuntimeError("Typesafe: models must be an array")
+    else:
+        pass
+    for model in models:
+        typesafe_require_object(model, "model")
+        name = _core_get(model, "name", None)
+        description = _core_get(model, "description", None)
+        release_date = _core_get(model, "release_date", None)
+        typesafe_require_string(name, "model.name", True)
+        typesafe_require_string(description, "model.description", False)
+        typesafe_require_string(release_date, "model.release_date", False)
+    return models
+
+
 def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
     _core_coverage_mark("build_embed_request")
     payload = openai_build_embed_request(request)
@@ -5754,6 +5735,338 @@ def normalize_embed_response(raw: Any) -> AxEmbedResponse:
     _core_coverage_mark("normalize_embed_response")
     response = openai_normalize_embed_response(raw)
     return response
+
+
+def typesafe_build_chat_request(request: Any, options: Any) -> Any:
+    _core_coverage_mark("typesafe_build_chat_request")
+    empty_map = {}
+    empty_list = []
+    threshold_snake = _core_get(options, "true_threshold", 0.5)
+    threshold = _core_get(options, "trueThreshold", threshold_snake)
+    typesafe_require_number(threshold, "trueThreshold", 0, 1)
+    functions = _core_get(request, "functions", empty_list)
+    function_call_snake = _core_get(request, "function_call", "none")
+    function_call = _core_get(request, "functionCall", function_call_snake)
+    has_functions = _core_truthy(functions)
+    has_call = _core_ne(function_call, "none")
+    has_call_value = _core_truthy(function_call)
+    has_call = _core_and(has_call, has_call_value)
+    tools = _core_or(has_functions, has_call)
+    if tools:
+        raise RuntimeError("Typesafe does not support tools; use a generative provider for tool execution")
+    else:
+        pass
+    config_snake = _core_get(request, "model_config", empty_map)
+    config = _core_get(request, "modelConfig", config_snake)
+    controls = _core_map_keys(config)
+    for control in controls:
+        value = _core_get(config, control, None)
+        present = _core_is_not_none(value)
+        if present:
+            is_stream = _core_eq(control, "stream")
+            is_n = _core_eq(control, "n")
+            one = _core_eq(value, 1)
+            numeric = _core_type_is(value, "number")
+            one = _core_and(one, numeric)
+            allowed_n = _core_and(is_n, one)
+            allowed = _core_or(is_stream, allowed_n)
+            unsupported = _core_not(allowed)
+            if unsupported:
+                message = _core_string_format("Typesafe does not support generation control {}", control)
+                error = _core_validation_error(message)
+                raise error
+            else:
+                pass
+        else:
+            pass
+    format_snake = _core_get(request, "response_format", None)
+    format = _core_get(request, "responseFormat", format_snake)
+    format_type = _core_get(format, "type", None)
+    wrong_format = _core_ne(format_type, "json_schema")
+    if wrong_format:
+        raise RuntimeError("Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs")
+    else:
+        pass
+    wrapper = _core_get(format, "schema", None)
+    typesafe_require_object(wrapper, "responseFormat.schema")
+    schema = _core_get(wrapper, "schema", None)
+    typesafe_require_object(schema, "output schema")
+    root_type = _core_get(schema, "type", None)
+    flat = _core_eq(root_type, "object")
+    forbidden = []
+    forbidden.append("anyOf")
+    forbidden.append("oneOf")
+    forbidden.append("allOf")
+    forbidden.append("$ref")
+    for key in forbidden:
+        value = _core_get(schema, key, None)
+        has_value = _core_truthy(value)
+        if has_value:
+            flat = False
+        else:
+            pass
+    not_flat = _core_not(flat)
+    if not_flat:
+        raise RuntimeError("Typesafe requires a flat object output schema")
+    else:
+        pass
+    properties = _core_get(schema, "properties", None)
+    typesafe_require_object(properties, "output properties")
+    required = _core_get(schema, "required", empty_list)
+    annotations = _core_get(format, "fieldDescriptions", empty_map)
+    decision_fields = _core_get(format, "decisionFields", empty_map)
+    questions = {}
+    names = _core_map_keys(properties)
+    forbidden.append("const")
+    for name in names:
+        field = _core_get(properties, name, None)
+        typesafe_require_object(field, name)
+        decision = _core_get(decision_fields, name, None)
+        rich = _core_is_not_none(decision)
+        if rich:
+            array = _core_get(decision, "isArray", False)
+            optional = _core_get(decision, "isOptional", False)
+            invalid = _core_or(array, optional)
+            if invalid:
+                raise RuntimeError("Decision providers require flat, required scalar outputs")
+            else:
+                pass
+            wire_description = _core_get(field, "description", None)
+            field = {}
+            kind = _core_get(decision, "type", None)
+            class_kind = _core_eq(kind, "class")
+            if class_kind:
+                kind = "string"
+            else:
+                pass
+            field["type"] = kind
+            field["description"] = wire_description
+            if class_kind:
+                labels = _core_get(decision, "options", None)
+                field["enum"] = labels
+            else:
+                pass
+        else:
+            pass
+        supported = _core_contains(required, name)
+        for key in forbidden:
+            has_key = _core_map_contains(field, key)
+            if has_key:
+                supported = False
+            else:
+                pass
+        type_name = _core_get(field, "type", None)
+        class_options = _core_get(field, "enum", None)
+        is_boolean = _core_eq(type_name, "boolean")
+        has_enum = _core_is_not_none(class_options)
+        no_enum = _core_not(has_enum)
+        is_boolean = _core_and(is_boolean, no_enum)
+        is_string = _core_eq(type_name, "string")
+        is_enum = _core_type_is(class_options, "list")
+        is_class = _core_and(is_string, is_enum)
+        supported_type = _core_or(is_boolean, is_class)
+        is_score = _core_eq(type_name, "score")
+        supported_type = _core_or(supported_type, is_score)
+        is_box = _core_eq(type_name, "box")
+        supported_type = _core_or(supported_type, is_box)
+        supported = _core_and(supported, supported_type)
+        unsupported = _core_not(supported)
+        if unsupported:
+            message = _core_string_format("Typesafe cannot evaluate output {}. Use required boolean, class, rubric score or box fields, or a generative provider for other outputs", name)
+            error = _core_validation_error(message)
+            raise error
+        else:
+            pass
+        annotation = _core_get(annotations, name, None)
+        description = _core_get(field, "description", None)
+        has_annotation = _core_is_not_none(annotation)
+        descriptions = {}
+        if has_annotation:
+            typesafe_require_object(annotation, name)
+            description = _core_get(annotation, "description", None)
+            has_description = _core_is_not_none(description)
+            if has_description:
+                typesafe_require_string(description, name, False)
+            else:
+                pass
+            descriptions = _core_get(annotation, "valueDescriptions", None)
+            typesafe_require_object(descriptions, name)
+            type_attrs = {}
+            annotation_type = "boolean"
+            if is_class:
+                annotation_type = "class"
+            else:
+                pass
+            type_attrs["name"] = annotation_type
+            type_attrs["options"] = class_options
+            type_attrs["value_descriptions"] = descriptions
+            typ = _core_record_new("FieldType", type_attrs)
+            _signature_validate_value_descriptions_impl(typ, name)
+        else:
+            pass
+        instructions = _core_string_format("Evaluate the output field {}.", name)
+        is_description_string = _core_type_is(description, "string")
+        has_description = _core_truthy(description)
+        use_description = _core_and(is_description_string, has_description)
+        if use_description:
+            instructions = _core_string_format("{}: {}", name, description)
+        else:
+            pass
+        question = {}
+        question["instructions"] = instructions
+        if is_box:
+            question["type"] = "box"
+            questions[name] = question
+            continue
+        else:
+            pass
+        if is_score:
+            question["type"] = "score"
+            levels = _core_get(decision, "options", None)
+            question["criteria"] = levels
+            questions[name] = question
+            continue
+        else:
+            pass
+        if is_boolean:
+            question["type"] = "noul"
+            if has_annotation:
+                question["criteria"] = descriptions
+            else:
+                pass
+        else:
+            question["type"] = "choice"
+            criteria = {}
+            for label in class_options:
+                typesafe_require_string(label, name, False)
+                duplicate = _core_map_contains(criteria, label)
+                if duplicate:
+                    raise RuntimeError("Typesafe: Choice labels must be unique")
+                else:
+                    pass
+                description = _core_get(descriptions, label, None)
+                criteria[label] = description
+            question["criteria"] = criteria
+        questions[name] = question
+    prompt_snake = _core_get(request, "chat_prompt", empty_list)
+    prompt = _core_get(request, "chatPrompt", prompt_snake)
+    messages = []
+    assets = {}
+    reference_index = 0
+    request_json = _core_json_stringify(request)
+    for message in prompt:
+        role = _core_get(message, "role", None)
+        content = _core_get(message, "content", "")
+        is_tool = _core_eq(role, "function")
+        is_tool_alt = _core_eq(role, "tool")
+        is_tool = _core_or(is_tool, is_tool_alt)
+        calls = _core_get(message, "functionCalls", None)
+        calls_snake = _core_get(message, "function_calls", None)
+        calls = _core_coalesce(calls, calls_snake)
+        has_calls = _core_truthy(calls)
+        audio = _core_get(message, "audio", None)
+        has_audio = _core_truthy(audio)
+        images = _core_get(message, "images", None)
+        has_images = _core_truthy(images)
+        invalid = _core_or(is_tool, has_calls)
+        invalid = _core_or(invalid, has_audio)
+        invalid = _core_or(invalid, has_images)
+        if invalid:
+            raise RuntimeError("Typesafe does not support tool or media history")
+        else:
+            pass
+        is_list = _core_type_is(content, "list")
+        if is_list:
+            texts = []
+            for part in content:
+                kind = _core_get(part, "type", None)
+                is_text = _core_eq(kind, "text")
+                if is_text:
+                    text = _core_get(part, "text", None)
+                    typesafe_require_string(text, "message text", False)
+                    texts.append(text)
+                else:
+                    is_image = _core_eq(kind, "image")
+                    is_user = _core_eq(role, "user")
+                    valid = _core_and(is_image, is_user)
+                    invalid = _core_not(valid)
+                    if invalid:
+                        raise RuntimeError("Typesafe supports text and inline PNG/JPEG images only")
+                    else:
+                        pass
+                    mime = _core_get(part, "mimeType", None)
+                    png = _core_eq(mime, "image/png")
+                    jpeg = _core_eq(mime, "image/jpeg")
+                    jpg = _core_eq(mime, "image/jpg")
+                    valid = _core_or(png, jpeg)
+                    valid = _core_or(valid, jpg)
+                    invalid = _core_not(valid)
+                    if invalid:
+                        raise RuntimeError("Typesafe images must be PNG or JPEG")
+                    else:
+                        pass
+                    format = "png"
+                    if jpeg:
+                        format = "jpeg"
+                    else:
+                        pass
+                    if jpg:
+                        format = "jpg"
+                    else:
+                        pass
+                    data = _core_get(part, "image", None)
+                    typesafe_require_string(data, "image data", True)
+                    data_url = _core_string_starts_with(data, "data:")
+                    if data_url:
+                        prefix = _core_string_format("data:{};base64,", mime)
+                        matches = _core_string_starts_with(data, prefix)
+                        invalid = _core_not(matches)
+                        if invalid:
+                            raise RuntimeError("Typesafe image data URL must match its MIME type")
+                        else:
+                            pass
+                        offset = _core_len(prefix)
+                        data = _core_string_slice(data, offset)
+                    else:
+                        pass
+                    reference = ""
+                    while True:
+                        reference = _core_string_format("ax-image-{}-ref", reference_index)
+                        reference_index = _core_add(reference_index, 1)
+                        collision = _core_string_index_of(request_json, reference, 0)
+                        unused = _core_lt(collision, 0)
+                        if unused:
+                            break
+                        else:
+                            pass
+                    asset = {}
+                    asset["type"] = "image"
+                    asset["format"] = format
+                    asset["data_base64"] = data
+                    assets[reference] = asset
+                    texts.append(reference)
+            content = _core_string_join("\n", texts)
+        else:
+            pass
+        typesafe_require_string(content, "message content", False)
+        entry = {}
+        entry["role"] = role
+        entry["content"] = content
+        messages.append(entry)
+    state = {}
+    state["messages"] = messages
+    payload = {}
+    model = _core_get(request, "model", "jev-latest")
+    payload["model"] = model
+    payload["state"] = state
+    payload["questions"] = questions
+    has_assets = _core_truthy(assets)
+    if has_assets:
+        payload["assets"] = assets
+    else:
+        pass
+    typesafe_validate_request(payload)
+    return payload
 
 
 def normalize_token_usage(usage: Any) -> Any:
@@ -6028,119 +6341,6 @@ def _openai_content_part_impl(part: Any) -> Any:
     raise error
 
 
-def typesafe_normalize_chat_response(raw: Any, context: Any) -> Any:
-    _core_coverage_mark("typesafe_normalize_chat_response")
-    questions = _core_get(context, "questions", None)
-    typesafe_require_object(questions, "response request questions")
-    raw = typesafe_decode_response(raw, questions)
-    threshold = _core_get(context, "trueThreshold", 0.5)
-    typesafe_require_number(threshold, "trueThreshold", 0, 1)
-    answers = _core_get(raw, "answers", None)
-    values = {}
-    decision_fields = _core_get(context, "decisionFields", None)
-    native_state = {}
-    names = _core_map_keys(questions)
-    for name in names:
-        answer = _core_get(answers, name, None)
-        kind = _core_get(answer, "type", None)
-        decision = _core_get(decision_fields, name, None)
-        rich = _core_is_not_none(decision)
-        if rich:
-            raw_evidence = {}
-            native_evidence = {}
-            refusal = _core_eq(kind, "refusal")
-            if refusal:
-                raw_evidence["status"] = "refused"
-                native_evidence["refused"] = True
-            else:
-                is_boolean = _core_eq(kind, "noul")
-                if is_boolean:
-                    p = _core_get(answer, "noul", None)
-                    raw_evidence["probability"] = p
-                else:
-                    ps = {}
-                    value = 0
-                    distribution = _core_get(answer, "probabilities", None)
-                    score = _core_eq(kind, "score")
-                    if score:
-                        labels = _core_get(decision, "options", None)
-                        ps = []
-                        index = 0
-                        for label in labels:
-                            key = _core_string_format("{}", index)
-                            p = _core_get(distribution, key, None)
-                            ps.append(p)
-                            index = _core_add(index, 1)
-                        value = _core_get(answer, "score", None)
-                    else:
-                        ps = distribution
-                        value = _core_get(answer, "choice", None)
-                    raw_evidence["probabilities"] = ps
-                    native_evidence["value"] = value
-                    confidence = _core_get(answer, "confidence", None)
-                    has_confidence = _core_is_not_none(confidence)
-                    if has_confidence:
-                        native_evidence["confidence"] = confidence
-                    else:
-                        pass
-            values[name] = raw_evidence
-            native_state[name] = native_evidence
-            continue
-        else:
-            pass
-        is_noul = _core_eq(kind, "noul")
-        value = _core_get(answer, "choice", None)
-        if is_noul:
-            probability = _core_get(answer, "noul", None)
-            below = _core_lt(probability, threshold)
-            value = _core_not(below)
-        else:
-            pass
-        values[name] = value
-    content = _core_json_stringify(values)
-    result = {}
-    trusted = {}
-    provenance = {}
-    provenance["source"] = "native"
-    provenance["provider"] = "Typesafe"
-    model = _core_get(raw, "model", None)
-    provenance["model"] = model
-    trusted["provenance"] = provenance
-    trusted["native"] = native_state
-    has_native = _core_truthy(native_state)
-    if has_native:
-        result["decisionContext"] = trusted
-    else:
-        pass
-    result["index"] = 0
-    result["content"] = content
-    result["finishReason"] = "stop"
-    results = []
-    results.append(result)
-    usage = _core_get(raw, "usage", None)
-    input = _core_get(usage, "input_tokens", None)
-    output = _core_get(usage, "output_tokens", None)
-    total = _core_add(input, output)
-    tokens = {}
-    tokens["promptTokens"] = input
-    tokens["completionTokens"] = output
-    tokens["totalTokens"] = total
-    model_usage = {}
-    model = _core_get(raw, "model", None)
-    model_usage["ai"] = "Typesafe"
-    model_usage["model"] = model
-    model_usage["tokens"] = tokens
-    typesafe_metadata = {}
-    typesafe_metadata["answers"] = answers
-    metadata = {}
-    metadata["typesafe"] = typesafe_metadata
-    response = {}
-    response["results"] = results
-    response["modelUsage"] = model_usage
-    response["providerMetadata"] = metadata
-    return response
-
-
 def merge_usage_context(defaults: Any, overrides: Any) -> Any:
     _core_coverage_mark("merge_usage_context")
     merged = _core_map_merge(defaults, overrides)
@@ -6398,20 +6598,6 @@ def decisions_normalize_chat_response(raw: Any, context: Any) -> Any:
     return response
 
 
-def typesafe_response_context(payload: Any, options: Any, request: Any) -> Any:
-    _core_coverage_mark("typesafe_response_context")
-    empty = {}
-    context = _core_map_merge(empty, payload)
-    threshold_snake = _core_get(options, "true_threshold", 0.5)
-    threshold = _core_get(options, "trueThreshold", threshold_snake)
-    context["trueThreshold"] = threshold
-    format_snake = _core_get(request, "response_format", None)
-    format = _core_get(request, "responseFormat", format_snake)
-    decision_fields = _core_get(format, "decisionFields", None)
-    context["decisionFields"] = decision_fields
-    return context
-
-
 def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     _core_coverage_mark("_ai_model_usage_impl")
     has_usage = _core_truthy(usage)
@@ -6427,22 +6613,6 @@ def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     out["model"] = model
     out["tokens"] = tokens
     return out
-
-
-def provider_validate_chat_request(profile: str, request: Any, options: Any) -> None:
-    _core_coverage_mark("provider_validate_chat_request")
-    canonical = provider_normalize_profile(profile)
-    is_decisions = _core_eq(canonical, "openai-decisions")
-    if is_decisions:
-        decisions_build_chat_request(request, options)
-    else:
-        pass
-    is_typesafe = _core_eq(canonical, "typesafe")
-    if is_typesafe:
-        typesafe_build_chat_request(request, options)
-    else:
-        pass
-    return None
 
 
 def _openai_tool_call_to_provider_impl(call: Any) -> Any:
@@ -6640,6 +6810,138 @@ def _openai_usage_with_service_tier(raw: Any, usage: Any) -> Any:
     else:
         pass
     return out
+
+
+def typesafe_normalize_chat_response(raw: Any, context: Any) -> Any:
+    _core_coverage_mark("typesafe_normalize_chat_response")
+    questions = _core_get(context, "questions", None)
+    typesafe_require_object(questions, "response request questions")
+    raw = typesafe_decode_response(raw, questions)
+    threshold = _core_get(context, "trueThreshold", 0.5)
+    typesafe_require_number(threshold, "trueThreshold", 0, 1)
+    answers = _core_get(raw, "answers", None)
+    values = {}
+    decision_fields = _core_get(context, "decisionFields", None)
+    native_state = {}
+    names = _core_map_keys(questions)
+    for name in names:
+        answer = _core_get(answers, name, None)
+        kind = _core_get(answer, "type", None)
+        decision = _core_get(decision_fields, name, None)
+        rich = _core_is_not_none(decision)
+        box = _core_eq(kind, "box")
+        if box:
+            coordinates = _core_get(answer, "box", None)
+            evidence = _core_get(decision, "evidence", None)
+            has_evidence = _core_is_not_none(evidence)
+            value = coordinates
+            if has_evidence:
+                value = {}
+                value["box"] = coordinates
+                native_box = {}
+                confidence = _core_get(answer, "confidence", None)
+                native_box["confidence"] = confidence
+                native_state[name] = native_box
+            else:
+                pass
+            values[name] = value
+            continue
+        else:
+            pass
+        if rich:
+            raw_evidence = {}
+            native_evidence = {}
+            refusal = _core_eq(kind, "refusal")
+            if refusal:
+                raw_evidence["status"] = "refused"
+                native_evidence["refused"] = True
+            else:
+                is_boolean = _core_eq(kind, "noul")
+                if is_boolean:
+                    p = _core_get(answer, "noul", None)
+                    raw_evidence["probability"] = p
+                else:
+                    ps = {}
+                    value = 0
+                    distribution = _core_get(answer, "probabilities", None)
+                    score = _core_eq(kind, "score")
+                    if score:
+                        labels = _core_get(decision, "options", None)
+                        ps = []
+                        index = 0
+                        for label in labels:
+                            key = _core_string_format("{}", index)
+                            p = _core_get(distribution, key, None)
+                            ps.append(p)
+                            index = _core_add(index, 1)
+                        value = _core_get(answer, "score", None)
+                    else:
+                        ps = distribution
+                        value = _core_get(answer, "choice", None)
+                    raw_evidence["probabilities"] = ps
+                    native_evidence["value"] = value
+                    confidence = _core_get(answer, "confidence", None)
+                    has_confidence = _core_is_not_none(confidence)
+                    if has_confidence:
+                        native_evidence["confidence"] = confidence
+                    else:
+                        pass
+            values[name] = raw_evidence
+            native_state[name] = native_evidence
+            continue
+        else:
+            pass
+        is_noul = _core_eq(kind, "noul")
+        value = _core_get(answer, "choice", None)
+        if is_noul:
+            probability = _core_get(answer, "noul", None)
+            below = _core_lt(probability, threshold)
+            value = _core_not(below)
+        else:
+            pass
+        values[name] = value
+    content = _core_json_stringify(values)
+    result = {}
+    trusted = {}
+    provenance = {}
+    provenance["source"] = "native"
+    provenance["provider"] = "Typesafe"
+    model = _core_get(raw, "model", None)
+    provenance["model"] = model
+    trusted["provenance"] = provenance
+    trusted["native"] = native_state
+    has_native = _core_truthy(native_state)
+    if has_native:
+        result["decisionContext"] = trusted
+    else:
+        pass
+    result["index"] = 0
+    result["content"] = content
+    result["finishReason"] = "stop"
+    results = []
+    results.append(result)
+    usage = _core_get(raw, "usage", None)
+    input = _core_get(usage, "input_tokens", None)
+    output = _core_get(usage, "output_tokens", None)
+    total = _core_add(input, output)
+    tokens = {}
+    tokens["promptTokens"] = input
+    tokens["completionTokens"] = output
+    tokens["totalTokens"] = total
+    model_usage = {}
+    model = _core_get(raw, "model", None)
+    model_usage["ai"] = "Typesafe"
+    model_usage["model"] = model
+    model_usage["tokens"] = tokens
+    typesafe_metadata = {}
+    typesafe_metadata["answers"] = answers
+    metadata = {}
+    metadata["typesafe"] = typesafe_metadata
+    response = {}
+    response["results"] = results
+    response["modelUsage"] = model_usage
+    response["providerMetadata"] = metadata
+    return response
 
 
 def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, reasoning_content_mode: str, reasoning_details_mode: str) -> AxChatResponse:
@@ -6950,6 +7252,20 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
     return out
 
 
+def typesafe_response_context(payload: Any, options: Any, request: Any) -> Any:
+    _core_coverage_mark("typesafe_response_context")
+    empty = {}
+    context = _core_map_merge(empty, payload)
+    threshold_snake = _core_get(options, "true_threshold", 0.5)
+    threshold = _core_get(options, "trueThreshold", threshold_snake)
+    context["trueThreshold"] = threshold
+    format_snake = _core_get(request, "response_format", None)
+    format = _core_get(request, "responseFormat", format_snake)
+    decision_fields = _core_get(format, "decisionFields", None)
+    context["decisionFields"] = decision_fields
+    return context
+
+
 def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
     _core_coverage_mark("_openai_normalize_tool_calls_impl")
     out = []
@@ -6976,6 +7292,22 @@ def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
         normalized["function"] = function
         out.append(normalized)
     return out
+
+
+def provider_validate_chat_request(profile: str, request: Any, options: Any) -> None:
+    _core_coverage_mark("provider_validate_chat_request")
+    canonical = provider_normalize_profile(profile)
+    is_decisions = _core_eq(canonical, "openai-decisions")
+    if is_decisions:
+        decisions_build_chat_request(request, options)
+    else:
+        pass
+    is_typesafe = _core_eq(canonical, "typesafe")
+    if is_typesafe:
+        typesafe_build_chat_request(request, options)
+    else:
+        pass
+    return None
 
 
 def _openai_finish_reason_impl(value: Any) -> Any:
@@ -9490,7 +9822,7 @@ def provider_routing_stats(providers: Any) -> Any:
 def provider_descriptor(profile: str) -> Any:
     _core_coverage_mark("provider_descriptor")
     provider_id = provider_normalize_profile(profile)
-    descriptors = _core_json_parse("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"claude-opus-5-5\",\"claude-fable-5-1\",\"claude-sonnet-5-5\"]},\"request\":{\"toolChoice\":\"unforced\"},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"]}}],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-09-23\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.6-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.5-transcribe\",\"body\":\"json\",\"method\":\"POST\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.8-flash-tts\",\"response\":\"json\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"exact\":[\"gemini-3.8-live\",\"gemini-3.8-live-extended-thinking\"],\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-3.8-live\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.6-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-09-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n")
+    descriptors = _core_json_parse("{\"openai\":{\"id\":\"openai\",\"name\":\"OpenAI\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false,\"functions\":true,\"structuredOutputModes\":[\"native\",\"json_object\"]}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-compatible\":{\"id\":\"openai-compatible\",\"name\":\"OpenAI Compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://platform.openai.com/docs/api-reference/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"openai-compatible\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-responses\":{\"id\":\"openai-responses\",\"name\":\"OpenAI Responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"files\":{\"uploadMethod\":\"upload\"},\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"openai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"openai-realtime\",\"modelMatch\":{\"prefix\":[\"gpt-realtime\"]},\"url\":\"wss://api.openai.com/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"gpt-6-astra\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6 Astra requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6.1-sol\"]},\"request\":{\"unsupportedThinkingLevels\":{\"none\":\"GPT-6.1 Sol requires reasoning; use low or higher\"}},\"capabilities\":{\"audio\":false,\"audioOutput\":false}},{\"match\":{\"prefix\":[\"gpt-6-sol\",\"gpt-6-luna\"]},\"capabilities\":{\"audio\":false,\"audioOutput\":false}}],\"sources\":[\"https://platform.openai.com/docs/api-reference/responses\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openai-responses\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"upload\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"anthropic\":{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.anthropic.com\",\"requiresApiURL\":false,\"auth\":\"x-api-key\",\"headers\":{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"},\"defaults\":{\"model\":\"claude-sonnet-5\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":true},\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/v1/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"claude-opus-5-5\",\"claude-fable-5-1\",\"claude-sonnet-5-5\"]},\"request\":{\"toolChoice\":\"unforced\"},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"]}}],\"sources\":[\"https://docs.anthropic.com/en/api/messages\"],\"reviewedAt\":\"2026-09-23\",\"provider\":\"anthropic\",\"baseUrl\":\"https://api.anthropic.com\",\"authRequired\":true,\"defaultModel\":\"claude-sonnet-5\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":true}}},\"google-gemini\":{\"id\":\"google-gemini\",\"name\":\"Google Gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"baseURL\":\"https://generativelanguage.googleapis.com/v1beta\",\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gemini-3.6-flash\",\"embedModel\":\"gemini-embedding-2\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"files\":{\"uploadMethod\":\"cloud\"},\"caching\":{\"types\":[\"persistent\"]},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true},\"embed\":{\"path\":\"/models/{model}:batchEmbedContents\",\"dialect\":\"gemini-generate-content\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.5-transcribe\",\"body\":\"json\",\"method\":\"POST\",\"stream\":false},\"speak\":{\"path\":\"/models/{model}:generateContent\",\"dialect\":\"gemini-generate-content\",\"defaultModel\":\"gemini-3.8-flash-tts\",\"response\":\"json\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"realtime\":{\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"dialect\":\"gemini-live-bidi\",\"modelMatch\":{\"exact\":[\"gemini-3.8-live\",\"gemini-3.8-live-extended-thinking\"],\"prefix\":[\"gemini-live\"],\"contains\":[\"native-audio\",\"-live-\"]},\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-3.8-live\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true},\"method\":\"WS\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://ai.google.dev/api/generate-content\",\"https://ai.google.dev/gemini-api/docs/optimization\"],\"reviewedAt\":\"2026-09-23\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"standard\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"google-gemini\",\"baseUrl\":\"https://generativelanguage.googleapis.com/v1beta\",\"authRequired\":true,\"apiKeyHeader\":\"x-goog-api-key\",\"defaultModel\":\"gemini-3.6-flash\",\"defaultEmbedModel\":\"gemini-embedding-2\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"cloud\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"persistent\"]}}},\"webllm\":{\"id\":\"webllm\",\"name\":\"WebLLM\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"none\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"\",\"dialect\":\"webllm\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://webllm.mlc.ai/docs/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"webllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":false,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"gpt-5-mini\",\"embedModel\":\"text-embedding-3-small\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"endpoint\":{\"scheme\":\"https\",\"hostField\":\"resourceName\",\"hostSuffix\":\".openai.azure.com\",\"path\":\"/openai/deployments/{deploymentName}\",\"fields\":{\"resourceName\":[\"resource_name\",\"resourceName\"],\"deploymentName\":[\"deployment_name\",\"deploymentName\"],\"version\":[\"api_version\",\"apiVersion\",\"version\"]},\"required\":[\"resourceName\",\"deploymentName\"],\"defaults\":{\"version\":\"2024-02-15-preview\"},\"normalizers\":{\"version\":\"api-version\"},\"apiVersionField\":\"version\"},\"capabilityGates\":{\"structuredOutputs\":{\"option\":\"version\",\"min\":\"2024-08-01\"}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/azure/ai-services/openai/reference\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-openai\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"thinking-object\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"dropWhenThinking\":[\"temperature\",\"top_p\",\"presence_penalty\",\"frequency_penalty\"],\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"exact\":[\"deepseek-reasoner\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":false,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"toolChoice\":\"unforced\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://api-docs.deepseek.com/guides/thinking_mode/\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"deepseek\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.deepseek.com\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"deepseek-v4-flash\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":true,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"dropFields\":[\"include\",\"previous_response_id\",\"store\",\"parallel_tool_calls\"],\"reasoningObjectFields\":[\"effort\"]},\"modelRules\":[],\"sources\":[\"https://api-docs.deepseek.com/api/create-chat-completion\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"deepseek-responses\",\"baseUrl\":\"https://api.deepseek.com\",\"authRequired\":true,\"defaultModel\":\"deepseek-v4-flash\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"meta\":{\"id\":\"meta\",\"name\":\"Meta Model API\",\"aliases\":[\"meta\",\"meta-responses\",\"meta_responses\"],\"transport\":\"openai-responses\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/asr/transcribe\",\"dialect\":\"meta-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"realtime\":{\"path\":\"/asr/realtime\",\"dialect\":\"meta-realtime\",\"modelMatch\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"url\":\"wss://api.meta.ai/v1/asr/realtime\",\"grammar\":\"meta_asr_realtime\",\"defaultModel\":\"muse-voice-transcribe-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000}},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/responses\",\"dialect\":\"openai-responses\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"reasoningObjectFields\":[\"effort\",\"summary\"],\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[{\"match\":{\"exact\":[\"muse-image-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"audio\":false,\"structuredOutputModes\":[]}},{\"match\":{\"exact\":[\"muse-voice-transcribe-1.0\"]},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"structuredOutputs\":false,\"thinking\":false,\"images\":false,\"structuredOutputModes\":[]}}],\"sources\":[\"https://dev.meta.ai/docs/protocols/responses\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-chat\":{\"id\":\"meta-chat\",\"name\":\"Meta Model API Chat Completions\",\"aliases\":[\"meta-chat\",\"meta_chat\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"caching\":{\"types\":[\"ephemeral\"],\"cacheBreakpoints\":false},\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"effortMap\":{\"minimal\":\"minimal\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/chat-completions\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-chat\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":true,\"types\":[\"ephemeral\"],\"cache_breakpoints\":false}}},\"meta-messages\":{\"id\":\"meta-messages\",\"name\":\"Meta Model API Messages\",\"aliases\":[\"meta-messages\",\"meta_messages\"],\"transport\":\"anthropic-messages\",\"baseURL\":\"https://api.meta.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"muse-spark-1.3\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":true,\"multiTurn\":true,\"images\":true,\"audio\":true,\"files\":{\"uploadMethod\":\"inline\"},\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/messages\",\"dialect\":\"anthropic-messages\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"toolChoice\":\"no-named\",\"unsupportedThinkingLevels\":{\"none\":\"Meta Muse Spark does not support reasoning level none\"}},\"modelRules\":[],\"sources\":[\"https://dev.meta.ai/docs/protocols/messages\"],\"reviewedAt\":\"2026-09-03\",\"provider\":\"meta-messages\",\"baseUrl\":\"https://api.meta.ai/v1\",\"authRequired\":true,\"defaultModel\":\"muse-spark-1.3\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":true,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\"],\"upload_method\":\"inline\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"id\":\"mistral\",\"name\":\"Mistral AI\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.mistral.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"mistral-small-latest\",\"embedModel\":\"mistral-embed\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/audio/transcriptions\",\"dialect\":\"openai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/audio/speech\",\"dialect\":\"mistral-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"renameFields\":{\"max_completion_tokens\":\"max_tokens\"},\"imageURLShape\":\"object\",\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"standard_only\",\"priority\":\"auto\"}},\"modelRules\":[],\"sources\":[\"https://docs.mistral.ai/api/\",\"https://docs.mistral.ai/inference/priority-tier\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"authRequired\":true,\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":false,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"id\":\"cohere\",\"name\":\"Cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cohere.ai/compatibility/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"command-r-plus\",\"embedModel\":\"embed-english-v3.0\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.cohere.com/reference/compatibility-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"authRequired\":true,\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"id\":\"grok\",\"name\":\"xAI Grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.x.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"grok-4.6\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"images\":true,\"audio\":true,\"audioOutput\":true,\"webSearch\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"transcribe\":{\"path\":\"/stt\",\"dialect\":\"xai-transcription\",\"method\":\"POST\",\"body\":\"multipart\",\"stream\":false},\"speak\":{\"path\":\"/tts\",\"dialect\":\"xai-speech\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"},\"realtime\":{\"path\":\"/realtime\",\"dialect\":\"xai-realtime\",\"modelMatch\":{\"prefix\":[\"grok-voice\"]},\"url\":\"wss://api.x.ai/v1/realtime\",\"grammar\":\"openai_realtime_compatible\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false},\"method\":\"WS\",\"body\":\"json\",\"stream\":true},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"request\":{\"optionDialect\":\"search-parameters\",\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"modelRules\":[{\"match\":{\"exact\":[\"grok-4.6\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"xhigh\",\"xhigh\":\"xhigh\",\"max\":\"xhigh\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.6 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.5\",\"grok-4.5-latest\",\"grok-build-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 4.5 reasoning cannot be disabled\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-4.3\",\"grok-4.3-latest\",\"grok-latest\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\"]},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"dropFields\":[\"presence_penalty\",\"frequency_penalty\",\"stop\"]}},{\"match\":{\"exact\":[\"grok-3-mini\",\"grok-3-mini-latest\",\"grok-3-mini-beta\",\"grok-3-mini-fast\",\"grok-3-mini-fast-latest\",\"grok-3-mini-fast-beta\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"low\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"xAI Grok 3 Mini reasoning cannot be disabled\"}}}],\"sources\":[\"https://docs.x.ai/developers/model-capabilities/text/reasoning\",\"https://docs.x.ai/developers/rest-api-reference/management/auth\",\"https://docs.x.ai/developers/models/grok-4.5\",\"https://docs.x.ai/developers/advanced-api-usage/priority-processing\"],\"reviewedAt\":\"2026-08-30\",\"provider\":\"grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"authRequired\":true,\"defaultModel\":\"grok-4.6\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"],\"realtime\":true,\"output\":{\"supported\":true,\"formats\":[\"wav\",\"mp3\",\"pcm16\"]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"id\":\"reka\",\"name\":\"Reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.reka.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"reka-core\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.reka.ai/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"authRequired\":true,\"defaultModel\":\"reka-core\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"together\":{\"id\":\"together\",\"name\":\"Together AI\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.together.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-V4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":null,\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"max\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\"}}],\"sources\":[\"https://docs.together.ai/docs/inference/chat/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"together\",\"baseUrl\":\"https://api.together.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\",\"json_object\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openrouter\":{\"id\":\"openrouter\",\"name\":\"OpenRouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://openrouter.ai/api/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek/\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"openrouter\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"xhigh\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning\",\"reasoning_content\"],\"reasoningDetailsFields\":[\"reasoning_details\"]},\"replay\":{\"assistantReasoningField\":\"reasoning\",\"assistantReasoningDetailsField\":\"reasoning_details\"}}],\"sources\":[\"https://openrouter.ai/docs/guides/best-practices/reasoning-tokens\",\"https://openrouter.ai/docs/guides/features/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"openrouter\",\"baseUrl\":\"https://openrouter.ai/api/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"orcarouter\":{\"id\":\"orcarouter\",\"name\":\"OrcaRouter\",\"aliases\":[\"orcarouter\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.orcarouter.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"orcarouter/auto\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.orcarouter.ai\"],\"reviewedAt\":\"2026-08-19\",\"provider\":\"orcarouter\",\"baseUrl\":\"https://api.orcarouter.ai/v1\",\"authRequired\":true,\"defaultModel\":\"orcarouter/auto\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"fireworks\":{\"id\":\"fireworks\",\"name\":\"Fireworks AI\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.fireworks.ai/inference/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"embed\":{\"path\":\"/embeddings\",\"dialect\":\"openai-embeddings\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"contains\":[\"deepseek-v4\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true,\"showThoughts\":true,\"structuredOutputs\":false,\"structuredOutputModes\":[\"function\"]},\"request\":{\"reasoning\":\"effort\",\"toolChoice\":\"unforced\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"max\",\"xhigh\":\"max\",\"max\":\"max\"},\"defaultThinkingLevel\":\"max\"},\"response\":{\"reasoningFields\":[\"reasoning_content\",\"reasoning\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}}],\"sources\":[\"https://docs.fireworks.ai/api-reference/post-chatcompletions\",\"https://docs.fireworks.ai/guides/reasoning\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"fireworks\",\"baseUrl\":\"https://api.fireworks.ai/inference/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"huggingface-router\":{\"id\":\"huggingface-router\",\"name\":\"Hugging Face Router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://router.huggingface.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://huggingface.co/docs/inference-providers/en/index\",\"https://huggingface.co/docs/inference-providers/en/tasks/chat-completion\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"huggingface-router\",\"baseUrl\":\"https://router.huggingface.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"name\":\"Amazon Bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html\",\"https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"amazon-bedrock\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-foundry\":{\"id\":\"azure-foundry\",\"name\":\"Azure AI Foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"api_key_header\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat\",\"https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"azure-foundry\",\"baseUrl\":null,\"authRequired\":true,\"apiKeyHeader\":\"api-key\",\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-10-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n")
     empty = {}
     descriptor = _core_get(descriptors, provider_id, empty)
     return descriptor

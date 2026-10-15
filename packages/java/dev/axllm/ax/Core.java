@@ -136,6 +136,11 @@ final class Core {
     for(int index=0;index<text.length();index++)units.add((int)text.charAt(index));
     return units;
   }
+  static Object stringUTF8Length(Object value) {
+    String text=String.valueOf(value);long bytes=0;
+    for(int index=0;index<text.length();){int cp=text.codePointAt(index);index+=Character.charCount(cp);bytes+=cp<128?1:cp<2048?2:cp<65536?3:4;}
+    return bytes;
+  }
   static Object stringCodepointLength(Object value) { String text = String.valueOf(value); return text.codePointCount(0, text.length()); }
   // Streamed text appends chunk by chunk. Java strings hold UTF-16 units, so
   // a surrogate pair a provider split across two chunks joins back into one
@@ -1829,14 +1834,27 @@ final class Core {
   }
 
   // BEGIN AXIR CORE EMITTED FUNCTIONS
-  static Object _evidence_is_type_impl(Object typ) {
-    axirCoverageMark("_evidence_is_type_impl");
-    Object evidence = Core.get(typ, "evidence", null);
-    Object present = Core.isNotNone(evidence);
-    Object name = Core.get(typ, "name", null);
-    Object score = Core.eq(name, "score");
-    Object result = Core.or(present, score);
-    return result;
+  static Object _box_schema_impl() {
+    axirCoverageMark("_box_schema_impl");
+    Object edges = new java.util.ArrayList<Object>();
+    Core.append(edges, "top");
+    Core.append(edges, "bottom");
+    Core.append(edges, "left");
+    Core.append(edges, "right");
+    Object properties = new java.util.LinkedHashMap<String, Object>();
+    for (Object edge : Core.iter(edges)) {
+      Object number = new java.util.LinkedHashMap<String, Object>();
+      Core.set(number, "type", "number");
+      Core.set(number, "minimum", 0);
+      Core.set(number, "maximum", 1);
+      Core.set(properties, edge, number);
+    }
+    Object schema = new java.util.LinkedHashMap<String, Object>();
+    Core.set(schema, "type", "object");
+    Core.set(schema, "properties", properties);
+    Core.set(schema, "required", edges);
+    Core.set(schema, "additionalProperties", Boolean.FALSE);
+    return schema;
   }
 
   static Object _signature_value_keys_impl(Object typ) {
@@ -1852,27 +1870,6 @@ final class Core {
       Core.append(keys, "false");
     }
     return keys;
-  }
-
-  static Object _evidence_has_fields_impl(Object fields) {
-    axirCoverageMark("_evidence_has_fields_impl");
-    for (Object field : Core.iter(fields)) {
-      Object typ = Core.get(field, "type", null);
-      Object decision = Core._evidence_is_type_impl(typ);
-      if (Core.truthy(decision)) {
-        return Boolean.TRUE;
-      }
-      Object children = Core.get(typ, "fields", null);
-      Object present = Core.isNotNone(children);
-      if (Core.truthy(present)) {
-        Object nested = Core.fieldsFromMap(children);
-        decision = Core._evidence_has_fields_impl(nested);
-        if (Core.truthy(decision)) {
-          return Boolean.TRUE;
-        }
-      }
-    }
-    return Boolean.FALSE;
   }
 
   static Object parse_signature(Object signature) {
@@ -1926,99 +1923,51 @@ final class Core {
     return null;
   }
 
+  static Object _box_validate_impl(Object value, Object path) {
+    axirCoverageMark("_box_validate_impl");
+    Object valid = Core.typeIs(value, "object");
+    if (Core.truthy(valid)) {
+      Object count = Core.len(value);
+      valid = Core.eq(count, 4);
+    }
+    Object edges = new java.util.ArrayList<Object>();
+    Core.append(edges, "top");
+    Core.append(edges, "bottom");
+    Core.append(edges, "left");
+    Core.append(edges, "right");
+    for (Object edge : Core.iter(edges)) {
+      Object v = Core.get(value, edge, null);
+      Object number = Core.typeIs(v, "number");
+      if (Core.truthy(number)) {
+        Object finite = Core.mathIsFinite(v);
+        Object low = Core.gte(v, 0);
+        Object high = Core.lte(v, 1);
+        number = Core.and(low, high);
+        number = Core.and(number, finite);
+      }
+      valid = Core.and(valid, number);
+    }
+    if (Core.truthy(valid)) {
+      Object top = Core.get(value, "top", null);
+      Object bottom = Core.get(value, "bottom", null);
+      Object left = Core.get(value, "left", null);
+      Object right = Core.get(value, "right", null);
+      Object vertical = Core.lt(top, bottom);
+      Object horizontal = Core.lt(left, right);
+      valid = Core.and(vertical, horizontal);
+    }
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object message = Core.stringFormat("Invalid box for {}: four finite edges in [0, 1], top < bottom and left < right are required", path);
+      Object error = Core.validationError(message);
+      throw Core.asRuntime(error);
+    }
+    return value;
+  }
+
   static Object validate_signature(Object signature) {
     axirCoverageMark("validate_signature");
     Core._signature_validate_impl(signature);
-    return null;
-  }
-
-  static Object _evidence_validate_type_impl(Object typ) {
-    axirCoverageMark("_evidence_validate_type_impl");
-    Object name = Core.get(typ, "name", null);
-    Object evidence = Core.get(typ, "evidence", null);
-    Object present = Core.isNotNone(evidence);
-    if (Core.truthy(present)) {
-      Object supported = new java.util.ArrayList<Object>();
-      Core.append(supported, "boolean");
-      Core.append(supported, "class");
-      Core.append(supported, "score");
-      Object valid = Core.contains(supported, name);
-      Object object = Core.typeIs(evidence, "object");
-      valid = Core.and(valid, object);
-      Object invalid = Core.not(valid);
-      if (Core.truthy(invalid)) {
-        throw new RuntimeException("Evidence requires a boolean, class or score field");
-      }
-      Object keys = Core.mapKeys(evidence);
-      Object allowed = new java.util.ArrayList<Object>();
-      Core.append(allowed, "threshold");
-      Core.append(allowed, "onRefusal");
-      for (Object key : Core.iter(keys)) {
-        Object known = Core.contains(allowed, key);
-        Object unknown = Core.not(known);
-        if (Core.truthy(unknown)) {
-          throw new RuntimeException("Unknown evidence option");
-        }
-      }
-      Object threshold = Core.get(evidence, "threshold", null);
-      Object has_threshold = Core.isNotNone(threshold);
-      if (Core.truthy(has_threshold)) {
-        Object is_boolean = Core.eq(name, "boolean");
-        Object number = Core.typeIs(threshold, "number");
-        valid = Core.and(is_boolean, number);
-        if (Core.truthy(valid)) {
-          Object finite = Core.mathIsFinite(threshold);
-          Object low = Core.gte(threshold, 0);
-          Object high = Core.lte(threshold, 1);
-          Object range = Core.and(low, high);
-          valid = Core.and(finite, range);
-        }
-        invalid = Core.not(valid);
-        if (Core.truthy(invalid)) {
-          throw new RuntimeException("threshold requires a boolean field and a finite value in [0, 1]");
-        }
-      }
-      Object policy = Core.get(evidence, "onRefusal", "throw");
-      Object throw_policy = Core.eq(policy, "throw");
-      Object return_policy = Core.eq(policy, "return");
-      valid = Core.or(throw_policy, return_policy);
-      invalid = Core.not(valid);
-      if (Core.truthy(invalid)) {
-        throw new RuntimeException("onRefusal must be throw or return");
-      }
-    }
-    Object score = Core.eq(name, "score");
-    if (Core.truthy(score)) {
-      Object labels = Core.get(typ, "options", null);
-      Object list = Core.typeIs(labels, "list");
-      Object invalid = Core.not(list);
-      if (Core.truthy(invalid)) {
-        throw new RuntimeException("Score requires 2-10 distinct, nonempty ordered rubric labels");
-      }
-      Object count = Core.len(labels);
-      Object low = Core.lt(count, 2);
-      Object high = Core.gt(count, 10);
-      invalid = Core.or(low, high);
-      if (Core.truthy(invalid)) {
-        throw new RuntimeException("Score requires 2-10 distinct, nonempty ordered rubric labels");
-      }
-      Object seen = new java.util.ArrayList<Object>();
-      for (Object label : Core.iter(labels)) {
-        Object string = Core.typeIs(label, "string");
-        invalid = Core.not(string);
-        if (Core.truthy(invalid)) {
-          throw new RuntimeException("Score labels must be strings");
-        }
-        Object trimmed = Core.stringTrim(label);
-        Object empty = Core.eq(trimmed, "");
-        Object duplicate = Core.contains(seen, label);
-        invalid = Core.or(empty, duplicate);
-        if (Core.truthy(invalid)) {
-          throw new RuntimeException("Score requires distinct, nonempty ordered rubric labels");
-        }
-        Core.append(seen, label);
-      }
-    }
     return null;
   }
 
@@ -2087,6 +2036,39 @@ final class Core {
       throw Core.asRuntime(error);
     }
     return description;
+  }
+
+  static Object _evidence_is_type_impl(Object typ) {
+    axirCoverageMark("_evidence_is_type_impl");
+    Object evidence = Core.get(typ, "evidence", null);
+    Object present = Core.isNotNone(evidence);
+    Object name = Core.get(typ, "name", null);
+    Object score = Core.eq(name, "score");
+    Object box = Core.eq(name, "box");
+    Object result = Core.or(present, score);
+    result = Core.or(result, box);
+    return result;
+  }
+
+  static Object _evidence_has_fields_impl(Object fields) {
+    axirCoverageMark("_evidence_has_fields_impl");
+    for (Object field : Core.iter(fields)) {
+      Object typ = Core.get(field, "type", null);
+      Object decision = Core._evidence_is_type_impl(typ);
+      if (Core.truthy(decision)) {
+        return Boolean.TRUE;
+      }
+      Object children = Core.get(typ, "fields", null);
+      Object present = Core.isNotNone(children);
+      if (Core.truthy(present)) {
+        Object nested = Core.fieldsFromMap(children);
+        decision = Core._evidence_has_fields_impl(nested);
+        if (Core.truthy(decision)) {
+          return Boolean.TRUE;
+        }
+      }
+    }
+    return Boolean.FALSE;
   }
 
   static Object _signature_parse_impl(Object signature) {
@@ -2194,67 +2176,103 @@ final class Core {
     return descriptions;
   }
 
-  static Object _evidence_parse_options_impl(Object raw) {
-    axirCoverageMark("_evidence_parse_options_impl");
-    Object parts = Core.stringSplitTopLevel(raw, ",");
-    Object evidence = new java.util.LinkedHashMap<String, Object>();
-    Object seen = new java.util.ArrayList<Object>();
-    Object remaining = new java.util.ArrayList<Object>();
-    for (Object part : Core.iter(parts)) {
-      part = Core.stringTrim(part);
-      Object words = Core.stringWords(part);
-      Object token = Core.listGet(words, 0, "");
-      Object e = Core.eq(token, "evidence");
-      Object t = Core.eq(token, "threshold");
-      Object r = Core.eq(token, "refusal");
-      Object modifier = Core.or(e, t);
-      modifier = Core.or(modifier, r);
-      if (Core.truthy(modifier)) {
-        Object duplicate = Core.contains(seen, token);
-        if (Core.truthy(duplicate)) {
-          throw new RuntimeException("Duplicate evidence modifier");
-        }
-        Core.append(seen, token);
-        Object count = Core.len(words);
-        Object arg = Core.listGet(words, 1, "");
-        if (Core.truthy(e)) {
-          Object bad = Core.ne(count, 1);
-          if (Core.truthy(bad)) {
-            throw new RuntimeException("evidence does not take an argument");
-          }
-        }
-        if (!Core.truthy(e)) {
-          Object bad = Core.ne(count, 2);
-          if (Core.truthy(bad)) {
-            throw new RuntimeException("Evidence modifier requires one argument");
-          }
-          if (Core.truthy(t)) {
-            Object number = Core.jsonParse(arg);
-            Core.set(evidence, "threshold", number);
-          }
-          if (!Core.truthy(t)) {
-            Core.set(evidence, "onRefusal", arg);
-          }
+  static Object _evidence_validate_type_impl(Object typ) {
+    axirCoverageMark("_evidence_validate_type_impl");
+    Object name = Core.get(typ, "name", null);
+    Object evidence = Core.get(typ, "evidence", null);
+    Object present = Core.isNotNone(evidence);
+    if (Core.truthy(present)) {
+      Object supported = new java.util.ArrayList<Object>();
+      Core.append(supported, "boolean");
+      Core.append(supported, "class");
+      Core.append(supported, "score");
+      Core.append(supported, "box");
+      Object valid = Core.contains(supported, name);
+      Object object = Core.typeIs(evidence, "object");
+      valid = Core.and(valid, object);
+      Object invalid = Core.not(valid);
+      if (Core.truthy(invalid)) {
+        Object error = Core.signatureError("Evidence requires a boolean, class, score or box field");
+        throw Core.asRuntime(error);
+      }
+      Object keys = Core.mapKeys(evidence);
+      Object allowed = new java.util.ArrayList<Object>();
+      Core.append(allowed, "threshold");
+      Core.append(allowed, "onRefusal");
+      for (Object key : Core.iter(keys)) {
+        Object known = Core.contains(allowed, key);
+        Object unknown = Core.not(known);
+        if (Core.truthy(unknown)) {
+          Object error = Core.signatureError("Unknown evidence option");
+          throw Core.asRuntime(error);
         }
       }
-      if (!Core.truthy(modifier)) {
-        Core.append(remaining, part);
+      Object threshold = Core.get(evidence, "threshold", null);
+      Object has_threshold = Core.isNotNone(threshold);
+      if (Core.truthy(has_threshold)) {
+        Object is_boolean = Core.eq(name, "boolean");
+        Object number = Core.typeIs(threshold, "number");
+        valid = Core.and(is_boolean, number);
+        if (Core.truthy(valid)) {
+          Object finite = Core.mathIsFinite(threshold);
+          Object low = Core.gte(threshold, 0);
+          Object high = Core.lte(threshold, 1);
+          Object range = Core.and(low, high);
+          valid = Core.and(finite, range);
+        }
+        invalid = Core.not(valid);
+        if (Core.truthy(invalid)) {
+          Object error = Core.signatureError("threshold requires a boolean field and a finite value in [0, 1]");
+          throw Core.asRuntime(error);
+        }
+      }
+      Object policy = Core.get(evidence, "onRefusal", "throw");
+      Object throw_policy = Core.eq(policy, "throw");
+      Object return_policy = Core.eq(policy, "return");
+      valid = Core.or(throw_policy, return_policy);
+      invalid = Core.not(valid);
+      if (Core.truthy(invalid)) {
+        Object error = Core.signatureError("onRefusal must be throw or return");
+        throw Core.asRuntime(error);
       }
     }
-    Object has_evidence = Core.contains(seen, "evidence");
-    Object has_policy = Core.truthyValue(seen);
-    Object missing_evidence = Core.not(has_evidence);
-    Object invalid = Core.and(has_policy, missing_evidence);
-    if (Core.truthy(invalid)) {
-      throw new RuntimeException("threshold and refusal require the evidence modifier");
+    Object score = Core.eq(name, "score");
+    if (Core.truthy(score)) {
+      Object labels = Core.get(typ, "options", null);
+      Object list = Core.typeIs(labels, "list");
+      Object invalid = Core.not(list);
+      if (Core.truthy(invalid)) {
+        Object error = Core.signatureError("Score requires 2-10 distinct, nonempty ordered rubric labels");
+        throw Core.asRuntime(error);
+      }
+      Object count = Core.len(labels);
+      Object low = Core.lt(count, 2);
+      Object high = Core.gt(count, 10);
+      invalid = Core.or(low, high);
+      if (Core.truthy(invalid)) {
+        Object error = Core.signatureError("Score requires 2-10 distinct, nonempty ordered rubric labels");
+        throw Core.asRuntime(error);
+      }
+      Object seen = new java.util.ArrayList<Object>();
+      for (Object label : Core.iter(labels)) {
+        Object string = Core.typeIs(label, "string");
+        invalid = Core.not(string);
+        if (Core.truthy(invalid)) {
+          Object error = Core.signatureError("Score labels must be strings");
+          throw Core.asRuntime(error);
+        }
+        Object trimmed = Core.stringTrim(label);
+        Object empty = Core.eq(trimmed, "");
+        Object duplicate = Core.contains(seen, label);
+        invalid = Core.or(empty, duplicate);
+        if (Core.truthy(invalid)) {
+          Object error = Core.signatureError("Score requires distinct, nonempty ordered rubric labels");
+          throw Core.asRuntime(error);
+        }
+        Core.append(seen, label);
+      }
     }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    if (Core.truthy(has_evidence)) {
-      Core.set(out, "evidence", evidence);
-    }
-    Object rest = Core.stringJoin(", ", remaining);
-    Core.set(out, "rest", rest);
-    return out;
+    return null;
   }
 
   static Object _signature_parse_fields_impl(Object text, Object output) {
@@ -2293,29 +2311,6 @@ final class Core {
           label = Core.stringFormat("\"{}\"", escaped_key);
         }
         Object entry = Core.stringFormat("{} \"{}\"", label, escaped);
-        Core.append(entries, entry);
-      }
-    }
-    return entries;
-  }
-
-  static Object _evidence_render_entries_impl(Object typ) {
-    axirCoverageMark("_evidence_render_entries_impl");
-    Object entries = new java.util.ArrayList<Object>();
-    Object evidence = Core.get(typ, "evidence", null);
-    Object present = Core.isNotNone(evidence);
-    if (Core.truthy(present)) {
-      Core.append(entries, "evidence");
-      Object threshold = Core.get(evidence, "threshold", null);
-      present = Core.isNotNone(threshold);
-      if (Core.truthy(present)) {
-        Object entry = Core.stringFormat("threshold {}", threshold);
-        Core.append(entries, entry);
-      }
-      Object policy = Core.get(evidence, "onRefusal", null);
-      present = Core.isNotNone(policy);
-      if (Core.truthy(present)) {
-        Object entry = Core.stringFormat("refusal {}", policy);
         Core.append(entries, entry);
       }
     }
@@ -2477,6 +2472,69 @@ final class Core {
     return field;
   }
 
+  static Object _evidence_parse_options_impl(Object raw) {
+    axirCoverageMark("_evidence_parse_options_impl");
+    Object parts = Core.stringSplitTopLevel(raw, ",");
+    Object evidence = new java.util.LinkedHashMap<String, Object>();
+    Object seen = new java.util.ArrayList<Object>();
+    Object remaining = new java.util.ArrayList<Object>();
+    for (Object part : Core.iter(parts)) {
+      part = Core.stringTrim(part);
+      Object words = Core.stringWords(part);
+      Object token = Core.listGet(words, 0, "");
+      Object e = Core.eq(token, "evidence");
+      Object t = Core.eq(token, "threshold");
+      Object r = Core.eq(token, "refusal");
+      Object modifier = Core.or(e, t);
+      modifier = Core.or(modifier, r);
+      if (Core.truthy(modifier)) {
+        Object duplicate = Core.contains(seen, token);
+        if (Core.truthy(duplicate)) {
+          throw new RuntimeException("Duplicate evidence modifier");
+        }
+        Core.append(seen, token);
+        Object count = Core.len(words);
+        Object arg = Core.listGet(words, 1, "");
+        if (Core.truthy(e)) {
+          Object bad = Core.ne(count, 1);
+          if (Core.truthy(bad)) {
+            throw new RuntimeException("evidence does not take an argument");
+          }
+        }
+        if (!Core.truthy(e)) {
+          Object bad = Core.ne(count, 2);
+          if (Core.truthy(bad)) {
+            throw new RuntimeException("Evidence modifier requires one argument");
+          }
+          if (Core.truthy(t)) {
+            Object number = Core.jsonParse(arg);
+            Core.set(evidence, "threshold", number);
+          }
+          if (!Core.truthy(t)) {
+            Core.set(evidence, "onRefusal", arg);
+          }
+        }
+      }
+      if (!Core.truthy(modifier)) {
+        Core.append(remaining, part);
+      }
+    }
+    Object has_evidence = Core.contains(seen, "evidence");
+    Object has_policy = Core.truthyValue(seen);
+    Object missing_evidence = Core.not(has_evidence);
+    Object invalid = Core.and(has_policy, missing_evidence);
+    if (Core.truthy(invalid)) {
+      throw new RuntimeException("threshold and refusal require the evidence modifier");
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    if (Core.truthy(has_evidence)) {
+      Core.set(out, "evidence", evidence);
+    }
+    Object rest = Core.stringJoin(", ", remaining);
+    Core.set(out, "rest", rest);
+    return out;
+  }
+
   static Object _signature_nested_value_descriptions_impl(Object fields, Object prefix) {
     axirCoverageMark("_signature_nested_value_descriptions_impl");
     Object out = new java.util.ArrayList<Object>();
@@ -2530,6 +2588,29 @@ final class Core {
     return out;
   }
 
+  static Object _evidence_render_entries_impl(Object typ) {
+    axirCoverageMark("_evidence_render_entries_impl");
+    Object entries = new java.util.ArrayList<Object>();
+    Object evidence = Core.get(typ, "evidence", null);
+    Object present = Core.isNotNone(evidence);
+    if (Core.truthy(present)) {
+      Core.append(entries, "evidence");
+      Object threshold = Core.get(evidence, "threshold", null);
+      present = Core.isNotNone(threshold);
+      if (Core.truthy(present)) {
+        Object entry = Core.stringFormat("threshold {}", threshold);
+        Core.append(entries, entry);
+      }
+      Object policy = Core.get(evidence, "onRefusal", null);
+      present = Core.isNotNone(policy);
+      if (Core.truthy(present)) {
+        Object entry = Core.stringFormat("refusal {}", policy);
+        Core.append(entries, entry);
+      }
+    }
+    return entries;
+  }
+
   static Object _signature_parse_description_impl(Object raw, Object fallback) {
     axirCoverageMark("_signature_parse_description_impl");
     Object text = Core.stringTrim(raw);
@@ -2569,6 +2650,7 @@ final class Core {
     Core.append(types, "object");
     Core.append(types, "class");
     Core.append(types, "score");
+    Core.append(types, "box");
     Core.append(types, "image");
     Core.append(types, "audio");
     Core.append(types, "file");
@@ -2813,71 +2895,6 @@ final class Core {
     Object is_cached = Core.get(modifier_state, "is_cached", Boolean.FALSE);
     Core.set(out, "is_cached", is_cached);
     Core.set(out, "rest", rest);
-    return out;
-  }
-
-  static Object _evidence_request_fields_impl(Object fields) {
-    axirCoverageMark("_evidence_request_fields_impl");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    for (Object field : Core.iter(fields)) {
-      Object typ = Core.get(field, "type", null);
-      Object decision = Core._evidence_is_type_impl(typ);
-      if (Core.truthy(decision)) {
-        Object entry = new java.util.LinkedHashMap<String, Object>();
-        Object name = Core.get(typ, "name", null);
-        Object labels = Core.get(typ, "options", null);
-        Object evidence = Core.get(typ, "evidence", null);
-        Object array = Core.get(typ, "is_array", Boolean.FALSE);
-        Object optional = Core.get(field, "is_optional", Boolean.FALSE);
-        Core.set(entry, "type", name);
-        Core.set(entry, "options", labels);
-        Core.set(entry, "evidence", evidence);
-        Core.set(entry, "isArray", array);
-        Core.set(entry, "isOptional", optional);
-        Object key = Core.get(field, "name", null);
-        Core.set(out, key, entry);
-      }
-    }
-    return out;
-  }
-
-  static Object _evidence_placeholder_impl(Object typ) {
-    axirCoverageMark("_evidence_placeholder_impl");
-    Object name = Core.get(typ, "name", null);
-    Object is_boolean = Core.eq(name, "boolean");
-    Object score = Core.eq(name, "score");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    if (Core.truthy(is_boolean)) {
-      Core.set(out, "probability", "<probability of true, 0 to 1>");
-    }
-    if (!Core.truthy(is_boolean)) {
-      Object labels = Core.get(typ, "options", null);
-      Object ps = new java.util.LinkedHashMap<String, Object>();
-      if (Core.truthy(score)) {
-        ps = new java.util.ArrayList<Object>();
-      }
-      for (Object label : Core.iter(labels)) {
-        if (Core.truthy(score)) {
-          Core.append(ps, "<probability, 0 to 1>");
-        }
-        if (!Core.truthy(score)) {
-          Core.set(ps, label, "<probability, 0 to 1>");
-        }
-      }
-      Core.set(out, "probabilities", ps);
-    }
-    Object evidence = Core.get(typ, "evidence", null);
-    Object policy = Core.get(evidence, "onRefusal", "throw");
-    Object return_policy = Core.eq(policy, "return");
-    if (Core.truthy(return_policy)) {
-      Core.set(out, "status", "answered");
-    }
-    Object array = Core.get(typ, "is_array", Boolean.FALSE);
-    if (Core.truthy(array)) {
-      Object wrapped = new java.util.ArrayList<Object>();
-      Core.append(wrapped, out);
-      return wrapped;
-    }
     return out;
   }
 
@@ -3175,6 +3192,121 @@ final class Core {
     return out;
   }
 
+  static Object _evidence_request_fields_impl(Object fields) {
+    axirCoverageMark("_evidence_request_fields_impl");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    for (Object field : Core.iter(fields)) {
+      Object typ = Core.get(field, "type", null);
+      Object decision = Core._evidence_is_type_impl(typ);
+      if (Core.truthy(decision)) {
+        Object entry = new java.util.LinkedHashMap<String, Object>();
+        Object name = Core.get(typ, "name", null);
+        Object labels = Core.get(typ, "options", null);
+        Object evidence = Core.get(typ, "evidence", null);
+        Object array = Core.get(typ, "is_array", Boolean.FALSE);
+        Object optional = Core.get(field, "is_optional", Boolean.FALSE);
+        Core.set(entry, "type", name);
+        Core.set(entry, "options", labels);
+        Core.set(entry, "evidence", evidence);
+        Core.set(entry, "isArray", array);
+        Core.set(entry, "isOptional", optional);
+        Object key = Core.get(field, "name", null);
+        Core.set(out, key, entry);
+      }
+    }
+    return out;
+  }
+
+  static Object _evidence_placeholder_impl(Object typ) {
+    axirCoverageMark("_evidence_placeholder_impl");
+    Object name = Core.get(typ, "name", null);
+    Object is_boolean = Core.eq(name, "boolean");
+    Object score = Core.eq(name, "score");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    if (Core.truthy(is_boolean)) {
+      Core.set(out, "probability", "<probability of true, 0 to 1>");
+    }
+    if (!Core.truthy(is_boolean)) {
+      Object empty = new java.util.ArrayList<Object>();
+      Object labels_raw = Core.get(typ, "options", null);
+      Object labels = Core.coalesce(labels_raw, empty);
+      Object ps = new java.util.LinkedHashMap<String, Object>();
+      if (Core.truthy(score)) {
+        ps = new java.util.ArrayList<Object>();
+      }
+      for (Object label : Core.iter(labels)) {
+        if (Core.truthy(score)) {
+          Core.append(ps, "<probability, 0 to 1>");
+        }
+        if (!Core.truthy(score)) {
+          Core.set(ps, label, "<probability, 0 to 1>");
+        }
+      }
+      Core.set(out, "probabilities", ps);
+    }
+    Object box = Core.eq(name, "box");
+    if (Core.truthy(box)) {
+      Object coordinates = new java.util.LinkedHashMap<String, Object>();
+      Core.set(coordinates, "top", "<top edge, 0 to 1>");
+      Core.set(coordinates, "bottom", "<bottom edge, greater than top, up to 1>");
+      Core.set(coordinates, "left", "<left edge, 0 to 1>");
+      Core.set(coordinates, "right", "<right edge, greater than left, up to 1>");
+      out = new java.util.LinkedHashMap<String, Object>();
+      Core.set(out, "box", coordinates);
+      Object evidence = Core.get(typ, "evidence", null);
+      Object plain = Core.isNone(evidence);
+      if (Core.truthy(plain)) {
+        out = coordinates;
+      }
+    }
+    Object evidence = Core.get(typ, "evidence", null);
+    Object policy = Core.get(evidence, "onRefusal", "throw");
+    Object return_policy = Core.eq(policy, "return");
+    if (Core.truthy(return_policy)) {
+      Core.set(out, "status", "answered");
+    }
+    Object array = Core.get(typ, "is_array", Boolean.FALSE);
+    if (Core.truthy(array)) {
+      Object wrapped = new java.util.ArrayList<Object>();
+      Core.append(wrapped, out);
+      return wrapped;
+    }
+    return out;
+  }
+
+  static Object _signature_parse_object_fields_impl(Object raw, Object section, Object parent) {
+    axirCoverageMark("_signature_parse_object_fields_impl");
+    Object text = Core.stringTrim(raw);
+    Object empty = Core.eq(text, "");
+    if (Core.truthy(empty)) {
+      Object message = Core.stringFormat("Field \"{}\": object type requires at least one field", parent);
+      Object error = Core.signatureError(message);
+      throw Core.asRuntime(error);
+    }
+    Object parts = Core.stringSplitTopLevel(raw, ",");
+    Object fields = new java.util.LinkedHashMap<String, Object>();
+    Object output = Core.eq(section, "output");
+    for (Object part : Core.iter(parts)) {
+      Object entry = Core.stringTrim(part);
+      Object entry_empty = Core.eq(entry, "");
+      if (Core.truthy(entry_empty)) {
+        Object message = Core.stringFormat("Field \"{}\": trailing comma in object type", parent);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object field = Core._signature_parse_field_common_impl(entry, output, Boolean.TRUE, parent);
+      Object name = Core.get(field, "name", null);
+      Object duplicate = Core.mapContains(fields, name);
+      if (Core.truthy(duplicate)) {
+        Object message = Core.stringFormat("Field \"{}\": duplicate object field name \"{}\"", parent, name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Core.set(fields, name, field);
+    }
+    return fields;
+  }
+
   static Object _evidence_example_values_impl(Object fields, Object values) {
     axirCoverageMark("_evidence_example_values_impl");
     Object empty = new java.util.LinkedHashMap<String, Object>();
@@ -3216,6 +3348,20 @@ final class Core {
                 }
                 Object probabilities = Core.get(item, key, null);
                 Core.set(raw, key, probabilities);
+                Object box = Core.eq(type_name, "box");
+                if (Core.truthy(box)) {
+                  Object coordinates = Core.get(item, "value", null);
+                  Object wire_box = Core.get(item, "box", item);
+                  coordinates = Core.coalesce(coordinates, wire_box);
+                  coordinates = Core._box_validate_impl(coordinates, name);
+                  raw = new java.util.LinkedHashMap<String, Object>();
+                  Core.set(raw, "box", coordinates);
+                  Object evidence = Core.get(typ, "evidence", null);
+                  Object plain = Core.isNone(evidence);
+                  if (Core.truthy(plain)) {
+                    raw = coordinates;
+                  }
+                }
                 Object evidence = Core.get(typ, "evidence", null);
                 Object policy = Core.get(evidence, "onRefusal", null);
                 Object return_policy = Core.eq(policy, "return");
@@ -3244,39 +3390,6 @@ final class Core {
       }
     }
     return out;
-  }
-
-  static Object _signature_parse_object_fields_impl(Object raw, Object section, Object parent) {
-    axirCoverageMark("_signature_parse_object_fields_impl");
-    Object text = Core.stringTrim(raw);
-    Object empty = Core.eq(text, "");
-    if (Core.truthy(empty)) {
-      Object message = Core.stringFormat("Field \"{}\": object type requires at least one field", parent);
-      Object error = Core.signatureError(message);
-      throw Core.asRuntime(error);
-    }
-    Object parts = Core.stringSplitTopLevel(raw, ",");
-    Object fields = new java.util.LinkedHashMap<String, Object>();
-    Object output = Core.eq(section, "output");
-    for (Object part : Core.iter(parts)) {
-      Object entry = Core.stringTrim(part);
-      Object entry_empty = Core.eq(entry, "");
-      if (Core.truthy(entry_empty)) {
-        Object message = Core.stringFormat("Field \"{}\": trailing comma in object type", parent);
-        Object error = Core.signatureError(message);
-        throw Core.asRuntime(error);
-      }
-      Object field = Core._signature_parse_field_common_impl(entry, output, Boolean.TRUE, parent);
-      Object name = Core.get(field, "name", null);
-      Object duplicate = Core.mapContains(fields, name);
-      if (Core.truthy(duplicate)) {
-        Object message = Core.stringFormat("Field \"{}\": duplicate object field name \"{}\"", parent, name);
-        Object error = Core.signatureError(message);
-        throw Core.asRuntime(error);
-      }
-      Core.set(fields, name, field);
-    }
-    return fields;
   }
 
   static Object signature_to_string(Object signature) {
@@ -3543,6 +3656,7 @@ final class Core {
     Core.append(valid_types, "boolean");
     Core.append(valid_types, "class");
     Core.append(valid_types, "score");
+    Core.append(valid_types, "box");
     Core.append(valid_types, "code");
     Core.append(valid_types, "date");
     Core.append(valid_types, "dateRange");
@@ -4023,93 +4137,6 @@ final class Core {
     return null;
   }
 
-  static Object _evidence_schema_impl(Object typ) {
-    axirCoverageMark("_evidence_schema_impl");
-    Object name = Core.get(typ, "name", null);
-    Object labels = Core.get(typ, "options", null);
-    Object p = new java.util.LinkedHashMap<String, Object>();
-    Core.set(p, "type", "number");
-    Core.set(p, "minimum", 0);
-    Core.set(p, "maximum", 1);
-    Object props = new java.util.LinkedHashMap<String, Object>();
-    Object is_boolean = Core.eq(name, "boolean");
-    Object score = Core.eq(name, "score");
-    Object required = new java.util.ArrayList<Object>();
-    if (Core.truthy(is_boolean)) {
-      Core.set(props, "probability", p);
-      Core.append(required, "probability");
-    }
-    if (!Core.truthy(is_boolean)) {
-      Object distribution = new java.util.LinkedHashMap<String, Object>();
-      if (Core.truthy(score)) {
-        Core.set(distribution, "type", "array");
-        Core.set(distribution, "items", p);
-        Object count = Core.len(labels);
-        Core.set(distribution, "minItems", count);
-        Core.set(distribution, "maxItems", count);
-        Object order = Core.stringJoin(", ", labels);
-        Object hint = Core.stringFormat("Probabilities in rubric order, lowest to highest: {}", order);
-        Core.set(distribution, "description", hint);
-      }
-      if (!Core.truthy(score)) {
-        Core.set(distribution, "type", "object");
-        Object ps = new java.util.LinkedHashMap<String, Object>();
-        for (Object label : Core.iter(labels)) {
-          Core.set(ps, label, p);
-        }
-        Core.set(distribution, "properties", ps);
-        Core.set(distribution, "required", labels);
-        Core.set(distribution, "additionalProperties", Boolean.FALSE);
-      }
-      Core.set(props, "probabilities", distribution);
-      Core.append(required, "probabilities");
-    }
-    Object schema = new java.util.LinkedHashMap<String, Object>();
-    Core.set(schema, "type", "object");
-    Core.set(schema, "properties", props);
-    Core.set(schema, "required", required);
-    Core.set(schema, "additionalProperties", Boolean.FALSE);
-    Object evidence = Core.get(typ, "evidence", null);
-    Object policy = Core.get(evidence, "onRefusal", "throw");
-    Object return_policy = Core.eq(policy, "return");
-    if (Core.truthy(return_policy)) {
-      Object status = new java.util.LinkedHashMap<String, Object>();
-      Core.set(status, "type", "string");
-      Object answered = new java.util.ArrayList<Object>();
-      Core.append(answered, "answered");
-      Core.set(status, "enum", answered);
-      Core.set(props, "status", status);
-      Core.append(required, "status");
-      Object refused = new java.util.LinkedHashMap<String, Object>();
-      Core.set(refused, "type", "object");
-      Object refusal_props = new java.util.LinkedHashMap<String, Object>();
-      Object refusal_status = new java.util.LinkedHashMap<String, Object>();
-      Core.set(refusal_status, "type", "string");
-      Object tags = new java.util.ArrayList<Object>();
-      Core.append(tags, "refused");
-      Core.set(refusal_status, "enum", tags);
-      Core.set(refusal_props, "status", refusal_status);
-      Core.set(refused, "properties", refusal_props);
-      Object keys = new java.util.ArrayList<Object>();
-      Core.append(keys, "status");
-      Core.set(refused, "required", keys);
-      Core.set(refused, "additionalProperties", Boolean.FALSE);
-      Object alternatives = new java.util.ArrayList<Object>();
-      Core.append(alternatives, schema);
-      Core.append(alternatives, refused);
-      schema = new java.util.LinkedHashMap<String, Object>();
-      Core.set(schema, "anyOf", alternatives);
-    }
-    Object array = Core.get(typ, "is_array", Boolean.FALSE);
-    if (Core.truthy(array)) {
-      Object wrapped = new java.util.LinkedHashMap<String, Object>();
-      Core.set(wrapped, "type", "array");
-      Core.set(wrapped, "items", schema);
-      schema = wrapped;
-    }
-    return schema;
-  }
-
   static Object _validate_number_constraints_impl(Object value, Object field) {
     axirCoverageMark("_validate_number_constraints_impl");
     Object typ = Core.get(field, "type", null);
@@ -4223,6 +4250,26 @@ final class Core {
       for (Object item : Core.iter(value)) {
         Core._validate_value_impl(item_field, item, path);
       }
+      return null;
+    }
+    Object box = Core.eq(type_name, "box");
+    if (Core.truthy(box)) {
+      Object evidence = Core.get(typ, "evidence", null);
+      Object rich = Core.isNotNone(evidence);
+      Object coordinates = value;
+      if (Core.truthy(rich)) {
+        Object policy = Core.get(evidence, "onRefusal", null);
+        Object return_refusal = Core.eq(policy, "return");
+        Object status = Core.get(value, "status", null);
+        Object refused = Core.eq(status, "refused");
+        Object allow_refusal = Core.and(return_refusal, refused);
+        if (Core.truthy(allow_refusal)) {
+          return null;
+        }
+        Object wire = Core.get(value, "box", value);
+        coordinates = Core.get(value, "value", wire);
+      }
+      Core._box_validate_impl(coordinates, path);
       return null;
     }
     Object decision = Core._evidence_is_type_impl(typ);
@@ -4402,25 +4449,6 @@ final class Core {
     return null;
   }
 
-  static Object _evidence_probability_impl(Object v, Object path) {
-    axirCoverageMark("_evidence_probability_impl");
-    Object valid = Core.typeIs(v, "number");
-    if (Core.truthy(valid)) {
-      Object finite = Core.mathIsFinite(v);
-      Object low = Core.gte(v, 0);
-      Object high = Core.lte(v, 1);
-      Object range = Core.and(low, high);
-      valid = Core.and(finite, range);
-    }
-    Object invalid = Core.not(valid);
-    if (Core.truthy(invalid)) {
-      Object message = Core.stringFormat("Invalid probability for {}", path);
-      Object error = Core.validationError(message);
-      throw Core.asRuntime(error);
-    }
-    return v;
-  }
-
   static Object _schema_nullable_optional_impl(Object schema, Object field, Object options) {
     axirCoverageMark("_schema_nullable_optional_impl");
     Object is_optional = Core.get(field, "is_optional", Boolean.FALSE);
@@ -4458,6 +4486,120 @@ final class Core {
     return schema;
   }
 
+  static Object _evidence_schema_impl(Object typ) {
+    axirCoverageMark("_evidence_schema_impl");
+    Object name = Core.get(typ, "name", null);
+    Object labels = Core.get(typ, "options", null);
+    Object p = new java.util.LinkedHashMap<String, Object>();
+    Core.set(p, "type", "number");
+    Core.set(p, "minimum", 0);
+    Core.set(p, "maximum", 1);
+    Object props = new java.util.LinkedHashMap<String, Object>();
+    Object is_boolean = Core.eq(name, "boolean");
+    Object score = Core.eq(name, "score");
+    Object box = Core.eq(name, "box");
+    Object required = new java.util.ArrayList<Object>();
+    if (Core.truthy(box)) {
+      Object coordinates = Core._box_schema_impl();
+      Object evidence = Core.get(typ, "evidence", null);
+      Object plain = Core.isNone(evidence);
+      if (Core.truthy(plain)) {
+        Object array = Core.get(typ, "is_array", Boolean.FALSE);
+        if (Core.truthy(array)) {
+          Object wrapped = new java.util.LinkedHashMap<String, Object>();
+          Core.set(wrapped, "type", "array");
+          Core.set(wrapped, "items", coordinates);
+          return wrapped;
+        }
+        return coordinates;
+      }
+      Core.set(props, "box", coordinates);
+      Core.append(required, "box");
+    }
+    if (!Core.truthy(box)) {
+      if (Core.truthy(is_boolean)) {
+        Core.set(props, "probability", p);
+        Core.append(required, "probability");
+      }
+      if (!Core.truthy(is_boolean)) {
+        Object distribution = new java.util.LinkedHashMap<String, Object>();
+        if (Core.truthy(score)) {
+          Core.set(distribution, "type", "array");
+          Core.set(distribution, "items", p);
+          Object count = Core.len(labels);
+          Core.set(distribution, "minItems", count);
+          Core.set(distribution, "maxItems", count);
+          Object order = Core.stringJoin(", ", labels);
+          Object hint = Core.stringFormat("Probabilities in rubric order, lowest to highest: {}", order);
+          Core.set(distribution, "description", hint);
+        }
+        if (!Core.truthy(score)) {
+          Core.set(distribution, "type", "object");
+          Object ps = new java.util.LinkedHashMap<String, Object>();
+          for (Object label : Core.iter(labels)) {
+            Core.set(ps, label, p);
+          }
+          Core.set(distribution, "properties", ps);
+          Core.set(distribution, "required", labels);
+          Core.set(distribution, "additionalProperties", Boolean.FALSE);
+        }
+        Core.set(props, "probabilities", distribution);
+        Core.append(required, "probabilities");
+      }
+    }
+    Object schema = new java.util.LinkedHashMap<String, Object>();
+    Core.set(schema, "type", "object");
+    Core.set(schema, "properties", props);
+    Core.set(schema, "required", required);
+    Core.set(schema, "additionalProperties", Boolean.FALSE);
+    Object evidence = Core.get(typ, "evidence", null);
+    Object policy = Core.get(evidence, "onRefusal", "throw");
+    Object return_policy = Core.eq(policy, "return");
+    if (Core.truthy(return_policy)) {
+      Object status = new java.util.LinkedHashMap<String, Object>();
+      Core.set(status, "type", "string");
+      Object answered = new java.util.ArrayList<Object>();
+      Core.append(answered, "answered");
+      Core.set(status, "enum", answered);
+      Core.set(props, "status", status);
+      Core.append(required, "status");
+      Core.set(schema, "required", required);
+      if (Core.truthy(box)) {
+        required = new java.util.ArrayList<Object>();
+        Core.append(required, "status");
+        Core.append(required, "box");
+        Core.set(schema, "required", required);
+      }
+      Object refused = new java.util.LinkedHashMap<String, Object>();
+      Core.set(refused, "type", "object");
+      Object refusal_props = new java.util.LinkedHashMap<String, Object>();
+      Object refusal_status = new java.util.LinkedHashMap<String, Object>();
+      Core.set(refusal_status, "type", "string");
+      Object tags = new java.util.ArrayList<Object>();
+      Core.append(tags, "refused");
+      Core.set(refusal_status, "enum", tags);
+      Core.set(refusal_props, "status", refusal_status);
+      Core.set(refused, "properties", refusal_props);
+      Object keys = new java.util.ArrayList<Object>();
+      Core.append(keys, "status");
+      Core.set(refused, "required", keys);
+      Core.set(refused, "additionalProperties", Boolean.FALSE);
+      Object alternatives = new java.util.ArrayList<Object>();
+      Core.append(alternatives, schema);
+      Core.append(alternatives, refused);
+      schema = new java.util.LinkedHashMap<String, Object>();
+      Core.set(schema, "anyOf", alternatives);
+    }
+    Object array = Core.get(typ, "is_array", Boolean.FALSE);
+    if (Core.truthy(array)) {
+      Object wrapped = new java.util.LinkedHashMap<String, Object>();
+      Core.set(wrapped, "type", "array");
+      Core.set(wrapped, "items", schema);
+      schema = wrapped;
+    }
+    return schema;
+  }
+
   static Object _schema_object_from_fields_impl(Object fields_map, Object is_nested, Object options) {
     axirCoverageMark("_schema_object_from_fields_impl");
     Object schema = new java.util.LinkedHashMap<String, Object>();
@@ -4490,6 +4632,12 @@ final class Core {
     Object type_name = Core.get(typ, "name", null);
     Object decision = Core._evidence_is_type_impl(typ);
     if (Core.truthy(decision)) {
+      Object box = Core.eq(type_name, "box");
+      Object array = Core.get(typ, "is_array", Boolean.FALSE);
+      if (Core.truthy(box)) {
+        Object item_field = Core.fieldItem(field);
+        typ = Core.get(item_field, "type", null);
+      }
       Object schema = Core._evidence_schema_impl(typ);
       Object decision_mode = Core.get(options, "decisionMode", "request");
       Object result_mode = Core.eq(decision_mode, "result");
@@ -4497,7 +4645,30 @@ final class Core {
         schema = Core._evidence_result_schema_impl(typ);
       }
       Object description = Core._signature_describe_field_values_impl(field);
+      if (Core.truthy(box)) {
+        Object hint = "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right.";
+        if (Core.truthy(result_mode)) {
+          hint = "";
+        }
+        Object has_description = Core.truthyValue(description);
+        if (Core.truthy(has_description)) {
+          Object has_hint = Core.truthyValue(hint);
+          if (Core.truthy(has_hint)) {
+            description = Core.stringFormat("{} {}", description, hint);
+          }
+        }
+        if (!Core.truthy(has_description)) {
+          description = hint;
+        }
+      }
       Core.set(schema, "description", description);
+      Object box_array = Core.and(box, array);
+      if (Core.truthy(box_array)) {
+        Object wrapped = new java.util.LinkedHashMap<String, Object>();
+        Core.set(wrapped, "type", "array");
+        Core.set(wrapped, "items", schema);
+        schema = wrapped;
+      }
       Object nullable = Core._schema_nullable_optional_impl(schema, field, options);
       return nullable;
     }
@@ -4609,6 +4780,25 @@ final class Core {
     return nullable;
   }
 
+  static Object _evidence_probability_impl(Object v, Object path) {
+    axirCoverageMark("_evidence_probability_impl");
+    Object valid = Core.typeIs(v, "number");
+    if (Core.truthy(valid)) {
+      Object finite = Core.mathIsFinite(v);
+      Object low = Core.gte(v, 0);
+      Object high = Core.lte(v, 1);
+      Object range = Core.and(low, high);
+      valid = Core.and(finite, range);
+    }
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Object message = Core.stringFormat("Invalid probability for {}", path);
+      Object error = Core.validationError(message);
+      throw Core.asRuntime(error);
+    }
+    return v;
+  }
+
   static Object _strip_internal_fields_impl(Object fields, Object values) {
     axirCoverageMark("_strip_internal_fields_impl");
     Object public_values = new java.util.LinkedHashMap<String, Object>();
@@ -4704,8 +4894,13 @@ final class Core {
         Core.set(value, "enum", levels);
       }
     }
+    Object box = Core.eq(name, "box");
+    if (Core.truthy(box)) {
+      value = Core._box_schema_impl();
+    }
     Object plain = Core.isNone(evidence);
-    Object plain_score = Core.and(plain, score);
+    Object plain_value = Core.or(score, box);
+    Object plain_score = Core.and(plain, plain_value);
     Object schema = value;
     Object rich = Core.not(plain_score);
     if (Core.truthy(rich)) {
@@ -4734,31 +4929,34 @@ final class Core {
       Core.set(provenance, "required", provenance_required);
       Core.set(provenance, "additionalProperties", Boolean.FALSE);
       Core.set(props, "provenance", provenance);
-      if (Core.truthy(is_boolean)) {
-        Core.set(props, "probability", p);
-        Core.set(props, "threshold", p);
-      }
-      if (!Core.truthy(is_boolean)) {
-        Object ps = new java.util.LinkedHashMap<String, Object>();
-        if (Core.truthy(score)) {
-          Core.set(ps, "type", "array");
-          Core.set(ps, "items", p);
-          Object labels = new java.util.LinkedHashMap<String, Object>();
-          Core.set(labels, "type", "array");
-          Core.set(labels, "items", text);
-          Core.set(props, "levels", labels);
+      Object not_box = Core.not(box);
+      if (Core.truthy(not_box)) {
+        if (Core.truthy(is_boolean)) {
+          Core.set(props, "probability", p);
+          Core.set(props, "threshold", p);
         }
-        if (!Core.truthy(score)) {
-          Core.set(ps, "type", "object");
-          Object probability_props = new java.util.LinkedHashMap<String, Object>();
-          for (Object label : Core.iter(levels)) {
-            Core.set(probability_props, label, p);
+        if (!Core.truthy(is_boolean)) {
+          Object ps = new java.util.LinkedHashMap<String, Object>();
+          if (Core.truthy(score)) {
+            Core.set(ps, "type", "array");
+            Core.set(ps, "items", p);
+            Object labels = new java.util.LinkedHashMap<String, Object>();
+            Core.set(labels, "type", "array");
+            Core.set(labels, "items", text);
+            Core.set(props, "levels", labels);
           }
-          Core.set(ps, "properties", probability_props);
-          Core.set(ps, "required", levels);
-          Core.set(ps, "additionalProperties", Boolean.FALSE);
+          if (!Core.truthy(score)) {
+            Core.set(ps, "type", "object");
+            Object probability_props = new java.util.LinkedHashMap<String, Object>();
+            for (Object label : Core.iter(levels)) {
+              Core.set(probability_props, label, p);
+            }
+            Core.set(ps, "properties", probability_props);
+            Core.set(ps, "required", levels);
+            Core.set(ps, "additionalProperties", Boolean.FALSE);
+          }
+          Core.set(props, "probabilities", ps);
         }
-        Core.set(props, "probabilities", ps);
       }
       Object required = Core.mapKeys(props);
       Core.set(schema, "required", required);
@@ -4778,6 +4976,7 @@ final class Core {
         Core.set(status, "enum", answered);
         Core.set(props, "status", status);
         Core.append(required, "status");
+        Core.set(schema, "required", required);
         Object refusal = new java.util.LinkedHashMap<String, Object>();
         Core.set(refusal, "type", "object");
         Object refusal_props = new java.util.LinkedHashMap<String, Object>();
@@ -5417,97 +5616,43 @@ final class Core {
     return null;
   }
 
-  static Object typesafe_validate_request(Object request) {
-    axirCoverageMark("typesafe_validate_request");
-    Core.typesafe_require_object(request, "request");
-    Object model = Core.get(request, "model", null);
-    Core.typesafe_require_string(model, "model", Boolean.TRUE);
-    Object has_state = Core.mapContains(request, "state");
-    Object missing_state = Core.not(has_state);
-    if (Core.truthy(missing_state)) {
-      throw new RuntimeException("Typesafe: state is required (null is allowed)");
+  static Object typesafe_utf8_size(Object text) {
+    axirCoverageMark("typesafe_utf8_size");
+    Object size = Core.stringUTF8Length(text);
+    return size;
+  }
+
+  static Object typesafe_collect_strings(Object value) {
+    axirCoverageMark("typesafe_collect_strings");
+    Object out = new java.util.ArrayList<Object>();
+    Object string = Core.typeIs(value, "string");
+    if (Core.truthy(string)) {
+      Core.append(out, value);
     }
-    Object state = Core.get(request, "state", null);
-    Core.typesafe_validate_entry(state, "state");
-    Object questions = Core.get(request, "questions", null);
-    Core.typesafe_require_object(questions, "questions");
-    Object keys = Core.mapKeys(questions);
-    Object count = Core.len(keys);
-    Object empty = Core.eq(count, 0);
-    if (Core.truthy(empty)) {
-      throw new RuntimeException("Typesafe: questions must not be empty");
-    }
-    for (Object key : Core.iter(keys)) {
-      Object question = Core.get(questions, key, null);
-      Core.typesafe_require_object(question, key);
-      Object instructions = Core.get(question, "instructions", null);
-      Core.typesafe_validate_entry(instructions, key);
-      Object kind = Core.get(question, "type", null);
-      Object criteria = Core.get(question, "criteria", null);
-      Object is_noul = Core.eq(kind, "noul");
-      Object is_choice = Core.eq(kind, "choice");
-      Object is_score = Core.eq(kind, "score");
-      if (Core.truthy(is_noul)) {
-        Object has_criteria = Core.isNotNone(criteria);
-        if (Core.truthy(has_criteria)) {
-          Core.typesafe_require_object(criteria, key);
-          Object labels = Core.mapKeys(criteria);
-          for (Object label : Core.iter(labels)) {
-            Object true_label = Core.eq(label, "true");
-            Object false_label = Core.eq(label, "false");
-            Object valid_label = Core.or(true_label, false_label);
-            Object invalid_label = Core.not(valid_label);
-            if (Core.truthy(invalid_label)) {
-              throw new RuntimeException("Typesafe: Noul criteria only accept true and false");
-            }
-            Object entry = Core.get(criteria, label, null);
-            Core.typesafe_validate_entry(entry, key);
-          }
+    if (!Core.truthy(string)) {
+      Object object = Core.typeIs(value, "object");
+      Object list = Core.typeIs(value, "list");
+      Object items = new java.util.ArrayList<Object>();
+      if (Core.truthy(object)) {
+        Object keys = Core.mapKeys(value);
+        for (Object key : Core.iter(keys)) {
+          Object item = Core.get(value, key, null);
+          Core.append(items, item);
         }
       }
-      if (!Core.truthy(is_noul)) {
-        if (Core.truthy(is_choice)) {
-          Core.typesafe_require_object(criteria, key);
-          Object labels = Core.mapKeys(criteria);
-          Object size = Core.len(labels);
-          Object too_small = Core.lt(size, 1);
-          Object too_large = Core.gt(size, 255);
-          Object invalid_size = Core.or(too_small, too_large);
-          if (Core.truthy(invalid_size)) {
-            throw new RuntimeException("Typesafe: Choice requires 1 to 255 options");
-          }
-          for (Object label : Core.iter(labels)) {
-            Object entry = Core.get(criteria, label, null);
-            Core.typesafe_validate_entry(entry, key);
-          }
+      if (!Core.truthy(object)) {
+        if (Core.truthy(list)) {
+          items = value;
         }
-        if (!Core.truthy(is_choice)) {
-          if (Core.truthy(is_score)) {
-            Object is_list = Core.typeIs(criteria, "list");
-            Object not_list = Core.not(is_list);
-            if (Core.truthy(not_list)) {
-              throw new RuntimeException("Typesafe: Score requires an array of 2 to 10 levels");
-            }
-            Object size = Core.len(criteria);
-            Object too_small = Core.lt(size, 2);
-            Object too_large = Core.gt(size, 10);
-            Object invalid_size = Core.or(too_small, too_large);
-            if (Core.truthy(invalid_size)) {
-              throw new RuntimeException("Typesafe: Score requires 2 to 10 levels");
-            }
-            for (Object entry : Core.iter(criteria)) {
-              Core.typesafe_validate_entry(entry, key);
-            }
-          }
-          if (!Core.truthy(is_score)) {
-            Object message = Core.stringFormat("Typesafe: unknown question type for {}", key);
-            Object error = Core.validationError(message);
-            throw Core.asRuntime(error);
-          }
+      }
+      for (Object item : Core.iter(items)) {
+        Object strings = Core.typesafe_collect_strings(item);
+        for (Object text : Core.iter(strings)) {
+          Core.append(out, text);
         }
       }
     }
-    return null;
+    return out;
   }
 
   static Object _openai_apply_cache_breakpoint_impl(Object message) {
@@ -5568,6 +5713,121 @@ final class Core {
       }
     }
     return out;
+  }
+
+  static Object typesafe_validate_assets(Object request) {
+    axirCoverageMark("typesafe_validate_assets");
+    Object present = Core.mapContains(request, "assets");
+    Object absent = Core.not(present);
+    if (Core.truthy(absent)) {
+      return null;
+    }
+    Object assets = Core.get(request, "assets", null);
+    Core.typesafe_require_object(assets, "assets");
+    Object state = Core.get(request, "state", null);
+    Object strings = Core.typesafe_collect_strings(state);
+    Object questions = Core.get(request, "questions", null);
+    Core.typesafe_validate_json(questions);
+    Object question_keys = Core.mapKeys(questions);
+    for (Object name : Core.iter(question_keys)) {
+      Object question = Core.get(questions, name, null);
+      Object instructions = Core.get(question, "instructions", null);
+      Object criteria = Core.get(question, "criteria", null);
+      Object entries = new java.util.ArrayList<Object>();
+      Core.append(entries, instructions);
+      Core.append(entries, criteria);
+      for (Object entry : Core.iter(entries)) {
+        Object texts = Core.typesafe_collect_strings(entry);
+        for (Object text : Core.iter(texts)) {
+          Core.append(strings, text);
+        }
+      }
+    }
+    Object keys = Core.mapKeys(assets);
+    Object total_key_bytes = 0;
+    for (Object key : Core.iter(keys)) {
+      Object trimmed = Core.stringTrim(key);
+      Object bytes = Core.typesafe_utf8_size(key);
+      total_key_bytes = Core.add(total_key_bytes, bytes);
+      Object empty = Core.eq(trimmed, "");
+      Object long_key = Core.gt(bytes, 1024);
+      Object too_many = Core.gt(total_key_bytes, 65536);
+      Object invalid = Core.or(empty, long_key);
+      invalid = Core.or(invalid, too_many);
+      if (Core.truthy(invalid)) {
+        throw new RuntimeException("Typesafe: invalid image reference length");
+      }
+      Object used = Boolean.FALSE;
+      for (Object text : Core.iter(strings)) {
+        Object index = Core.stringIndexOf(text, key, 0);
+        Object found = Core.gte(index, 0);
+        used = Core.or(used, found);
+      }
+      Object unused = Core.not(used);
+      if (Core.truthy(unused)) {
+        throw new RuntimeException("Typesafe: image asset is not referenced");
+      }
+      Object asset = Core.get(assets, key, null);
+      Core.typesafe_require_object(asset, "image asset");
+      Object kind = Core.get(asset, "type", "image");
+      Object not_image = Core.ne(kind, "image");
+      if (Core.truthy(not_image)) {
+        throw new RuntimeException("Typesafe: assets must be images");
+      }
+      Object multipart = Core.mapContains(asset, "part");
+      if (Core.truthy(multipart)) {
+        throw new RuntimeException("Typesafe: multipart assets are not supported; use data_base64");
+      }
+      Object format = Core.get(asset, "format", null);
+      Object formats = new java.util.ArrayList<Object>();
+      Core.append(formats, "png");
+      Core.append(formats, "jpg");
+      Core.append(formats, "jpeg");
+      Object valid = Core.contains(formats, format);
+      invalid = Core.not(valid);
+      if (Core.truthy(invalid)) {
+        throw new RuntimeException("Typesafe: images must be PNG or JPEG");
+      }
+      Object data = Core.get(asset, "data_base64", null);
+      Core.typesafe_require_string(data, "image data_base64", Boolean.TRUE);
+      Object length = Core.len(data);
+      Object groups = Core.div(length, 4);
+      Object whole = Core.mathFloor(groups);
+      Object padded = Core.eq(groups, whole);
+      Object base64 = Core.regexMatch("^[A-Za-z0-9+/]+={0,2}$", data);
+      Object lf = Core.stringEndsWith(data, "\n");
+      Object cr = Core.stringEndsWith(data, "\r");
+      Object newline = Core.or(lf, cr);
+      Object no_newline = Core.not(newline);
+      base64 = Core.and(base64, no_newline);
+      valid = Core.and(padded, base64);
+      invalid = Core.not(valid);
+      if (Core.truthy(invalid)) {
+        throw new RuntimeException("Typesafe: image data_base64 must be padded base64 without a data URL prefix");
+      }
+      bytes = Core.mul(groups, 3);
+      Object two_padding = Core.stringEndsWith(data, "==");
+      Object one_padding = Core.stringEndsWith(data, "=");
+      if (Core.truthy(two_padding)) {
+        bytes = Core.add(bytes, -2);
+      }
+      if (!Core.truthy(two_padding)) {
+        if (Core.truthy(one_padding)) {
+          bytes = Core.add(bytes, -1);
+        }
+      }
+      Object too_large = Core.gt(bytes, 16777216);
+      if (Core.truthy(too_large)) {
+        throw new RuntimeException("Typesafe: image exceeds 16 MiB");
+      }
+    }
+    Object json = Core.jsonStringify(request);
+    Object size = Core.typesafe_utf8_size(json);
+    Object too_large = Core.gt(size, 33554432);
+    if (Core.truthy(too_large)) {
+      throw new RuntimeException("Typesafe: image request exceeds 32 MiB");
+    }
+    return null;
   }
 
   static Object resolve_model_key(Object client_options, Object request, Object options, Object default_model, Object embed) {
@@ -5718,119 +5978,6 @@ final class Core {
     return null;
   }
 
-  static Object typesafe_decode_response(Object raw, Object questions) {
-    axirCoverageMark("typesafe_decode_response");
-    Core.typesafe_require_object(raw, "response");
-    Object model = Core.get(raw, "model", null);
-    Core.typesafe_require_string(model, "response.model", Boolean.TRUE);
-    Object usage = Core.get(raw, "usage", null);
-    Core.typesafe_require_object(usage, "usage");
-    Object token_keys = new java.util.ArrayList<Object>();
-    Core.append(token_keys, "input_tokens");
-    Core.append(token_keys, "output_tokens");
-    for (Object key : Core.iter(token_keys)) {
-      Object count = Core.get(usage, key, null);
-      Core.typesafe_require_number(count, key, 0, 9007199254740991.0);
-      Object integer = Core.mathFloor(count);
-      Object invalid = Core.ne(count, integer);
-      if (Core.truthy(invalid)) {
-        throw new RuntimeException("Typesafe: token counts must be nonnegative safe integers");
-      }
-    }
-    Object answers = Core.get(raw, "answers", null);
-    Core.typesafe_require_object(answers, "answers");
-    Object keys = Core.mapKeys(questions);
-    for (Object key : Core.iter(keys)) {
-      Object question = Core.get(questions, key, null);
-      Object kind = Core.get(question, "type", null);
-      Object answer = Core.get(answers, key, null);
-      Core.typesafe_require_object(answer, key);
-      Object answer_kind = Core.get(answer, "type", null);
-      Object mismatch = Core.ne(kind, answer_kind);
-      if (Core.truthy(mismatch)) {
-        Object message = Core.stringFormat("Typesafe: answer type mismatch for {}", key);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-      Object is_noul = Core.eq(kind, "noul");
-      if (Core.truthy(is_noul)) {
-        Object probability = Core.get(answer, "noul", null);
-        Core.typesafe_require_number(probability, key, 0, 1);
-      }
-      if (!Core.truthy(is_noul)) {
-        Object confidence = Core.get(answer, "confidence", null);
-        Core.typesafe_require_number(confidence, "confidence", 0, 1);
-        Object criteria = Core.get(question, "criteria", null);
-        Object is_choice = Core.eq(kind, "choice");
-        Object labels = new java.util.ArrayList<Object>();
-        if (Core.truthy(is_choice)) {
-          labels = Core.mapKeys(criteria);
-          Object choice = Core.get(answer, "choice", null);
-          Core.typesafe_require_string(choice, key, Boolean.FALSE);
-          Object known = Core.contains(labels, choice);
-          Object unknown = Core.not(known);
-          if (Core.truthy(unknown)) {
-            Object message = Core.stringFormat("Typesafe: invalid selected Choice label for {}", key);
-            Object error = Core.validationError(message);
-            throw Core.asRuntime(error);
-          }
-        }
-        if (!Core.truthy(is_choice)) {
-          Object index = 0;
-          for (Object entry : Core.iter(criteria)) {
-            Object label = Core.stringFormat("{}", index);
-            Core.append(labels, label);
-            index = Core.add(index, 1);
-          }
-          Object upper = Core.add(index, -1);
-          Object score = Core.get(answer, "score", null);
-          Core.typesafe_require_number(score, key, 0, upper);
-          Object legend = Core.get(answer, "legend", null);
-          Core.typesafe_require_object(legend, "legend");
-          Object legend_keys = Core.mapKeys(legend);
-          Object legend_size = Core.len(legend_keys);
-          Object wrong_size = Core.ne(legend_size, index);
-          if (Core.truthy(wrong_size)) {
-            throw new RuntimeException("Typesafe: Score legend must match rubric indices");
-          }
-          for (Object label : Core.iter(labels)) {
-            Object present = Core.mapContains(legend, label);
-            Object missing = Core.not(present);
-            if (Core.truthy(missing)) {
-              throw new RuntimeException("Typesafe: Score legend must match rubric indices");
-            }
-            Object entry = Core.get(legend, label, null);
-            Core.typesafe_validate_entry(entry, "legend");
-          }
-        }
-        Object probabilities = Core.get(answer, "probabilities", null);
-        Core.typesafe_require_object(probabilities, "probabilities");
-        Object probability_keys = Core.mapKeys(probabilities);
-        Object size = Core.len(probability_keys);
-        Object expected_size = Core.len(labels);
-        Object wrong_size = Core.ne(size, expected_size);
-        if (Core.truthy(wrong_size)) {
-          throw new RuntimeException("Typesafe: probabilities must match criteria keys");
-        }
-        Object total = 0;
-        for (Object label : Core.iter(labels)) {
-          Object probability = Core.get(probabilities, label, null);
-          Core.typesafe_require_number(probability, label, 0, 1);
-          total = Core.add(total, probability);
-        }
-        Object difference = Core.add(total, -1);
-        difference = Core.mathAbs(difference);
-        Object roundoff = Core.mul(0.0000000000000002220446049250313, expected_size);
-        Object tolerance = Core.add(0.01, roundoff);
-        Object invalid_sum = Core.gt(difference, tolerance);
-        if (Core.truthy(invalid_sum)) {
-          throw new RuntimeException("Typesafe: probabilities must sum to one");
-        }
-      }
-    }
-    return raw;
-  }
-
   static Object decisions_decode_response(Object raw, Object questions) {
     axirCoverageMark("decisions_decode_response");
     Core.decisions_require_object(raw, "response");
@@ -5973,10 +6120,147 @@ final class Core {
     return raw;
   }
 
+  static Object typesafe_image_headers(Object request) {
+    axirCoverageMark("typesafe_image_headers");
+    Object assets = Core.get(request, "assets", null);
+    Object enabled = Core.truthyValue(assets);
+    Object questions = Core.get(request, "questions", null);
+    Object keys = Core.mapKeys(questions);
+    for (Object key : Core.iter(keys)) {
+      Object question = Core.get(questions, key, null);
+      Object kind = Core.get(question, "type", null);
+      Object box = Core.eq(kind, "box");
+      enabled = Core.or(enabled, box);
+    }
+    Object headers = new java.util.LinkedHashMap<String, Object>();
+    if (Core.truthy(enabled)) {
+      Core.set(headers, "TypeSafe-Danger-Zone-Images", "true");
+    }
+    return headers;
+  }
+
   static Object _openai_is_gpt56_family_impl(Object model) {
     axirCoverageMark("_openai_is_gpt56_family_impl");
     Object is_gpt56 = Core.regexMatch("^(?:(?:[a-z]+(?:-[a-z]+)*\\.)?openai\\.)?gpt-5\\.6($|-)", model);
     return is_gpt56;
+  }
+
+  static Object typesafe_validate_request(Object request) {
+    axirCoverageMark("typesafe_validate_request");
+    Core.typesafe_require_object(request, "request");
+    Object model = Core.get(request, "model", null);
+    Core.typesafe_require_string(model, "model", Boolean.TRUE);
+    Object has_state = Core.mapContains(request, "state");
+    Object missing_state = Core.not(has_state);
+    if (Core.truthy(missing_state)) {
+      throw new RuntimeException("Typesafe: state is required (null is allowed)");
+    }
+    Object state = Core.get(request, "state", null);
+    Core.typesafe_validate_entry(state, "state");
+    Object questions = Core.get(request, "questions", null);
+    Core.typesafe_require_object(questions, "questions");
+    Core.typesafe_validate_assets(request);
+    Object keys = Core.mapKeys(questions);
+    Object count = Core.len(keys);
+    Object empty = Core.eq(count, 0);
+    if (Core.truthy(empty)) {
+      throw new RuntimeException("Typesafe: questions must not be empty");
+    }
+    for (Object key : Core.iter(keys)) {
+      Object question = Core.get(questions, key, null);
+      Core.typesafe_require_object(question, key);
+      Object instructions = Core.get(question, "instructions", null);
+      Core.typesafe_validate_entry(instructions, key);
+      Object kind = Core.get(question, "type", null);
+      Object criteria = Core.get(question, "criteria", null);
+      Object is_box = Core.eq(kind, "box");
+      if (Core.truthy(is_box)) {
+        Object has_instructions = Core.isNotNone(instructions);
+        Object string = Core.typeIs(instructions, "string");
+        if (Core.truthy(string)) {
+          Object trimmed = Core.stringTrim(instructions);
+          has_instructions = Core.ne(trimmed, "");
+        }
+        Object missing = Core.not(has_instructions);
+        if (Core.truthy(missing)) {
+          throw new RuntimeException("Typesafe: Box requires instructions");
+        }
+        Object has_criteria = Core.mapContains(question, "criteria");
+        if (Core.truthy(has_criteria)) {
+          throw new RuntimeException("Typesafe: Box does not accept criteria");
+        }
+        Object assets = Core.get(request, "assets", null);
+        Object has_images = Core.truthyValue(assets);
+        missing = Core.not(has_images);
+        if (Core.truthy(missing)) {
+          throw new RuntimeException("Typesafe: Box requires an image asset");
+        }
+        continue;
+      }
+      Object is_noul = Core.eq(kind, "noul");
+      Object is_choice = Core.eq(kind, "choice");
+      Object is_score = Core.eq(kind, "score");
+      if (Core.truthy(is_noul)) {
+        Object has_criteria = Core.isNotNone(criteria);
+        if (Core.truthy(has_criteria)) {
+          Core.typesafe_require_object(criteria, key);
+          Object labels = Core.mapKeys(criteria);
+          for (Object label : Core.iter(labels)) {
+            Object true_label = Core.eq(label, "true");
+            Object false_label = Core.eq(label, "false");
+            Object valid_label = Core.or(true_label, false_label);
+            Object invalid_label = Core.not(valid_label);
+            if (Core.truthy(invalid_label)) {
+              throw new RuntimeException("Typesafe: Noul criteria only accept true and false");
+            }
+            Object entry = Core.get(criteria, label, null);
+            Core.typesafe_validate_entry(entry, key);
+          }
+        }
+      }
+      if (!Core.truthy(is_noul)) {
+        if (Core.truthy(is_choice)) {
+          Core.typesafe_require_object(criteria, key);
+          Object labels = Core.mapKeys(criteria);
+          Object size = Core.len(labels);
+          Object too_small = Core.lt(size, 1);
+          Object too_large = Core.gt(size, 255);
+          Object invalid_size = Core.or(too_small, too_large);
+          if (Core.truthy(invalid_size)) {
+            throw new RuntimeException("Typesafe: Choice requires 1 to 255 options");
+          }
+          for (Object label : Core.iter(labels)) {
+            Object entry = Core.get(criteria, label, null);
+            Core.typesafe_validate_entry(entry, key);
+          }
+        }
+        if (!Core.truthy(is_choice)) {
+          if (Core.truthy(is_score)) {
+            Object is_list = Core.typeIs(criteria, "list");
+            Object not_list = Core.not(is_list);
+            if (Core.truthy(not_list)) {
+              throw new RuntimeException("Typesafe: Score requires an array of 2 to 10 levels");
+            }
+            Object size = Core.len(criteria);
+            Object too_small = Core.lt(size, 2);
+            Object too_large = Core.gt(size, 10);
+            Object invalid_size = Core.or(too_small, too_large);
+            if (Core.truthy(invalid_size)) {
+              throw new RuntimeException("Typesafe: Score requires 2 to 10 levels");
+            }
+            for (Object entry : Core.iter(criteria)) {
+              Core.typesafe_validate_entry(entry, key);
+            }
+          }
+          if (!Core.truthy(is_score)) {
+            Object message = Core.stringFormat("Typesafe: unknown question type for {}", key);
+            Object error = Core.validationError(message);
+            throw Core.asRuntime(error);
+          }
+        }
+      }
+    }
+    return null;
   }
 
   static Object _openai_is_gpt6_family_impl(Object model) {
@@ -6074,27 +6358,6 @@ final class Core {
     return supported;
   }
 
-  static Object typesafe_decode_models(Object raw) {
-    axirCoverageMark("typesafe_decode_models");
-    Core.typesafe_require_object(raw, "model catalog");
-    Object models = Core.get(raw, "models", null);
-    Object is_list = Core.typeIs(models, "list");
-    Object invalid = Core.not(is_list);
-    if (Core.truthy(invalid)) {
-      throw new RuntimeException("Typesafe: models must be an array");
-    }
-    for (Object model : Core.iter(models)) {
-      Core.typesafe_require_object(model, "model");
-      Object name = Core.get(model, "name", null);
-      Object description = Core.get(model, "description", null);
-      Object release_date = Core.get(model, "release_date", null);
-      Core.typesafe_require_string(name, "model.name", Boolean.TRUE);
-      Core.typesafe_require_string(description, "model.description", Boolean.FALSE);
-      Core.typesafe_require_string(release_date, "model.release_date", Boolean.FALSE);
-    }
-    return models;
-  }
-
   static Object _openai_supports_chat_sessions_impl(Object model) {
     axirCoverageMark("_openai_supports_chat_sessions_impl");
     Object is_astra = Core._openai_is_gpt6_astra_impl(model);
@@ -6102,252 +6365,6 @@ final class Core {
     Object on_openai = Core.not(is_bedrock);
     Object supported = Core.and(is_astra, on_openai);
     return supported;
-  }
-
-  static Object typesafe_build_chat_request(Object request, Object options) {
-    axirCoverageMark("typesafe_build_chat_request");
-    Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object empty_list = new java.util.ArrayList<Object>();
-    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
-    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
-    Core.typesafe_require_number(threshold, "trueThreshold", 0, 1);
-    Object functions = Core.get(request, "functions", empty_list);
-    Object function_call_snake = Core.get(request, "function_call", "none");
-    Object function_call = Core.get(request, "functionCall", function_call_snake);
-    Object has_functions = Core.truthyValue(functions);
-    Object has_call = Core.ne(function_call, "none");
-    Object has_call_value = Core.truthyValue(function_call);
-    has_call = Core.and(has_call, has_call_value);
-    Object tools = Core.or(has_functions, has_call);
-    if (Core.truthy(tools)) {
-      throw new RuntimeException("Typesafe does not support tools; use a generative provider for tool execution");
-    }
-    Object config_snake = Core.get(request, "model_config", empty_map);
-    Object config = Core.get(request, "modelConfig", config_snake);
-    Object controls = Core.mapKeys(config);
-    for (Object control : Core.iter(controls)) {
-      Object value = Core.get(config, control, null);
-      Object present = Core.isNotNone(value);
-      if (Core.truthy(present)) {
-        Object is_stream = Core.eq(control, "stream");
-        Object is_n = Core.eq(control, "n");
-        Object one = Core.eq(value, 1);
-        Object numeric = Core.typeIs(value, "number");
-        one = Core.and(one, numeric);
-        Object allowed_n = Core.and(is_n, one);
-        Object allowed = Core.or(is_stream, allowed_n);
-        Object unsupported = Core.not(allowed);
-        if (Core.truthy(unsupported)) {
-          Object message = Core.stringFormat("Typesafe does not support generation control {}", control);
-          Object error = Core.validationError(message);
-          throw Core.asRuntime(error);
-        }
-      }
-    }
-    Object format_snake = Core.get(request, "response_format", null);
-    Object format = Core.get(request, "responseFormat", format_snake);
-    Object format_type = Core.get(format, "type", null);
-    Object wrong_format = Core.ne(format_type, "json_schema");
-    if (Core.truthy(wrong_format)) {
-      throw new RuntimeException("Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs");
-    }
-    Object wrapper = Core.get(format, "schema", null);
-    Core.typesafe_require_object(wrapper, "responseFormat.schema");
-    Object schema = Core.get(wrapper, "schema", null);
-    Core.typesafe_require_object(schema, "output schema");
-    Object root_type = Core.get(schema, "type", null);
-    Object flat = Core.eq(root_type, "object");
-    Object forbidden = new java.util.ArrayList<Object>();
-    Core.append(forbidden, "anyOf");
-    Core.append(forbidden, "oneOf");
-    Core.append(forbidden, "allOf");
-    Core.append(forbidden, "$ref");
-    for (Object key : Core.iter(forbidden)) {
-      Object value = Core.get(schema, key, null);
-      Object has_value = Core.truthyValue(value);
-      if (Core.truthy(has_value)) {
-        flat = Boolean.FALSE;
-      }
-    }
-    Object not_flat = Core.not(flat);
-    if (Core.truthy(not_flat)) {
-      throw new RuntimeException("Typesafe requires a flat object output schema");
-    }
-    Object properties = Core.get(schema, "properties", null);
-    Core.typesafe_require_object(properties, "output properties");
-    Object required = Core.get(schema, "required", empty_list);
-    Object annotations = Core.get(format, "fieldDescriptions", empty_map);
-    Object decision_fields = Core.get(format, "decisionFields", empty_map);
-    Object questions = new java.util.LinkedHashMap<String, Object>();
-    Object names = Core.mapKeys(properties);
-    Core.append(forbidden, "const");
-    for (Object name : Core.iter(names)) {
-      Object field = Core.get(properties, name, null);
-      Core.typesafe_require_object(field, name);
-      Object decision = Core.get(decision_fields, name, null);
-      Object rich = Core.isNotNone(decision);
-      if (Core.truthy(rich)) {
-        Object array = Core.get(decision, "isArray", Boolean.FALSE);
-        Object optional = Core.get(decision, "isOptional", Boolean.FALSE);
-        Object invalid = Core.or(array, optional);
-        if (Core.truthy(invalid)) {
-          throw new RuntimeException("Decision providers require flat, required scalar outputs");
-        }
-        Object wire_description = Core.get(field, "description", null);
-        field = new java.util.LinkedHashMap<String, Object>();
-        Object kind = Core.get(decision, "type", null);
-        Object class_kind = Core.eq(kind, "class");
-        if (Core.truthy(class_kind)) {
-          kind = "string";
-        }
-        Core.set(field, "type", kind);
-        Core.set(field, "description", wire_description);
-        if (Core.truthy(class_kind)) {
-          Object labels = Core.get(decision, "options", null);
-          Core.set(field, "enum", labels);
-        }
-      }
-      Object supported = Core.contains(required, name);
-      for (Object key : Core.iter(forbidden)) {
-        Object has_key = Core.mapContains(field, key);
-        if (Core.truthy(has_key)) {
-          supported = Boolean.FALSE;
-        }
-      }
-      Object type_name = Core.get(field, "type", null);
-      Object class_options = Core.get(field, "enum", null);
-      Object is_boolean = Core.eq(type_name, "boolean");
-      Object has_enum = Core.isNotNone(class_options);
-      Object no_enum = Core.not(has_enum);
-      is_boolean = Core.and(is_boolean, no_enum);
-      Object is_string = Core.eq(type_name, "string");
-      Object is_enum = Core.typeIs(class_options, "list");
-      Object is_class = Core.and(is_string, is_enum);
-      Object supported_type = Core.or(is_boolean, is_class);
-      Object is_score = Core.eq(type_name, "score");
-      supported_type = Core.or(supported_type, is_score);
-      supported = Core.and(supported, supported_type);
-      Object unsupported = Core.not(supported);
-      if (Core.truthy(unsupported)) {
-        Object message = Core.stringFormat("Typesafe cannot evaluate output {}. Use required boolean, class or rubric score fields, or a generative provider for other outputs", name);
-        Object error = Core.validationError(message);
-        throw Core.asRuntime(error);
-      }
-      Object annotation = Core.get(annotations, name, null);
-      Object description = Core.get(field, "description", null);
-      Object has_annotation = Core.isNotNone(annotation);
-      Object descriptions = new java.util.LinkedHashMap<String, Object>();
-      if (Core.truthy(has_annotation)) {
-        Core.typesafe_require_object(annotation, name);
-        description = Core.get(annotation, "description", null);
-        Object has_description = Core.isNotNone(description);
-        if (Core.truthy(has_description)) {
-          Core.typesafe_require_string(description, name, Boolean.FALSE);
-        }
-        descriptions = Core.get(annotation, "valueDescriptions", null);
-        Core.typesafe_require_object(descriptions, name);
-        Object type_attrs = new java.util.LinkedHashMap<String, Object>();
-        Object annotation_type = "boolean";
-        if (Core.truthy(is_class)) {
-          annotation_type = "class";
-        }
-        Core.set(type_attrs, "name", annotation_type);
-        Core.set(type_attrs, "options", class_options);
-        Core.set(type_attrs, "value_descriptions", descriptions);
-        Object typ = Core.recordNew("FieldType", type_attrs);
-        Core._signature_validate_value_descriptions_impl(typ, name);
-      }
-      Object instructions = Core.stringFormat("Evaluate the output field {}.", name);
-      Object is_description_string = Core.typeIs(description, "string");
-      Object has_description = Core.truthyValue(description);
-      Object use_description = Core.and(is_description_string, has_description);
-      if (Core.truthy(use_description)) {
-        instructions = Core.stringFormat("{}: {}", name, description);
-      }
-      Object question = new java.util.LinkedHashMap<String, Object>();
-      Core.set(question, "instructions", instructions);
-      if (Core.truthy(is_score)) {
-        Core.set(question, "type", "score");
-        Object levels = Core.get(decision, "options", null);
-        Core.set(question, "criteria", levels);
-        Core.set(questions, name, question);
-        continue;
-      }
-      if (Core.truthy(is_boolean)) {
-        Core.set(question, "type", "noul");
-        if (Core.truthy(has_annotation)) {
-          Core.set(question, "criteria", descriptions);
-        }
-      }
-      if (!Core.truthy(is_boolean)) {
-        Core.set(question, "type", "choice");
-        Object criteria = new java.util.LinkedHashMap<String, Object>();
-        for (Object label : Core.iter(class_options)) {
-          Core.typesafe_require_string(label, name, Boolean.FALSE);
-          Object duplicate = Core.mapContains(criteria, label);
-          if (Core.truthy(duplicate)) {
-            throw new RuntimeException("Typesafe: Choice labels must be unique");
-          }
-          description = Core.get(descriptions, label, null);
-          Core.set(criteria, label, description);
-        }
-        Core.set(question, "criteria", criteria);
-      }
-      Core.set(questions, name, question);
-    }
-    Object prompt_snake = Core.get(request, "chat_prompt", empty_list);
-    Object prompt = Core.get(request, "chatPrompt", prompt_snake);
-    Object messages = new java.util.ArrayList<Object>();
-    for (Object message : Core.iter(prompt)) {
-      Object role = Core.get(message, "role", null);
-      Object content = Core.get(message, "content", "");
-      Object is_tool = Core.eq(role, "function");
-      Object is_tool_alt = Core.eq(role, "tool");
-      is_tool = Core.or(is_tool, is_tool_alt);
-      Object calls = Core.get(message, "functionCalls", null);
-      Object calls_snake = Core.get(message, "function_calls", null);
-      calls = Core.coalesce(calls, calls_snake);
-      Object has_calls = Core.truthyValue(calls);
-      Object audio = Core.get(message, "audio", null);
-      Object has_audio = Core.truthyValue(audio);
-      Object images = Core.get(message, "images", null);
-      Object has_images = Core.truthyValue(images);
-      Object invalid = Core.or(is_tool, has_calls);
-      invalid = Core.or(invalid, has_audio);
-      invalid = Core.or(invalid, has_images);
-      if (Core.truthy(invalid)) {
-        throw new RuntimeException("Typesafe does not support tool or media history");
-      }
-      Object is_list = Core.typeIs(content, "list");
-      if (Core.truthy(is_list)) {
-        Object texts = new java.util.ArrayList<Object>();
-        for (Object part : Core.iter(content)) {
-          Object kind = Core.get(part, "type", null);
-          Object nontext = Core.ne(kind, "text");
-          if (Core.truthy(nontext)) {
-            throw new RuntimeException("Typesafe supports text input only");
-          }
-          Object text = Core.get(part, "text", null);
-          Core.typesafe_require_string(text, "message text", Boolean.FALSE);
-          Core.append(texts, text);
-        }
-        content = Core.stringJoin("\n", texts);
-      }
-      Core.typesafe_require_string(content, "message content", Boolean.FALSE);
-      Object entry = new java.util.LinkedHashMap<String, Object>();
-      Core.set(entry, "role", role);
-      Core.set(entry, "content", content);
-      Core.append(messages, entry);
-    }
-    Object state = new java.util.LinkedHashMap<String, Object>();
-    Core.set(state, "messages", messages);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Object model = Core.get(request, "model", "jev-latest");
-    Core.set(payload, "model", model);
-    Core.set(payload, "state", state);
-    Core.set(payload, "questions", questions);
-    Core.typesafe_validate_request(payload);
-    return payload;
   }
 
   static Object validate_chat_request(Object request) {
@@ -6593,6 +6610,11 @@ final class Core {
       Core.decisions_require_object(field, name);
       Object required_list = Core.typeIs(required, "list");
       Object decision = Core.get(decision_fields, name, null);
+      Object decision_type = Core.get(decision, "type", null);
+      Object box = Core.eq(decision_type, "box");
+      if (Core.truthy(box)) {
+        throw new RuntimeException("OpenAI Decisions does not support box outputs; use Typesafe or a generative vision provider");
+      }
       Object rich = Core.isNotNone(decision);
       if (Core.truthy(rich)) {
         Object array = Core.get(decision, "isArray", Boolean.FALSE);
@@ -6825,6 +6847,125 @@ final class Core {
     return payload;
   }
 
+  static Object typesafe_decode_response(Object raw, Object questions) {
+    axirCoverageMark("typesafe_decode_response");
+    Core.typesafe_require_object(raw, "response");
+    Object model = Core.get(raw, "model", null);
+    Core.typesafe_require_string(model, "response.model", Boolean.TRUE);
+    Object usage = Core.get(raw, "usage", null);
+    Core.typesafe_require_object(usage, "usage");
+    Object token_keys = new java.util.ArrayList<Object>();
+    Core.append(token_keys, "input_tokens");
+    Core.append(token_keys, "output_tokens");
+    for (Object key : Core.iter(token_keys)) {
+      Object count = Core.get(usage, key, null);
+      Core.typesafe_require_number(count, key, 0, 9007199254740991.0);
+      Object integer = Core.mathFloor(count);
+      Object invalid = Core.ne(count, integer);
+      if (Core.truthy(invalid)) {
+        throw new RuntimeException("Typesafe: token counts must be nonnegative safe integers");
+      }
+    }
+    Object answers = Core.get(raw, "answers", null);
+    Core.typesafe_require_object(answers, "answers");
+    Object keys = Core.mapKeys(questions);
+    for (Object key : Core.iter(keys)) {
+      Object question = Core.get(questions, key, null);
+      Object kind = Core.get(question, "type", null);
+      Object answer = Core.get(answers, key, null);
+      Core.typesafe_require_object(answer, key);
+      Object answer_kind = Core.get(answer, "type", null);
+      Object mismatch = Core.ne(kind, answer_kind);
+      if (Core.truthy(mismatch)) {
+        Object message = Core.stringFormat("Typesafe: answer type mismatch for {}", key);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+      Object is_noul = Core.eq(kind, "noul");
+      if (Core.truthy(is_noul)) {
+        Object probability = Core.get(answer, "noul", null);
+        Core.typesafe_require_number(probability, key, 0, 1);
+      }
+      if (!Core.truthy(is_noul)) {
+        Object confidence = Core.get(answer, "confidence", null);
+        Core.typesafe_require_number(confidence, "confidence", 0, 1);
+        Object is_box = Core.eq(kind, "box");
+        if (Core.truthy(is_box)) {
+          Object box = Core.get(answer, "box", null);
+          Core._box_validate_impl(box, key);
+          continue;
+        }
+        Object criteria = Core.get(question, "criteria", null);
+        Object is_choice = Core.eq(kind, "choice");
+        Object labels = new java.util.ArrayList<Object>();
+        if (Core.truthy(is_choice)) {
+          labels = Core.mapKeys(criteria);
+          Object choice = Core.get(answer, "choice", null);
+          Core.typesafe_require_string(choice, key, Boolean.FALSE);
+          Object known = Core.contains(labels, choice);
+          Object unknown = Core.not(known);
+          if (Core.truthy(unknown)) {
+            Object message = Core.stringFormat("Typesafe: invalid selected Choice label for {}", key);
+            Object error = Core.validationError(message);
+            throw Core.asRuntime(error);
+          }
+        }
+        if (!Core.truthy(is_choice)) {
+          Object index = 0;
+          for (Object entry : Core.iter(criteria)) {
+            Object label = Core.stringFormat("{}", index);
+            Core.append(labels, label);
+            index = Core.add(index, 1);
+          }
+          Object upper = Core.add(index, -1);
+          Object score = Core.get(answer, "score", null);
+          Core.typesafe_require_number(score, key, 0, upper);
+          Object legend = Core.get(answer, "legend", null);
+          Core.typesafe_require_object(legend, "legend");
+          Object legend_keys = Core.mapKeys(legend);
+          Object legend_size = Core.len(legend_keys);
+          Object wrong_size = Core.ne(legend_size, index);
+          if (Core.truthy(wrong_size)) {
+            throw new RuntimeException("Typesafe: Score legend must match rubric indices");
+          }
+          for (Object label : Core.iter(labels)) {
+            Object present = Core.mapContains(legend, label);
+            Object missing = Core.not(present);
+            if (Core.truthy(missing)) {
+              throw new RuntimeException("Typesafe: Score legend must match rubric indices");
+            }
+            Object entry = Core.get(legend, label, null);
+            Core.typesafe_validate_entry(entry, "legend");
+          }
+        }
+        Object probabilities = Core.get(answer, "probabilities", null);
+        Core.typesafe_require_object(probabilities, "probabilities");
+        Object probability_keys = Core.mapKeys(probabilities);
+        Object size = Core.len(probability_keys);
+        Object expected_size = Core.len(labels);
+        Object wrong_size = Core.ne(size, expected_size);
+        if (Core.truthy(wrong_size)) {
+          throw new RuntimeException("Typesafe: probabilities must match criteria keys");
+        }
+        Object total = 0;
+        for (Object label : Core.iter(labels)) {
+          Object probability = Core.get(probabilities, label, null);
+          Core.typesafe_require_number(probability, label, 0, 1);
+          total = Core.add(total, probability);
+        }
+        Object difference = Core.add(total, -1);
+        difference = Core.mathAbs(difference);
+        Object roundoff = Core.mul(0.0000000000000002220446049250313, expected_size);
+        Object tolerance = Core.add(0.01, roundoff);
+        Object invalid_sum = Core.gt(difference, tolerance);
+        if (Core.truthy(invalid_sum)) {
+          throw new RuntimeException("Typesafe: probabilities must sum to one");
+        }
+      }
+    }
+    return raw;
+  }
+
   static Object openai_chat_reasoning_effort(Object model, Object budget) {
     axirCoverageMark("openai_chat_reasoning_effort");
     Object effort = Core.openai_reasoning_effort(model, budget);
@@ -6975,6 +7116,27 @@ final class Core {
     return response;
   }
 
+  static Object typesafe_decode_models(Object raw) {
+    axirCoverageMark("typesafe_decode_models");
+    Core.typesafe_require_object(raw, "model catalog");
+    Object models = Core.get(raw, "models", null);
+    Object is_list = Core.typeIs(models, "list");
+    Object invalid = Core.not(is_list);
+    if (Core.truthy(invalid)) {
+      throw new RuntimeException("Typesafe: models must be an array");
+    }
+    for (Object model : Core.iter(models)) {
+      Core.typesafe_require_object(model, "model");
+      Object name = Core.get(model, "name", null);
+      Object description = Core.get(model, "description", null);
+      Object release_date = Core.get(model, "release_date", null);
+      Core.typesafe_require_string(name, "model.name", Boolean.TRUE);
+      Core.typesafe_require_string(description, "model.description", Boolean.FALSE);
+      Core.typesafe_require_string(release_date, "model.release_date", Boolean.FALSE);
+    }
+    return models;
+  }
+
   static Object build_embed_request(Object service, Object request, Object options) {
     axirCoverageMark("build_embed_request");
     Object payload = Core.openai_build_embed_request(request);
@@ -6985,6 +7147,320 @@ final class Core {
     axirCoverageMark("normalize_embed_response");
     Object response = Core.openai_normalize_embed_response(raw);
     return response;
+  }
+
+  static Object typesafe_build_chat_request(Object request, Object options) {
+    axirCoverageMark("typesafe_build_chat_request");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
+    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
+    Core.typesafe_require_number(threshold, "trueThreshold", 0, 1);
+    Object functions = Core.get(request, "functions", empty_list);
+    Object function_call_snake = Core.get(request, "function_call", "none");
+    Object function_call = Core.get(request, "functionCall", function_call_snake);
+    Object has_functions = Core.truthyValue(functions);
+    Object has_call = Core.ne(function_call, "none");
+    Object has_call_value = Core.truthyValue(function_call);
+    has_call = Core.and(has_call, has_call_value);
+    Object tools = Core.or(has_functions, has_call);
+    if (Core.truthy(tools)) {
+      throw new RuntimeException("Typesafe does not support tools; use a generative provider for tool execution");
+    }
+    Object config_snake = Core.get(request, "model_config", empty_map);
+    Object config = Core.get(request, "modelConfig", config_snake);
+    Object controls = Core.mapKeys(config);
+    for (Object control : Core.iter(controls)) {
+      Object value = Core.get(config, control, null);
+      Object present = Core.isNotNone(value);
+      if (Core.truthy(present)) {
+        Object is_stream = Core.eq(control, "stream");
+        Object is_n = Core.eq(control, "n");
+        Object one = Core.eq(value, 1);
+        Object numeric = Core.typeIs(value, "number");
+        one = Core.and(one, numeric);
+        Object allowed_n = Core.and(is_n, one);
+        Object allowed = Core.or(is_stream, allowed_n);
+        Object unsupported = Core.not(allowed);
+        if (Core.truthy(unsupported)) {
+          Object message = Core.stringFormat("Typesafe does not support generation control {}", control);
+          Object error = Core.validationError(message);
+          throw Core.asRuntime(error);
+        }
+      }
+    }
+    Object format_snake = Core.get(request, "response_format", null);
+    Object format = Core.get(request, "responseFormat", format_snake);
+    Object format_type = Core.get(format, "type", null);
+    Object wrong_format = Core.ne(format_type, "json_schema");
+    if (Core.truthy(wrong_format)) {
+      throw new RuntimeException("Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs");
+    }
+    Object wrapper = Core.get(format, "schema", null);
+    Core.typesafe_require_object(wrapper, "responseFormat.schema");
+    Object schema = Core.get(wrapper, "schema", null);
+    Core.typesafe_require_object(schema, "output schema");
+    Object root_type = Core.get(schema, "type", null);
+    Object flat = Core.eq(root_type, "object");
+    Object forbidden = new java.util.ArrayList<Object>();
+    Core.append(forbidden, "anyOf");
+    Core.append(forbidden, "oneOf");
+    Core.append(forbidden, "allOf");
+    Core.append(forbidden, "$ref");
+    for (Object key : Core.iter(forbidden)) {
+      Object value = Core.get(schema, key, null);
+      Object has_value = Core.truthyValue(value);
+      if (Core.truthy(has_value)) {
+        flat = Boolean.FALSE;
+      }
+    }
+    Object not_flat = Core.not(flat);
+    if (Core.truthy(not_flat)) {
+      throw new RuntimeException("Typesafe requires a flat object output schema");
+    }
+    Object properties = Core.get(schema, "properties", null);
+    Core.typesafe_require_object(properties, "output properties");
+    Object required = Core.get(schema, "required", empty_list);
+    Object annotations = Core.get(format, "fieldDescriptions", empty_map);
+    Object decision_fields = Core.get(format, "decisionFields", empty_map);
+    Object questions = new java.util.LinkedHashMap<String, Object>();
+    Object names = Core.mapKeys(properties);
+    Core.append(forbidden, "const");
+    for (Object name : Core.iter(names)) {
+      Object field = Core.get(properties, name, null);
+      Core.typesafe_require_object(field, name);
+      Object decision = Core.get(decision_fields, name, null);
+      Object rich = Core.isNotNone(decision);
+      if (Core.truthy(rich)) {
+        Object array = Core.get(decision, "isArray", Boolean.FALSE);
+        Object optional = Core.get(decision, "isOptional", Boolean.FALSE);
+        Object invalid = Core.or(array, optional);
+        if (Core.truthy(invalid)) {
+          throw new RuntimeException("Decision providers require flat, required scalar outputs");
+        }
+        Object wire_description = Core.get(field, "description", null);
+        field = new java.util.LinkedHashMap<String, Object>();
+        Object kind = Core.get(decision, "type", null);
+        Object class_kind = Core.eq(kind, "class");
+        if (Core.truthy(class_kind)) {
+          kind = "string";
+        }
+        Core.set(field, "type", kind);
+        Core.set(field, "description", wire_description);
+        if (Core.truthy(class_kind)) {
+          Object labels = Core.get(decision, "options", null);
+          Core.set(field, "enum", labels);
+        }
+      }
+      Object supported = Core.contains(required, name);
+      for (Object key : Core.iter(forbidden)) {
+        Object has_key = Core.mapContains(field, key);
+        if (Core.truthy(has_key)) {
+          supported = Boolean.FALSE;
+        }
+      }
+      Object type_name = Core.get(field, "type", null);
+      Object class_options = Core.get(field, "enum", null);
+      Object is_boolean = Core.eq(type_name, "boolean");
+      Object has_enum = Core.isNotNone(class_options);
+      Object no_enum = Core.not(has_enum);
+      is_boolean = Core.and(is_boolean, no_enum);
+      Object is_string = Core.eq(type_name, "string");
+      Object is_enum = Core.typeIs(class_options, "list");
+      Object is_class = Core.and(is_string, is_enum);
+      Object supported_type = Core.or(is_boolean, is_class);
+      Object is_score = Core.eq(type_name, "score");
+      supported_type = Core.or(supported_type, is_score);
+      Object is_box = Core.eq(type_name, "box");
+      supported_type = Core.or(supported_type, is_box);
+      supported = Core.and(supported, supported_type);
+      Object unsupported = Core.not(supported);
+      if (Core.truthy(unsupported)) {
+        Object message = Core.stringFormat("Typesafe cannot evaluate output {}. Use required boolean, class, rubric score or box fields, or a generative provider for other outputs", name);
+        Object error = Core.validationError(message);
+        throw Core.asRuntime(error);
+      }
+      Object annotation = Core.get(annotations, name, null);
+      Object description = Core.get(field, "description", null);
+      Object has_annotation = Core.isNotNone(annotation);
+      Object descriptions = new java.util.LinkedHashMap<String, Object>();
+      if (Core.truthy(has_annotation)) {
+        Core.typesafe_require_object(annotation, name);
+        description = Core.get(annotation, "description", null);
+        Object has_description = Core.isNotNone(description);
+        if (Core.truthy(has_description)) {
+          Core.typesafe_require_string(description, name, Boolean.FALSE);
+        }
+        descriptions = Core.get(annotation, "valueDescriptions", null);
+        Core.typesafe_require_object(descriptions, name);
+        Object type_attrs = new java.util.LinkedHashMap<String, Object>();
+        Object annotation_type = "boolean";
+        if (Core.truthy(is_class)) {
+          annotation_type = "class";
+        }
+        Core.set(type_attrs, "name", annotation_type);
+        Core.set(type_attrs, "options", class_options);
+        Core.set(type_attrs, "value_descriptions", descriptions);
+        Object typ = Core.recordNew("FieldType", type_attrs);
+        Core._signature_validate_value_descriptions_impl(typ, name);
+      }
+      Object instructions = Core.stringFormat("Evaluate the output field {}.", name);
+      Object is_description_string = Core.typeIs(description, "string");
+      Object has_description = Core.truthyValue(description);
+      Object use_description = Core.and(is_description_string, has_description);
+      if (Core.truthy(use_description)) {
+        instructions = Core.stringFormat("{}: {}", name, description);
+      }
+      Object question = new java.util.LinkedHashMap<String, Object>();
+      Core.set(question, "instructions", instructions);
+      if (Core.truthy(is_box)) {
+        Core.set(question, "type", "box");
+        Core.set(questions, name, question);
+        continue;
+      }
+      if (Core.truthy(is_score)) {
+        Core.set(question, "type", "score");
+        Object levels = Core.get(decision, "options", null);
+        Core.set(question, "criteria", levels);
+        Core.set(questions, name, question);
+        continue;
+      }
+      if (Core.truthy(is_boolean)) {
+        Core.set(question, "type", "noul");
+        if (Core.truthy(has_annotation)) {
+          Core.set(question, "criteria", descriptions);
+        }
+      }
+      if (!Core.truthy(is_boolean)) {
+        Core.set(question, "type", "choice");
+        Object criteria = new java.util.LinkedHashMap<String, Object>();
+        for (Object label : Core.iter(class_options)) {
+          Core.typesafe_require_string(label, name, Boolean.FALSE);
+          Object duplicate = Core.mapContains(criteria, label);
+          if (Core.truthy(duplicate)) {
+            throw new RuntimeException("Typesafe: Choice labels must be unique");
+          }
+          description = Core.get(descriptions, label, null);
+          Core.set(criteria, label, description);
+        }
+        Core.set(question, "criteria", criteria);
+      }
+      Core.set(questions, name, question);
+    }
+    Object prompt_snake = Core.get(request, "chat_prompt", empty_list);
+    Object prompt = Core.get(request, "chatPrompt", prompt_snake);
+    Object messages = new java.util.ArrayList<Object>();
+    Object assets = new java.util.LinkedHashMap<String, Object>();
+    Object reference_index = 0;
+    Object request_json = Core.jsonStringify(request);
+    for (Object message : Core.iter(prompt)) {
+      Object role = Core.get(message, "role", null);
+      Object content = Core.get(message, "content", "");
+      Object is_tool = Core.eq(role, "function");
+      Object is_tool_alt = Core.eq(role, "tool");
+      is_tool = Core.or(is_tool, is_tool_alt);
+      Object calls = Core.get(message, "functionCalls", null);
+      Object calls_snake = Core.get(message, "function_calls", null);
+      calls = Core.coalesce(calls, calls_snake);
+      Object has_calls = Core.truthyValue(calls);
+      Object audio = Core.get(message, "audio", null);
+      Object has_audio = Core.truthyValue(audio);
+      Object images = Core.get(message, "images", null);
+      Object has_images = Core.truthyValue(images);
+      Object invalid = Core.or(is_tool, has_calls);
+      invalid = Core.or(invalid, has_audio);
+      invalid = Core.or(invalid, has_images);
+      if (Core.truthy(invalid)) {
+        throw new RuntimeException("Typesafe does not support tool or media history");
+      }
+      Object is_list = Core.typeIs(content, "list");
+      if (Core.truthy(is_list)) {
+        Object texts = new java.util.ArrayList<Object>();
+        for (Object part : Core.iter(content)) {
+          Object kind = Core.get(part, "type", null);
+          Object is_text = Core.eq(kind, "text");
+          if (Core.truthy(is_text)) {
+            Object text = Core.get(part, "text", null);
+            Core.typesafe_require_string(text, "message text", Boolean.FALSE);
+            Core.append(texts, text);
+          }
+          if (!Core.truthy(is_text)) {
+            Object is_image = Core.eq(kind, "image");
+            Object is_user = Core.eq(role, "user");
+            Object valid = Core.and(is_image, is_user);
+            invalid = Core.not(valid);
+            if (Core.truthy(invalid)) {
+              throw new RuntimeException("Typesafe supports text and inline PNG/JPEG images only");
+            }
+            Object mime = Core.get(part, "mimeType", null);
+            Object png = Core.eq(mime, "image/png");
+            Object jpeg = Core.eq(mime, "image/jpeg");
+            Object jpg = Core.eq(mime, "image/jpg");
+            valid = Core.or(png, jpeg);
+            valid = Core.or(valid, jpg);
+            invalid = Core.not(valid);
+            if (Core.truthy(invalid)) {
+              throw new RuntimeException("Typesafe images must be PNG or JPEG");
+            }
+            format = "png";
+            if (Core.truthy(jpeg)) {
+              format = "jpeg";
+            }
+            if (Core.truthy(jpg)) {
+              format = "jpg";
+            }
+            Object data = Core.get(part, "image", null);
+            Core.typesafe_require_string(data, "image data", Boolean.TRUE);
+            Object data_url = Core.stringStartsWith(data, "data:");
+            if (Core.truthy(data_url)) {
+              Object prefix = Core.stringFormat("data:{};base64,", mime);
+              Object matches = Core.stringStartsWith(data, prefix);
+              invalid = Core.not(matches);
+              if (Core.truthy(invalid)) {
+                throw new RuntimeException("Typesafe image data URL must match its MIME type");
+              }
+              Object offset = Core.len(prefix);
+              data = Core.stringSlice(data, offset);
+            }
+            Object reference = "";
+            while (Core.truthy(Boolean.TRUE)) {
+              reference = Core.stringFormat("ax-image-{}-ref", reference_index);
+              reference_index = Core.add(reference_index, 1);
+              Object collision = Core.stringIndexOf(request_json, reference, 0);
+              Object unused = Core.lt(collision, 0);
+              if (Core.truthy(unused)) {
+                break;
+              }
+            }
+            Object asset = new java.util.LinkedHashMap<String, Object>();
+            Core.set(asset, "type", "image");
+            Core.set(asset, "format", format);
+            Core.set(asset, "data_base64", data);
+            Core.set(assets, reference, asset);
+            Core.append(texts, reference);
+          }
+        }
+        content = Core.stringJoin("\n", texts);
+      }
+      Core.typesafe_require_string(content, "message content", Boolean.FALSE);
+      Object entry = new java.util.LinkedHashMap<String, Object>();
+      Core.set(entry, "role", role);
+      Core.set(entry, "content", content);
+      Core.append(messages, entry);
+    }
+    Object state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "messages", messages);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Object model = Core.get(request, "model", "jev-latest");
+    Core.set(payload, "model", model);
+    Core.set(payload, "state", state);
+    Core.set(payload, "questions", questions);
+    Object has_assets = Core.truthyValue(assets);
+    if (Core.truthy(has_assets)) {
+      Core.set(payload, "assets", assets);
+    }
+    Core.typesafe_validate_request(payload);
+    return payload;
   }
 
   static Object normalize_token_usage(Object usage) {
@@ -7247,123 +7723,6 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
-  static Object typesafe_normalize_chat_response(Object raw, Object context) {
-    axirCoverageMark("typesafe_normalize_chat_response");
-    Object questions = Core.get(context, "questions", null);
-    Core.typesafe_require_object(questions, "response request questions");
-    raw = Core.typesafe_decode_response(raw, questions);
-    Object threshold = Core.get(context, "trueThreshold", 0.5);
-    Core.typesafe_require_number(threshold, "trueThreshold", 0, 1);
-    Object answers = Core.get(raw, "answers", null);
-    Object values = new java.util.LinkedHashMap<String, Object>();
-    Object decision_fields = Core.get(context, "decisionFields", null);
-    Object native_state = new java.util.LinkedHashMap<String, Object>();
-    Object names = Core.mapKeys(questions);
-    for (Object name : Core.iter(names)) {
-      Object answer = Core.get(answers, name, null);
-      Object kind = Core.get(answer, "type", null);
-      Object decision = Core.get(decision_fields, name, null);
-      Object rich = Core.isNotNone(decision);
-      if (Core.truthy(rich)) {
-        Object raw_evidence = new java.util.LinkedHashMap<String, Object>();
-        Object native_evidence = new java.util.LinkedHashMap<String, Object>();
-        Object refusal = Core.eq(kind, "refusal");
-        if (Core.truthy(refusal)) {
-          Core.set(raw_evidence, "status", "refused");
-          Core.set(native_evidence, "refused", Boolean.TRUE);
-        }
-        if (!Core.truthy(refusal)) {
-          Object is_boolean = Core.eq(kind, "noul");
-          if (Core.truthy(is_boolean)) {
-            Object p = Core.get(answer, "noul", null);
-            Core.set(raw_evidence, "probability", p);
-          }
-          if (!Core.truthy(is_boolean)) {
-            Object ps = new java.util.LinkedHashMap<String, Object>();
-            Object value = 0;
-            Object distribution = Core.get(answer, "probabilities", null);
-            Object score = Core.eq(kind, "score");
-            if (Core.truthy(score)) {
-              Object labels = Core.get(decision, "options", null);
-              ps = new java.util.ArrayList<Object>();
-              Object index = 0;
-              for (Object label : Core.iter(labels)) {
-                Object key = Core.stringFormat("{}", index);
-                Object p = Core.get(distribution, key, null);
-                Core.append(ps, p);
-                index = Core.add(index, 1);
-              }
-              value = Core.get(answer, "score", null);
-            }
-            if (!Core.truthy(score)) {
-              ps = distribution;
-              value = Core.get(answer, "choice", null);
-            }
-            Core.set(raw_evidence, "probabilities", ps);
-            Core.set(native_evidence, "value", value);
-            Object confidence = Core.get(answer, "confidence", null);
-            Object has_confidence = Core.isNotNone(confidence);
-            if (Core.truthy(has_confidence)) {
-              Core.set(native_evidence, "confidence", confidence);
-            }
-          }
-        }
-        Core.set(values, name, raw_evidence);
-        Core.set(native_state, name, native_evidence);
-        continue;
-      }
-      Object is_noul = Core.eq(kind, "noul");
-      Object value = Core.get(answer, "choice", null);
-      if (Core.truthy(is_noul)) {
-        Object probability = Core.get(answer, "noul", null);
-        Object below = Core.lt(probability, threshold);
-        value = Core.not(below);
-      }
-      Core.set(values, name, value);
-    }
-    Object content = Core.jsonStringify(values);
-    Object result = new java.util.LinkedHashMap<String, Object>();
-    Object trusted = new java.util.LinkedHashMap<String, Object>();
-    Object provenance = new java.util.LinkedHashMap<String, Object>();
-    Core.set(provenance, "source", "native");
-    Core.set(provenance, "provider", "Typesafe");
-    Object model = Core.get(raw, "model", null);
-    Core.set(provenance, "model", model);
-    Core.set(trusted, "provenance", provenance);
-    Core.set(trusted, "native", native_state);
-    Object has_native = Core.truthyValue(native_state);
-    if (Core.truthy(has_native)) {
-      Core.set(result, "decisionContext", trusted);
-    }
-    Core.set(result, "index", 0);
-    Core.set(result, "content", content);
-    Core.set(result, "finishReason", "stop");
-    Object results = new java.util.ArrayList<Object>();
-    Core.append(results, result);
-    Object usage = Core.get(raw, "usage", null);
-    Object input = Core.get(usage, "input_tokens", null);
-    Object output = Core.get(usage, "output_tokens", null);
-    Object total = Core.add(input, output);
-    Object tokens = new java.util.LinkedHashMap<String, Object>();
-    Core.set(tokens, "promptTokens", input);
-    Core.set(tokens, "completionTokens", output);
-    Core.set(tokens, "totalTokens", total);
-    Object model_usage = new java.util.LinkedHashMap<String, Object>();
-    model = Core.get(raw, "model", null);
-    Core.set(model_usage, "ai", "Typesafe");
-    Core.set(model_usage, "model", model);
-    Core.set(model_usage, "tokens", tokens);
-    Object typesafe_metadata = new java.util.LinkedHashMap<String, Object>();
-    Core.set(typesafe_metadata, "answers", answers);
-    Object metadata = new java.util.LinkedHashMap<String, Object>();
-    Core.set(metadata, "typesafe", typesafe_metadata);
-    Object response = new java.util.LinkedHashMap<String, Object>();
-    Core.set(response, "results", results);
-    Core.set(response, "modelUsage", model_usage);
-    Core.set(response, "providerMetadata", metadata);
-    return response;
-  }
-
   static Object merge_usage_context(Object defaults, Object overrides) {
     axirCoverageMark("merge_usage_context");
     Object merged = Core.mapMerge(defaults, overrides);
@@ -7613,20 +7972,6 @@ final class Core {
     return response;
   }
 
-  static Object typesafe_response_context(Object payload, Object options, Object request) {
-    axirCoverageMark("typesafe_response_context");
-    Object empty = new java.util.LinkedHashMap<String, Object>();
-    Object context = Core.mapMerge(empty, payload);
-    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
-    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
-    Core.set(context, "trueThreshold", threshold);
-    Object format_snake = Core.get(request, "response_format", null);
-    Object format = Core.get(request, "responseFormat", format_snake);
-    Object decision_fields = Core.get(format, "decisionFields", null);
-    Core.set(context, "decisionFields", decision_fields);
-    return context;
-  }
-
   static Object _ai_model_usage_impl(Object ai_name, Object model, Object usage) {
     axirCoverageMark("_ai_model_usage_impl");
     Object has_usage = Core.truthyValue(usage);
@@ -7641,20 +7986,6 @@ final class Core {
     Core.set(out, "model", model);
     Core.set(out, "tokens", tokens);
     return out;
-  }
-
-  static Object provider_validate_chat_request(Object profile, Object request, Object options) {
-    axirCoverageMark("provider_validate_chat_request");
-    Object canonical = Core.provider_normalize_profile(profile);
-    Object is_decisions = Core.eq(canonical, "openai-decisions");
-    if (Core.truthy(is_decisions)) {
-      Core.decisions_build_chat_request(request, options);
-    }
-    Object is_typesafe = Core.eq(canonical, "typesafe");
-    if (Core.truthy(is_typesafe)) {
-      Core.typesafe_build_chat_request(request, options);
-    }
-    return null;
   }
 
   static Object _openai_tool_call_to_provider_impl(Object call) {
@@ -7861,6 +8192,140 @@ final class Core {
       Core.set(out, "service_tier", tier);
     }
     return out;
+  }
+
+  static Object typesafe_normalize_chat_response(Object raw, Object context) {
+    axirCoverageMark("typesafe_normalize_chat_response");
+    Object questions = Core.get(context, "questions", null);
+    Core.typesafe_require_object(questions, "response request questions");
+    raw = Core.typesafe_decode_response(raw, questions);
+    Object threshold = Core.get(context, "trueThreshold", 0.5);
+    Core.typesafe_require_number(threshold, "trueThreshold", 0, 1);
+    Object answers = Core.get(raw, "answers", null);
+    Object values = new java.util.LinkedHashMap<String, Object>();
+    Object decision_fields = Core.get(context, "decisionFields", null);
+    Object native_state = new java.util.LinkedHashMap<String, Object>();
+    Object names = Core.mapKeys(questions);
+    for (Object name : Core.iter(names)) {
+      Object answer = Core.get(answers, name, null);
+      Object kind = Core.get(answer, "type", null);
+      Object decision = Core.get(decision_fields, name, null);
+      Object rich = Core.isNotNone(decision);
+      Object box = Core.eq(kind, "box");
+      if (Core.truthy(box)) {
+        Object coordinates = Core.get(answer, "box", null);
+        Object evidence = Core.get(decision, "evidence", null);
+        Object has_evidence = Core.isNotNone(evidence);
+        Object value = coordinates;
+        if (Core.truthy(has_evidence)) {
+          value = new java.util.LinkedHashMap<String, Object>();
+          Core.set(value, "box", coordinates);
+          Object native_box = new java.util.LinkedHashMap<String, Object>();
+          Object confidence = Core.get(answer, "confidence", null);
+          Core.set(native_box, "confidence", confidence);
+          Core.set(native_state, name, native_box);
+        }
+        Core.set(values, name, value);
+        continue;
+      }
+      if (Core.truthy(rich)) {
+        Object raw_evidence = new java.util.LinkedHashMap<String, Object>();
+        Object native_evidence = new java.util.LinkedHashMap<String, Object>();
+        Object refusal = Core.eq(kind, "refusal");
+        if (Core.truthy(refusal)) {
+          Core.set(raw_evidence, "status", "refused");
+          Core.set(native_evidence, "refused", Boolean.TRUE);
+        }
+        if (!Core.truthy(refusal)) {
+          Object is_boolean = Core.eq(kind, "noul");
+          if (Core.truthy(is_boolean)) {
+            Object p = Core.get(answer, "noul", null);
+            Core.set(raw_evidence, "probability", p);
+          }
+          if (!Core.truthy(is_boolean)) {
+            Object ps = new java.util.LinkedHashMap<String, Object>();
+            Object value = 0;
+            Object distribution = Core.get(answer, "probabilities", null);
+            Object score = Core.eq(kind, "score");
+            if (Core.truthy(score)) {
+              Object labels = Core.get(decision, "options", null);
+              ps = new java.util.ArrayList<Object>();
+              Object index = 0;
+              for (Object label : Core.iter(labels)) {
+                Object key = Core.stringFormat("{}", index);
+                Object p = Core.get(distribution, key, null);
+                Core.append(ps, p);
+                index = Core.add(index, 1);
+              }
+              value = Core.get(answer, "score", null);
+            }
+            if (!Core.truthy(score)) {
+              ps = distribution;
+              value = Core.get(answer, "choice", null);
+            }
+            Core.set(raw_evidence, "probabilities", ps);
+            Core.set(native_evidence, "value", value);
+            Object confidence = Core.get(answer, "confidence", null);
+            Object has_confidence = Core.isNotNone(confidence);
+            if (Core.truthy(has_confidence)) {
+              Core.set(native_evidence, "confidence", confidence);
+            }
+          }
+        }
+        Core.set(values, name, raw_evidence);
+        Core.set(native_state, name, native_evidence);
+        continue;
+      }
+      Object is_noul = Core.eq(kind, "noul");
+      Object value = Core.get(answer, "choice", null);
+      if (Core.truthy(is_noul)) {
+        Object probability = Core.get(answer, "noul", null);
+        Object below = Core.lt(probability, threshold);
+        value = Core.not(below);
+      }
+      Core.set(values, name, value);
+    }
+    Object content = Core.jsonStringify(values);
+    Object result = new java.util.LinkedHashMap<String, Object>();
+    Object trusted = new java.util.LinkedHashMap<String, Object>();
+    Object provenance = new java.util.LinkedHashMap<String, Object>();
+    Core.set(provenance, "source", "native");
+    Core.set(provenance, "provider", "Typesafe");
+    Object model = Core.get(raw, "model", null);
+    Core.set(provenance, "model", model);
+    Core.set(trusted, "provenance", provenance);
+    Core.set(trusted, "native", native_state);
+    Object has_native = Core.truthyValue(native_state);
+    if (Core.truthy(has_native)) {
+      Core.set(result, "decisionContext", trusted);
+    }
+    Core.set(result, "index", 0);
+    Core.set(result, "content", content);
+    Core.set(result, "finishReason", "stop");
+    Object results = new java.util.ArrayList<Object>();
+    Core.append(results, result);
+    Object usage = Core.get(raw, "usage", null);
+    Object input = Core.get(usage, "input_tokens", null);
+    Object output = Core.get(usage, "output_tokens", null);
+    Object total = Core.add(input, output);
+    Object tokens = new java.util.LinkedHashMap<String, Object>();
+    Core.set(tokens, "promptTokens", input);
+    Core.set(tokens, "completionTokens", output);
+    Core.set(tokens, "totalTokens", total);
+    Object model_usage = new java.util.LinkedHashMap<String, Object>();
+    model = Core.get(raw, "model", null);
+    Core.set(model_usage, "ai", "Typesafe");
+    Core.set(model_usage, "model", model);
+    Core.set(model_usage, "tokens", tokens);
+    Object typesafe_metadata = new java.util.LinkedHashMap<String, Object>();
+    Core.set(typesafe_metadata, "answers", answers);
+    Object metadata = new java.util.LinkedHashMap<String, Object>();
+    Core.set(metadata, "typesafe", typesafe_metadata);
+    Object response = new java.util.LinkedHashMap<String, Object>();
+    Core.set(response, "results", results);
+    Core.set(response, "modelUsage", model_usage);
+    Core.set(response, "providerMetadata", metadata);
+    return response;
   }
 
   static Object _openai_normalize_chat_response_impl(Object raw, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -8152,6 +8617,20 @@ final class Core {
     return out;
   }
 
+  static Object typesafe_response_context(Object payload, Object options, Object request) {
+    axirCoverageMark("typesafe_response_context");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object context = Core.mapMerge(empty, payload);
+    Object threshold_snake = Core.get(options, "true_threshold", 0.5);
+    Object threshold = Core.get(options, "trueThreshold", threshold_snake);
+    Core.set(context, "trueThreshold", threshold);
+    Object format_snake = Core.get(request, "response_format", null);
+    Object format = Core.get(request, "responseFormat", format_snake);
+    Object decision_fields = Core.get(format, "decisionFields", null);
+    Core.set(context, "decisionFields", decision_fields);
+    return context;
+  }
+
   static Object _openai_normalize_tool_calls_impl(Object calls) {
     axirCoverageMark("_openai_normalize_tool_calls_impl");
     Object out = new java.util.ArrayList<Object>();
@@ -8179,6 +8658,20 @@ final class Core {
       Core.append(out, normalized);
     }
     return out;
+  }
+
+  static Object provider_validate_chat_request(Object profile, Object request, Object options) {
+    axirCoverageMark("provider_validate_chat_request");
+    Object canonical = Core.provider_normalize_profile(profile);
+    Object is_decisions = Core.eq(canonical, "openai-decisions");
+    if (Core.truthy(is_decisions)) {
+      Core.decisions_build_chat_request(request, options);
+    }
+    Object is_typesafe = Core.eq(canonical, "typesafe");
+    if (Core.truthy(is_typesafe)) {
+      Core.typesafe_build_chat_request(request, options);
+    }
+    return null;
   }
 
   static Object _openai_finish_reason_impl(Object value) {
@@ -10615,7 +11108,7 @@ final class Core {
         "e\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vertex-ai\":{\"id\":\"vertex-ai\",\"name\":\"Vertex AI OpenAI Compatibility\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"google/gemma-4-26b-a4b-it-maas\"]},\"capabilities\":{\"structuredOutputs\":false,\"structuredOutputModes\":[\"json_object\",\"function\"],\"thinking\":true},\"request\":{\"defaultThinkingLevel\":\"max\",\"thinkingBoolean\":{\"path\":[\"chat_template_kwargs\",\"enable_thinking\"]}},\"response\":{\"reasoningFields\":[\"reasoning_content\"]},\"replay\":{\"assistantReasoningField\":\"reasoning_content\"}},{\"match\":{\"prefix\":[\"google/gemini-\",\"gemini-\"]},\"capabilities\":{\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\",\"function\",\"json_object\"]}}],\"sources\":[\"https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output\",\"https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking\"],\"reviewedAt\":\"2026-08-18\",\"provider\":\"vertex-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"databricks\":{\"id\":\"databricks\",\"name\":\"Databricks Model Serving\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models\",\"https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode\"],\"reviewedAt\":\"2026-08-17\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":\"default\",\"priority\":\"priority\"}},\"provider\":\"databricks\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten\":{\"id\":\"baseten\",\"name\":\"Baseten Model APIs\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://inference.baseten.co/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/inference/model-apis/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten\",\"baseUrl\":\"https://inference.baseten.co/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"groq\":{\"id\":\"groq\",\"name\":\"Groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.groq.com/openai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"openai/gpt-oss-20b\",\"openai/gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Groq GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"qwen/qwen3.6-27b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"default\",\"low\":\"default\",\"medium\":\"default\",\"high\":\"default\",\"highest\":\"default\",\"xhigh\":\"default\",\"max\":\"default\"}}}],\"sources\":[\"https://console.groq.com/docs/reasoning\",\"https://console.groq.com/docs/api-reference\",\"https://console.groq.com/docs/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"on_demand\",\"flex\":\"flex\",\"priority\":\"performance\"}},\"provider\":\"groq\",\"baseUrl\":\"https://api.groq.com/openai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cerebras\":{\"id\":\"cerebras\",\"name\":\"Cerebras Inference\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.cerebras.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":true,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"native\",\"function\"],\"serviceTiers\":[\"standard\",\"flex\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"exact\":[\"gpt-oss-120b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":null,\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"},\"unsupportedThinkingLevels\":{\"none\":\"Cerebras GPT-OSS reasoning does not support the none effort level\"}}},{\"match\":{\"exact\":[\"gemma-4-31b\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"high\",\"low\":\"high\",\"medium\":\"high\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://inference-docs.cerebras.ai/capabilities/reasoning\",\"https://inference-docs.cerebras.ai/api-reference/chat-completions\",\"https://inference-docs.cerebras.ai/capabilities/service-tiers\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":\"auto\",\"standard\":\"default\",\"flex\":\"flex\",\"priority\":\"priority\"}},\"provider\":\"cerebras\",\"baseUrl\":\"https://api.cerebras.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"structured_output_modes\":[\"native\",\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"flex\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepinfra\":{\"id\":\"deepinfra\",\"name\":\"DeepInfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.deepinfra.com/v1/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[\"standard\",\"priority\"]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[{\"match\":{\"prefix\":[\"deepseek-ai/DeepSeek-R1\"]},\"capabilities\":{\"thinking\":true,\"thinkingBudget\":true},\"request\":{\"reasoning\":\"effort\",\"defaultThinkingLevel\":\"max\",\"effortMap\":{\"none\":\"none\",\"minimal\":\"low\",\"low\":\"low\",\"medium\":\"medium\",\"high\":\"high\",\"highest\":\"high\",\"xhigh\":\"high\",\"max\":\"high\"}}}],\"sources\":[\"https://docs.deepinfra.com/chat/reasoning\",\"https://docs.deepinfra.com/api-reference/introduction\",\"https://docs.deepinfra.com/chat/overview\"],\"reviewedAt\":\"2026-08-18\",\"request\":{\"serviceTierMap\":{\"auto\":null,\"standard\":null,\"priority\":\"priority\"}},\"provider\":\"deepinfra\",\"baseUrl\":\"https://api.deepinfra.com/v1/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[\"standard\",\"priority\"],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sambanova\":{\"id\":\"sambanova\",\"name\":\"SambaNova Cloud\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.sambanova.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"d",
         "ialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.sambanova.ai/docs/en/api-reference/overview\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sambanova\",\"baseUrl\":\"https://api.sambanova.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nebius\":{\"id\":\"nebius\",\"name\":\"Nebius AI Studio\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.tokenfactory.nebius.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://api.studio.nebius.com/docs\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nebius\",\"baseUrl\":\"https://api.tokenfactory.nebius.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"novita\":{\"id\":\"novita\",\"name\":\"Novita AI\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.novita.ai/v3/openai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://novita.ai/docs/guides/llm-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"novita\",\"baseUrl\":\"https://api.novita.ai/v3/openai\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"hyperbolic\":{\"id\":\"hyperbolic\",\"name\":\"Hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.hyperbolic.xyz/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.hyperbolic.xyz/docs/inference-api\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"hyperbolic\",\"baseUrl\":\"https://api.hyperbolic.xyz/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"siliconflow\":{\"id\":\"siliconflow\",\"name\":\"SiliconFlow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.siliconflow.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.siliconflow.com/en/userguide/quickstart\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"siliconflow\",\"baseUrl\":\"https://api.siliconflow.com/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"friendli\":{\"id\":\"friendli\",\"name\":\"FriendliAI\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.friendli.ai/serverless/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://friendli.ai/docs/guides/tool-calling\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"friendli\",\"baseUrl\":\"https://api.friendli.ai/serverless/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"name\":\"Cloudflare Workers AI\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"cloudflare-workers-ai\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"featherless\":{\"id\":\"featherless\",\"name\":\"Featherless AI\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.featherless.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://featherless.ai/docs/quickstart-guide\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"featherless\",\"baseUrl\":\"https://api.featherless.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nscale\":{\"id\":\"nscale\",\"name\":\"Nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nscale.com/docs/use-cases/chat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nscale\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ovhcloud\":{\"id\":\"ovhcloud\",\"name\":\"OVHcloud AI Endpoints\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-capabilities\"],\"reviewedAt\":\"2026-08-17\",\"provid",
         "er\":\"ovhcloud\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"scaleway\":{\"id\":\"scaleway\",\"name\":\"Scaleway Generative APIs\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"baseURL\":\"https://api.scaleway.ai/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://www.scaleway.com/en/developers/api/generative-apis\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"scaleway\",\"baseUrl\":\"https://api.scaleway.ai/v1\",\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"name\":\"NVIDIA NIM\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"nvidia-nim\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"name\":\"RunPod vLLM\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.runpod.io/serverless/vllm/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"runpod-vllm\",\"baseUrl\":null,\"authRequired\":true,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"name\":\"SageMaker vLLM\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"sagemaker-vllm\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"vllm\":{\"id\":\"vllm\",\"name\":\"vLLM\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8000/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.vllm.ai/en/latest/serving/openai_compatible_server/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"vllm\",\"baseUrl\":\"http://localhost:8000/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"ollama\":{\"id\":\"ollama\",\"name\":\"Ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:11434/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.ollama.com/api/openai-compatibility\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"ollama\",\"baseUrl\":\"http://localhost:11434/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"lm-studio\":{\"id\":\"lm-studio\",\"name\":\"LM Studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://lmstudio.ai/docs/developer/openai-compat\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"lm-studio\",\"baseUrl\":\"http://localhost:1234/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"llama-cpp\":{\"id\":\"llama-cpp\",\"name\":\"llama.cpp Server\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"llama-cpp\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"localai\":{\"id\":\"localai\",\"name\":\"LocalAI\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"baseURL\":\"http://localhost:8080/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://localai.io/features/openai-functions/\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"localai\",\"baseUrl\":\"http://localhost:8080/v1\",\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false",
-        ",\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-09-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"
+        ",\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"baseten-engine\":{\"id\":\"baseten-engine\",\"name\":\"Baseten Inference Engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"baseURL\":null,\"requiresApiURL\":true,\"auth\":\"bearer\",\"defaults\":{\"model\":\"\"},\"capabilities\":{\"functions\":true,\"streaming\":true,\"structuredOutputs\":false,\"thinking\":false,\"multiTurn\":true,\"structuredOutputModes\":[\"function\"],\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"path\":\"/chat/completions\",\"dialect\":\"openai-chat\",\"method\":\"POST\",\"body\":\"json\",\"stream\":true}},\"modelRules\":[],\"sources\":[\"https://docs.baseten.co/development/model/deployment/inference\"],\"reviewedAt\":\"2026-08-17\",\"provider\":\"baseten-engine\",\"baseUrl\":null,\"authRequired\":false,\"defaultModel\":\"\",\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":false,\"structured_output_modes\":[\"function\"],\"thinking\":false,\"multi_turn\":true,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"typesafe\":{\"id\":\"typesafe\",\"name\":\"Typesafe\",\"aliases\":[\"typesafe\"],\"transport\":\"typesafe-system-one\",\"baseURL\":\"https://api.typesafe.ai\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"jev-latest\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/v1/systemone\",\"dialect\":\"typesafe-system-one\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://github.com/typesafe-ai/typesafe-sdk-js\",\"https://docs.typesafe.ai/sdk/javascript\"],\"reviewedAt\":\"2026-10-15\",\"provider\":\"typesafe\",\"baseUrl\":\"https://api.typesafe.ai\",\"authRequired\":true,\"defaultModel\":\"jev-latest\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"openai-decisions\":{\"id\":\"openai-decisions\",\"name\":\"OpenAI Decisions\",\"aliases\":[\"openai-decisions\"],\"transport\":\"openai-decisions\",\"baseURL\":\"https://api.openai.com/v1\",\"requiresApiURL\":false,\"auth\":\"bearer\",\"defaults\":{\"model\":\"gpt-6-luna\"},\"capabilities\":{\"functions\":false,\"functionEmulation\":false,\"streaming\":false,\"structuredOutputs\":true,\"structuredOutputModes\":[\"native\"],\"requiresStructuredOutput\":true,\"thinking\":false,\"multiTurn\":false,\"images\":true,\"serviceTiers\":[]},\"operations\":{\"chat\":{\"path\":\"/decisions\",\"dialect\":\"openai-decisions\",\"method\":\"POST\",\"body\":\"json\",\"stream\":false}},\"modelRules\":[],\"sources\":[\"https://developers.openai.com/api/docs/guides/decisions\",\"https://github.com/openai/openai-node/blob/master/src/resources/decisions.ts\"],\"reviewedAt\":\"2026-10-07\",\"provider\":\"openai-decisions\",\"baseUrl\":\"https://api.openai.com/v1\",\"authRequired\":true,\"defaultModel\":\"gpt-6-luna\",\"features\":{\"functions\":false,\"streaming\":false,\"structured_outputs\":true,\"structured_output_modes\":[\"native\"],\"requires_structured_output\":true,\"thinking\":false,\"multi_turn\":false,\"service_tiers\":[],\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"]},\"audio\":{\"supported\":false,\"formats\":[],\"realtime\":false,\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}\n"
       }));
     Object empty = new java.util.LinkedHashMap<String, Object>();
     Object descriptor = Core.get(descriptors, provider_id, empty);
@@ -21604,192 +22097,6 @@ final class Core {
     return out;
   }
 
-  static Object _evidence_decode_one_impl(Object typ, Object raw, Object context, Object path) {
-    axirCoverageMark("_evidence_decode_one_impl");
-    Object object = Core.typeIs(raw, "object");
-    Object invalid = Core.not(object);
-    if (Core.truthy(invalid)) {
-      Object error = Core.validationError("Decision evidence must be an object");
-      throw Core.asRuntime(error);
-    }
-    Object name = Core.get(typ, "name", null);
-    Object evidence = Core.get(typ, "evidence", null);
-    Object provenance = Core.get(context, "provenance", null);
-    Object source = Core.get(provenance, "source", "elicited");
-    Object native_state = Core.eq(source, "native");
-    Object native_answers = Core.get(context, "native", null);
-    Object answer = Core.get(native_answers, path, null);
-    Object status = Core.get(raw, "status", null);
-    Object missing_native = Core.isNone(answer);
-    missing_native = Core.and(native_state, missing_native);
-    if (Core.truthy(missing_native)) {
-      Object error = Core.validationError("Missing native decision");
-      throw Core.asRuntime(error);
-    }
-    Object refused = Core.eq(status, "refused");
-    if (Core.truthy(native_state)) {
-      refused = Core.get(answer, "refused", Boolean.FALSE);
-    }
-    Object policy = Core.get(evidence, "onRefusal", "throw");
-    Object return_policy = Core.eq(policy, "return");
-    Object keys = Core.mapKeys(raw);
-    if (Core.truthy(refused)) {
-      Object key_count = Core.len(keys);
-      Object valid_shape = Core.eq(key_count, 1);
-      Object valid_status = Core.eq(status, "refused");
-      valid_shape = Core.and(valid_shape, valid_status);
-      Object invalid_shape = Core.not(valid_shape);
-      if (Core.truthy(invalid_shape)) {
-        Object error = Core.validationError("Invalid refusal evidence shape");
-        throw Core.asRuntime(error);
-      }
-      Object throw_policy = Core.not(return_policy);
-      if (Core.truthy(throw_policy)) {
-        Object error = Core.decisionRefusalError(path, provenance);
-        throw Core.asRuntime(error);
-      }
-      Object out = new java.util.LinkedHashMap<String, Object>();
-      Core.set(out, "status", "refused");
-      Core.set(out, "provenance", provenance);
-      return out;
-    }
-    Object elicited = Core.not(native_state);
-    Object require_status = Core.and(return_policy, elicited);
-    Object answered_status = Core.eq(status, "answered");
-    Object invalid_status = Core.not(answered_status);
-    invalid_status = Core.and(require_status, invalid_status);
-    if (Core.truthy(invalid_status)) {
-      Object error = Core.validationError("Invalid decision evidence status");
-      throw Core.asRuntime(error);
-    }
-    Object is_boolean = Core.eq(name, "boolean");
-    Object score = Core.eq(name, "score");
-    Object allowed = new java.util.ArrayList<Object>();
-    if (Core.truthy(is_boolean)) {
-      Core.append(allowed, "probability");
-    }
-    if (!Core.truthy(is_boolean)) {
-      Core.append(allowed, "probabilities");
-    }
-    if (Core.truthy(return_policy)) {
-      Core.append(allowed, "status");
-    }
-    for (Object key : Core.iter(keys)) {
-      Object known = Core.contains(allowed, key);
-      Object unknown = Core.not(known);
-      if (Core.truthy(unknown)) {
-        Object error = Core.validationError("Unexpected decision evidence key");
-        throw Core.asRuntime(error);
-      }
-    }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "provenance", provenance);
-    if (Core.truthy(is_boolean)) {
-      Object p = Core.get(raw, "probability", null);
-      p = Core._evidence_probability_impl(p, path);
-      Object threshold = Core.get(evidence, "threshold", 0.5);
-      Object value = Core.gte(p, threshold);
-      Core.set(out, "value", value);
-      Core.set(out, "probability", p);
-      Core.set(out, "threshold", threshold);
-    }
-    if (!Core.truthy(is_boolean)) {
-      Object labels = Core.get(typ, "options", null);
-      Object ps = Core.get(raw, "probabilities", null);
-      Object valid_distribution = Core.typeIs(ps, "object");
-      if (Core.truthy(score)) {
-        valid_distribution = Core.typeIs(ps, "list");
-      }
-      Object invalid_distribution = Core.not(valid_distribution);
-      if (Core.truthy(invalid_distribution)) {
-        Object error = Core.validationError("Invalid decision distribution shape");
-        throw Core.asRuntime(error);
-      }
-      Object count = Core.len(labels);
-      Object actual = Core.len(ps);
-      Object wrong_count = Core.ne(count, actual);
-      if (Core.truthy(wrong_count)) {
-        Object error = Core.validationError("Decision probabilities must cover exactly their declared options");
-        throw Core.asRuntime(error);
-      }
-      Object sum = 0;
-      Object mean = 0;
-      Object maximum = -1;
-      Object choice = "";
-      Object index = 0;
-      for (Object label : Core.iter(labels)) {
-        Object p = Core.get(ps, label, null);
-        if (Core.truthy(score)) {
-          p = Core.listGet(ps, index);
-        }
-        p = Core._evidence_probability_impl(p, path);
-        sum = Core.add(sum, p);
-        Object part = Core.mul(index, p);
-        mean = Core.add(mean, part);
-        Object larger = Core.gt(p, maximum);
-        if (Core.truthy(larger)) {
-          choice = label;
-          maximum = p;
-        }
-        index = Core.add(index, 1);
-      }
-      Object difference = Core.add(sum, -1);
-      Object low = Core.lt(difference, -0.01000000000001);
-      Object high = Core.gt(difference, 0.01000000000001);
-      Object bad_sum = Core.or(low, high);
-      if (Core.truthy(bad_sum)) {
-        Object error = Core.validationError("Decision probabilities must sum to one");
-        throw Core.asRuntime(error);
-      }
-      Object value = choice;
-      if (Core.truthy(score)) {
-        value = Core.div(mean, sum);
-      }
-      if (Core.truthy(native_state)) {
-        value = Core.get(answer, "value", null);
-      }
-      Object valid_value = Core.contains(labels, value);
-      if (Core.truthy(score)) {
-        valid_value = Core.typeIs(value, "number");
-        if (Core.truthy(valid_value)) {
-          Object finite = Core.mathIsFinite(value);
-          low = Core.gte(value, 0);
-          Object maximum_score = Core.add(count, -1);
-          high = Core.lte(value, maximum_score);
-          valid_value = Core.and(low, high);
-          valid_value = Core.and(valid_value, finite);
-        }
-      }
-      Object invalid_value = Core.not(valid_value);
-      if (Core.truthy(invalid_value)) {
-        Object error = Core.validationError("Invalid decision value");
-        throw Core.asRuntime(error);
-      }
-      Object has_evidence = Core.isNotNone(evidence);
-      Object plain_score = Core.not(has_evidence);
-      plain_score = Core.and(score, plain_score);
-      if (Core.truthy(plain_score)) {
-        return value;
-      }
-      Core.set(out, "value", value);
-      Core.set(out, "probabilities", ps);
-      if (Core.truthy(score)) {
-        Core.set(out, "levels", labels);
-      }
-      Object confidence = Core.get(answer, "confidence", null);
-      Object has_confidence = Core.isNotNone(confidence);
-      Object copy_confidence = Core.and(native_state, has_confidence);
-      if (Core.truthy(copy_confidence)) {
-        confidence = Core._evidence_probability_impl(confidence, path);
-        Core.set(out, "confidence", confidence);
-      }
-    }
-    if (Core.truthy(return_policy)) {
-      Core.set(out, "status", "answered");
-    }
-    return out;
-  }
-
   static Object _normalize_optimization_dataset(Object dataset) {
     axirCoverageMark("_normalize_optimization_dataset");
     Object empty_list = new java.util.ArrayList<Object>();
@@ -22112,6 +22419,218 @@ final class Core {
     return parts;
   }
 
+  static Object _evidence_decode_one_impl(Object typ, Object raw, Object context, Object path) {
+    axirCoverageMark("_evidence_decode_one_impl");
+    Object object = Core.typeIs(raw, "object");
+    Object invalid = Core.not(object);
+    if (Core.truthy(invalid)) {
+      Object error = Core.validationError("Decision evidence must be an object");
+      throw Core.asRuntime(error);
+    }
+    Object name = Core.get(typ, "name", null);
+    Object evidence = Core.get(typ, "evidence", null);
+    Object box = Core.eq(name, "box");
+    Object plain = Core.isNone(evidence);
+    Object plain_box = Core.and(box, plain);
+    if (Core.truthy(plain_box)) {
+      Object value = Core._box_validate_impl(raw, path);
+      return value;
+    }
+    Object provenance = Core.get(context, "provenance", null);
+    Object source = Core.get(provenance, "source", "elicited");
+    Object native_state = Core.eq(source, "native");
+    Object native_answers = Core.get(context, "native", null);
+    Object answer = Core.get(native_answers, path, null);
+    Object status = Core.get(raw, "status", null);
+    Object missing_native = Core.isNone(answer);
+    missing_native = Core.and(native_state, missing_native);
+    if (Core.truthy(missing_native)) {
+      Object error = Core.validationError("Missing native decision");
+      throw Core.asRuntime(error);
+    }
+    Object refused = Core.eq(status, "refused");
+    if (Core.truthy(native_state)) {
+      refused = Core.get(answer, "refused", Boolean.FALSE);
+    }
+    Object policy = Core.get(evidence, "onRefusal", "throw");
+    Object return_policy = Core.eq(policy, "return");
+    Object keys = Core.mapKeys(raw);
+    if (Core.truthy(refused)) {
+      Object key_count = Core.len(keys);
+      Object valid_shape = Core.eq(key_count, 1);
+      Object valid_status = Core.eq(status, "refused");
+      valid_shape = Core.and(valid_shape, valid_status);
+      Object invalid_shape = Core.not(valid_shape);
+      if (Core.truthy(invalid_shape)) {
+        Object error = Core.validationError("Invalid refusal evidence shape");
+        throw Core.asRuntime(error);
+      }
+      Object throw_policy = Core.not(return_policy);
+      if (Core.truthy(throw_policy)) {
+        Object error = Core.decisionRefusalError(path, provenance);
+        throw Core.asRuntime(error);
+      }
+      Object out = new java.util.LinkedHashMap<String, Object>();
+      Core.set(out, "status", "refused");
+      Core.set(out, "provenance", provenance);
+      return out;
+    }
+    Object elicited = Core.not(native_state);
+    Object require_status = Core.and(return_policy, elicited);
+    Object answered_status = Core.eq(status, "answered");
+    Object invalid_status = Core.not(answered_status);
+    invalid_status = Core.and(require_status, invalid_status);
+    if (Core.truthy(invalid_status)) {
+      Object error = Core.validationError("Invalid decision evidence status");
+      throw Core.asRuntime(error);
+    }
+    Object is_boolean = Core.eq(name, "boolean");
+    Object score = Core.eq(name, "score");
+    Object allowed = new java.util.ArrayList<Object>();
+    if (Core.truthy(box)) {
+      Core.append(allowed, "box");
+    }
+    if (!Core.truthy(box)) {
+      if (Core.truthy(is_boolean)) {
+        Core.append(allowed, "probability");
+      }
+      if (!Core.truthy(is_boolean)) {
+        Core.append(allowed, "probabilities");
+      }
+    }
+    if (Core.truthy(return_policy)) {
+      Core.append(allowed, "status");
+    }
+    for (Object key : Core.iter(keys)) {
+      Object known = Core.contains(allowed, key);
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        Object error = Core.validationError("Unexpected decision evidence key");
+        throw Core.asRuntime(error);
+      }
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "provenance", provenance);
+    if (Core.truthy(box)) {
+      Object raw_box = Core.get(raw, "box", null);
+      Object value = Core._box_validate_impl(raw_box, path);
+      Core.set(out, "value", value);
+      Object confidence = Core.get(answer, "confidence", null);
+      Object present = Core.isNotNone(confidence);
+      Object copy = Core.and(native_state, present);
+      if (Core.truthy(copy)) {
+        confidence = Core._evidence_probability_impl(confidence, path);
+        Core.set(out, "confidence", confidence);
+      }
+    }
+    if (!Core.truthy(box)) {
+      if (Core.truthy(is_boolean)) {
+        Object p = Core.get(raw, "probability", null);
+        p = Core._evidence_probability_impl(p, path);
+        Object threshold = Core.get(evidence, "threshold", 0.5);
+        Object value = Core.gte(p, threshold);
+        Core.set(out, "value", value);
+        Core.set(out, "probability", p);
+        Core.set(out, "threshold", threshold);
+      }
+      if (!Core.truthy(is_boolean)) {
+        Object labels = Core.get(typ, "options", null);
+        Object ps = Core.get(raw, "probabilities", null);
+        Object valid_distribution = Core.typeIs(ps, "object");
+        if (Core.truthy(score)) {
+          valid_distribution = Core.typeIs(ps, "list");
+        }
+        Object invalid_distribution = Core.not(valid_distribution);
+        if (Core.truthy(invalid_distribution)) {
+          Object error = Core.validationError("Invalid decision distribution shape");
+          throw Core.asRuntime(error);
+        }
+        Object count = Core.len(labels);
+        Object actual = Core.len(ps);
+        Object wrong_count = Core.ne(count, actual);
+        if (Core.truthy(wrong_count)) {
+          Object error = Core.validationError("Decision probabilities must cover exactly their declared options");
+          throw Core.asRuntime(error);
+        }
+        Object sum = 0;
+        Object mean = 0;
+        Object maximum = -1;
+        Object choice = "";
+        Object index = 0;
+        for (Object label : Core.iter(labels)) {
+          Object p = Core.get(ps, label, null);
+          if (Core.truthy(score)) {
+            p = Core.listGet(ps, index);
+          }
+          p = Core._evidence_probability_impl(p, path);
+          sum = Core.add(sum, p);
+          Object part = Core.mul(index, p);
+          mean = Core.add(mean, part);
+          Object larger = Core.gt(p, maximum);
+          if (Core.truthy(larger)) {
+            choice = label;
+            maximum = p;
+          }
+          index = Core.add(index, 1);
+        }
+        Object difference = Core.add(sum, -1);
+        Object low = Core.lt(difference, -0.01000000000001);
+        Object high = Core.gt(difference, 0.01000000000001);
+        Object bad_sum = Core.or(low, high);
+        if (Core.truthy(bad_sum)) {
+          Object error = Core.validationError("Decision probabilities must sum to one");
+          throw Core.asRuntime(error);
+        }
+        Object value = choice;
+        if (Core.truthy(score)) {
+          value = Core.div(mean, sum);
+        }
+        if (Core.truthy(native_state)) {
+          value = Core.get(answer, "value", null);
+        }
+        Object valid_value = Core.contains(labels, value);
+        if (Core.truthy(score)) {
+          valid_value = Core.typeIs(value, "number");
+          if (Core.truthy(valid_value)) {
+            Object finite = Core.mathIsFinite(value);
+            low = Core.gte(value, 0);
+            Object maximum_score = Core.add(count, -1);
+            high = Core.lte(value, maximum_score);
+            valid_value = Core.and(low, high);
+            valid_value = Core.and(valid_value, finite);
+          }
+        }
+        Object invalid_value = Core.not(valid_value);
+        if (Core.truthy(invalid_value)) {
+          Object error = Core.validationError("Invalid decision value");
+          throw Core.asRuntime(error);
+        }
+        Object has_evidence = Core.isNotNone(evidence);
+        Object plain_score = Core.not(has_evidence);
+        plain_score = Core.and(score, plain_score);
+        if (Core.truthy(plain_score)) {
+          return value;
+        }
+        Core.set(out, "value", value);
+        Core.set(out, "probabilities", ps);
+        if (Core.truthy(score)) {
+          Core.set(out, "levels", labels);
+        }
+        Object confidence = Core.get(answer, "confidence", null);
+        Object has_confidence = Core.isNotNone(confidence);
+        Object copy_confidence = Core.and(native_state, has_confidence);
+        if (Core.truthy(copy_confidence)) {
+          confidence = Core._evidence_probability_impl(confidence, path);
+          Core.set(out, "confidence", confidence);
+        }
+      }
+    }
+    if (Core.truthy(return_policy)) {
+      Core.set(out, "status", "answered");
+    }
+    return out;
+  }
+
   static Object _stream_strip_trailing_fence_impl(Object text) {
     axirCoverageMark("_stream_strip_trailing_fence_impl");
     Object trimmed = Core._stream_trim_end_impl(text);
@@ -22338,61 +22857,6 @@ final class Core {
     return items;
   }
 
-  static Object _evidence_decode_values_impl(Object fields, Object values, Object context, Object prefix) {
-    axirCoverageMark("_evidence_decode_values_impl");
-    for (Object field : Core.iter(fields)) {
-      Object name = Core.get(field, "name", null);
-      Object typ = Core.get(field, "type", null);
-      Object value = Core.get(values, name, null);
-      Object present = Core.isNotNone(value);
-      if (Core.truthy(present)) {
-        Object path = name;
-        Object qualified = Core.ne(prefix, "");
-        if (Core.truthy(qualified)) {
-          path = Core.stringFormat("{}.{}", prefix, name);
-        }
-        Object decision = Core._evidence_is_type_impl(typ);
-        Object children = Core.get(typ, "fields", null);
-        Object has_children = Core.isNotNone(children);
-        Object array = Core.get(typ, "is_array", Boolean.FALSE);
-        Object items = new java.util.ArrayList<Object>();
-        if (Core.truthy(array)) {
-          items = value;
-        }
-        if (!Core.truthy(array)) {
-          Core.append(items, value);
-        }
-        Object decoded = new java.util.ArrayList<Object>();
-        Object index = 0;
-        for (Object item : Core.iter(items)) {
-          Object item_path = path;
-          if (Core.truthy(array)) {
-            item_path = Core.stringFormat("{}[{}]", path, index);
-          }
-          if (Core.truthy(decision)) {
-            item = Core._evidence_decode_one_impl(typ, item, context, item_path);
-          }
-          if (!Core.truthy(decision)) {
-            if (Core.truthy(has_children)) {
-              Object nested = Core.fieldsFromMap(children);
-              item = Core._evidence_decode_values_impl(nested, item, context, item_path);
-            }
-          }
-          Core.append(decoded, item);
-          index = Core.add(index, 1);
-        }
-        if (Core.truthy(array)) {
-          Core.set(values, name, decoded);
-        }
-        if (!Core.truthy(array)) {
-          Object single = Core.listGet(decoded, 0);
-          Core.set(values, name, single);
-        }
-      }
-    }
-    return values;
-  }
-
   static Object _date_zone_resolve_impl(Object units, Object start, Object end, Object zone, Object probe) {
     axirCoverageMark("_date_zone_resolve_impl");
     Object resolved = new java.util.LinkedHashMap<String, Object>();
@@ -22456,28 +22920,6 @@ final class Core {
     }
     Object missing_error = Core.runtimeError(unrecognized);
     throw Core.asRuntime(missing_error);
-  }
-
-  static Object _evidence_context_impl(Object response, Object client) {
-    axirCoverageMark("_evidence_context_impl");
-    Object trusted = Core.get(response, "decisionContext", null);
-    Object found = Core.isNotNone(trusted);
-    if (Core.truthy(found)) {
-      return trusted;
-    }
-    Object usage = Core.get(response, "modelUsage", null);
-    Object provenance = new java.util.LinkedHashMap<String, Object>();
-    Core.set(provenance, "source", "elicited");
-    Object provider = Core.get(usage, "ai", "AI");
-    Object model = Core.get(usage, "model", null);
-    Core.set(provenance, "provider", provider);
-    Object found_model = Core.isNotNone(model);
-    if (Core.truthy(found_model)) {
-      Core.set(provenance, "model", model);
-    }
-    Object context = new java.util.LinkedHashMap<String, Object>();
-    Core.set(context, "provenance", provenance);
-    return context;
   }
 
   static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
@@ -23415,6 +23857,61 @@ final class Core {
     return t43;
   }
 
+  static Object _evidence_decode_values_impl(Object fields, Object values, Object context, Object prefix) {
+    axirCoverageMark("_evidence_decode_values_impl");
+    for (Object field : Core.iter(fields)) {
+      Object name = Core.get(field, "name", null);
+      Object typ = Core.get(field, "type", null);
+      Object value = Core.get(values, name, null);
+      Object present = Core.isNotNone(value);
+      if (Core.truthy(present)) {
+        Object path = name;
+        Object qualified = Core.ne(prefix, "");
+        if (Core.truthy(qualified)) {
+          path = Core.stringFormat("{}.{}", prefix, name);
+        }
+        Object decision = Core._evidence_is_type_impl(typ);
+        Object children = Core.get(typ, "fields", null);
+        Object has_children = Core.isNotNone(children);
+        Object array = Core.get(typ, "is_array", Boolean.FALSE);
+        Object items = new java.util.ArrayList<Object>();
+        if (Core.truthy(array)) {
+          items = value;
+        }
+        if (!Core.truthy(array)) {
+          Core.append(items, value);
+        }
+        Object decoded = new java.util.ArrayList<Object>();
+        Object index = 0;
+        for (Object item : Core.iter(items)) {
+          Object item_path = path;
+          if (Core.truthy(array)) {
+            item_path = Core.stringFormat("{}[{}]", path, index);
+          }
+          if (Core.truthy(decision)) {
+            item = Core._evidence_decode_one_impl(typ, item, context, item_path);
+          }
+          if (!Core.truthy(decision)) {
+            if (Core.truthy(has_children)) {
+              Object nested = Core.fieldsFromMap(children);
+              item = Core._evidence_decode_values_impl(nested, item, context, item_path);
+            }
+          }
+          Core.append(decoded, item);
+          index = Core.add(index, 1);
+        }
+        if (Core.truthy(array)) {
+          Core.set(values, name, decoded);
+        }
+        if (!Core.truthy(array)) {
+          Object single = Core.listGet(decoded, 0);
+          Core.set(values, name, single);
+        }
+      }
+    }
+    return values;
+  }
+
   static Object chat_session_observe_output(Object gen, Object state, Object event) {
     axirCoverageMark("chat_session_observe_output");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
@@ -23507,6 +24004,28 @@ final class Core {
     Object name = Core.get(zone, "name", null);
     Object seconds = Core.dateZoneOffset(name, millis);
     return seconds;
+  }
+
+  static Object _evidence_context_impl(Object response, Object client) {
+    axirCoverageMark("_evidence_context_impl");
+    Object trusted = Core.get(response, "decisionContext", null);
+    Object found = Core.isNotNone(trusted);
+    if (Core.truthy(found)) {
+      return trusted;
+    }
+    Object usage = Core.get(response, "modelUsage", null);
+    Object provenance = new java.util.LinkedHashMap<String, Object>();
+    Core.set(provenance, "source", "elicited");
+    Object provider = Core.get(usage, "ai", "AI");
+    Object model = Core.get(usage, "model", null);
+    Core.set(provenance, "provider", provider);
+    Object found_model = Core.isNotNone(model);
+    if (Core.truthy(found_model)) {
+      Core.set(provenance, "model", model);
+    }
+    Object context = new java.util.LinkedHashMap<String, Object>();
+    Core.set(context, "provenance", provenance);
+    return context;
   }
 
   static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {

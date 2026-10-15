@@ -93,6 +93,7 @@ function normalizeType(type: any): Json {
   if (type?.valueDescriptions !== undefined)
     out.valueDescriptions = type.valueDescriptions;
   if (type?.options) out.options = [...type.options];
+  if (type?.evidence) out.evidence = type.evidence;
   if (type?.description !== undefined) out.description = type.description;
   if (type?.fields) {
     out.fields = Object.fromEntries(
@@ -551,4 +552,13 @@ fluentCase(
         .describeValues({ support: 'Help', billing: 'Invoice' })
     )
     .build()
+);
+
+stringCase('box-plain', 'photo:image -> target:box');
+stringCase('box-evidence', 'photo:image -> target:box(evidence)');
+stringCase('box-optional-array', 'query:string -> targets?:box[]');
+errorCase(
+  'box-threshold',
+  'query:string -> target:box(evidence, threshold 0.7)',
+  'threshold'
 );

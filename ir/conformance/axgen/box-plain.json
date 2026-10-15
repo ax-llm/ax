@@ -1,0 +1,30 @@
+{
+  "name": "box-plain",
+  "kind": "forward",
+  "signature": "query:string -> target:box",
+  "input": {
+    "query": "Locate"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"target\":{\"bottom\":0.8,\"left\":0.1,\"right\":0.7,\"top\":0.2}}"
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "target": {
+      "bottom": 0.8,
+      "left": 0.1,
+      "right": 0.7,
+      "top": 0.2
+    }
+  },
+  "expected_request_count": 1
+}

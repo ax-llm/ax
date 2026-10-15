@@ -1,0 +1,36 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "photo",
+        "title": "Photo",
+        "type": {
+          "isArray": false,
+          "name": "image"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "target",
+        "title": "Target",
+        "type": {
+          "evidence": {},
+          "isArray": false,
+          "name": "box"
+        }
+      }
+    ]
+  },
+  "expected_to_string": "photo:image -> target:box(evidence)",
+  "kind": "signature",
+  "name": "box-evidence",
+  "signature": "photo:image -> target:box(evidence)"
+}

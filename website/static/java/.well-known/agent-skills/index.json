@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-java-ai/SKILL.md",
-      "digest": "sha256:9b2489fc375cfd75de866f7a3ce33888f7741b4ee8cf9ff9499bf66655e579bc"
+      "digest": "sha256:d8e016d0074516d3ccff67bdc6b30aa769718b16c8496ee46168a38998cce018"
     },
     {
       "name": "ax-java-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Java code with `dev.axllm:ax` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-java-typesafe/SKILL.md",
-      "digest": "sha256:1c8d23ac3d479919df5635f62bedd170a4d715e6cc6dd6a359395a46c5203aa7"
+      "digest": "sha256:e9356a87eada106e60470e8fb4e29442725ce3337bc9aac542177af47ce27b8d"
     },
     {
       "name": "ax-java-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-java-signature/SKILL.md",
-      "digest": "sha256:e25ba6b2ef07c421e2d6bbbeae555ddd48eda12360d2e6c2fb4177cbb9cedc73"
+      "digest": "sha256:ef5d51ed6911258be6b1ae32491a2f78ace228b46c0a522c50566a61d11f32e0"
     },
     {
       "name": "ax-java-gen",

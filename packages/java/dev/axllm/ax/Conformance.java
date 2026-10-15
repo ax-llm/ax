@@ -4193,6 +4193,7 @@ public final class Conformance {
   static Map<String, Object> typePayload(FieldType t) {
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("name", t.name); out.put("isArray", t.array);
+    if (t.evidence != null) out.put("evidence", t.evidence);
     if (t.options != null) out.put("options", t.options);
     if (t.description != null) out.put("description", t.description);
     if (t.fields != null && !t.fields.isEmpty()) { Map<String, Object> fields = new LinkedHashMap<>(); for (Map.Entry<String, Object> e : t.fields.entrySet()) fields.put(e.getKey(), fieldPayload(e.getValue() instanceof Field f ? f : new Field(e.getKey(), (FieldType) e.getValue(), null, false, false, false))); out.put("fields", fields); }

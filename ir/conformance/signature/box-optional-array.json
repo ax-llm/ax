@@ -1,0 +1,35 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": false,
+        "name": "query",
+        "title": "Query",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "isCached": false,
+        "isInternal": false,
+        "isOptional": true,
+        "name": "targets",
+        "title": "Targets",
+        "type": {
+          "isArray": true,
+          "name": "box"
+        }
+      }
+    ]
+  },
+  "expected_to_string": "query:string -> targets?:box[]",
+  "kind": "signature",
+  "name": "box-optional-array",
+  "signature": "query:string -> targets?:box[]"
+}

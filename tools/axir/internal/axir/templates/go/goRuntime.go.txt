@@ -1692,6 +1692,7 @@ func _core_div(left Value, right Value) Value {
 func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
 // A lone surrogate (WTF-8, see markLoneSurrogateEscapes) is one UTF-16 unit
 // and one code point, as in a JS string.
+func _core_string_utf8_length(value Value) Value { return len(display(value)) }
 func _core_string_utf16_units(value Value) Value {
 	text := display(value)
 	out := []Value{}
@@ -3176,6 +3177,7 @@ func (t FieldType) WithEvidence(options ...map[string]Value) FieldType {
     mustCore(_evidence_validate_type_impl(t))
     return t
 }
+func Box() FieldType { return FieldType{Name:"box"} }
 func Score(levels []string) FieldType {
     t := FieldType{Name:"score", Options:append([]string(nil), levels...)}
     mustCore(_evidence_validate_type_impl(t))
@@ -4142,19 +4144,25 @@ func (t HTTPTransport) Stream(ctx context.Context, request Value) (AxHTTPStreamR
 	return AxHTTPStreamResponse{Status: resp.StatusCode, Body: timerBody{resp.Body, timer}, Headers: headers}, nil
 }
 
-// TypesafeQuestion describes a native Noul, Choice, or Score question. Criteria
-// are respectively true/false entries, named entries, or two to ten rubric entries.
+// TypesafeQuestion describes a native Noul, Choice, Score, or Box question.
+// Noul/Choice/Score criteria are true/false entries, named entries, or rubric entries.
+// Box requires instructions and an image asset and omits criteria.
 type TypesafeQuestion struct {
     Type string `json:"type"`
     Instructions Value `json:"instructions"`
     Criteria Value `json:"criteria,omitempty"`
 }
+// AxBox contains normalized image edges; Ax validates finite ranges and ordering.
+type AxBox struct { Top float64 `json:"top"`; Bottom float64 `json:"bottom"`; Left float64 `json:"left"`; Right float64 `json:"right"` }
+type TypesafeImageAsset struct { Type string `json:"type,omitempty"`; Format string `json:"format"`; DataBase64 string `json:"data_base64"` }
 type TypesafeRequest struct {
     State Value `json:"state"`
     Questions map[string]TypesafeQuestion `json:"questions"`
     Model string `json:"model,omitempty"`
+    Assets map[string]TypesafeImageAsset `json:"assets,omitempty"`
 }
 type TypesafeAnswer struct {
+    Box AxBox `json:"box,omitempty"`
     Type string `json:"type"`
     Noul float64 `json:"noul,omitempty"`
     Choice string `json:"choice,omitempty"`
@@ -4165,7 +4173,7 @@ type TypesafeAnswer struct {
 }
 func (a TypesafeAnswer) MarshalJSON()([]byte,error){
     out:=map[string]Value{"type":a.Type}
-    switch a.Type {case "noul":out["noul"]=a.Noul;case "choice":out["choice"]=a.Choice;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;case "score":out["score"]=a.Score;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;out["legend"]=a.Legend;default:return nil,fmt.Errorf("Invalid Typesafe answer type %q",a.Type)}
+    switch a.Type {case "box":out["box"]=a.Box;out["confidence"]=a.Confidence;case "noul":out["noul"]=a.Noul;case "choice":out["choice"]=a.Choice;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;case "score":out["score"]=a.Score;out["confidence"]=a.Confidence;out["probabilities"]=a.Probabilities;out["legend"]=a.Legend;default:return nil,fmt.Errorf("Invalid Typesafe answer type %q",a.Type)}
     return json.Marshal(out)
 }
 type TypesafeUsage struct { InputTokens int64 `json:"input_tokens"`; OutputTokens int64 `json:"output_tokens"` }
@@ -5287,6 +5295,7 @@ func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation stri
 	}
 	headers = asMap(mustCore(provider_merge_headers(headers,coreGet(descriptor,"headers",Object()))))
 	headers = asMap(mustCore(provider_merge_headers(headers,coreGet(opts,"headers",Object()))))
+    if c.Profile=="typesafe" { headers=asMap(mustCore(provider_merge_headers(headers,mustCore(typesafe_image_headers(payload))))) }
 	if c.Profile == "meta" && operation == "transcribe" && (coreGet(request, "partialMode", coreGet(request, "partial_mode", nil)) != nil || coreTruthy(coreGet(request, "emitAudioProgress", coreGet(request, "emit_audio_progress", false)))) {
 		coreSet(headers, "Accept", "text/event-stream")
 	}
@@ -13381,8 +13390,13 @@ func runConformanceFixtureKind(fixture map[string]Value) {
         result:=expectMaybeFixtureError(func() Value {
             var result any;var err error
             if display(coreGet(fixture,"operation",nil))=="models" {result,err=client.ListModels(context.Background(),nil)} else {
+                // Validate the protocol shape before typed decoding drops unknown
+                // fields or turns explicit null criteria into an omitted field.
+                rawRequest:=cloneMap(asMap(coreGet(fixture,"request",nil)))
+                if _,present:=rawRequest["model"];!present{rawRequest["model"]="jev-latest"}
+                mustCore(typesafe_validate_request(rawRequest))
                 var request TypesafeRequest
-                err=json.Unmarshal([]byte(stableStringify(coreGet(fixture,"request",nil))),&request);if err!=nil{panic(err)}
+                err=json.Unmarshal([]byte(stableStringify(rawRequest)),&request);if err!=nil{panic(err)}
                 result,err=client.SystemOne(context.Background(),request,nil)
             }
             if err!=nil{panic(err)}
@@ -14376,6 +14390,7 @@ func conformanceFieldPayload(f Field) Value {
 }
 func conformanceFieldTypePayload(t FieldType) Value {
 	out := Object("isArray", t.IsArray, "name", t.Name)
+    if t.Evidence!=nil { coreSet(out,"evidence",t.Evidence) }
 	if len(t.Options) > 0 {
 		a := Array()
 		for _, v := range t.Options {

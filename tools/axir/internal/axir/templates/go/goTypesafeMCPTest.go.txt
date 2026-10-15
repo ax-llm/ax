@@ -361,3 +361,19 @@ func TestDecisionsNativeAndAdapterCredentialRefresh(t *testing.T) {
   server.Close()
  }
 }
+
+func TestTypesafeImageBoxTypedAPI(t *testing.T) {
+    box:=AxBox{Top:0.2,Bottom:0.8,Left:0.1,Right:0.7}
+    server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+        if r.Header.Get("TypeSafe-Danger-Zone-Images")!="true" { t.Error("missing experimental header") }
+        var request map[string]Value
+        if err:=json.NewDecoder(r.Body).Decode(&request);err!=nil { t.Error(err);return }
+        json.NewEncoder(w).Encode(map[string]Value{"model":"jev-1.14.0","answers":map[string]Value{"target":map[string]Value{"type":"box","box":box,"confidence":0}},"usage":map[string]Value{"input_tokens":1,"output_tokens":1}})
+    }))
+    defer server.Close()
+    client:=Typesafe(map[string]Value{"api_key":"test","base_url":server.URL})
+    result,err:=client.SystemOne(context.Background(),TypesafeRequest{State:"photo",Assets:map[string]TypesafeImageAsset{"photo":{Format:"png",DataBase64:"AAAA"}},Questions:map[string]TypesafeQuestion{"target":{Type:"box",Instructions:"Find it in photo"}}},nil)
+    if err!=nil {t.Fatal(err)}
+    if result.Answers["target"].Box!=box || result.Answers["target"].Confidence!=0 {t.Fatal("typed Box changed")}
+    if Box().WithEvidence().Name!="box" {t.Fatal("Box factory")}
+}

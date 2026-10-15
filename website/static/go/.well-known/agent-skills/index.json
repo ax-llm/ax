@@ -13,14 +13,14 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:3f1960057fe4d92fd799d133e8602bac1c95027b0fabf51b391aaa1d3ecc87b7"
+      "digest": "sha256:1347ea48ebc465091ddae0d03408682d962330141f2b72ede21c14283dda7ea3"
     },
     {
       "name": "ax-go-typesafe",
       "type": "skill-md",
-      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev boolean/class/rubric score signatures, decision evidence and provenance, value descriptions, configurable Noul conversion, native Noul/Choice/Score, structured criteria and hybrid generation.",
+      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for Typesafe Jev image inputs, boolean/class/rubric score/box signatures, decision evidence and provenance, native Noul/Choice/Score/Box, structured criteria and hybrid generation.",
       "url": "ax-go-typesafe/SKILL.md",
-      "digest": "sha256:712af2ea43f45b37ed423d89e7a3649b384058af1f48b6673c2be713ed5d4e8c"
+      "digest": "sha256:ec2adfe9f3daff813f25ce36a05abed72c166eb04d22dabe9e5d6648b24e5595"
     },
     {
       "name": "ax-go-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-go-signature/SKILL.md",
-      "digest": "sha256:4ef31c4a691a8571eec48aea88f7d68e71e2df442f99f9a243da4d41a110ef27"
+      "digest": "sha256:e65ec8ec4fc0d90950dcfad20b458702f727356d71a6d358a3c1d8853b801820"
     },
     {
       "name": "ax-go-gen",

@@ -50,6 +50,7 @@ from .schema import (
     _schema_to_json_schema_impl,
 )
 from .signature import (
+    _box_validate_impl,
     _evidence_is_type_impl,
     _evidence_request_fields_impl,
     _signature_output_value_descriptions_impl,
@@ -4309,210 +4310,6 @@ def _optimization_component_current_map(components: Any) -> Any:
     return out
 
 
-def _evidence_decode_one_impl(typ: FieldType, raw: Any, context: Any, path: str) -> Any:
-    _core_coverage_mark("_evidence_decode_one_impl")
-    object = _core_type_is(raw, "object")
-    invalid = _core_not(object)
-    if invalid:
-        error = _core_validation_error("Decision evidence must be an object")
-        raise error
-    else:
-        pass
-    name = _core_get(typ, "name", None)
-    evidence = _core_get(typ, "evidence", None)
-    provenance = _core_get(context, "provenance", None)
-    source = _core_get(provenance, "source", "elicited")
-    native_state = _core_eq(source, "native")
-    native_answers = _core_get(context, "native", None)
-    answer = _core_get(native_answers, path, None)
-    status = _core_get(raw, "status", None)
-    missing_native = _core_is_none(answer)
-    missing_native = _core_and(native_state, missing_native)
-    if missing_native:
-        error = _core_validation_error("Missing native decision")
-        raise error
-    else:
-        pass
-    refused = _core_eq(status, "refused")
-    if native_state:
-        refused = _core_get(answer, "refused", False)
-    else:
-        pass
-    policy = _core_get(evidence, "onRefusal", "throw")
-    return_policy = _core_eq(policy, "return")
-    keys = _core_map_keys(raw)
-    if refused:
-        key_count = _core_len(keys)
-        valid_shape = _core_eq(key_count, 1)
-        valid_status = _core_eq(status, "refused")
-        valid_shape = _core_and(valid_shape, valid_status)
-        invalid_shape = _core_not(valid_shape)
-        if invalid_shape:
-            error = _core_validation_error("Invalid refusal evidence shape")
-            raise error
-        else:
-            pass
-        throw_policy = _core_not(return_policy)
-        if throw_policy:
-            error = _core_decision_refusal_error(path, provenance)
-            raise error
-        else:
-            pass
-        out = {}
-        out["status"] = "refused"
-        out["provenance"] = provenance
-        return out
-    else:
-        pass
-    elicited = _core_not(native_state)
-    require_status = _core_and(return_policy, elicited)
-    answered_status = _core_eq(status, "answered")
-    invalid_status = _core_not(answered_status)
-    invalid_status = _core_and(require_status, invalid_status)
-    if invalid_status:
-        error = _core_validation_error("Invalid decision evidence status")
-        raise error
-    else:
-        pass
-    is_boolean = _core_eq(name, "boolean")
-    score = _core_eq(name, "score")
-    allowed = []
-    if is_boolean:
-        allowed.append("probability")
-    else:
-        allowed.append("probabilities")
-    if return_policy:
-        allowed.append("status")
-    else:
-        pass
-    for key in keys:
-        known = _core_contains(allowed, key)
-        unknown = _core_not(known)
-        if unknown:
-            error = _core_validation_error("Unexpected decision evidence key")
-            raise error
-        else:
-            pass
-    out = {}
-    out["provenance"] = provenance
-    if is_boolean:
-        p = _core_get(raw, "probability", None)
-        p = _evidence_probability_impl(p, path)
-        threshold = _core_get(evidence, "threshold", 0.5)
-        value = _core_gte(p, threshold)
-        out["value"] = value
-        out["probability"] = p
-        out["threshold"] = threshold
-    else:
-        labels = _core_get(typ, "options", None)
-        ps = _core_get(raw, "probabilities", None)
-        valid_distribution = _core_type_is(ps, "object")
-        if score:
-            valid_distribution = _core_type_is(ps, "list")
-        else:
-            pass
-        invalid_distribution = _core_not(valid_distribution)
-        if invalid_distribution:
-            error = _core_validation_error("Invalid decision distribution shape")
-            raise error
-        else:
-            pass
-        count = _core_len(labels)
-        actual = _core_len(ps)
-        wrong_count = _core_ne(count, actual)
-        if wrong_count:
-            error = _core_validation_error("Decision probabilities must cover exactly their declared options")
-            raise error
-        else:
-            pass
-        sum = 0
-        mean = 0
-        maximum = -1
-        choice = ""
-        index = 0
-        for label in labels:
-            p = _core_get(ps, label, None)
-            if score:
-                p = _core_list_get(ps, index)
-            else:
-                pass
-            p = _evidence_probability_impl(p, path)
-            sum = _core_add(sum, p)
-            part = _core_mul(index, p)
-            mean = _core_add(mean, part)
-            larger = _core_gt(p, maximum)
-            if larger:
-                choice = label
-                maximum = p
-            else:
-                pass
-            index = _core_add(index, 1)
-        difference = _core_add(sum, -1)
-        low = _core_lt(difference, -0.01000000000001)
-        high = _core_gt(difference, 0.01000000000001)
-        bad_sum = _core_or(low, high)
-        if bad_sum:
-            error = _core_validation_error("Decision probabilities must sum to one")
-            raise error
-        else:
-            pass
-        value = choice
-        if score:
-            value = _core_div(mean, sum)
-        else:
-            pass
-        if native_state:
-            value = _core_get(answer, "value", None)
-        else:
-            pass
-        valid_value = _core_contains(labels, value)
-        if score:
-            valid_value = _core_type_is(value, "number")
-            if valid_value:
-                finite = _core_math_is_finite(value)
-                low = _core_gte(value, 0)
-                maximum_score = _core_add(count, -1)
-                high = _core_lte(value, maximum_score)
-                valid_value = _core_and(low, high)
-                valid_value = _core_and(valid_value, finite)
-            else:
-                pass
-        else:
-            pass
-        invalid_value = _core_not(valid_value)
-        if invalid_value:
-            error = _core_validation_error("Invalid decision value")
-            raise error
-        else:
-            pass
-        has_evidence = _core_is_not_none(evidence)
-        plain_score = _core_not(has_evidence)
-        plain_score = _core_and(score, plain_score)
-        if plain_score:
-            return value
-        else:
-            pass
-        out["value"] = value
-        out["probabilities"] = ps
-        if score:
-            out["levels"] = labels
-        else:
-            pass
-        confidence = _core_get(answer, "confidence", None)
-        has_confidence = _core_is_not_none(confidence)
-        copy_confidence = _core_and(native_state, has_confidence)
-        if copy_confidence:
-            confidence = _evidence_probability_impl(confidence, path)
-            out["confidence"] = confidence
-        else:
-            pass
-    if return_policy:
-        out["status"] = "answered"
-    else:
-        pass
-    return out
-
-
 def _normalize_optimization_dataset(dataset: Any) -> Any:
     _core_coverage_mark("_normalize_optimization_dataset")
     empty_list = []
@@ -4856,6 +4653,234 @@ def _date_datetime_parts_impl(prefix: Any) -> Any:
     return parts
 
 
+def _evidence_decode_one_impl(typ: FieldType, raw: Any, context: Any, path: str) -> Any:
+    _core_coverage_mark("_evidence_decode_one_impl")
+    object = _core_type_is(raw, "object")
+    invalid = _core_not(object)
+    if invalid:
+        error = _core_validation_error("Decision evidence must be an object")
+        raise error
+    else:
+        pass
+    name = _core_get(typ, "name", None)
+    evidence = _core_get(typ, "evidence", None)
+    box = _core_eq(name, "box")
+    plain = _core_is_none(evidence)
+    plain_box = _core_and(box, plain)
+    if plain_box:
+        value = _box_validate_impl(raw, path)
+        return value
+    else:
+        pass
+    provenance = _core_get(context, "provenance", None)
+    source = _core_get(provenance, "source", "elicited")
+    native_state = _core_eq(source, "native")
+    native_answers = _core_get(context, "native", None)
+    answer = _core_get(native_answers, path, None)
+    status = _core_get(raw, "status", None)
+    missing_native = _core_is_none(answer)
+    missing_native = _core_and(native_state, missing_native)
+    if missing_native:
+        error = _core_validation_error("Missing native decision")
+        raise error
+    else:
+        pass
+    refused = _core_eq(status, "refused")
+    if native_state:
+        refused = _core_get(answer, "refused", False)
+    else:
+        pass
+    policy = _core_get(evidence, "onRefusal", "throw")
+    return_policy = _core_eq(policy, "return")
+    keys = _core_map_keys(raw)
+    if refused:
+        key_count = _core_len(keys)
+        valid_shape = _core_eq(key_count, 1)
+        valid_status = _core_eq(status, "refused")
+        valid_shape = _core_and(valid_shape, valid_status)
+        invalid_shape = _core_not(valid_shape)
+        if invalid_shape:
+            error = _core_validation_error("Invalid refusal evidence shape")
+            raise error
+        else:
+            pass
+        throw_policy = _core_not(return_policy)
+        if throw_policy:
+            error = _core_decision_refusal_error(path, provenance)
+            raise error
+        else:
+            pass
+        out = {}
+        out["status"] = "refused"
+        out["provenance"] = provenance
+        return out
+    else:
+        pass
+    elicited = _core_not(native_state)
+    require_status = _core_and(return_policy, elicited)
+    answered_status = _core_eq(status, "answered")
+    invalid_status = _core_not(answered_status)
+    invalid_status = _core_and(require_status, invalid_status)
+    if invalid_status:
+        error = _core_validation_error("Invalid decision evidence status")
+        raise error
+    else:
+        pass
+    is_boolean = _core_eq(name, "boolean")
+    score = _core_eq(name, "score")
+    allowed = []
+    if box:
+        allowed.append("box")
+    else:
+        if is_boolean:
+            allowed.append("probability")
+        else:
+            allowed.append("probabilities")
+    if return_policy:
+        allowed.append("status")
+    else:
+        pass
+    for key in keys:
+        known = _core_contains(allowed, key)
+        unknown = _core_not(known)
+        if unknown:
+            error = _core_validation_error("Unexpected decision evidence key")
+            raise error
+        else:
+            pass
+    out = {}
+    out["provenance"] = provenance
+    if box:
+        raw_box = _core_get(raw, "box", None)
+        value = _box_validate_impl(raw_box, path)
+        out["value"] = value
+        confidence = _core_get(answer, "confidence", None)
+        present = _core_is_not_none(confidence)
+        copy = _core_and(native_state, present)
+        if copy:
+            confidence = _evidence_probability_impl(confidence, path)
+            out["confidence"] = confidence
+        else:
+            pass
+    else:
+        if is_boolean:
+            p = _core_get(raw, "probability", None)
+            p = _evidence_probability_impl(p, path)
+            threshold = _core_get(evidence, "threshold", 0.5)
+            value = _core_gte(p, threshold)
+            out["value"] = value
+            out["probability"] = p
+            out["threshold"] = threshold
+        else:
+            labels = _core_get(typ, "options", None)
+            ps = _core_get(raw, "probabilities", None)
+            valid_distribution = _core_type_is(ps, "object")
+            if score:
+                valid_distribution = _core_type_is(ps, "list")
+            else:
+                pass
+            invalid_distribution = _core_not(valid_distribution)
+            if invalid_distribution:
+                error = _core_validation_error("Invalid decision distribution shape")
+                raise error
+            else:
+                pass
+            count = _core_len(labels)
+            actual = _core_len(ps)
+            wrong_count = _core_ne(count, actual)
+            if wrong_count:
+                error = _core_validation_error("Decision probabilities must cover exactly their declared options")
+                raise error
+            else:
+                pass
+            sum = 0
+            mean = 0
+            maximum = -1
+            choice = ""
+            index = 0
+            for label in labels:
+                p = _core_get(ps, label, None)
+                if score:
+                    p = _core_list_get(ps, index)
+                else:
+                    pass
+                p = _evidence_probability_impl(p, path)
+                sum = _core_add(sum, p)
+                part = _core_mul(index, p)
+                mean = _core_add(mean, part)
+                larger = _core_gt(p, maximum)
+                if larger:
+                    choice = label
+                    maximum = p
+                else:
+                    pass
+                index = _core_add(index, 1)
+            difference = _core_add(sum, -1)
+            low = _core_lt(difference, -0.01000000000001)
+            high = _core_gt(difference, 0.01000000000001)
+            bad_sum = _core_or(low, high)
+            if bad_sum:
+                error = _core_validation_error("Decision probabilities must sum to one")
+                raise error
+            else:
+                pass
+            value = choice
+            if score:
+                value = _core_div(mean, sum)
+            else:
+                pass
+            if native_state:
+                value = _core_get(answer, "value", None)
+            else:
+                pass
+            valid_value = _core_contains(labels, value)
+            if score:
+                valid_value = _core_type_is(value, "number")
+                if valid_value:
+                    finite = _core_math_is_finite(value)
+                    low = _core_gte(value, 0)
+                    maximum_score = _core_add(count, -1)
+                    high = _core_lte(value, maximum_score)
+                    valid_value = _core_and(low, high)
+                    valid_value = _core_and(valid_value, finite)
+                else:
+                    pass
+            else:
+                pass
+            invalid_value = _core_not(valid_value)
+            if invalid_value:
+                error = _core_validation_error("Invalid decision value")
+                raise error
+            else:
+                pass
+            has_evidence = _core_is_not_none(evidence)
+            plain_score = _core_not(has_evidence)
+            plain_score = _core_and(score, plain_score)
+            if plain_score:
+                return value
+            else:
+                pass
+            out["value"] = value
+            out["probabilities"] = ps
+            if score:
+                out["levels"] = labels
+            else:
+                pass
+            confidence = _core_get(answer, "confidence", None)
+            has_confidence = _core_is_not_none(confidence)
+            copy_confidence = _core_and(native_state, has_confidence)
+            if copy_confidence:
+                confidence = _evidence_probability_impl(confidence, path)
+                out["confidence"] = confidence
+            else:
+                pass
+    if return_policy:
+        out["status"] = "answered"
+    else:
+        pass
+    return out
+
+
 def _stream_strip_trailing_fence_impl(text: str) -> str:
     _core_coverage_mark("_stream_strip_trailing_fence_impl")
     trimmed = _stream_trim_end_impl(text)
@@ -5088,57 +5113,6 @@ def _stream_markdown_list_impl(input: str) -> list[Any]:
     return items
 
 
-def _evidence_decode_values_impl(fields: list[Any], values: Any, context: Any, prefix: str) -> Any:
-    _core_coverage_mark("_evidence_decode_values_impl")
-    for field in fields:
-        name = _core_get(field, "name", None)
-        typ = _core_get(field, "type", None)
-        value = _core_get(values, name, None)
-        present = _core_is_not_none(value)
-        if present:
-            path = name
-            qualified = _core_ne(prefix, "")
-            if qualified:
-                path = _core_string_format("{}.{}", prefix, name)
-            else:
-                pass
-            decision = _evidence_is_type_impl(typ)
-            children = _core_get(typ, "fields", None)
-            has_children = _core_is_not_none(children)
-            array = _core_get(typ, "is_array", False)
-            items = []
-            if array:
-                items = value
-            else:
-                items.append(value)
-            decoded = []
-            index = 0
-            for item in items:
-                item_path = path
-                if array:
-                    item_path = _core_string_format("{}[{}]", path, index)
-                else:
-                    pass
-                if decision:
-                    item = _evidence_decode_one_impl(typ, item, context, item_path)
-                else:
-                    if has_children:
-                        nested = _core_fields_from_map(children)
-                        item = _evidence_decode_values_impl(nested, item, context, item_path)
-                    else:
-                        pass
-                decoded.append(item)
-                index = _core_add(index, 1)
-            if array:
-                values[name] = decoded
-            else:
-                single = _core_list_get(decoded, 0)
-                values[name] = single
-        else:
-            pass
-    return values
-
-
 def _date_zone_resolve_impl(units: Any, start: Any, end: Any, zone: Any, probe: Any) -> Any:
     _core_coverage_mark("_date_zone_resolve_impl")
     resolved = {}
@@ -5200,30 +5174,6 @@ def _date_zone_resolve_impl(units: Any, start: Any, end: Any, zone: Any, probe: 
             pass
     missing_error = _core_runtime_error(unrecognized)
     raise missing_error
-
-
-def _evidence_context_impl(response: Any, client: Any) -> Any:
-    _core_coverage_mark("_evidence_context_impl")
-    trusted = _core_get(response, "decisionContext", None)
-    found = _core_is_not_none(trusted)
-    if found:
-        return trusted
-    else:
-        pass
-    usage = _core_get(response, "modelUsage", None)
-    provenance = {}
-    provenance["source"] = "elicited"
-    provider = _core_get(usage, "ai", "AI")
-    model = _core_get(usage, "model", None)
-    provenance["provider"] = provider
-    found_model = _core_is_not_none(model)
-    if found_model:
-        provenance["model"] = model
-    else:
-        pass
-    context = {}
-    context["provenance"] = provenance
-    return context
 
 
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
@@ -6207,6 +6157,57 @@ def _regex_character_class(s: Any) -> Any:
     return t43
 
 
+def _evidence_decode_values_impl(fields: list[Any], values: Any, context: Any, prefix: str) -> Any:
+    _core_coverage_mark("_evidence_decode_values_impl")
+    for field in fields:
+        name = _core_get(field, "name", None)
+        typ = _core_get(field, "type", None)
+        value = _core_get(values, name, None)
+        present = _core_is_not_none(value)
+        if present:
+            path = name
+            qualified = _core_ne(prefix, "")
+            if qualified:
+                path = _core_string_format("{}.{}", prefix, name)
+            else:
+                pass
+            decision = _evidence_is_type_impl(typ)
+            children = _core_get(typ, "fields", None)
+            has_children = _core_is_not_none(children)
+            array = _core_get(typ, "is_array", False)
+            items = []
+            if array:
+                items = value
+            else:
+                items.append(value)
+            decoded = []
+            index = 0
+            for item in items:
+                item_path = path
+                if array:
+                    item_path = _core_string_format("{}[{}]", path, index)
+                else:
+                    pass
+                if decision:
+                    item = _evidence_decode_one_impl(typ, item, context, item_path)
+                else:
+                    if has_children:
+                        nested = _core_fields_from_map(children)
+                        item = _evidence_decode_values_impl(nested, item, context, item_path)
+                    else:
+                        pass
+                decoded.append(item)
+                index = _core_add(index, 1)
+            if array:
+                values[name] = decoded
+            else:
+                single = _core_list_get(decoded, 0)
+                values[name] = single
+        else:
+            pass
+    return values
+
+
 def chat_session_observe_output(gen: Any, state: Any, event: Any) -> Any:
     _core_coverage_mark("chat_session_observe_output")
     empty_map = {}
@@ -6297,6 +6298,30 @@ def _date_zone_offset_seconds_impl(zone: Any, millis: Any) -> Any:
     name = _core_get(zone, "name", None)
     seconds = _core_date_zone_offset(name, millis)
     return seconds
+
+
+def _evidence_context_impl(response: Any, client: Any) -> Any:
+    _core_coverage_mark("_evidence_context_impl")
+    trusted = _core_get(response, "decisionContext", None)
+    found = _core_is_not_none(trusted)
+    if found:
+        return trusted
+    else:
+        pass
+    usage = _core_get(response, "modelUsage", None)
+    provenance = {}
+    provenance["source"] = "elicited"
+    provider = _core_get(usage, "ai", "AI")
+    model = _core_get(usage, "model", None)
+    provenance["provider"] = provider
+    found_model = _core_is_not_none(model)
+    if found_model:
+        provenance["model"] = model
+    else:
+        pass
+    context = {}
+    context["provenance"] = provenance
+    return context
 
 
 def _prepare_optimizer_run(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any, evaluator_available: bool) -> Any:

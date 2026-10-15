@@ -1,0 +1,42 @@
+{
+  "name": "box-plain",
+  "kind": "json_schema",
+  "signature": "query:string -> target:box",
+  "target": "outputs",
+  "expected_schema": {
+    "type": "object",
+    "title": "Schema",
+    "properties": {
+      "target": {
+        "type": "object",
+        "properties": {
+          "top": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "bottom": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "left": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "right": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": ["top", "bottom", "left", "right"],
+        "additionalProperties": false,
+        "description": "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right."
+      }
+    },
+    "required": ["target"],
+    "additionalProperties": false
+  }
+}

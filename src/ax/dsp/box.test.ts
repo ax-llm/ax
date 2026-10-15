@@ -328,6 +328,8 @@ describe('box signatures and images', () => {
     { format: 'png', data_base64: 'data:image/png;base64,aGVsbG8=' },
     { format: 'png', data_base64: ' aGVsbG8=' },
     { format: 'png', data_base64: 'abc' },
+    { format: 'png', data_base64: 'AAA\n' },
+    { format: 'png', data_base64: 'AAA\r' },
     { format: 'png', part: 'photo' },
   ])('rejects invalid native assets before transport %j', async (asset) => {
     const fetch = vi.fn();

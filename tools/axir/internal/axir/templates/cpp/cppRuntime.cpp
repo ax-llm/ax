@@ -942,6 +942,7 @@ Value Core::div(Value left, Value right) {
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
 Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::string_utf8_length(Value value) { return Value(static_cast<double>(str(value).size())); }
 Value Core::string_utf16_units(Value value) {
   Array units;const auto text=str(value);size_t index=0;
   while(index<text.size()) {
@@ -1403,6 +1404,16 @@ Value Core::type_is(Value value, Value type_name) {
   return Value(false);
 }
 Value Core::regex_match(Value pattern, Value value) {
+  // libc++ regex may recurse for each character in a repeated character class.
+  // Evaluate this flat ASCII pattern in constant stack space for image payloads.
+  if (value.is_string() && str(pattern) == "^[A-Za-z0-9+/]+={0,2}$") {
+    const auto& text = std::get<std::string>(value.data);
+    size_t end=text.size(), padding=0;
+    while(end>0 && text[end-1]=='='){--end;++padding;}
+    if(end==0 || padding>2)return Value(false);
+    for(size_t index=0;index<end;++index){unsigned char ch=text[index];if(!((ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z')||(ch>='0'&&ch<='9')||ch=='+'||ch=='/'))return Value(false);}
+    return Value(true);
+  }
   return Value(value.is_string() && std::regex_search(str(value), std::regex(str(pattern))));
 }
 // The UTF-8 length of the JavaScript white space or line terminator at pos
@@ -6163,6 +6174,7 @@ Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value p
   bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
   Core::set(call, "url", absolute ? endpoint : ax_call_base_url(profile_, descriptor_, base_url_) + endpoint);
   Value resolved_headers = headers();
+  if (profile_ == "typesafe") resolved_headers = Core::provider_merge_headers(resolved_headers, Core::typesafe_image_headers(payload));
   if (profile_ == "meta" && body_key == "data" && !binary_response) Core::set(resolved_headers, "Accept", "text/event-stream");
   std::string request_url = str(Core::get(call, "url"));
   std::string operation = stream ? "stream_chat" : "chat";
@@ -9689,6 +9701,10 @@ AxFlow flow(Value options) { return AxFlow(std::move(options)); }
 AxFlow flow(Value options, AxRuntimeHooks hooks) { return AxFlow(std::move(options), std::move(hooks)); }
 AxFlow flow(const std::string& mermaid, Value bindings) { return AxFlow(mermaid, std::move(bindings)); }
 AxFlow flow(const std::string& mermaid, Value bindings, AxRuntimeHooks hooks) { return AxFlow(mermaid, std::move(bindings), std::move(hooks)); }
+AxBox AxBox::from_value(Value value) {
+  Core::_box_validate_impl(value, "box");
+  return {Core::number(Core::get(value,"top")),Core::number(Core::get(value,"bottom")),Core::number(Core::get(value,"left")),Core::number(Core::get(value,"right"))};
+}
 TypesafeResponse TypesafeResponse::from_value(Value value) {
   auto raw_usage=Core::get(value,"usage");
   TypesafeResponse response{display(Core::get(value,"model")),{}, {static_cast<std::uint64_t>(Core::number(Core::get(raw_usage,"input_tokens"))),static_cast<std::uint64_t>(Core::number(Core::get(raw_usage,"output_tokens")))}};
@@ -9697,6 +9713,7 @@ TypesafeResponse TypesafeResponse::from_value(Value value) {
     auto answer=Core::get(answers,key);auto type=display(Core::get(answer,"type"));
     std::map<std::string,double> probabilities;auto raw=Core::get(answer,"probabilities");for(auto label:Core::iter(Core::map_keys(raw)))probabilities[display(label)]=Core::number(Core::get(raw,label));
     if(type=="noul")response.answers.emplace(display(key),TypesafeNoul{Core::number(Core::get(answer,"noul"))});
+    else if(type=="box")response.answers.emplace(display(key),TypesafeBox{AxBox::from_value(Core::get(answer,"box")),Core::number(Core::get(answer,"confidence"))});
     else if(type=="choice")response.answers.emplace(display(key),TypesafeChoice{display(Core::get(answer,"choice")),probabilities,Core::number(Core::get(answer,"confidence"))});
     else response.answers.emplace(display(key),TypesafeScore{Core::number(Core::get(answer,"score")),probabilities,Core::number(Core::get(answer,"confidence")),Core::get(answer,"legend")});
   }
@@ -9708,6 +9725,7 @@ Value TypesafeResponse::to_value() const {
   for(const auto& entry:answers) {
     Value answer;
     if(auto value=std::get_if<TypesafeNoul>(&entry.second))answer=Value(Object{{"type","noul"},{"noul",value->noul}});
+    else if(auto value=std::get_if<TypesafeBox>(&entry.second))answer=Value(Object{{"type","box"},{"box",value->box.to_value()},{"confidence",value->confidence}});
     else {
       Value probabilities=Value::object();
       if(auto value=std::get_if<TypesafeChoice>(&entry.second)){for(const auto& item:value->probabilities)Core::set(probabilities,item.first,item.second);answer=Value(Object{{"type","choice"},{"choice",value->choice},{"confidence",value->confidence},{"probabilities",probabilities}});}

@@ -774,7 +774,7 @@ static Value build_signature(Value fixture) {
 static Value field_payload(Value field);
 static Value type_payload(Value typ) {
   Object out{{"name", Core::get(typ, "name")}, {"isArray", Core::get(typ, "is_array", false)}};
-  for (const auto& key : {"options", "description", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "valueDescriptions", "format", "language"}) {
+  for (const auto& key : {"evidence", "options", "description", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "valueDescriptions", "format", "language"}) {
     Value value = Core::get(typ, key);
     if (!value.is_null()) {
       if (std::string(key) == "fields") {

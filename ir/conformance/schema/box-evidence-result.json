@@ -1,0 +1,74 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "target": {
+        "additionalProperties": false,
+        "description": "",
+        "properties": {
+          "confidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "provenance": {
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "source": {
+                "enum": ["native", "elicited"],
+                "type": "string"
+              }
+            },
+            "required": ["source", "provider"],
+            "type": "object"
+          },
+          "value": {
+            "additionalProperties": false,
+            "properties": {
+              "bottom": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "left": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "right": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "top": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": ["top", "bottom", "left", "right"],
+            "type": "object"
+          }
+        },
+        "required": ["value", "provenance"],
+        "type": "object"
+      }
+    },
+    "required": ["target"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "box-evidence-result",
+  "schema_options": {
+    "decisionMode": "result"
+  },
+  "signature": "query:string -> target:box(evidence)",
+  "target": "outputs"
+}

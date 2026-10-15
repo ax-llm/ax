@@ -144,7 +144,7 @@ multiple completion samples, and generation controls such as `temperature` or
 `maxTokens` are unsupported. There is no token streaming; Ax's
 `streamingForward()` can deliver a completed result.
 
-## Image inputs and Box outputs (TypeScript)
+## Image inputs and Box outputs
 
 ```typescript
 const vision = ai({
@@ -197,9 +197,9 @@ boolean/class/score questions, but has no documented native Box primitive;
 Ax rejects Box outputs on that endpoint before transport. Use a generative
 OpenAI vision model for Box instead.
 
-This image/Box addition currently applies to TypeScript. Generated-language
-parity is tracked in the AxIR backlog. See the runnable
-`src/examples/typescript/generation/typesafe-image-box.ts` example and upstream
+Image and Box signatures are available in TypeScript, Python, Java, C++, Go, and
+Rust. Runnable image localization examples live under each language’s
+`src/examples/<language>/generation/` directory. See the upstream
 [Images](https://docs.typesafe.ai/images) and
 [Box](https://docs.typesafe.ai/primitives/box) contracts.
 
