@@ -1,5 +1,11 @@
 # Changelog
 
+## [25.4.1](https://github.com/ax-llm/ax/compare/25.4.0...25.4.1) (2026-10-15)
+
+### Features
+
+* **axir:** complete Jev image and Box parity ([#852](https://github.com/ax-llm/ax/pull/852)) ([be70f22](https://github.com/ax-llm/ax/commit/be70f220740ec7458a9af28525ac4fdf18fe250d))
+
 ## [25.4.0](https://github.com/ax-llm/ax/compare/25.3.2...25.4.0) (2026-10-15)
 
 ### Features
