@@ -1,3 +1,4 @@
+import { type AxBox, boxSchema, validateBox } from './box.js';
 import { ValidationError } from './errors.js';
 import type { AxField, AxFieldType } from './sig.js';
 
@@ -20,6 +21,11 @@ export type AxBooleanEvidence = {
 export type AxClassEvidence<L extends string = string> = {
   readonly value: L;
   readonly probabilities: Readonly<Record<L, number>>;
+  readonly confidence?: number;
+  readonly provenance: AxDecisionProvenance;
+};
+export type AxBoxEvidence = {
+  readonly value: AxBox;
   readonly confidence?: number;
   readonly provenance: AxDecisionProvenance;
 };
@@ -60,7 +66,7 @@ export type AxDecisionContext = {
   readonly native?: Readonly<Record<string, AxNativeDecision>>;
 };
 export type AxDecisionField = {
-  readonly type: 'boolean' | 'class' | 'score';
+  readonly type: 'boolean' | 'class' | 'score' | 'box';
   readonly options?: readonly string[];
   readonly evidence?: AxEvidenceOptions;
   readonly isArray?: boolean;
@@ -74,8 +80,8 @@ export function validateDecisionField(type: {
 }): void {
   const name = type.name ?? type.type;
   if (type.evidence !== undefined) {
-    if (!['boolean', 'class', 'score'].includes(name ?? ''))
-      throw new Error('Evidence requires a boolean, class or score field');
+    if (!['boolean', 'class', 'score', 'box'].includes(name ?? ''))
+      throw new Error('Evidence requires a boolean, class, score or box field');
     if (
       Object.keys(type.evidence).some(
         (k) => k !== 'threshold' && k !== 'onRefusal'
@@ -113,7 +119,11 @@ export function validateDecisionField(type: {
     );
 }
 export function isDecisionField(field: Readonly<AxField>): boolean {
-  return field.type?.evidence !== undefined || field.type?.name === 'score';
+  return (
+    field.type?.evidence !== undefined ||
+    field.type?.name === 'score' ||
+    field.type?.name === 'box'
+  );
 }
 export function hasDecisionFields(fields: readonly AxField[]): boolean {
   return fields.some(
@@ -209,13 +219,18 @@ export function decodeDecisionValues(
           );
         return value;
       }
+      if (t.name === 'box' && !t.evidence) return validateBox(value, path);
       const raw = record(value, path);
       const native = context.native?.[path];
       const expected =
         raw.status === 'refused'
           ? ['status']
           : [
-              t.name === 'boolean' ? 'probability' : 'probabilities',
+              t.name === 'boolean'
+                ? 'probability'
+                : t.name === 'box'
+                  ? 'box'
+                  : 'probabilities',
               ...(t.evidence?.onRefusal === 'return' ? ['status'] : []),
             ];
       if (
@@ -240,7 +255,17 @@ export function decodeDecisionValues(
         return { status: 'refused', provenance: context.provenance };
       }
       let out: Record<string, unknown>;
-      if (t.name === 'boolean') {
+      if (t.name === 'box') {
+        out = {
+          value: validateBox(raw.box, path),
+          provenance: context.provenance,
+        };
+        if (
+          context.provenance.source === 'native' &&
+          native?.confidence !== undefined
+        )
+          out.confidence = probability(native.confidence, path);
+      } else if (t.name === 'boolean') {
         const p = probability(raw.probability, path);
         const threshold = t.evidence?.threshold ?? 0.5;
         out = {
@@ -319,28 +344,31 @@ export function decodeDecisionValues(
 export function decisionEvidenceSchema(
   type: NonNullable<AxField['type']>
 ): Record<string, unknown> {
+  if (type.name === 'box' && !type.evidence) return boxSchema();
   const p = { type: 'number', minimum: 0, maximum: 1 };
   const properties =
     type.name === 'boolean'
       ? { probability: p }
-      : {
-          probabilities:
-            type.name === 'score'
-              ? {
-                  type: 'array',
-                  items: p,
-                  minItems: type.options!.length,
-                  maxItems: type.options!.length,
-                }
-              : {
-                  type: 'object',
-                  properties: Object.fromEntries(
-                    type.options!.map((k) => [k, p])
-                  ),
-                  required: [...type.options!],
-                  additionalProperties: false,
-                },
-        };
+      : type.name === 'box'
+        ? { box: boxSchema() }
+        : {
+            probabilities:
+              type.name === 'score'
+                ? {
+                    type: 'array',
+                    items: p,
+                    minItems: type.options!.length,
+                    maxItems: type.options!.length,
+                  }
+                : {
+                    type: 'object',
+                    properties: Object.fromEntries(
+                      type.options!.map((k) => [k, p])
+                    ),
+                    required: [...type.options!],
+                    additionalProperties: false,
+                  },
+          };
   const schema = {
     type: 'object',
     properties,
@@ -388,6 +416,18 @@ export function decisionExampleValues(
             )
           : v;
       const r = v as Record<string, unknown>;
+      if (t.name === 'box') {
+        if (r.status === 'refused') return { status: 'refused' };
+        const box = validateBox(r.value ?? r.box ?? r, field.name);
+        return t.evidence
+          ? {
+              box,
+              ...(t.evidence.onRefusal === 'return'
+                ? { status: 'answered' }
+                : {}),
+            }
+          : box;
+      }
       if (r.status === 'refused') return { status: 'refused' };
       const key = t.name === 'boolean' ? 'probability' : 'probabilities';
       return {

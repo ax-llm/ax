@@ -18,9 +18,9 @@
     {
       "name": "ax-typesafe",
       "type": "skill-md",
-      "description": "Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.",
+      "description": "Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers images, box outputs, and boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.",
       "url": "ax-typesafe/SKILL.md",
-      "digest": "sha256:5e1fabeb9f7cd056d532871c4bfcbce1b6b30cdd6354ed4ba4b06a59b6076c29"
+      "digest": "sha256:a3c8fd23091dec5936f0f5348356ab38aca1fc6fee026797c725ed327fbdfea7"
     },
     {
       "name": "ax-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:09ae2095fcd892bfa55ce3779e1c6e28ba75ed96df87710495679714e3f39702"
+      "digest": "sha256:e5f9d054dd84e14afe682b428fb326068d5eaa36a439f83517a9d37ec8f3348e"
     },
     {
       "name": "ax-gen",

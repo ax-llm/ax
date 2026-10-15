@@ -16,7 +16,9 @@ import type {
   AxModelConfig,
   AxModelInfo,
 } from '../types.js';
+import { typesafeImageHeaders, typesafePrompt } from './images.js';
 import type {
+  AxAITypesafeBoxQuestion,
   AxAITypesafeChoiceQuestion,
   AxAITypesafeNoulQuestion,
   AxAITypesafeRequest,
@@ -48,7 +50,8 @@ type QuestionPlan = {
   question:
     | AxAITypesafeNoulQuestion
     | AxAITypesafeChoiceQuestion
-    | AxAITypesafeScoreQuestion;
+    | AxAITypesafeScoreQuestion
+    | AxAITypesafeBoxQuestion;
 };
 
 type Request = AxAITypesafeRequest & { model: string };
@@ -80,7 +83,7 @@ class TypesafeImpl {
       throw new Error('Typesafe does not support multiple completion samples');
     }
     if (req.modelConfig?.audio) {
-      throw new Error('Typesafe supports text input only');
+      throw new Error('Typesafe supports text and inline PNG/JPEG images only');
     }
     for (const message of req.chatPrompt) {
       if (
@@ -95,9 +98,13 @@ class TypesafeImpl {
       if (
         message.role === 'user' &&
         Array.isArray(message.content) &&
-        message.content.some((part) => part.type !== 'text')
+        message.content.some(
+          (part) => part.type !== 'text' && part.type !== 'image'
+        )
       ) {
-        throw new Error('Typesafe supports text input only');
+        throw new Error(
+          'Typesafe supports text and inline PNG/JPEG images only'
+        );
       }
     }
     for (const [key, value] of Object.entries(req.modelConfig ?? {})) {
@@ -109,7 +116,7 @@ class TypesafeImpl {
     const plan = this.plan(req);
     validateTypesafeRequest({
       model: req.model,
-      state: null,
+      ...typesafePrompt(req),
       questions: Object.fromEntries(
         plan.map(({ name, question }) => [name, question])
       ),
@@ -119,7 +126,7 @@ class TypesafeImpl {
   private plan(req: Readonly<AxInternalChatRequest<string>>): QuestionPlan[] {
     if (req.responseFormat?.type !== 'json_schema') {
       throw new Error(
-        'Typesafe requires an output schema. Use ax() with required boolean, class or rubric score outputs'
+        'Typesafe requires an output schema. Use ax() with required boolean, class, rubric score or box outputs'
       );
     }
     const wrapper = record(req.responseFormat.schema, 'responseFormat.schema');
@@ -154,7 +161,7 @@ class TypesafeImpl {
         : wireField;
       const unsupported = () =>
         new Error(
-          `Typesafe cannot evaluate output "${name}". Use required boolean, class or rubric score fields, or a generative provider for other outputs`
+          `Typesafe cannot evaluate output "${name}". Use required boolean, class, rubric score or box fields, or a generative provider for other outputs`
         );
       if (
         !Array.isArray(required) ||
@@ -191,6 +198,8 @@ class TypesafeImpl {
         typeof description === 'string' && description
           ? `${name}: ${description}`
           : `Evaluate the output field ${name}.`;
+      if (decision?.type === 'box')
+        return { name, question: { type: 'box', instructions } };
       if (decision?.type === 'score') {
         return {
           name,
@@ -245,28 +254,16 @@ class TypesafeImpl {
   ): [AxAPI, Request] {
     this.validateChatReq(req);
     const plan = this.plan(req);
-    const messages = req.chatPrompt.map((message) => ({
-      role: message.role,
-      content:
-        message.role === 'function'
-          ? message.result
-          : typeof message.content === 'string'
-            ? message.content
-            : message.role === 'user'
-              ? message.content
-                  .map((part) => (part.type === 'text' ? part.text : ''))
-                  .join('\n')
-              : '',
-    }));
+    const request: Request = {
+      model: req.model,
+      ...typesafePrompt(req),
+      questions: Object.fromEntries(
+        plan.map(({ name, question }) => [name, question])
+      ),
+    };
     return [
-      { name: '/v1/systemone' },
-      {
-        model: req.model,
-        state: { messages },
-        questions: Object.fromEntries(
-          plan.map(({ name, question }) => [name, question])
-        ),
-      },
+      { name: '/v1/systemone', headers: typesafeImageHeaders(request) },
+      request,
     ];
   }
 
@@ -284,6 +281,15 @@ class TypesafeImpl {
     const native: Record<string, AxNativeDecision> = {};
     const entries = plan.map(({ name }) => {
       const answer = response.answers[name]!;
+      if (answer.type === 'box') {
+        native[name] = { confidence: answer.confidence };
+        return [
+          name,
+          req.responseFormat?.decisionFields?.[name]?.evidence
+            ? { box: answer.box }
+            : answer.box,
+        ];
+      }
       if (req.responseFormat?.decisionFields?.[name]) {
         if (answer.type === 'noul') {
           native[name] = {};
@@ -374,7 +380,19 @@ export class AxAITypesafe<TModelKey = string> extends AxBaseAI<
       defaults: { model },
       options: args.options,
       models: args.models,
-      supportFor: () => axResolveAIProfileFeatures('typesafe', model),
+      supportFor: () => {
+        const features = axResolveAIProfileFeatures('typesafe', model);
+        return {
+          ...features,
+          media: {
+            ...features.media,
+            images: {
+              supported: true,
+              formats: ['image/png', 'image/jpeg', 'image/jpg'],
+            },
+          },
+        };
+      },
     });
   }
 }

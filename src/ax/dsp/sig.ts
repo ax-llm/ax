@@ -6,8 +6,10 @@ import type {
   AxFunctionJSONSchema,
 } from '../ai/types.js';
 import { createHash } from '../util/crypto.js';
+import type { AxBox } from './box.js';
 import {
   type AxBooleanEvidence,
+  type AxBoxEvidence,
   type AxClassEvidence,
   type AxDecisionResult,
   type AxEvidenceOptions,
@@ -62,6 +64,7 @@ export interface AxFieldType {
     | 'datetime'
     | 'datetimeRange'
     | 'score'
+    | 'box'
     | 'class'
     | 'code'
     | 'object';
@@ -319,7 +322,7 @@ export class AxFluentFieldType<
   readonly isOptional: TIsOptional;
   readonly isInternal: TIsInternal;
   readonly isCached: TIsCached;
-  readonly fields?: any;
+  readonly fields?: TFields;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly minimum?: number;
@@ -409,7 +412,7 @@ export class AxFluentFieldType<
       ? AxEvidenceOptions
       : Omit<AxEvidenceOptions, 'threshold'> & { threshold?: never } = {},
   >(
-    this: TType extends 'boolean' | 'class' | 'score'
+    this: TType extends 'boolean' | 'class' | 'score' | 'box'
       ? AxFluentFieldType<
           TType,
           TIsArray,
@@ -913,21 +916,27 @@ export const f = Object.assign(
         isCached: false as const,
       }),
 
-    /**
-     * Creates a number field type.
-     *
-     * Numbers can be integers or floats. Use `.min()` and `.max()` to constrain the range.
-     *
-     * @param desc - Optional description explaining the field's purpose
-     * @returns A chainable field builder
-     *
-     * @example
-     * ```typescript
-     * f.number('Age in years')
-     * f.number().min(0).max(100)     // Constrained range
-     * f.number('Rating').min(1).max(5)
-     * ```
-     */
+    /** Normalized bounding box. Use withEvidence() to include native confidence. */
+    box: (
+      description?: string
+    ): AxFluentFieldType<
+      'box',
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      false
+    > =>
+      new AxFluentFieldType({
+        type: 'box',
+        description,
+        isArray: false,
+        isOptional: false,
+        isInternal: false,
+        isCached: false,
+      }),
+
     score: <const L extends readonly string[]>(
       levels: L,
       desc?: string
@@ -944,6 +953,21 @@ export const f = Object.assign(
       });
     },
 
+    /**
+     * Creates a number field type.
+     *
+     * Numbers can be integers or floats. Use `.min()` and `.max()` to constrain the range.
+     *
+     * @param desc - Optional description explaining the field's purpose
+     * @returns A chainable field builder
+     *
+     * @example
+     * ```typescript
+     * f.number('Age in years')
+     * f.number().min(0).max(100)     // Constrained range
+     * f.number('Rating').min(1).max(5)
+     * ```
+     */
     number: (
       desc?: string
     ): AxFluentFieldType<
@@ -1513,6 +1537,7 @@ export interface AxField {
       | 'datetime'
       | 'datetimeRange'
       | 'score'
+      | 'box'
       | 'class'
       | 'code'
       | 'object';
@@ -1582,7 +1607,9 @@ type EvidenceValue<
   ? AxBooleanEvidence
   : T['type'] extends 'class'
     ? AxClassEvidence<NonNullable<T['options']>[number]>
-    : AxScoreEvidence;
+    : T['type'] extends 'box'
+      ? AxBoxEvidence
+      : AxScoreEvidence;
 type EvidenceOutput<
   T extends {
     type: string;
@@ -1607,10 +1634,12 @@ type InferFieldValueType<
   TMode extends 'input' | 'output' = 'input',
 > = T extends AxFieldType | AxFluentFieldType
   ? undefined extends T['evidence']
-    ? T['type'] extends 'score'
+    ? T['type'] extends 'score' | 'box'
       ? T['isArray'] extends true
-        ? number[]
-        : number
+        ? (T['type'] extends 'box' ? AxBox : number)[]
+        : T['type'] extends 'box'
+          ? AxBox
+          : number
       : T['type'] extends 'string'
         ? T['isArray'] extends true
           ? string[]
@@ -1707,21 +1736,11 @@ type InferFieldValueType<
                                 : T['type'] extends 'class'
                                   ? InferClassValueType<T>
                                   : T['type'] extends 'object'
-                                    ? T extends { fields: infer F }
+                                    ? T extends { fields?: infer F }
                                       ? F extends Record<string, any>
                                         ? T['isArray'] extends true
-                                          ? {
-                                              [K in keyof F]: InferFluentType<
-                                                F[K],
-                                                TMode
-                                              >;
-                                            }[]
-                                          : {
-                                              [K in keyof F]: InferFluentType<
-                                                F[K],
-                                                TMode
-                                              >;
-                                            }
+                                          ? InferObjectFields<F, TMode>[]
+                                          : InferObjectFields<F, TMode>
                                         : any
                                       : any
                                     : any
@@ -1800,10 +1819,12 @@ type InferFluentType<
   T extends AxFluentFieldInfo<any, any, any, any> | AxFluentFieldType,
   TMode extends 'input' | 'output' = 'input',
 > = undefined extends T['evidence']
-  ? T['type'] extends 'score'
+  ? T['type'] extends 'score' | 'box'
     ? T['isArray'] extends true
-      ? number[]
-      : number
+      ? (T['type'] extends 'box' ? AxBox : number)[]
+      : T['type'] extends 'box'
+        ? AxBox
+        : number
     : T['type'] extends 'string'
       ? T['isArray'] extends true
         ? string[]
@@ -1900,25 +1921,32 @@ type InferFluentType<
                               : T['type'] extends 'class'
                                 ? InferClassValueType<T>
                                 : T['type'] extends 'object'
-                                  ? T extends { fields: infer F }
+                                  ? T extends { fields?: infer F }
                                     ? F extends Record<string, any>
                                       ? T['isArray'] extends true
-                                        ? {
-                                            [K in keyof F]: InferFluentType<
-                                              F[K],
-                                              TMode
-                                            >;
-                                          }[]
-                                        : {
-                                            [K in keyof F]: InferFluentType<
-                                              F[K],
-                                              TMode
-                                            >;
-                                          }
+                                        ? InferObjectFields<F, TMode>[]
+                                        : InferObjectFields<F, TMode>
                                       : any
                                     : any
                                   : any
   : EvidenceOutput<T>;
+
+// Preserve nested field types and optionality in fluent object signatures.
+type InferObjectFields<
+  F extends Record<string, any>,
+  TMode extends 'input' | 'output',
+> = {
+  [K in keyof F as _IsOptional<F[K]> extends true ? never : K]: InferFluentType<
+    F[K],
+    TMode
+  >;
+} & {
+  [K in keyof F as _IsOptional<F[K]> extends true
+    ? K
+    : never]?: InferFluentType<F[K], TMode>;
+} extends infer O
+  ? { [K in keyof O]: O[K] }
+  : never;
 
 // Helper flags for fluent type modifiers
 type _IsInternal<T> = T extends { readonly isInternal: true } ? true : false;

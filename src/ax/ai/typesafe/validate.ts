@@ -1,4 +1,5 @@
 // cspell:ignore noul
+import { validateBox } from '../../dsp/box.js';
 import type {
   AxAITypesafeQuestions,
   AxAITypesafeRequest,
@@ -64,13 +65,26 @@ export function validateTypesafeRequest(request: AxAITypesafeRequest): void {
     throw new Error('Typesafe: model must be a nonempty string');
   entry(request.state, 'state');
   const questions = typesafeRecord(request.questions, 'questions');
+  validateAssets(request);
   if (!Object.keys(questions).length)
     throw new Error('Typesafe: questions must not be empty');
   for (const [name, raw] of Object.entries(questions)) {
     const question = typesafeRecord(raw, `question ${name}`);
     if (question.instructions !== undefined)
       entry(question.instructions, `${name}.instructions`);
-    if (question.type === 'noul') {
+    if (question.type === 'box') {
+      if (
+        question.instructions === undefined ||
+        question.instructions === null ||
+        (typeof question.instructions === 'string' &&
+          !question.instructions.trim())
+      )
+        throw new Error(`Typesafe: Box ${name} requires instructions`);
+      if (question.criteria !== undefined)
+        throw new Error(`Typesafe: Box ${name} does not accept criteria`);
+      if (!Object.keys(request.assets ?? {}).length)
+        throw new Error(`Typesafe: Box ${name} requires an image asset`);
+    } else if (question.type === 'noul') {
       if (question.criteria !== undefined && question.criteria !== null) {
         const criteria = typesafeRecord(question.criteria, `${name}.criteria`);
         for (const [key, value] of Object.entries(criteria)) {
@@ -115,6 +129,10 @@ export function decodeTypesafeResponse<Q extends AxAITypesafeQuestions>(
       continue;
     }
     typesafeProbability(answer.confidence, `${name}.confidence`);
+    if (question.type === 'box') {
+      validateBox(answer.box, name);
+      continue;
+    }
     const probabilities = typesafeRecord(
       answer.probabilities,
       `${name}.probabilities`
@@ -170,4 +188,60 @@ export function decodeTypesafeResponse<Q extends AxAITypesafeQuestions>(
   if (typeof response.model !== 'string' || !response.model.trim())
     throw new Error('Typesafe: missing response model');
   return raw as AxAITypesafeResponse<Q>;
+}
+
+function validateAssets(request: AxAITypesafeRequest): void {
+  if (request.assets === undefined) return;
+  const assets = typesafeRecord(request.assets, 'assets');
+  const strings: string[] = [];
+  const collect = (v: unknown): void => {
+    if (typeof v === 'string') strings.push(v);
+    else if (v && typeof v === 'object')
+      for (const item of Object.values(v)) collect(item);
+  };
+  // Validate before recursion, including malicious circular question data.
+  jsonValue(request.questions, 'questions');
+  collect(request.state);
+  for (const q of Object.values(request.questions)) {
+    collect(q.instructions);
+    if ('criteria' in q) collect(q.criteria);
+  }
+  let keyBytes = 0;
+  for (const [key, raw] of Object.entries(assets)) {
+    const size = new TextEncoder().encode(key).length;
+    keyBytes += size;
+    if (!key.trim() || size > 1024 || keyBytes > 65536)
+      throw new Error('Typesafe: invalid image reference length');
+    if (!strings.some((s) => s.includes(key)))
+      throw new Error(`Typesafe: image asset ${key} is not referenced`);
+    const asset = typesafeRecord(raw, `asset ${key}`);
+    if (asset.type !== undefined && asset.type !== 'image')
+      throw new Error('Typesafe: assets must be images');
+    if (asset.part !== undefined)
+      throw new Error(
+        'Typesafe: multipart assets are not supported; use data_base64'
+      );
+    if (!['png', 'jpg', 'jpeg'].includes(String(asset.format)))
+      throw new Error('Typesafe: images must be PNG or JPEG');
+    const data = asset.data_base64;
+    if (
+      typeof data !== 'string' ||
+      !data.length ||
+      data.length % 4 !== 0 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+    )
+      throw new Error(
+        'Typesafe: image data_base64 must be padded base64 without a data URL prefix'
+      );
+    const bytes =
+      (data.length / 4) * 3 -
+      (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+    if (bytes > 16 * 1024 * 1024)
+      throw new Error('Typesafe: image exceeds 16 MiB');
+  }
+  if (
+    new TextEncoder().encode(JSON.stringify(request)).length >
+    32 * 1024 * 1024
+  )
+    throw new Error('Typesafe: image request exceeds 32 MiB');
 }

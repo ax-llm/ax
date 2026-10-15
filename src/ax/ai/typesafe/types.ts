@@ -1,4 +1,6 @@
 // cspell:ignore noul jev systemone
+import type { AxBox } from '../../dsp/box.js';
+
 /** JSON values accepted in native Typesafe state and criteria. */
 export type AxAITypesafeJsonValue =
   | string
@@ -41,10 +43,24 @@ export type AxAITypesafeScoreQuestion = {
   ];
 };
 
+/** A PNG/JPEG image referenced by its asset key in state, instructions or criteria. */
+export type AxAITypesafeImageAsset = {
+  readonly type?: 'image';
+  readonly format: 'png' | 'jpg' | 'jpeg';
+  readonly data_base64: string;
+};
+
+/** Native localization, available on Jev 1.14 or later. */
+export type AxAITypesafeBoxQuestion = {
+  readonly type: 'box';
+  readonly instructions: AxAITypesafeEntry;
+};
+
 export type AxAITypesafeQuestion =
   | AxAITypesafeNoulQuestion
   | AxAITypesafeChoiceQuestion
-  | AxAITypesafeScoreQuestion;
+  | AxAITypesafeScoreQuestion
+  | AxAITypesafeBoxQuestion;
 
 export type AxAITypesafeQuestions = Readonly<
   Record<string, AxAITypesafeQuestion>
@@ -71,12 +87,19 @@ export type AxAITypesafeAnswer<Q extends AxAITypesafeQuestion> =
             readonly legend: Readonly<Record<string, AxAITypesafeEntry>>;
             readonly confidence: number;
           }
-        : never;
+        : Q extends AxAITypesafeBoxQuestion
+          ? {
+              readonly type: 'box';
+              readonly box: AxBox;
+              readonly confidence: number;
+            }
+          : never;
 
 export type AxAITypesafeRequest<
   Q extends AxAITypesafeQuestions = AxAITypesafeQuestions,
 > = {
   readonly state: AxAITypesafeEntry;
+  readonly assets?: Readonly<Record<string, AxAITypesafeImageAsset>>;
   readonly questions: Q;
   readonly model?: string;
 };

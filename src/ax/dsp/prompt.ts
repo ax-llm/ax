@@ -1379,6 +1379,22 @@ const renderOutputJsonShape = (fields: readonly AxField[]): string =>
 
 const renderNestedTypePlaceholder = (type: Readonly<AxFieldType>): unknown => {
   const value = (() => {
+    if (type.type === 'box') {
+      const box = {
+        top: '<top, 0 to 1>',
+        bottom: '<bottom, greater than top>',
+        left: '<left, 0 to 1>',
+        right: '<right, greater than left>',
+      };
+      return type.evidence
+        ? {
+            box,
+            ...(type.evidence.onRefusal === 'return'
+              ? { status: 'answered' }
+              : {}),
+          }
+        : box;
+    }
     if (type.evidence !== undefined || type.type === 'score')
       return {
         ...(type.evidence?.onRefusal === 'return'
@@ -1522,6 +1538,8 @@ function formatObjectStructure(
 }
 
 export const toFieldType = (type: Readonly<AxField['type']>) => {
+  if (type?.name === 'box')
+    return `${type.isArray ? 'array of ' : ''}${type.evidence ? 'box evidence objects containing a box with' : 'bounding boxes with'} normalized top, bottom, left and right edges in [0, 1]; top < bottom and left < right`;
   if (type && (type.evidence !== undefined || type.name === 'score')) {
     const hint =
       type.name === 'boolean'

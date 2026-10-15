@@ -265,3 +265,21 @@ filingText:string(cache) -> revenueByPeriod:object{ periodLabel:string, amountUs
 - Treat generated JSON schema as a public contract when tools, SDKs, or external callers rely on it.
 
 See [Tools]({{langRoot}}/concepts/tools/), [s() signatures]({{langRoot}}/subsystems/s/), and [s() API]({{langRoot}}/api/s/).
+
+## Image localization with Box (TypeScript)
+
+Use `photo:image -> target:box` for normalized bounding-box coordinates:
+`{ top, bottom, left, right }`, all in `[0, 1]` with ordered edges.
+`target:box(evidence)` adds native confidence when available and provider
+provenance around the coordinates in `value`. The fluent API is `f.box()` with
+optional `.withEvidence()`.
+
+Jev 1.14 uses its experimental native Box primitive. Generative vision providers
+use a validated JSON schema; elicited results do not invent native confidence.
+OpenAI Decisions accepts image inputs for its boolean/class/score questions but
+does not expose a native Box primitive. Pair Box with a presence boolean because
+Jev returns a box even when the requested target is absent.
+
+The runnable TypeScript example is
+`src/examples/typescript/generation/typesafe-image-box.ts`. This addition is
+currently TypeScript-only; generated-language parity is tracked in the AxIR backlog.
