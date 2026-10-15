@@ -122,7 +122,8 @@ const projectTools = [
     )
     .handler(async ({ projectName }) => {
       const key = String(projectName).trim() as keyof typeof projects;
-      return projects[key];
+      const project = projects[key];
+      return { ...project, risks: [...project.risks] };
     })
     .build(),
   fn('lookupPerson')
@@ -208,7 +209,7 @@ const judgeGen = new AxGen<
   finalOutput?:json "Final structured output when the run completed normally",
   functionCalls?:json "Observed function-call records",
   toolErrors?:string[] "Observed tool errors",
-  turnCount:number "Number of actor turns",
+  turnCount:number "Number of actor turns"
   ->
   score:number "Normalized quality score from 0 to 1"
 `);
