@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/openai-decisions/api.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`, `src/ax/dsp/box.ts`, `src/ax/dsp/box.test.ts`, `src/ax/dsp/box.test-d.ts`
   - Impact: Port TypeScript PNG/JPEG assets and experimental headers, native Box questions, normalized box signature parsing and inference, schema validation, evidence and provenance to AxIR and generated language runtimes; update capabilities, examples, conformance and language docs.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-15-preserve-all-gemini-cached-system-messages` [axai] Preserve all Gemini cached system messages
+  - Status: open
+  - Source PR: #851
+  - Source commit: `2503761ae75b5cc858f04c107a7a47ef3dab6713`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: Generated Gemini adapters must combine every system message in prompt order when creating a context cache, matching ordinary requests and retaining instructions after the cache breakpoint.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
