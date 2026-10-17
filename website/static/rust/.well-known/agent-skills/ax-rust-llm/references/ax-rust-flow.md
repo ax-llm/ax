@@ -1,0 +1,170 @@
+# AxFlow For Rust
+
+This skill helps an agent write Rust code with the generated Ax package `axllm`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+
+## When To Use
+
+- Compose generators, agents, and nested flows into a workflow graph.
+- Reason about flow state, node inputs, returns, caching, and errors.
+- Use generated package examples for flow graphs and provider-backed flows.
+
+## Package Facts
+
+- Language: Rust.
+- Package: `axllm`.
+- Package API docs: `API.md` and `axir-api.json`.
+- Capability manifest: `axir-capabilities.json`.
+- Runnable examples: `examples/`.
+- Real network support: yes.
+- Scripted no-key transport support: yes.
+- Runtime profiles: `javascript-quickjs`.
+
+## Core Pattern
+
+```rust
+let draft = axllm::ax("topicText:string -> draftText:string")?;
+let wf = axllm::flow("docs.coreFlow")
+    .execute_with_options(
+        "draft",
+        draft,
+        &json!({"reads": ["topicText"], "writes": ["draftResult", "draftText"]}),
+    )
+    .returns(json!({"draftText": "draftText"}));
+```
+
+## More Patterns
+
+### Typed programs
+
+Build each flow node from its own input/output contract.
+
+```rust
+let classifier = axllm::ax("requestText:string -> route:class \"support, sales, engineering\"")?;
+let responder = axllm::ax("requestText:string, route:string -> responseText:string")?;
+```
+
+### Class decision
+
+Declare reads and writes so the responder waits for the typed route.
+
+```rust
+let mut branch_flow = axllm::flow("docs.branchFlow")
+    .execute_with_options("classifier", classifier, &json!({"reads": ["requestText"], "writes": ["classifierResult", "route"]}))
+    .execute_with_options("responder", responder, &json!({"reads": ["requestText", "route"], "writes": ["responderResult", "responseText"]}))
+    .returns(json!({"route": "route", "responseText": "responseText"}));
+```
+
+### Fan-out and join
+
+Independent reads place research and audience analysis in one planner group. Owned clients and programs run concurrently; unsupported custom workers use a traced serial fallback.
+
+```rust
+let mut parallel_flow = axllm::flow("docs.parallelFlow")
+    .execute_with_options("research", research, &json!({"reads": ["topicText"], "writes": ["researchResult", "factList"]}))
+    .execute_with_options("audience", audience, &json!({"reads": ["topicText"], "writes": ["audienceResult", "audienceAngle"]}))
+    .execute_with_options("join", join, &json!({"reads": ["factList", "audienceAngle"], "writes": ["joinResult", "briefText"]}))
+    .returns(json!({"briefText": "briefText"}));
+```
+
+### Undeclared steps
+
+A step added with a program and no `reads` or `writes` plans from the program's signature: it reads the input fields and writes `{name}Result` plus the output fields. An output field orders only the later steps that read it, so steps with independent inputs still share a group. A program without a signature (a nested flow, or an `execute_program` program whose `signature_text` is `None`) runs alone, as a barrier.
+
+```rust
+let mut outline_flow = axllm::flow("docs.outlineFlow")
+    .execute("outline", axllm::ax("topic:string -> outline:string")?)
+    .execute("polish", axllm::ax("outline:string -> answer:string")?) // after outline
+    .returns(json!({"answer": "answer"}));
+```
+
+### Draft, critique, revise
+
+A linear refinement pipeline makes each dependency explicit.
+
+```rust
+let mut refine_flow = axllm::flow("docs.refineFlow")
+    .execute_with_options("draft", draft, &json!({"reads": ["topicText"], "writes": ["draftResult", "draftText"]}))
+    .execute_with_options("critique", critique, &json!({"reads": ["draftText"], "writes": ["critiqueResult", "critiqueText"]}))
+    .execute_with_options("revise", revise, &json!({"reads": ["draftText", "critiqueText"], "writes": ["reviseResult", "revisedText"]}))
+    .returns(json!({"revisedText": "revisedText"}));
+```
+
+### Run a flow
+
+Forward accepts the mutable provider client and public inputs.
+
+```rust
+let output = parallel_flow.forward(
+    &mut client,
+    json!({"topicText": "Typed LLM workflows"}),
+)?;
+```
+
+### Stream a flow
+
+`streaming_forward` runs the whole flow, as `forward_with_options` does, and returns its output as one update (`version` 1, `index` 0), as TypeScript's `streamingForward` does.
+
+```rust
+let updates = parallel_flow.streaming_forward(
+    &mut client,
+    json!({"topicText": "Typed LLM workflows"}),
+    json!({}),
+)?;
+let output = &updates[0].delta;
+```
+
+### Cache a flow
+
+For one call, `forward_with_caching_function(&mut client, input, options, f)` or `streaming_forward_with_caching_function(&mut client, input, options, f)` caches the flow's output as TypeScript does; `set_caching_function(Some(f))` covers the process. A hit runs no node and records no span or metric, and a run control skips it. A flow's constructor takes none; the flow's AxGen nodes use the same function and cache their own outputs.
+
+```rust
+let output = parallel_flow.forward_with_caching_function(
+    &mut client,
+    json!({"topicText": "Typed LLM workflows"}),
+    json!({}),
+    cache.clone(),
+)?;
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/rust/subsystems/flow/.
+
+## Astra Session Work
+
+Select `gpt-6-astra` through the ordinary OpenAI factory. The adapter chooses Responses automatically; existing model defaults are unchanged. Use low reasoning and standard processing. Portable minimal reasoning maps to low; none is rejected. EU residency does not support priority processing.
+
+Keep applications on their generation, agent, and flow entrypoints. Declare only independent tools as background; ordinary and imported MCP tools stay blocking unless the application explicitly changes their declaration. A promise, thread, or MCP hint is not a background declaration. Set `asyncMode` to `off` for the ordinary tool loop; chat-only services retain that loop automatically.
+
+Declared-background native agent tools retain the imported MCP schema, handler, namespace, and raw result. Discovery must expose the tool before the model can call it. Invalid arguments are corrected before handler execution; the responder waits for the incorporated result. Native calls appear in action logs and must not be repeated through actor code.
+Owned child agents inherit selected MCP clients at delegation. Parent stages keep their own clients; none or an empty namespace list passes no parent clients. Explicit child context wins over inherited context. Each run refreshes protocol modules without serializing live client handles into model requests. Cancellation propagates through a delegated child into its pending MCP tool; completed child work is not replayed.
+Imported MCP tools forward cancellation to context-aware transports, including built-in HTTP. Custom transports using the older send method receive cancellation checks before and after their call; noncooperative work may finish later and its result is discarded. Cancellation does not undo an external action or replay a request.
+MCP host policy applies to native background calls too. Configure authorizeToolCall in Python, Go, and Java client options, or set_tool_authorizer on C++ and Rust clients before exposing their tools. The callback receives the client and call metadata; returning false denies the call before a tool request is sent. Use shared application policy state when permissions must change during a run.
+
+Register child agents before running the parent: add_child_agent(namespace, name, child) in Python/C++, AddChildAgent in Go, addChildAgent in Java, and with_child_agent in Rust. Registered children are available automatically as namespaced actor calls, such as team.researcher({question}). Calls use discovery, validation, and invocation accounting. Child invocation remains serialized on the owning run thread and owns a separate conversation. Retained callbacks reject calls after the run closes. Controls target paths such as root/team.researcher/executor. Child results return through the parent invocation log, and parent usage includes a children section.
+
+Attach the language-native run controller through forward options for steering, reasoning changes, cancellation, and lifecycle events. Queued and applied are different states. HTTP applies updates at a response boundary; an optional host WebSocket enables native steering. Do not manage response IDs, socket messages, or tool-result submission in application code.
+
+As in TypeScript, an update queued while a request is in flight applies when the next step starts. If that request gave the final answer, the run takes one more step to apply it, and the answer comes from that step; a steer stays in the conversation for the steps after it.
+
+Each model request opens its own native session with the whole conversation and closes it when that request's response completes, as in TypeScript. A correction or a later step opens a fresh session, which applies the run's updates again. A stream sends a session's partial output as it arrives: each response streams like a plain stream, a later response starts a new version, and the completed response adds only what was not sent. A forward does not apply streaming assertions.
+
+A provisional answer is not successful completion while started tools remain unresolved. Cancellation closes the session, reports unresolved call IDs, and retains unresolved started calls in tool traces and native agent action logs; it cannot undo an external action. Handlers may cooperate through the invocation cancellation context. Late results from noncooperative work must not change a closed run or trigger replay.
+
+Java, C++, and Rust WebSocket adapters track activity when frames arrive. Consuming buffered events does not reactivate a completed response. When no response is active, steering is queued for the next response; an active successor can still receive native steering. Observe lifecycle timing instead of assuming native application.
+
+All five session adapters validate completed raw arguments against the shared Core validator before invoking handlers, including local references, unions, nested schemas, additional properties, and numeric/string/array constraints. Raw schema patterns use shared flagless ECMAScript semantics, including UTF-16, lookarounds, named captures, and backreferences. Invalid arguments enter correction; step exhaustion fails the run.
+
+Independent flow nodes use owned program and client workers. Built-in providers, routers, and balancers supply factories; custom implementations without them run the entire group serially and emit a flow_parallel_fallback trace. Rust does not require Send/Sync on the existing client trait. Rust nested flows and custom AxExecutableProgram implementations use execute_program; an optional AxOwnedProgramFactory constructs state on its worker. Workers deliver events and results to the owner, which merges each successful step's changes in plan order, so a group ends as running its steps one after another would. On group failure, cancellation preserves completed diagnostics and discards late deliveries.
+
+Use the provider-backed Astra examples under `src/examples/rust/generation/`, `short-agents/`, and `flows/`. All-five generated parity remains under verification in the shared-session AxIR backlog; do not infer full agent, parallel-flow, or transport parity from these examples alone.
+
+## Relevant API Surface
+
+- Flow: `flow`, `AxFlow`, `AxExecutableProgram::owned_worker_factory`
+
+## Guardrails
+
+- Start from package examples for exact native syntax before inventing a new call shape.
+- Use `provider-api` examples only when the user explicitly has provider credentials available.
+- Use `no-key` examples for deterministic local checks and provider request mapping.
+- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
+- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.

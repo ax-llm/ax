@@ -626,6 +626,6 @@ session parity remains open; see `docs/COMPILER.md`.
 Use boolean/class `.withEvidence()` or a rubric `f.score(levels).withEvidence()`
 to retain probabilities and native confidence through `forward()`. String equivalents
 are `boolean(evidence)` and `score "Low, Medium, High"(evidence)`. See
-[decision evidence](ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
+[decision evidence](references/ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
 provenance, refusal policy, and reranking. These are normal program outputs;
 processors, assertions, result selection, traces, and caches receive decoded evidence.

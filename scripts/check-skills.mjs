@@ -194,9 +194,9 @@ async function checkWebsiteIndexes(languageIds) {
       );
     }
     for (const entry of index.skills) {
-      if (entry.type !== 'skill-md') {
+      if (!['skill-md', 'archive'].includes(entry.type)) {
         failures.push(
-          `${languageId}/${entry.name} type=${entry.type}, want skill-md`
+          `${languageId}/${entry.name} type=${entry.type}, want skill-md or archive`
         );
       }
       if (
@@ -224,7 +224,9 @@ async function checkWebsiteIndexes(languageIds) {
           `${languageId}/${entry.name} digest=${entry.digest}, want ${digest}`
         );
       }
-      const frontmatter = parseSkillFrontmatter(content.toString('utf8'));
+      const frontmatter = parseSkillFrontmatter(
+        await readFile(path.join(root, entry.name, 'SKILL.md'), 'utf8')
+      );
       if (frontmatter.name !== entry.name) {
         failures.push(`${languageId}/${entry.name} frontmatter name mismatch`);
       }
@@ -282,6 +284,15 @@ async function checkWebsiteMirrors(languageIds) {
         }
       }
       const entry = entries.get(skill.name);
+      for (const [file, content] of Object.entries(skill.files)) {
+        const target = path.join(root, skill.name, file);
+        if (
+          !(await exists(target)) ||
+          (await readFile(target, 'utf8')) !== content
+        ) {
+          stale(skill.name, `bundled file ${file} is missing or stale`);
+        }
+      }
       if (!entry) {
         stale(skill.name, `${indexRel} has no entry for ${skill.source}`);
         continue;

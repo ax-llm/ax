@@ -1131,6 +1131,21 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				}
 				assertGeneratedSkillFrontmatter(t, dir, want, tc.target)
 			}
+			routerDir := "skills/ax-" + tc.target + "-llm/"
+			router := readRepoFile(t, dir, filepath.FromSlash(routerDir+"SKILL.md"))
+			if len(strings.Split(router, "\n")) > 90 {
+				t.Fatalf("%s entry point should stay compact", tc.target)
+			}
+			for _, spec := range packageSkillSpecs {
+				ref := "references/" + skillName(tc.target, spec) + ".md"
+				if spec.ID == "llm" {
+					ref = "references/quickstart.md"
+				}
+				body := readRepoFile(t, dir, filepath.FromSlash(routerDir+ref))
+				if !strings.Contains(router, "]("+ref+")") || !strings.HasPrefix(body, "# ") {
+					t.Fatalf("%s entry point should link to bundled guide %s", tc.target, ref)
+				}
+			}
 			for _, profileExample := range runtimeProfileExampleGuards(tc.target) {
 				data, err := os.ReadFile(filepath.Join(dir, profileExample))
 				if err != nil {

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import {
   copyFile,
+  cp,
   mkdir,
   readdir,
   readFile,
@@ -91,7 +92,7 @@ const skillsSourcePath = path.join(packagePath, 'skills');
 const skillsDestPath = path.join(buildPath, 'skills');
 
 if (existsSync(skillsSourcePath)) {
-  await mkdir(skillsDestPath, { recursive: true });
+  await cp(skillsSourcePath, skillsDestPath, { recursive: true });
 
   // Read all *.md skill files and inject version
   const files = await readdir(skillsSourcePath);
@@ -130,12 +131,13 @@ const scriptsDestPath = path.join(buildPath, 'scripts');
 
 if (existsSync(scriptsSourcePath)) {
   await mkdir(scriptsDestPath, { recursive: true });
-  const postinstallPath = path.join(scriptsSourcePath, 'postinstall.mjs');
-  if (existsSync(postinstallPath)) {
+  for (const file of (await readdir(scriptsSourcePath)).filter((name) =>
+    name.endsWith('.mjs')
+  )) {
     await copyFile(
-      postinstallPath,
-      path.join(scriptsDestPath, 'postinstall.mjs')
+      path.join(scriptsSourcePath, file),
+      path.join(scriptsDestPath, file)
     );
-    console.log('Postinstall script copied to dist/scripts/');
   }
+  console.log('Skill installer scripts copied to dist/scripts/');
 }

@@ -60,7 +60,7 @@ hybrid examples. The two interfaces serve different output contracts:
 Use `.withEvidence()` on boolean/class fields or `f.score(levels).withEvidence()`
 to retain probabilities, native scores, and confidence through normal AxGen
 outputs. The string forms use `(evidence)`. See the
-[decision evidence guide](ax-typesafe.md#decision-evidence-and-reranking) for
+[decision evidence guide](references/ax-typesafe.md#decision-evidence-and-reranking) for
 result shapes, provenance, and reranking with both Jev and OpenAI Decisions.
 
 Both default to `jev-latest`. Set the adapter's model with `config.model`; set

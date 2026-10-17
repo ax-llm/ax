@@ -22,7 +22,7 @@ sourceSets {
     resources {
       srcDirs = ['.']
       include 'axir-capabilities.json'
-      include 'skills/**/SKILL.md'
+      include 'skills/**/*.md'
     }
   }
 }

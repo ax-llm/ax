@@ -23,6 +23,7 @@ import {
 } from './example-catalog.mjs';
 import {
   readSkillMirrorSources,
+  skillArtifact,
   skillDiscoverySchema,
   skillIndexEntry,
   skillMirrorRoot,
@@ -414,6 +415,24 @@ async function renderContext(language, page) {
     install: (language.install ?? []).join('\n'),
     skillInstallURL: skillInstallURL(language),
     skillInstallCommand: skillInstallCommand(language),
+    skillSetupNotes:
+      language.id === 'typescript'
+        ? [
+            'Installing `@ax-llm/ax` automatically sets up only `ax-llm` and its local guides in `.claude/skills` outside CI. Set `AX_SKIP_SKILL_INSTALL=1` during package installation to skip setup for that run.',
+            '',
+            'To disable future automatic setup for the project, run `npx @ax-llm/ax skills-auto-install off` from the project root. This saves `ax.skills.autoInstall: false` in `package.json`; commit the setting to share it with your team. Run `npx @ax-llm/ax skills-auto-install on` to restore automatic setup on future installs. CI and `AX_SKIP_SKILL_INSTALL` take precedence over the saved setting.',
+            '',
+            'To opt out before the first installation, merge this field into your existing `package.json`:',
+            '',
+            '```json',
+            '{ "ax": { "skills": { "autoInstall": false } } }',
+            '```',
+            '',
+            'For manual Claude Code setup, run `npx @ax-llm/ax setup-claude`. This works even when automatic setup is disabled. Add `--all` for separate specialist entries, or `--skill ax-ai` to install just one specialist. Changing the preference leaves installed skills in place; manual setup and removal preserve the saved preference.',
+            '',
+            'Existing specialist installs are preserved. To switch an older full installation to one entry point, run `npx @ax-llm/ax remove-claude`, then `npx @ax-llm/ax setup-claude`.',
+          ].join('\n')
+        : '',
     skillList: skillList(inventory.languageSkills[language.id] ?? [], language),
     skillSource: skillSource(language),
     quickStartFile: language.quickStartRun.file,
@@ -887,7 +906,14 @@ async function writeSkillInstallIndexes(languages, languageSkills) {
     for (const skill of skills) {
       const skillDir = path.join(root, skill.name);
       await mkdir(skillDir, { recursive: true });
-      await writeFile(path.join(skillDir, 'SKILL.md'), skill.content, 'utf8');
+      for (const [file, content] of Object.entries(skill.files)) {
+        const dest = path.join(skillDir, file);
+        await mkdir(path.dirname(dest), { recursive: true });
+        await writeFile(dest, content, 'utf8');
+      }
+      const artifact = skillArtifact(skill);
+      if (artifact.type === 'archive')
+        await writeFile(path.join(root, artifact.url), artifact.bytes);
     }
 
     await writeFile(
@@ -2525,7 +2551,9 @@ function skillInstallURL(language) {
 }
 
 function skillInstallCommand(language) {
-  return `npx skills add ${skillInstallURL(language)} --skill '*'`;
+  const name =
+    language.id === 'typescript' ? 'ax-llm' : `ax-${language.id}-llm`;
+  return `npx skills add ${skillInstallURL(language)} --skill '${name}'`;
 }
 
 function skillPageSlug(skill) {
@@ -2564,7 +2592,11 @@ function skillPageTitle(skill) {
 
 function renderSkillPage(language, skill) {
   const title = skillPageTitle(skill);
-  const body = stripFirstHeading(stripFrontmatter(skill.content));
+  const body = stripFirstHeading(stripFrontmatter(skill.content)).replace(
+    /\]\((references\/[^)]+)\)/g,
+    (_, reference) =>
+      `](/${language.id}/.well-known/agent-skills/${skill.name}/${reference})`
+  );
   const publishedURL = `/${language.id}/.well-known/agent-skills/${skill.name}/SKILL.md`;
   return [
     `# ${title}`,

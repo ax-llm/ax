@@ -3,17 +3,17 @@
   "skills": [
     {
       "name": "ax-llm",
-      "type": "skill-md",
-      "description": "This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.",
-      "url": "ax-llm/SKILL.md",
-      "digest": "sha256:78823a693b08ef12c88bc26699671515942c4821108b555a362cd7364642fcbe"
+      "type": "archive",
+      "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
+      "url": "ax-llm/skill.tar.gz",
+      "digest": "sha256:7f71289b29385162e1b2b104762115e1af9b304311a726c0f578c17f293f8880"
     },
     {
       "name": "ax-ai",
-      "type": "skill-md",
+      "type": "archive",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
-      "url": "ax-ai/SKILL.md",
-      "digest": "sha256:ff91eb86d4f640d6b91baf4daacc101fd356d641cda98cb7cb2d5625174191f4"
+      "url": "ax-ai/skill.tar.gz",
+      "digest": "sha256:c8c078f5486045caab17a17e8c62bba6bb2d7d68a4dc420a2dde36e771f7e530"
     },
     {
       "name": "ax-typesafe",
@@ -31,17 +31,17 @@
     },
     {
       "name": "ax-signature",
-      "type": "skill-md",
+      "type": "archive",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
-      "url": "ax-signature/SKILL.md",
-      "digest": "sha256:ce91dd7dd1a5f803f2de60ffe936066cc2c71a778eaf9632add36a645276b2db"
+      "url": "ax-signature/skill.tar.gz",
+      "digest": "sha256:fb7a9cd1c5cea5935e23fbfadc9ff5773b89cf01a53bf513e9a5609f8dc182bb"
     },
     {
       "name": "ax-gen",
-      "type": "skill-md",
+      "type": "archive",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
-      "url": "ax-gen/SKILL.md",
-      "digest": "sha256:e811fe208052ec4617616a43652cdfb3470587c6254a5383be21d39b7cba832b"
+      "url": "ax-gen/skill.tar.gz",
+      "digest": "sha256:b417a4b750968531c485d847424c003437563887136424192a2bf2406348e586"
     },
     {
       "name": "ax-mcp",

@@ -3,10 +3,10 @@
   "skills": [
     {
       "name": "ax-cpp-llm",
-      "type": "skill-md",
+      "type": "archive",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
-      "url": "ax-cpp-llm/SKILL.md",
-      "digest": "sha256:c05e48063e71af063518e33d979398500bad3bea660417195b29cb2742c72ee3"
+      "url": "ax-cpp-llm/skill.tar.gz",
+      "digest": "sha256:fe6a5694af352fa7e4d715fba06cd0d2d6e888e29f82527d9234c50e57da1013"
     },
     {
       "name": "ax-cpp-ai",
