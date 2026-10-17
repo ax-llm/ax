@@ -3,10 +3,10 @@
   "skills": [
     {
       "name": "ax-go-llm",
-      "type": "skill-md",
+      "type": "archive",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
-      "url": "ax-go-llm/SKILL.md",
-      "digest": "sha256:6eefd5db60b87e110cccd0732c81ac864f8aed4468bf9d8fc495b9ab87762db1"
+      "url": "ax-go-llm/skill.tar.gz",
+      "digest": "sha256:007fd8c8a7dcba4f8b79e65f1df6efd6b2ccfee9d039cf05daa6b41d5d4c12a8"
     },
     {
       "name": "ax-go-ai",

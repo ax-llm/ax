@@ -3,10 +3,10 @@
   "skills": [
     {
       "name": "ax-java-llm",
-      "type": "skill-md",
+      "type": "archive",
       "description": "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
-      "url": "ax-java-llm/SKILL.md",
-      "digest": "sha256:f3fb10180987eda790705de5473a95abdd3d4fbca874b5691ec5ce7045497a31"
+      "url": "ax-java-llm/skill.tar.gz",
+      "digest": "sha256:5f8934458e03a257ed76c68e7ce53d60715e0fc466221c55434a144f11136435"
     },
     {
       "name": "ax-java-ai",

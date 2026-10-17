@@ -1,10 +1,18 @@
 # Agent Skills
 
-Install the Ax skills for {{language}} into your coding agent workspace.
+Install one Ax entry-point skill for {{language}} into your coding agent workspace.
+It includes a compact capability index and local reference guides. Your agent
+reads the relevant guides as needed; no extra skill installation is required
+during a task.
 
 ```{{shellFence}}
 {{skillInstallCommand}}
 ```
+
+Specialist skills remain available individually below. To register every
+specialist as a separate skill, use the same command with `--skill '*'`.
+
+{{skillSetupNotes}}
 
 The URL publishes a well-known agent-skills index for this language:
 

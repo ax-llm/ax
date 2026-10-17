@@ -3,10 +3,10 @@
   "skills": [
     {
       "name": "ax-rust-llm",
-      "type": "skill-md",
+      "type": "archive",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
-      "url": "ax-rust-llm/SKILL.md",
-      "digest": "sha256:c5b285dbb363fe5e431cb6d48e13af00778f9fc7fbb5987a44e4410f7d9460c6"
+      "url": "ax-rust-llm/skill.tar.gz",
+      "digest": "sha256:c6bd5d2f4c6209cc0afc35693e20effcf9de99b2b703e535623dce052a1b914c"
     },
     {
       "name": "ax-rust-ai",

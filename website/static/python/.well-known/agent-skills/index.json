@@ -3,10 +3,10 @@
   "skills": [
     {
       "name": "ax-python-llm",
-      "type": "skill-md",
+      "type": "archive",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
-      "url": "ax-python-llm/SKILL.md",
-      "digest": "sha256:4b2b4d503fe6a0817c4497da3a75d6803188e5c8b89913885b1bdf784399444d"
+      "url": "ax-python-llm/skill.tar.gz",
+      "digest": "sha256:6f607e1732f4c14bc05f224ff9588bb0dd1f4da0e71896bf3f93f6617d971d07"
     },
     {
       "name": "ax-python-ai",

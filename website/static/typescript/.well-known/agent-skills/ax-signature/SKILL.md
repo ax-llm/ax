@@ -486,7 +486,7 @@ Boolean and class fields can opt in with `.withEvidence()` or `(evidence)`.
 A rubric `score "Low, Medium, High"` returns a continuous zero-based index;
 add `(evidence)` to keep ordered probabilities and provenance. Boolean
 `threshold 0.7` applies locally to evidence fields only. `refusal return` adds
-a tagged answered/refused union. See [decision evidence](ax-typesafe.md#decision-evidence-and-reranking).
+a tagged answered/refused union. See [decision evidence](references/ax-typesafe.md#decision-evidence-and-reranking).
 
 ## Bounding boxes (TypeScript)
 

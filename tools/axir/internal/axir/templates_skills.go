@@ -230,11 +230,52 @@ func addPackageSkills(files map[string]string, model AxRuntimeModel, target stri
 
 func packageSkills(model AxRuntimeModel, target string) map[string]string {
 	out := map[string]string{}
+	router := "skills/ax-" + target + "-llm/"
 	for _, spec := range packageSkillSpecs {
 		name := skillName(target, spec)
-		out["skills/"+name+"/SKILL.md"] = renderSkill(spec, model, target)
+		content := renderSkill(spec, model, target)
+		body := strings.SplitN(content, "\n---\n", 2)[1]
+		if spec.ID == "llm" {
+			out[router+"references/quickstart.md"] = strings.TrimLeft(body, "\n")
+			out[router+"SKILL.md"] = renderSkillRouter(target)
+		} else {
+			out["skills/"+name+"/SKILL.md"] = content
+			out[router+"references/"+name+".md"] = strings.TrimLeft(body, "\n")
+		}
 	}
 	return out
+}
+
+func renderSkillRouter(target string) string {
+	cfg := skillTargetConfig(target)
+	spec := packageSkillSpecs[0]
+	lines := []string{
+		skillFrontmatter(skillName(target, spec), skillDescription(target, spec, cfg), generatedPackageVersion()),
+		"# Ax For " + cfg.Language,
+		"",
+		"Use this entry point when working with `" + packageNameForTarget(target) + "`. Read the guides relevant to the task before writing code. The guides are bundled locally; no additional skill installation is needed. Load more guides when a task crosses into another area.",
+		"",
+		"## Choose A Guide",
+		"",
+		"| Task | Read |",
+		"| --- | --- |",
+		"| Start a program, choose native factories, or find package docs and examples | [Quick reference](references/quickstart.md) |",
+	}
+	for _, guide := range packageSkillSpecs[1:] {
+		lines = append(lines, "| "+guide.Area+" | ["+guide.Title+"](references/"+skillName(target, guide)+".md) |")
+	}
+	lines = append(lines,
+		"",
+		"For an agent with persistent recall, read the agent and memory guides. For a provider-backed workflow, read the AI, generation, and flow guides.",
+		"",
+		"## Essential Conventions",
+		"",
+		"- Use this language's native package API and examples; TypeScript call shapes are not interchangeable.",
+		"- Check the installed package version against the guide version before using an API from another release.",
+		"- Start with a focused guide. Use the package's `API.md`, `axir-api.json`, and `axir-capabilities.json` for exact signatures and supported surfaces.",
+		"- Specialist skills remain optional when separate skill entries are useful.",
+	)
+	return readmeLines(lines...)
 }
 
 func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) string {

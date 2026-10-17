@@ -3,50 +3,36 @@ name: "ax-python-llm"
 description: "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
 version: "25.4.1"
 ---
-# Ax LLM Quick Reference For Python
+# Ax For Python
 
-This skill helps an agent write Python code with the generated Ax package `axllm`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+Use this entry point when working with `axllm`. Read the guides relevant to the task before writing code. The guides are bundled locally; no additional skill installation is needed. Load more guides when a task crosses into another area.
 
-## When To Use
+## Choose A Guide
 
-- Start a generated-language Ax program from package docs or examples.
-- Translate the Ax mental model into the target package without TypeScript-only imports.
-- Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
-- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
+| Task | Read |
+| --- | --- |
+| Start a program, choose native factories, or find package docs and examples | [Quick reference](references/quickstart.md) |
+| provider clients and model routing | [AxAI Providers](references/ax-python-ai.md) |
+| decision signatures and native questions | [Typesafe / Jev](references/ax-python-typesafe.md) |
+| audio and realtime provider mappings | [Ax Audio And Realtime](references/ax-python-audio.md) |
+| signatures, fields, schemas, and validation | [Ax Signatures](references/ax-python-signature.md) |
+| structured generation and tools | [AxGen Structured Generation](references/ax-python-gen.md) |
+| RLM agents and tools | [AxAgent](references/ax-python-agent.md) |
+| runtime sessions and actor-code execution | [AxAgent RLM Runtime](references/ax-python-agent-rlm.md) |
+| memory, recall, and dynamic skill loading | [AxAgent Memory And Skills](references/ax-python-agent-memory-skills.md) |
+| traces, logs, usage, and diagnostics | [AxAgent Observability](references/ax-python-agent-observability.md) |
+| agent evaluation and optimization artifacts | [AxAgent Optimize](references/ax-python-agent-optimize.md) |
+| choosing context maps, policy, optimization, and recall | [AxAgent Context Selection](references/ax-python-agent-context.md) |
+| workflow graphs and orchestration | [AxFlow](references/ax-python-flow.md) |
+| Pareto optimization and prompt evolution | [Ax GEPA](references/ax-python-gepa.md) |
+| evolving context playbooks | [Ax Playbook](references/ax-python-playbook.md) |
+| candidate improvement and evaluation feedback | [Ax Refinement Patterns](references/ax-python-refine.md) |
 
-## Package Facts
+For an agent with persistent recall, read the agent and memory guides. For a provider-backed workflow, read the AI, generation, and flow guides.
 
-- Language: Python.
-- Package: `axllm`.
-- Package API docs: `API.md` and `axir-api.json`.
-- Capability manifest: `axir-capabilities.json`.
-- Runnable examples: `examples/`.
-- Real network support: yes.
-- Scripted no-key transport support: yes.
-- Runtime profiles: `javascript-quickjs`, `python-pyodide`.
+## Essential Conventions
 
-## Core Pattern
-
-```python
-import os
-from axllm import ai
-
-llm = ai("openai", api_key=os.environ["OPENAI_API_KEY"])
-```
-
-## Relevant API Surface
-
-- Signatures: `s`, `f`, `AxSignature`
-- AxGen: `ax`, `AxGen`, `run_control`, `AxRunControl`, `Callable[[str, dict | None], dict | None]`, `set_caching_function`
-- AxAI: `ai`, `openai_decisions`, `AxAIOpenAIDecisionsClient`, `typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `dict[str, str]`, `Callable[[dict[str, str]], dict[str, str]]`, `AIClient.owned_worker_factory`, `AxChatSession`, `closable generator`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
-- Agents And RLM: `agent`, `AxAgent`, `AxAgent.add_child_agent`, `AxAgent.streaming_forward`
-- Flow: `flow`, `AxFlow`, `AxProgram.owned_worker_factory`
-- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
-
-## Guardrails
-
-- Start from package examples for exact native syntax before inventing a new call shape.
-- Use `provider-api` examples only when the user explicitly has provider credentials available.
-- Use `no-key` examples for deterministic local checks and provider request mapping.
-- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
-- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- Use this language's native package API and examples; TypeScript call shapes are not interchangeable.
+- Check the installed package version against the guide version before using an API from another release.
+- Start with a focused guide. Use the package's `API.md`, `axir-api.json`, and `axir-capabilities.json` for exact signatures and supported surfaces.
+- Specialist skills remain optional when separate skill entries are useful.

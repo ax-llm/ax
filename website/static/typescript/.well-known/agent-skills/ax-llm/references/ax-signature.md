@@ -1,0 +1,501 @@
+# Ax Signature Reference
+
+## Signature Syntax
+
+```
+[description] input1:type, input2:type -> output1:type, output2:type
+```
+
+## Field Types
+
+| Type | Syntax | TypeScript | Example |
+|------|--------|-----------|---------|
+| String | `:string` | `string` | `userName:string` |
+| Number | `:number` | `number` | `score:number` |
+| Boolean | `:boolean` | `boolean` | `isValid:boolean` |
+| JSON | `:json` | `any` | `metadata:json` |
+| Date | `:date` | `Date` | `birthDate:date` |
+| DateTime | `:datetime` | `Date` | `timestamp:datetime` |
+| DateRange | `:dateRange` | `{ start: Date; end: Date }` | `travelDates:dateRange` |
+| DateTimeRange | `:datetimeRange` | `{ start: Date; end: Date }` | `meetingWindow:datetimeRange` |
+| Image | `:image` | `{mimeType, data, details?}` | `photo:image` (input only) |
+| Audio | `:audio` | input: `AxAudioInput`; output: `AxChatAudioOutput` | `recording:audio`, `speech:audio` |
+| File | `:file` | `{mimeType, data \| fileUri, filename?}` | `document:file` (input only) |
+| URL | `:url` | `string` | `website:url` |
+| Code | `:code` | `string` | `pythonScript:code` |
+| Class | `:class "a, b, c"` | `"a" \| "b" \| "c"` | `mood:class "happy, sad"` |
+
+Media inputs carry the optional keys their chat part declares to the provider or router: an image's `details` (`'high'`, `'low'`, or `'auto'`; OpenAI's image `detail`), `cache`, `optimize`, and `altText`; a file's `filename` (OpenAI rejects inline file data without one), `cache`, and `extractedText`; a url's `cachedContent` and `cache`; and an audio input's `mimeType`, `sampleRate`, `channels`, `cache`, `transcription`, and `duration`. Other keys stay behind.
+
+Date, datetime, and range fields are AI-friendly but strict. They accept ISO-style values, trim minor whitespace/casing issues, and parse ranges as `{ "start": "...", "end": "..." }`, `[start, end]`, `start/end`, or natural delimiters like `start to end`; invalid values and reversed ranges should fail validation rather than being silently autocorrected. A datetime's zone can be `Z`, an offset, `UTC`/`GMT`, an IANA name (`2024-05-09 14:30 America/New_York`), or an abbreviation read at its literal offset all year (`PST` is -08:00 even in July, `EDT` is -04:00); ambiguous abbreviations (`BST`, `IST`, `CST`, `AST`, `SST`, `NST`, `ECT`, `GST`) and ICU's legacy short IDs are rejected with a correction that asks for an IANA name or an offset. `PST`/`PDT` and `CDT` follow US usage; for Philippine time (`PST`) or Cuban daylight time (`CDT`), give an IANA name (`Asia/Manila`, `America/Havana`) or a UTC offset. A wall time inside a DST gap is invalid, and one in an overlap takes the earlier instant.
+
+## Arrays, Optional, and Internal Fields
+
+```typescript
+'tags:string[] -> processedTags:string[]'  // arrays
+'query:string, context?:string -> response:string'  // optional with ?
+'problem:string -> reasoning!:string, solution:string'  // internal with !
+```
+
+## Extended String Grammar (Modifier Bags + Nested Objects)
+
+The string form is constraint-complete: everything the fluent API expresses
+(except Standard Schema fields) can be written in the string. A type takes an
+optional comma-separated, order-free **modifier bag** in parentheses, and
+objects declare structured fields inline.
+
+```typescript
+`userAge:number(min 0, max 120), contactEmail:string(format email, cache), codeSnippet:code(python)
+ -> userName:string(pattern "^[a-z_]+$" "lowercase name"), tagList:string(item "a short tag")[] "all tags",
+    profileList:object{ fullName:string, userAge?:number(min 0) }[] "matched profiles"`
+```
+
+| Modifier | Applies to | Effect |
+|----------|-----------|--------|
+| `min N` / `max N` | `string`, `number` | String length bounds / numeric value bounds |
+| `format email\|uri\|date\|date-time` | `string` | Format validation |
+| `pattern "regex" ["desc"]` | `string` | Regex validation with optional description |
+| `cache` | top-level input | Prefix-cache breakpoint |
+| `item "desc"` | arrays | Per-item description: `tags:string(item "a tag")[]` |
+| `<language>` | `code` | Language of the snippet: `snippet:code(python)` |
+| `true "desc"` / `false "desc"` | `boolean` | Explain when each outcome applies |
+
+## Descriptions for Boolean and Class Values (TypeScript)
+
+Describe individual outcomes without changing a field's type or allowed values:
+
+```typescript
+const triage = ax(`
+  ticket:string ->
+  urgent:boolean(
+    true "Customers cannot complete a core task",
+    false "A routine request or minor inconvenience"
+  ) "Does this need immediate attention?",
+  team:class "support, billing, engineering"(
+    support "Product usage questions",
+    billing "Invoice or charge disputes",
+    engineering "Broken functionality"
+  ) "Which team should investigate?"
+`);
+```
+
+Boolean descriptions use the existing modifier bag after `boolean`. Class
+descriptions follow the quoted list of allowed labels. Quote labels containing
+spaces or punctuation, for example `class "in progress, done"("in progress"
+"Work has started", done "Work is complete")`. Descriptions may be partial;
+duplicate keys, unknown labels, and empty descriptions are errors.
+
+The fluent equivalent uses `.describeValues(...)`:
+
+```typescript
+f.boolean('Does this need immediate attention?').describeValues({
+  true: 'Customers cannot complete a core task',
+  false: 'A routine request or minor inconvenience',
+});
+f.class(['support', 'billing'], 'Which team?').describeValues({
+  support: 'Product usage questions',
+  billing: 'Invoice or charge disputes',
+});
+```
+
+OpenAI and other conventional providers receive the question followed by
+`value: description` lines in the ordinary prompt and, when used, the JSON
+schema description. Typesafe receives separate Noul/Choice criteria. The
+original annotations remain separate in the signature and survive `toString()`
+round-trips. Rendering does not mutate the signature or duplicate descriptions.
+Boolean and class return types, optional/array behavior, and allowed values stay
+unchanged. Descriptions are guidance, not additional output validation. Number
+bounds still describe validation constraints; use an explicit `score` field for an ordered rubric.
+The same descriptions, validation, serialization, schemas, and prompt semantics
+are generated for Python, Java, C++, Go, and Rust.
+
+For Jev, use these descriptions for boolean/class criteria. Add `.withEvidence()`
+to retain probabilities in AxGen and use `f.score(levels)` for ordered rubrics.
+Full structured criteria use the separate native client; see the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md).
+The adapter's `trueThreshold` is provider-wide conversion policy, not a field modifier.
+
+### Existing modifier rules
+
+- `object{ field:type, opt?:type }` nests recursively; append `[]` for an array of objects.
+- Optional goes on the **name** (`userAge?:number`), never after the type.
+- The string API is **strict**: a modifier that does not apply to its type (e.g. `min` on a boolean) is a parse error, where the fluent API silently ignores it.
+- Inside `object{ ... }`, the `!` internal marker, media types, `cache`, and `item` are rejected (they only apply at the top level).
+- In quoted values, backslashes are doubled — a regex `\d` is written `pattern "\\d+"`.
+- `AxSignature.toString()` renders every construct back to this grammar losslessly, so a signature round-trips — this is what lets a whole flow serialize its node contracts into mermaid `%%ax` directives (see the ax-flow skill).
+- Signature-level descriptions preserve quotes and backslashes through `toString()` and reparsing. Fluent `.description(...)` accepts ordinary text; string signatures escape embedded quotes and backslashes inside their quoted description.
+
+## Signature Gallery
+
+Real-world contracts, one line each — every entry below parses with `s()` as written (`#` lines are captions, not part of the signature):
+
+```text
+# Support triage: several class outputs plus a capped reply draft
+ticketText:string -> priorityClass:class "p0, p1, p2", sentimentClass:class "angry, neutral, happy", replyDraft:string(max 500)
+
+# Invoice extraction: regex-validated id, bounded totals, structured line items
+invoiceText:string -> invoiceNumber:string(pattern "^INV-\\d+$" "INV- then digits"), totalAmount:number(min 0), lineItems:object{ description:string, quantity:number(min 1), unitPrice:number }[]
+
+# Contact enrichment: optional format-validated outputs
+bioText:string -> contactEmail?:string(format email), websiteUrl?:string(format uri), birthDate?:string(format date)
+
+# RAG: cached corpus input plus per-item described citations
+corpusText:string(cache), userQuestion:string -> answerText:string, citedChunks:string(item "verbatim quote")[]
+
+# Code generation: language-tagged code outputs
+taskBrief:string -> pythonScript:code(python), testCases:code(python), riskNotes?:string
+
+# Chain of thought: internal reasoning stripped from the result
+problemText:string -> reasoning!:string, solutionText:string
+
+# Resume parsing: nested objects inside nested arrays
+resumeText:string -> candidateProfile:object{ fullName:string, yearsExperience:number(min 0), skillList:string[], education:object{ schoolName:string, degreeName?:string }[] }
+
+# Lead scoring: signature-level description, bounded score, class next step
+"Score sales leads" leadNotes:string -> fitScore:number(min 0, max 100) "0-100 fit", nextStep:class "call, email, drop"
+
+# Multimodal: top-level image input with an optional question
+productPhoto:image, question?:string -> productDescription:string, detectedObjects:string[]
+
+# Meeting audio: audio input, capped summary, per-item action list
+meetingAudio:audio -> meetingSummary:string(max 1000), actionItems:string(item "one action item")[]
+
+# Moderation: class verdict plus structured flagged spans
+postText:string -> moderationVerdict:class "allow, review, block", flaggedSpans:object{ spanText:string, reasonNote:string }[]
+
+# Translation: optional locale input
+sourceText:string, targetLocale?:string -> translatedText:string, glossaryHits:string[]
+
+# Text-to-SQL: cached schema plus SQL-tagged output
+schemaText:string(cache), questionText:string -> sqlQuery:code(sql), queryNotes?:string(max 200)
+
+# Calendar extraction: datetime fields and an optional end
+emailText:string -> eventTitle:string, startsAt:datetime, endsAt?:datetime, attendeeNames:string[]
+
+# Booking window: date range, bounded party size, and flexibility flag
+requestText:string -> stayWindow:dateRange, partySize:number(min 1, max 12), flexibleDates:boolean
+
+# Contract dates: date fields plus bounded notice period
+contractText:string -> effectiveDate:date, expiryDate?:date, autoRenews:boolean, noticeDays?:number(min 0)
+
+# Link audit: URL arrays and an optional primary URL
+pageText:string -> referencedUrls:url[], primaryUrl?:url
+
+# Config generation: JSON output plus per-item warnings
+requirementsText:string -> serviceConfig:json, setupWarnings:string(item "one warning")[]
+
+# Claims gate: cached policy, bounded confidence, and optional citation
+claimText:string, policyText:string(cache) -> isCovered:boolean, confidenceScore:number(min 0, max 1), citedClause?:string
+
+# Earnings extraction: structured period data plus a class outlook
+filingText:string(cache) -> revenueByPeriod:object{ periodLabel:string, amountUsd:number }[], guidanceTone:class "raise, hold, cut"
+
+# Pull request review: diff code, cached guide, structured comments, and verdict
+diffText:code(diff), styleGuide?:string(cache) -> reviewComments:object{ filePath:string, lineNumber:number(min 1), commentText:string(max 300) }[], overallVerdict:class "approve, revise"
+
+# Incident triage: severity class, optional service, and per-item runbook steps
+alertLog:string -> incidentSeverity:class "sev1, sev2, sev3", suspectedService?:string, runbookSteps:string(item "one step")[]
+
+# Product listing: image and file inputs with constrained listing outputs
+productPhoto:image, priceSheet?:file -> listingTitle:string(max 80), bulletPoints:string(item "one selling point")[], priceUsd?:number(min 0)
+
+# Study cards: nested object array with an optional difficulty tag
+chapterText:string -> flashCards:object{ questionText:string, answerText:string, difficultyTag?:string }[]
+```
+
+## Four Ways to Create Signatures
+
+### 1. String-Based (Recommended for simple cases)
+
+```typescript
+import { ax, s } from '@ax-llm/ax';
+const gen = ax('input:string -> output:string');
+const sig = s('query:string -> response:string');
+```
+
+### 2. Pure Fluent Builder API
+
+```typescript
+import { f } from '@ax-llm/ax';
+const sig = f()
+  .input('userMessage', f.string('User input'))
+  .input('contextData', f.string('Additional context').optional())
+  .input('tags', f.string('Keywords').array())
+  .output('responseText', f.string('AI response'))
+  .output('confidenceScore', f.number('Confidence 0-1'))
+  .output('debugInfo', f.string('Debug info').internal())
+  .build();
+```
+
+### 3. Standard Schema (zod / valibot / arktype)
+
+`.input()` and `.output()` accept any [Standard Schema v1](https://standardschema.dev) compatible library — no wrapper, no adapter. Three shapes work everywhere:
+
+```typescript
+import { z } from 'zod';
+import { f } from '@ax-llm/ax';
+
+// Shape A: per-field schema — name first, then the schema, then optional ax hints
+const sig = f()
+  .input('contextData', z.string().describe('Background context'), { cache: true })
+  .input('userQuestion', z.string().describe('Question to answer'))
+  .output('reasoning', z.string().describe('Step-by-step thinking'), { internal: true })
+  .output('answer', z.string().describe('Final answer'))
+  .build();
+
+// Shape B: whole-object schema — decomposed into fields in declaration order
+const sig2 = f()
+  .description('Answer questions from retrieved context')
+  .input(
+    z.object({
+      contextData: z.string().describe('Background context'),
+      userQuestion: z.string().describe('Question to answer'),
+    }),
+    { fields: { contextData: { cache: true } } }  // companion options map
+  )
+  .output(
+    z.object({
+      reasoning: z.string().describe('Step-by-step thinking'),
+      answer: z.string().describe('Final answer'),
+    }),
+    { fields: { reasoning: { internal: true } } }
+  )
+  .build();
+```
+
+Validation constraints from zod flow into ax's prompt validation:
+
+```typescript
+// String constraints: .email(), .url(), .min(), .max(), .regex()
+// Number constraints: .min(), .max()
+// Arrays: z.array(z.string())
+// Enums: z.enum([...])  — NOTE: enum maps to ax class type, output fields only
+const sig3 = f()
+  .input(z.object({
+    emailAddress: z.string().email().describe('Contact email'),
+    username: z.string().min(3).max(20).describe('Handle'),
+    score: z.number().min(0).max(100).describe('Numeric score'),
+  }))
+  .output(z.object({
+    priority: z.enum(['low', 'medium', 'high']).describe('Priority'),
+    summary: z.string().describe('Result'),
+  }))
+  .build();
+```
+
+**Companion options** (`AxFieldOptions`) carry ax-specific hints that schema libraries don't represent:
+
+| Option | Effect |
+|--------|--------|
+| `{ cache: true }` | Mark input field as a prefix-cache breakpoint |
+| `{ internal: true }` | Mark output field as internal scratchpad (stripped from result) |
+
+The same Standard Schema shapes work on `fn()` tools via `.arg()`, `.returns()`, and `.returnsField()` — argument types are inferred from the schema:
+
+```typescript
+import { z } from 'zod';
+import { fn } from '@ax-llm/ax';
+
+// Whole-object zod on a tool — AI-SDK-style
+const lookupProduct = fn('lookupProduct')
+  .description('Look up a product by name and return its current details')
+  .arg(
+    z.object({
+      productName: z.string().min(1).describe('Exact product name'),
+      includeSpecs: z.boolean().optional(),
+    })
+  )
+  .returns(
+    z.object({
+      price: z.number(),
+      inStock: z.boolean(),
+      rating: z.number().min(1).max(5),
+    })
+  )
+  .handler(async ({ productName, includeSpecs }) => ({
+    price: 79.99,
+    inStock: true,
+    rating: 4.3,
+  }))
+  .build();
+
+// Per-argument form — mix with f.*() args, attach ax hints
+const searchDocs = fn('searchDocs')
+  .description('Search indexed docs')
+  .arg('query', z.string().min(1), { cache: true })
+  .arg('limit', z.number().int().positive().optional())
+  .returnsField('results', z.array(z.string()))
+  .handler(async ({ query }) => ({ results: [] }))
+  .build();
+```
+
+### 4. Hybrid
+
+```typescript
+import { s, f } from '@ax-llm/ax';
+const sig = s('base:string -> result:string')
+  .appendInputField('extra', f.json('Metadata').optional())
+  .appendOutputField('score', f.number('Quality score'));
+```
+
+## Fluent API Reference
+
+Type creators:
+- `f.string(desc)`, `f.number(desc)`, `f.boolean(desc)`, `f.json(desc)`
+- `f.image(desc)`, `f.audio(desc)`, `f.file(desc)`, `f.url(desc)`
+- `f.email(desc)`, `f.date(desc)`, `f.datetime(desc)`, `f.dateRange(desc)`, `f.datetimeRange(desc)`
+- `f.class(['a','b','c'], desc)`, `f.code(desc)`
+- `f.object({ field: f.string() }, desc)`
+
+Chainable modifiers (method chaining only, no nesting):
+- `.optional()` - make field optional
+- `.array()` / `.array('list description')` - make field an array
+- `.internal()` - output only, hidden from final output
+- `.cache()` - input only, mark for prompt caching
+
+```typescript
+// Correct: pure fluent chaining
+f.string('description').optional().array()
+f.string('context').cache().optional()
+f.object({ field: f.string() }, 'item desc').array('list desc')
+
+// Wrong: nested function calls (removed)
+f.array(f.string('description'))      // REMOVED
+f.optional(f.string('description'))   // REMOVED
+f.internal(f.string('description'))   // REMOVED
+```
+
+## Validation Constraints
+
+### String Constraints
+
+```typescript
+f.string('username').min(3).max(20)
+f.string('email').email()
+f.string('website').url()
+f.string('birthDate').date()
+f.string('timestamp').datetime()
+f.string('pattern').regex('^[A-Z0-9]', 'Must start with an uppercase letter or digit')
+```
+
+### Number Constraints
+
+```typescript
+f.number('age').min(18).max(120)
+f.number('score').min(0).max(100)
+```
+
+### Complete Validation Example
+
+```typescript
+const sig = f()
+  .input('formData', f.string('Raw form data'))
+  .output('user', f.object({
+    username: f.string('Username').min(3).max(20),
+    email: f.string('Email').email(),
+    age: f.number('Age').min(18).max(120),
+    bio: f.string('Bio').max(500).optional(),
+    website: f.string('Website').url().optional(),
+    tags: f.string('Tag').min(2).max(30).array()
+  }, 'User profile'))
+  .build();
+```
+
+## Cached Input Fields
+
+```typescript
+const sig = f()
+  .input('staticContext', f.string('Context').cache())
+  .input('userQuery', f.string('Dynamic query'))
+  .output('answer', f.string('Response'))
+  .build();
+```
+
+## Field Naming Rules
+
+Good: `userQuestion`, `customerEmail`, `analysisResult`, `confidenceScore`
+Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` (starts with number)
+
+## Media Type Restrictions
+
+- Image and file fields are top-level input fields only.
+- Audio fields can be top-level inputs or single top-level outputs.
+- Audio output fields are scripted speech artifacts: the model returns plain text, then Ax synthesizes `AxChatAudioOutput`.
+- Media fields cannot be nested in objects.
+- Media arrays are supported for inputs only; output `audio[]` is not supported.
+
+## Common Patterns
+
+```typescript
+// Chain of Thought
+'problem:string -> reasoning!:string, solution:string'
+
+// Classification
+'email:string -> priority:class "urgent, normal, low"'
+
+// Multi-modal input
+'imageData:image, question?:string -> description:string, objects:string[]'
+
+// Scripted speech output
+'question:string -> speech:audio, summary:string'
+
+// Data Extraction
+'invoiceText:string -> invoiceNumber:string, totalAmount:number, lineItems:json[]'
+
+// Constrained string form (no fluent builder needed)
+'reviewText:string(max 2000) -> rating:number(min 1, max 5), themes:string(item "a theme")[]'
+
+// Nested object output in the string form
+'profileText:string -> profile:object{ fullName:string, age?:number(min 0) }'
+
+// With description
+'"Answer TypeScript questions" question:string -> answer:string, confidence:number'
+```
+
+## Critical Rules
+
+- The string form is constraint-complete: reach for modifier bags (`string(max 500)`, `number(min 0, max 10)`, `string(format email)`) and inline `object{ ... }` before switching to fluent/zod just for constraints. Reserve fluent/Standard Schema for zod/valibot-backed fields.
+- The string API is strict — a modifier that does not apply to its type is a parse error (the fluent API silently ignores it).
+- Use `f()` fluent builder, NOT nested `f.array(f.string())` -- those are removed.
+- Field names must be descriptive (not generic like `text`, `data`, `input`).
+- Image/file media types are input-only, top-level only; audio may also be a single top-level output.
+- `.internal()` / `{ internal: true }` is output-only (for chain-of-thought reasoning).
+- `.cache()` / `{ cache: true }` is input-only (for prompt caching).
+- Validation errors trigger auto-retry with correction feedback.
+- `f.email()`, `f.url()`, `f.date()`, `f.datetime()` are shorthand for `f.string().email()` etc.; `f.dateRange()` and `f.datetimeRange()` return `{ start: Date; end: Date }`.
+- `z.enum()` maps to ax's `class` type — only valid on **output** fields.
+- For multimodal inputs (images, audio, files) and scripted audio outputs, use `f.image()` / `f.audio()` / `f.file()` — zod has no equivalent.
+
+## Examples
+
+Fetch these for full working code:
+
+- [Standard Schema (zod)](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/standard-schema.ts) — zod with f() and fn(), all three shapes
+- [Fluent Signature](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-signature-example.ts) — native fluent f() API
+- [Structured Output](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/structured_output.ts) — structured output with validation
+- [Debug Schema](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/debug_schema.ts) — JSON schema validation
+
+## Evidence fields
+
+Boolean and class fields can opt in with `.withEvidence()` or `(evidence)`.
+A rubric `score "Low, Medium, High"` returns a continuous zero-based index;
+add `(evidence)` to keep ordered probabilities and provenance. Boolean
+`threshold 0.7` applies locally to evidence fields only. `refusal return` adds
+a tagged answered/refused union. See [decision evidence](ax-typesafe.md#decision-evidence-and-reranking).
+
+## Bounding boxes (TypeScript)
+
+`photo:image -> target:box` returns `AxBox`: normalized `top`, `bottom`, `left`,
+and `right` coordinates in `[0, 1]`, measured from the image top-left. Ax validates
+`top < bottom` and `left < right`. `target:box(evidence)` returns `AxBoxEvidence`:
+`{ value: AxBox, confidence?: number, provenance }`. Use `f.box()` or
+`f.box().withEvidence()` in fluent signatures. Arrays, optional boxes, nested
+boxes, and box inputs work with generative providers. Native Jev outputs must be
+flat, required, single boxes.
+
+Jev 1.14 supports native localization using PNG/JPEG image inputs. Ax supplies its
+required experimental image header. A Box does not indicate presence; pair it
+with a boolean when the target might be absent. Generative vision models use
+validated structured output with elicited provenance and no native confidence.
+OpenAI Decisions supports images but rejects Box outputs. See `ax-typesafe.md`
+for transport details, image preparation limits, and model selection. Generated
+language Box support remains tracked in the AxIR backlog.

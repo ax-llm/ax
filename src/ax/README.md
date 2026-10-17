@@ -157,6 +157,35 @@ const analyzer = ax(`
 npm install @ax-llm/ax
 ```
 
+Outside CI, installation sets up one Claude Code skill, `ax-llm`, with a compact
+index and bundled guides your agent reads as needed. To disable future automatic
+setup, run `npx @ax-llm/ax skills-auto-install off` from your project root. This
+saves `ax.skills.autoInstall: false` in your project's `package.json`; commit
+that setting to share it with your team. Use `skills-auto-install on` to re-enable
+automatic setup on future installs. Set `AX_SKIP_SKILL_INSTALL=1` to skip setup
+for a single installation; CI and this environment variable take precedence over
+the saved setting.
+
+You can also set the preference before installing Ax for the first time:
+
+```json
+{
+  "ax": {
+    "skills": {
+      "autoInstall": false
+    }
+  }
+}
+```
+
+Merge this field into your existing `package.json`. Manual
+`npx @ax-llm/ax setup-claude` works even when automatic setup is disabled;
+add `--all` to register every specialist or `--skill ax-ai` to install only one.
+Changing the preference leaves installed skills in place, and manual setup or
+removal preserves the saved preference.
+Existing specialists remain installed; use `remove-claude` followed by
+`setup-claude` to switch an older full installation to the compact bundle.
+
 ### Your First AI Feature (2 minutes)
 
 ```typescript
