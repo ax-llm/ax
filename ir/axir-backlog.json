@@ -3506,6 +3506,30 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting",
+      "status": "open",
+      "title": "Audio output capability routing and compatibility accounting",
+      "createdAt": "2026-10-18",
+      "sourcePR": 857,
+      "sourceCommit": "9702dd704647ab86b80de680bc11ee9ed775f568",
+      "tsPaths": [
+        "src/ax/ai/balance.ts",
+        "src/ax/ai/capabilities.ts",
+        "src/ax/ai/balance.test.ts",
+        "src/ax/ai/capabilities.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Generated balancers and compatibility reports must preserve the TypeScript audio-output requirement, aggregate output support/formats, and count generated audio independently of audio input.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

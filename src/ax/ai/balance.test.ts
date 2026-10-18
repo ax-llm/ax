@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'vitest';
-
+import {
+  type AxAIFeatures,
+  AxBalancer,
+  type AxChatRequest,
+  AxMockAIService,
+  type AxMockAIServiceConfig,
+} from '../index.js';
 import {
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
 } from '../util/apicall.js';
-
-import { AxBalancer } from './balance.js';
-import { AxMockAIService, type AxMockAIServiceConfig } from './mock/api.js';
 import type { AxAIService } from './types.js';
 
 const createMockService = ({
@@ -639,5 +642,139 @@ describe('AxBalancer', () => {
     }
     expect(calledService1).toBe(true);
     expect(secondContent).toBe('partial');
+  });
+});
+
+class AudioOutputService extends AxMockAIService<string> {
+  constructor(
+    name: string,
+    input: boolean,
+    private readonly output: boolean | undefined,
+    private readonly formats: string[] = []
+  ) {
+    super({
+      name,
+      features: { media: { audio: { supported: input, formats: [] } } },
+    });
+  }
+
+  override getFeatures(model?: string): AxAIFeatures {
+    const features = super.getFeatures(model);
+    return {
+      ...features,
+      media: {
+        ...features.media,
+        audio: {
+          ...features.media.audio,
+          ...(this.output === undefined
+            ? {}
+            : { output: { supported: this.output, formats: this.formats } }),
+        },
+      },
+    };
+  }
+}
+
+const audioOutputRequests: AxChatRequest[] = [
+  {
+    chatPrompt: [{ role: 'user', content: 'Hello' }],
+    capabilities: { requiresAudioOutput: true },
+  },
+  {
+    chatPrompt: [{ role: 'user', content: 'Hello' }],
+    modelConfig: { audio: { output: { enabled: true } } },
+  },
+];
+
+describe('AxBalancer audio output requirements', () => {
+  test.each([false, undefined])(
+    'filters output=%s independently of audio input',
+    async (output) => {
+      const unsupported = new AudioOutputService('input-only', true, output);
+      const supported = new AudioOutputService('output-only', false, true, [
+        'wav',
+      ]);
+      const balancer = new AxBalancer([unsupported, supported], {
+        comparator: () => 0,
+      });
+
+      for (const request of audioOutputRequests) {
+        expect((await balancer.resolveChatService(request)).service).toBe(
+          supported
+        );
+      }
+    }
+  );
+
+  test.each([false, undefined])(
+    'explains missing audio output for output=%s',
+    (output) => {
+      const balancer = new AxBalancer([
+        new AudioOutputService('input-only', true, output),
+      ]);
+      for (const request of audioOutputRequests) {
+        expect(() => balancer.validateChatRequest(request)).toThrow(
+          /audio output/
+        );
+      }
+    }
+  );
+
+  test('requires both input and output when both are requested', async () => {
+    const both = new AudioOutputService('both', true, true, ['wav']);
+    const balancer = new AxBalancer(
+      [
+        new AudioOutputService('input-only', true, false),
+        new AudioOutputService('output-only', false, true, ['wav']),
+        both,
+      ],
+      { comparator: () => 0 }
+    );
+
+    expect(
+      (
+        await balancer.resolveChatService({
+          chatPrompt: [{ role: 'user', content: 'Hello' }],
+          capabilities: { requiresAudio: true, requiresAudioOutput: true },
+        })
+      ).service
+    ).toBe(both);
+  });
+
+  test('preserves routing when output is not requested', async () => {
+    const inputOnly = new AudioOutputService('input-only', true, false);
+    const balancer = new AxBalancer(
+      [inputOnly, new AudioOutputService('output-only', false, true)],
+      { comparator: () => 0 }
+    );
+    expect(
+      (
+        await balancer.resolveChatService({
+          chatPrompt: [{ role: 'user', content: 'Hello' }],
+        })
+      ).service
+    ).toBe(inputOnly);
+  });
+
+  test('aggregates advertised output support and deduplicated formats', () => {
+    const balancer = new AxBalancer([
+      new AudioOutputService('wav', false, true, ['wav']),
+      new AudioOutputService('mp3', false, true, ['wav', 'mp3']),
+      new AudioOutputService('unknown', false, undefined),
+      new AudioOutputService('unsupported', false, false, ['flac']),
+    ]);
+    expect(balancer.getFeatures().media.audio).toEqual({
+      supported: false,
+      formats: [],
+      output: { supported: true, formats: ['wav', 'mp3'] },
+    });
+  });
+
+  test('leaves output metadata absent when no service supports it', () => {
+    const balancer = new AxBalancer([
+      new AudioOutputService('unknown', true, undefined),
+      new AudioOutputService('unsupported', true, false, ['flac']),
+    ]);
+    expect(balancer.getFeatures().media.audio.output).toBeUndefined();
   });
 });

@@ -37,6 +37,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp/client.ts`, `src/ax/mcp/client.test.ts`
   - Impact: AxMCPClient.ping() now clears its timeout timer and listeningDelay() removes its abort listener when the delay elapses; the AxIR ports of the MCP client should mirror this
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting` [axai] Audio output capability routing and compatibility accounting
+  - Status: open
+  - Source PR: #857
+  - Source commit: `9702dd704647ab86b80de680bc11ee9ed775f568`
+  - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/capabilities.ts`, `src/ax/ai/balance.test.ts`, `src/ax/ai/capabilities.test.ts`
+  - Impact: Generated balancers and compatibility reports must preserve the TypeScript audio-output requirement, aggregate output support/formats, and count generated audio independently of audio input.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

@@ -1,14 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  AxBalancer,
   axAnalyzeRequestRequirements,
-  axValidateProviderCapabilities,
+  axGetCompatibilityReport,
+  axGetFormatCompatibility,
+  axGetProvidersWithMediaSupport,
   axScoreProvidersForRequest,
   axSelectOptimalProvider,
-  axGetCompatibilityReport,
-  axGetProvidersWithMediaSupport,
-  axGetFormatCompatibility,
-} from './capabilities.js';
-import type { AxAIService, AxAIFeatures, AxChatRequest } from './types.js';
+  axValidateProviderCapabilities,
+} from '../index.js';
+import type { AxAIFeatures, AxAIService, AxChatRequest } from './types.js';
 
 // Mock provider factory
 function createMockProvider(name: string, features: AxAIFeatures): AxAIService {
@@ -418,5 +419,129 @@ describe('axGetFormatCompatibility', () => {
     const compatibility = axGetFormatCompatibility(providers, 'images');
 
     expect(Object.keys(compatibility)).toHaveLength(0);
+  });
+});
+
+function createAudioOutputProvider(
+  name: string,
+  input: boolean,
+  output: boolean | undefined
+): AxAIService {
+  const features = mockOpenAI.getFeatures();
+  return createMockProvider(name, {
+    ...features,
+    media: {
+      ...features.media,
+      audio: {
+        supported: input,
+        formats: [],
+        ...(output === undefined
+          ? {}
+          : { output: { supported: output, formats: ['wav'] } }),
+      },
+    },
+    multiTurn: false,
+  });
+}
+
+describe('audio output capability accounting', () => {
+  const request: AxChatRequest = {
+    chatPrompt: [{ role: 'user', content: 'Hello' }],
+    capabilities: { requiresAudioOutput: true },
+  };
+
+  it('credits generated output independently of input audio', () => {
+    const provider = createAudioOutputProvider('output-only', false, true);
+    const requirements = axAnalyzeRequestRequirements(request);
+    expect(
+      axValidateProviderCapabilities(provider, requirements).isSupported
+    ).toBe(true);
+    const [score] = axScoreProvidersForRequest([provider], requirements);
+    expect(score.score).toBe(35);
+    expect(score.supportedCapabilities).toEqual(['Audio output']);
+    expect(score.missingCapabilities).toEqual([]);
+    expect(axGetCompatibilityReport(request, [provider]).summary).toBe(
+      'output-only supports 1/1 requirements (100% compatibility)'
+    );
+  });
+
+  it.each([false, undefined])(
+    'does not credit unsupported output=%s',
+    (output) => {
+      const provider = createAudioOutputProvider('input-only', true, output);
+      const [score] = axScoreProvidersForRequest(
+        [provider],
+        axAnalyzeRequestRequirements(request)
+      );
+      expect(score.score).toBe(0);
+      expect(score.supportedCapabilities).toEqual([]);
+      expect(score.missingCapabilities).toEqual(['Audio output support']);
+    }
+  );
+
+  it('counts input and output as two separate requirements', () => {
+    const provider = createAudioOutputProvider('both', true, true);
+    const report = axGetCompatibilityReport(
+      {
+        ...request,
+        capabilities: { requiresAudio: true, requiresAudioOutput: true },
+      },
+      [provider]
+    );
+    expect(report.providerScores[0].supportedCapabilities).toEqual([
+      'Audio',
+      'Audio output',
+    ]);
+    expect(report.summary).toBe(
+      'both supports 2/2 requirements (100% compatibility)'
+    );
+  });
+
+  it('recognizes output inferred from the existing model configuration', () => {
+    const provider = createAudioOutputProvider('output-only', false, true);
+    const report = axGetCompatibilityReport(
+      {
+        chatPrompt: request.chatPrompt,
+        modelConfig: { audio: { output: { enabled: true } } },
+      },
+      [provider]
+    );
+    expect(report.requirements.hasAudioOutput).toBe(true);
+    expect(report.summary).toBe(
+      'output-only supports 1/1 requirements (100% compatibility)'
+    );
+  });
+
+  it('does not award output points when it is not requested', () => {
+    const providers = [
+      createAudioOutputProvider('supported', false, true),
+      createAudioOutputProvider('unsupported', true, false),
+    ];
+    const requirements = axAnalyzeRequestRequirements({
+      chatPrompt: request.chatPrompt,
+    });
+    expect(
+      axScoreProvidersForRequest(providers, requirements).map(
+        ({ score, supportedCapabilities }) => ({ score, supportedCapabilities })
+      )
+    ).toEqual([
+      { score: 10, supportedCapabilities: [] },
+      { score: 10, supportedCapabilities: [] },
+    ]);
+  });
+
+  it('reports the aggregated balancer as a capable provider', () => {
+    const balancer = new AxBalancer([
+      createAudioOutputProvider('output-only', false, true),
+    ]);
+    expect(
+      axValidateProviderCapabilities(
+        balancer,
+        axAnalyzeRequestRequirements(request)
+      ).isSupported
+    ).toBe(true);
+    expect(axGetCompatibilityReport(request, [balancer]).summary).toBe(
+      'output-only supports 1/1 requirements (100% compatibility)'
+    );
   });
 });

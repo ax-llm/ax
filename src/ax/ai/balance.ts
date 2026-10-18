@@ -342,6 +342,14 @@ export class AxBalancer<
       features.media.audio.formats = Array.from(
         new Set([...features.media.audio.formats, ...f.media.audio.formats])
       );
+      const output = f.media.audio.output;
+      if (output?.supported) {
+        features.media.audio.output ??= { supported: false, formats: [] };
+        features.media.audio.output.supported ||= output.supported;
+        features.media.audio.output.formats = Array.from(
+          new Set([...features.media.audio.output.formats, ...output.formats])
+        );
+      }
       if (f.media.files.supported) features.media.files.supported = true;
       features.media.files.formats = Array.from(
         new Set([...features.media.files.formats, ...f.media.files.formats])
@@ -538,6 +546,9 @@ export class AxBalancer<
     const caps = req.capabilities;
     const requiresImages = caps?.requiresImages;
     const requiresAudio = caps?.requiresAudio;
+    const requiresAudioOutput =
+      caps?.requiresAudioOutput === true ||
+      req.modelConfig?.audio?.output?.enabled === true;
     const model = req.model as unknown as string;
     const requestedTier = options?.serviceTier;
     const requiresServiceTier =
@@ -555,6 +566,8 @@ export class AxBalancer<
         return false;
       if (requiresImages && !features.media.images.supported) return false;
       if (requiresAudio && !features.media.audio.supported) return false;
+      if (requiresAudioOutput && !features.media.audio.output?.supported)
+        return false;
       if (
         requiresServiceTier &&
         !features.serviceTiers?.includes(requestedTier)
@@ -569,6 +582,7 @@ export class AxBalancer<
       if (requiresStructuredOutputs) requirements.push('structured outputs');
       if (requiresImages) requirements.push('images');
       if (requiresAudio) requirements.push('audio');
+      if (requiresAudioOutput) requirements.push('audio output');
       if (requiresServiceTier)
         requirements.push(`service tier ${requestedTier}`);
 
