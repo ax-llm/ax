@@ -3468,6 +3468,30 @@
       "completedAt": "2026-10-15",
       "completedByCommit": "ac97e1f260ccb09bf777842ea69be9bf7fa3a67e",
       "verification": "41 TypeScript-derived image and Box regressions and 1956 conformance cases pass across Python, Java, C++, Go and Rust. Native typed APIs, PNG/JPEG references, experimental headers, Box schemas, evidence, refusal handling, streaming and Decisions rejection are covered. All five public localization examples pass against live Jev 1.14.0. Full TypeScript checks pass with 3937 tests and one skip; 72 CI compiler tests, fixture synchronization, generated package freshness, provider profiles and the 1992-page website checks pass."
+    },
+    {
+      "id": "axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting",
+      "status": "open",
+      "title": "Audio output capability routing and compatibility accounting",
+      "createdAt": "2026-10-18",
+      "sourcePR": 857,
+      "sourceCommit": "9702dd704647ab86b80de680bc11ee9ed775f568",
+      "tsPaths": [
+        "src/ax/ai/balance.ts",
+        "src/ax/ai/capabilities.ts",
+        "src/ax/ai/balance.test.ts",
+        "src/ax/ai/capabilities.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Generated balancers and compatibility reports must preserve the TypeScript audio-output requirement, aggregate output support/formats, and count generated audio independently of audio input.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
