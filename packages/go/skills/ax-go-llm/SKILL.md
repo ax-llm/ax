@@ -1,7 +1,7 @@
 ---
 name: "ax-go-llm"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.4.2"
+version: "25.4.3"
 ---
 # Ax For Go
 

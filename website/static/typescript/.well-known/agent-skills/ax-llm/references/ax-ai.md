@@ -270,6 +270,12 @@ Choose the primitive by responsibility:
 - `AxBalancer` without a strategy orders equivalent services once with a comparator, retries transient provider failures, and fails over in that order.
 - `AxBalancer` with `strategy.type: 'adaptive'` selects among services exposing the same logical model aliases using learned provider reliability, successful latency, and estimated cost.
 
+In TypeScript, `capabilities.requiresAudioOutput` or
+`modelConfig.audio.output.enabled` requires a service with
+`media.audio.output.supported`. Audio input and output are separate requirements.
+Balancer output formats come only from children that support output; compatibility
+reports count requested input and output independently.
+
 Adaptive balancing is operational routing, not semantic prompt-to-model routing. Every provider model behind an alias must be an acceptable substitute for that application. Keep quality evaluation and content-aware model selection outside the balancer.
 
 ```typescript

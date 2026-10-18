@@ -1,5 +1,16 @@
 # Changelog
 
+## [25.4.3](https://github.com/ax-llm/ax/compare/25.4.2...25.4.3) (2026-10-18)
+
+### Bug Fixes
+
+* **ai:** honor generated-audio output routing and compatibility accounting, and aggregate formats only from output-capable providers ([#857](https://github.com/ax-llm/ax/pull/857)).
+* **eval:** compute novel F1 token overlap and finite empty-input scores ([#856](https://github.com/ax-llm/ax/pull/856)).
+* **mcp:** clear ping timeout timers and remove completed listening-delay abort listeners ([#847](https://github.com/ax-llm/ax/pull/847)).
+* **util:** preserve string text while repairing partial streamed JSON ([#846](https://github.com/ax-llm/ax/pull/846)).
+
+The fixes above apply to TypeScript. Generated-language follow-ups are recorded in the AxIR backlog.
+
 ## [25.4.2](https://github.com/ax-llm/ax/compare/25.4.1...25.4.2) (2026-10-17)
 
 ### Features

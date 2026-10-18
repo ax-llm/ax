@@ -156,6 +156,7 @@ for await (const chunk of stream) {
 
 - Each chunk is `{ version, index, delta }`. Merge deltas per `index` (strings and arrays append, other values replace), and discard what you merged when `version` changes.
 - A new version starts on a validation or refusal retry, and when a later step replaces output an earlier step already emitted (for example after a field processor's feedback); the thought so far is re-emitted in the new version. Versions never decrease.
+- In TypeScript, partial JSON repair preserves string text such as `, t`, `, n`, trailing punctuation, and commas before brackets inside strings. Structural repair applies outside strings so these fragments do not change into literals or repeat in merged deltas.
 - A streamed `code` field drops its fences wherever the chunks split: a fence that may still be incomplete is held back, as a partial label is, so the merged deltas equal the non-streaming value.
 
 ## Stopping And Cancellation
