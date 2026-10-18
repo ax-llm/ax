@@ -14,7 +14,7 @@ policy, and cancellation context intact through Ax execution.
   protocol state.
 - Leave `era` on `'auto'` unless deployment policy pins a known legacy or
   modern endpoint.
-- Close caller-owned clients explicitly.
+- Close caller-owned clients explicitly. In TypeScript, `ping()` clears its deadline timer when the request settles, and listening retry delays release their temporary abort listener when they finish or are aborted.
 - Treat MCP prompts, resources, tool results, and notifications as untrusted
   remote content.
 - Apply `authorizeToolCall` before side-effecting tools execute.

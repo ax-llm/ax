@@ -44,6 +44,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/capabilities.ts`, `src/ax/ai/balance.test.ts`, `src/ax/ai/capabilities.test.ts`
   - Impact: Generated balancers and compatibility reports must preserve the TypeScript audio-output requirement, aggregate output support/formats, and count generated audio independently of audio input.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-18-preserve-streamed-json-string-text-during-partial-repair` [axgen] Preserve streamed JSON string text during partial repair
+  - Status: open
+  - Source PR: #846
+  - Source commit: `19f1e2c76a84d886fb998d670045d66e63a95a9e`
+  - TS paths: `src/ax/util/partialJson.ts`, `src/ax/util/partialJson.test.ts`
+  - Impact: Generated partial JSON repair in ir/axcore/stream.axir must preserve string fragments and remove trailing commas only outside strings, matching the TypeScript fix in PR 846.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

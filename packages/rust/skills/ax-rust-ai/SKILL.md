@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-ai"
 description: "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers."
-version: "25.4.2"
+version: "25.4.3"
 ---
 # AxAI Providers For Rust
 
