@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AxMCPClient } from './client.js';
@@ -2376,5 +2377,95 @@ describe('AxMCPClient full consumer primitives', () => {
         'mcp.retry_count': 2,
       },
     });
+  });
+});
+
+describe('AxMCPClient timers and abort listeners', () => {
+  it('ping() does not leave its timeout timer running after the server answers', async () => {
+    const transport = new FakeTransport();
+    transport.sendResponses.initialize = {
+      jsonrpc: '2.0',
+      id: 'init-id',
+      result: { protocolVersion: '2025-11-25', capabilities: {} },
+    };
+    transport.sendResponses.ping = {
+      jsonrpc: '2.0',
+      id: 'ping-id',
+      result: {},
+    };
+    const client = new AxMCPClient(transport as unknown as AxMCPTransport, {
+      debug: false,
+    });
+    await client.init();
+
+    vi.useFakeTimers();
+    try {
+      await client.ping(3000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('listeningDelay() removes its abort listener when the delay elapses', async () => {
+    const transport = new FakeTransport();
+    const client = new AxMCPClient(transport as unknown as AxMCPTransport, {
+      debug: false,
+    });
+    const controller = new AbortController();
+    const delay = (
+      client as unknown as {
+        listeningDelay(ms: number, signal: AbortSignal): Promise<void>;
+      }
+    ).listeningDelay.bind(client);
+
+    for (let i = 0; i < 12; i++) {
+      await delay(1, controller.signal);
+    }
+
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('listeningDelay() still ends early when the signal aborts', async () => {
+    const transport = new FakeTransport();
+    const client = new AxMCPClient(transport as unknown as AxMCPTransport, {
+      debug: false,
+    });
+    const controller = new AbortController();
+    const pending = (
+      client as unknown as {
+        listeningDelay(ms: number, signal: AbortSignal): Promise<void>;
+      }
+    ).listeningDelay(60_000, controller.signal);
+
+    controller.abort();
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('listeningDelay() clears its timer when the signal aborts', async () => {
+    const transport = new FakeTransport();
+    const client = new AxMCPClient(transport as unknown as AxMCPTransport, {
+      debug: false,
+    });
+    const controller = new AbortController();
+
+    vi.useFakeTimers();
+    try {
+      const pending = (
+        client as unknown as {
+          listeningDelay(ms: number, signal: AbortSignal): Promise<void>;
+        }
+      ).listeningDelay(60_000, controller.signal);
+      expect(vi.getTimerCount()).toBe(1);
+
+      controller.abort();
+
+      await expect(pending).resolves.toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

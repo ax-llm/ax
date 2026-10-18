@@ -3489,6 +3489,25 @@
       "verification": null
     },
     {
+      "id": "axir-2026-10-14-port-mcp-client-ping-timer-and-listening-delay-cleanup",
+      "status": "open",
+      "title": "Port MCP client ping timer and listening delay cleanup",
+      "createdAt": "2026-10-14",
+      "sourcePR": 847,
+      "sourceCommit": "be1ada76bc7c9540ab2eb7d94289118038a1a2df",
+      "tsPaths": ["src/ax/mcp/client.ts", "src/ax/mcp/client.test.ts"],
+      "portableSurface": "axmcp",
+      "impact": "AxMCPClient.ping() now clears its timeout timer and listeningDelay() removes its abort listener when the delay elapses; the AxIR ports of the MCP client should mirror this",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting",
       "status": "open",
       "title": "Audio output capability routing and compatibility accounting",

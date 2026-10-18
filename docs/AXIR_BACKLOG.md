@@ -30,6 +30,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
   - Impact: Generated evaluation helpers must match the TypeScript metric's history and stopword exclusions, multiset overlap, recall, and finite empty-input convention.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-14-port-mcp-client-ping-timer-and-listening-delay-cleanup` [axmcp] Port MCP client ping timer and listening delay cleanup
+  - Status: open
+  - Source PR: #847
+  - Source commit: `be1ada76bc7c9540ab2eb7d94289118038a1a2df`
+  - TS paths: `src/ax/mcp/client.ts`, `src/ax/mcp/client.test.ts`
+  - Impact: AxMCPClient.ping() now clears its timeout timer and listeningDelay() removes its abort listener when the delay elapses; the AxIR ports of the MCP client should mirror this
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting` [axai] Audio output capability routing and compatibility accounting
   - Status: open
   - Source PR: #857
