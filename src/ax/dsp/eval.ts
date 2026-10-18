@@ -109,7 +109,8 @@ function f1Score(prediction: string, groundTruth: string): number {
  * @param prediction The predicted text.
  * @param groundTruth The actual correct text.
  * @param returnRecall Optionally return the recall score instead of F1.
- * @returns The novel F1 or recall score as a number.
+ * @returns The novel F1 or recall score. Two empty filtered inputs score 1;
+ * a single empty filtered input scores 0.
  */
 function novelF1ScoreOptimized(
   history: string,
@@ -122,17 +123,32 @@ function novelF1ScoreOptimized(
   let predictionTokens = normalizeText(prediction).split(' ');
   let groundTruthTokens = normalizeText(groundTruth).split(' ');
 
-  // Combine stopwords and history tokens for exclusion
-  const exclusions = new Set([...stopwords, ...historyTokens]);
+  // Exclude stopwords, history tokens, and empty normalized tokens.
+  const exclusions = new Set([...stopwords, ...historyTokens, '']);
 
   // Filter prediction and ground truth tokens against the exclusions
   predictionTokens = filterTokens(predictionTokens, exclusions);
   groundTruthTokens = filterTokens(groundTruthTokens, exclusions);
 
-  // Proceed with calculating common tokens, precision, recall, and F1 score as previously outlined
+  if (predictionTokens.length === 0 || groundTruthTokens.length === 0) {
+    return predictionTokens.length === groundTruthTokens.length ? 1 : 0;
+  }
 
-  // Placeholder for the calculation logic
-  const numSame = 0; // This should be calculated as before
+  const predictionCounts = new Map<string, number>();
+  const groundTruthCounts = new Map<string, number>();
+  for (const token of predictionTokens) {
+    predictionCounts.set(token, (predictionCounts.get(token) ?? 0) + 1);
+  }
+  for (const token of groundTruthTokens) {
+    groundTruthCounts.set(token, (groundTruthCounts.get(token) ?? 0) + 1);
+  }
+  let numSame = 0;
+  for (const [token, count] of predictionCounts) {
+    numSame += Math.min(count, groundTruthCounts.get(token) ?? 0);
+  }
+  if (numSame === 0) {
+    return 0;
+  }
   const precision = numSame / predictionTokens.length;
   const recall = numSame / groundTruthTokens.length;
   const f1 = (2 * precision * recall) / (precision + recall);
