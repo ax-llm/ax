@@ -343,7 +343,7 @@ export class AxBalancer<
         new Set([...features.media.audio.formats, ...f.media.audio.formats])
       );
       const output = f.media.audio.output;
-      if (output) {
+      if (output?.supported) {
         features.media.audio.output ??= { supported: false, formats: [] };
         features.media.audio.output.supported ||= output.supported;
         features.media.audio.output.formats = Array.from(

@@ -23,6 +23,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-10-18-novel-f1-token-overlap-and-finite-empty-input-scores` [axgen] Novel F1 token overlap and finite empty-input scores
+  - Status: open
+  - Source PR: #856
+  - Source commit: `826d1b142070f4dc07b68069c3f41996258a4847`
+  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
+  - Impact: Generated evaluation helpers must match the TypeScript metric's history and stopword exclusions, multiset overlap, recall, and finite empty-input convention.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting` [axai] Audio output capability routing and compatibility accounting
   - Status: open
   - Source PR: #857

@@ -3470,6 +3470,25 @@
       "verification": "41 TypeScript-derived image and Box regressions and 1956 conformance cases pass across Python, Java, C++, Go and Rust. Native typed APIs, PNG/JPEG references, experimental headers, Box schemas, evidence, refusal handling, streaming and Decisions rejection are covered. All five public localization examples pass against live Jev 1.14.0. Full TypeScript checks pass with 3937 tests and one skip; 72 CI compiler tests, fixture synchronization, generated package freshness, provider profiles and the 1992-page website checks pass."
     },
     {
+      "id": "axir-2026-10-18-novel-f1-token-overlap-and-finite-empty-input-scores",
+      "status": "open",
+      "title": "Novel F1 token overlap and finite empty-input scores",
+      "createdAt": "2026-10-18",
+      "sourcePR": 856,
+      "sourceCommit": "826d1b142070f4dc07b68069c3f41996258a4847",
+      "tsPaths": ["src/ax/dsp/eval.ts", "src/ax/dsp/eval.test.ts"],
+      "portableSurface": "axgen",
+      "impact": "Generated evaluation helpers must match the TypeScript metric's history and stopword exclusions, multiset overlap, recall, and finite empty-input convention.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting",
       "status": "open",
       "title": "Audio output capability routing and compatibility accounting",

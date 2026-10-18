@@ -177,4 +177,58 @@ describe('parsePartialJson', () => {
       expect(result.partialMarker!.nestingLevel).toBe(3);
     });
   });
+  describe('a cut inside a string value', () => {
+    const final = 'First, the plan. Second, no change; then, finally, nothing.';
+    const json = JSON.stringify({ text: final });
+
+    it('keeps the text of the string instead of completing a word into true, false or null', () => {
+      expect(parsePartialJson('{"text": "First, t').parsed).toEqual({
+        text: 'First, t',
+      });
+      expect(parsePartialJson('{"text": "First, f').parsed).toEqual({
+        text: 'First, f',
+      });
+      expect(parsePartialJson('{"text": "First, n').parsed).toEqual({
+        text: 'First, n',
+      });
+      expect(parsePartialJson('{"text": "x, nul').parsed).toEqual({
+        text: 'x, nul',
+      });
+    });
+
+    it('keeps a trailing comma, dot or exponent sign that is part of the text', () => {
+      expect(parsePartialJson('{"text": "a,').parsed).toEqual({ text: 'a,' });
+      expect(parsePartialJson('{"text": "v1.').parsed).toEqual({ text: 'v1.' });
+      expect(parsePartialJson('{"text": "2e+').parsed).toEqual({ text: '2e+' });
+      expect(parsePartialJson('{"text": "key:').parsed).toEqual({
+        text: 'key:',
+      });
+    });
+
+    it('yields, at every cut, a string that is a prefix of the final value', () => {
+      for (let n = 1; n <= json.length; n++) {
+        const parsed = parsePartialJson(json.slice(0, n)).parsed as {
+          text?: string;
+        } | null;
+        if (typeof parsed?.text === 'string') {
+          expect(final.startsWith(parsed.text), `cut ${n}`).toBe(true);
+        }
+      }
+    });
+
+    it('does not drop commas that are text inside a complete string', () => {
+      expect(
+        parsePartialJson('{"code": "x = [1, 2, ]; y = {a, }", "n": 1').parsed
+      ).toEqual({ code: 'x = [1, 2, ]; y = {a, }', n: 1 });
+    });
+
+    it('still repairs structure outside strings', () => {
+      expect(parsePartialJson('{"a": [1, 2, ]').parsed).toEqual({ a: [1, 2] });
+      expect(parsePartialJson('{"a": true, "b": t').parsed).toEqual({
+        a: true,
+        b: true,
+      });
+      expect(parsePartialJson('{"a": 1.').parsed).toEqual({ a: 1 });
+    });
+  });
 });

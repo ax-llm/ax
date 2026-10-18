@@ -761,6 +761,7 @@ describe('AxBalancer audio output requirements', () => {
       new AudioOutputService('wav', false, true, ['wav']),
       new AudioOutputService('mp3', false, true, ['wav', 'mp3']),
       new AudioOutputService('unknown', false, undefined),
+      new AudioOutputService('unsupported', false, false, ['flac']),
     ]);
     expect(balancer.getFeatures().media.audio).toEqual({
       supported: false,
@@ -769,9 +770,10 @@ describe('AxBalancer audio output requirements', () => {
     });
   });
 
-  test('leaves output metadata absent when no service advertises it', () => {
+  test('leaves output metadata absent when no service supports it', () => {
     const balancer = new AxBalancer([
       new AudioOutputService('unknown', true, undefined),
+      new AudioOutputService('unsupported', true, false, ['flac']),
     ]);
     expect(balancer.getFeatures().media.audio.output).toBeUndefined();
   });
