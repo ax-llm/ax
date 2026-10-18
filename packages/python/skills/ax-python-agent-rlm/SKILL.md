@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent-rlm"
 description: "Use when writing Python code with `axllm` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles."
-version: "25.3.2"
+version: "25.4.2"
 ---
 # AxAgent RLM Runtime For Python
 

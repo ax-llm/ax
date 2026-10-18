@@ -1,51 +1,38 @@
 ---
 name: "ax-cpp-llm"
 description: "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.3.2"
+version: "25.4.2"
 ---
-# Ax LLM Quick Reference For C++
+# Ax For C++
 
-This skill helps an agent write C++ code with the generated Ax package `axllm`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+Use this entry point when working with `axllm`. Read the guides relevant to the task before writing code. The guides are bundled locally; no additional skill installation is needed. Load more guides when a task crosses into another area.
 
-## When To Use
+## Choose A Guide
 
-- Start a generated-language Ax program from package docs or examples.
-- Translate the Ax mental model into the target package without TypeScript-only imports.
-- Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
-- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
+| Task | Read |
+| --- | --- |
+| Start a program, choose native factories, or find package docs and examples | [Quick reference](references/quickstart.md) |
+| provider clients and model routing | [AxAI Providers](references/ax-cpp-ai.md) |
+| decision signatures and native questions | [Typesafe / Jev](references/ax-cpp-typesafe.md) |
+| audio and realtime provider mappings | [Ax Audio And Realtime](references/ax-cpp-audio.md) |
+| signatures, fields, schemas, and validation | [Ax Signatures](references/ax-cpp-signature.md) |
+| structured generation and tools | [AxGen Structured Generation](references/ax-cpp-gen.md) |
+| RLM agents and tools | [AxAgent](references/ax-cpp-agent.md) |
+| runtime sessions and actor-code execution | [AxAgent RLM Runtime](references/ax-cpp-agent-rlm.md) |
+| memory, recall, and dynamic skill loading | [AxAgent Memory And Skills](references/ax-cpp-agent-memory-skills.md) |
+| traces, logs, usage, and diagnostics | [AxAgent Observability](references/ax-cpp-agent-observability.md) |
+| agent evaluation and optimization artifacts | [AxAgent Optimize](references/ax-cpp-agent-optimize.md) |
+| choosing context maps, policy, optimization, and recall | [AxAgent Context Selection](references/ax-cpp-agent-context.md) |
+| workflow graphs and orchestration | [AxFlow](references/ax-cpp-flow.md) |
+| Pareto optimization and prompt evolution | [Ax GEPA](references/ax-cpp-gepa.md) |
+| evolving context playbooks | [Ax Playbook](references/ax-cpp-playbook.md) |
+| candidate improvement and evaluation feedback | [Ax Refinement Patterns](references/ax-cpp-refine.md) |
 
-## Package Facts
+For an agent with persistent recall, read the agent and memory guides. For a provider-backed workflow, read the AI, generation, and flow guides.
 
-- Language: C++.
-- Package: `axllm`.
-- Package API docs: `API.md` and `axir-api.json`.
-- Capability manifest: `axir-capabilities.json`.
-- Runnable examples: `examples/`.
-- Real network support: yes.
-- Scripted no-key transport support: yes.
-- Runtime profiles: `javascript-quickjs`, `python-pyodide`.
+## Essential Conventions
 
-## Core Pattern
-
-```cpp
-#include "axllm/axllm.hpp"
-
-auto llm = axllm::ai("openai", { {"apiKey", std::getenv("OPENAI_API_KEY")} });
-```
-
-## Relevant API Surface
-
-- Signatures: `axllm::s`, `axllm::FieldType`, `axllm::AxSignature`
-- AxGen: `axllm::ax`, `axllm::AxGen`, `axllm::run_control`, `axllm::AxRunControl`, `axllm::AxCachingFunction`, `axllm::set_caching_function`
-- AxAI: `axllm::ai`, `axllm::openai_decisions`, `axllm::AxAIOpenAIDecisionsClient`, `axllm::typesafe`, `axllm::AxAITypesafeClient`, `axllm::AxCancellationToken`, `axllm::AxAIServiceAbortedError`, `axllm::get_supported_ai_models`, `axllm::AxCredentialRequest`, `axllm::AxCredentialProvider`, `axllm::AIClient::owned_worker_factory`, `axllm::AxChatSession`, `axllm::AxStreamHandler`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxUsageContext`, `axllm::AxUsageEvent`, `axllm::AxUsageObserver`, `axllm::set_usage_observer`, `axllm::AxRuntimeHooks`, `axllm::AxRateLimitInfo`, `axllm::AxRateLimiter`, `axllm::AxTracer`, `axllm::AxMeter`, `axllm::AxGlobals`, `axllm::set_rate_limiter`, `axllm::set_tracer`, `axllm::set_meter`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
-- Agents And RLM: `axllm::agent`, `axllm::AxAgent`, `axllm::AxAgent::add_child_agent`, `axllm::AxAgent::streaming_forward`
-- Flow: `axllm::flow`, `axllm::AxFlow`, `axllm::AxProgram::owned_worker_factory`
-- Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
-
-## Guardrails
-
-- Start from package examples for exact native syntax before inventing a new call shape.
-- Use `provider-api` examples only when the user explicitly has provider credentials available.
-- Use `no-key` examples for deterministic local checks and provider request mapping.
-- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
-- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- Use this language's native package API and examples; TypeScript call shapes are not interchangeable.
+- Check the installed package version against the guide version before using an API from another release.
+- Start with a focused guide. Use the package's `API.md`, `axir-api.json`, and `axir-capabilities.json` for exact signatures and supported surfaces.
+- Specialist skills remain optional when separate skill entries are useful.

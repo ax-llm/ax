@@ -24,6 +24,7 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.math.abs":                "core_math_abs",
 	"intrinsic.string.codepoint_length": "core_string_codepoint_length",
 	"intrinsic.string.utf16_units":      "core_string_utf16_units",
+	"intrinsic.string.utf8_length":      "core_string_utf8_length",
 	"intrinsic.math.is_finite":          "core_math_is_finite",
 	"intrinsic.math.floor":              "core_math_floor",
 	"intrinsic.math.log":                "core_math_log",

@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'dev.axllm'
-version = '25.3.2'
+version = '25.4.2'
 
 java {
   toolchain {
@@ -22,7 +22,7 @@ sourceSets {
     resources {
       srcDirs = ['.']
       include 'axir-capabilities.json'
-      include 'skills/**/SKILL.md'
+      include 'skills/**/*.md'
     }
   }
 }

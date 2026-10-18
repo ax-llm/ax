@@ -1,6 +1,6 @@
 [package]
 name = "axllm"
-version = "25.3.2"
+version = "25.4.2"
 edition = "2021"
 rust-version = "1.74"
 description = "Generated Ax runtime library"

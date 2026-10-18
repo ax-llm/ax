@@ -1,0 +1,36 @@
+{
+  "name": "box-elicited",
+  "kind": "forward",
+  "signature": "query:string -> target:box(evidence)",
+  "input": {
+    "query": "Locate"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"target\":{\"box\":{\"bottom\":0.8,\"left\":0.1,\"right\":0.7,\"top\":0.2}}}"
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "target": {
+      "value": {
+        "bottom": 0.8,
+        "left": 0.1,
+        "right": 0.7,
+        "top": 0.2
+      },
+      "provenance": {
+        "source": "elicited",
+        "provider": "AI"
+      }
+    }
+  },
+  "expected_request_count": 1
+}

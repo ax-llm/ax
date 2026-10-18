@@ -1,0 +1,136 @@
+# Ax Signatures For Java
+
+This skill helps an agent write Java code with the generated Ax package `dev.axllm:ax`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+
+## When To Use
+
+- Declare input and output contracts with native generated-package APIs.
+- Generate JSON-schema-compatible shapes for outputs, tools, prompts, and validation.
+- Keep Standard Schema and TypeScript-only helper libraries out of generated-language code.
+
+## Package Facts
+
+- Language: Java.
+- Package: `dev.axllm:ax`.
+- Package API docs: `API.md` and `axir-api.json`.
+- Capability manifest: `axir-capabilities.json`.
+- Runnable examples: `examples/`.
+- Real network support: yes.
+- Scripted no-key transport support: yes.
+- Runtime profiles: `javascript-quickjs`, `python-pyodide`.
+
+## Core Pattern
+
+```java
+import dev.axllm.ax.*;
+
+AxSignature sig = Ax.s("question:string -> answer:string");
+var schema = sig.toJsonSchema("outputs", java.util.Map.of());
+```
+
+## More Patterns
+
+### Simple string contract
+
+Use the string form when field names and types are enough.
+
+```java
+AxGen program = Ax.ax("questionText:string -> answerText:string");
+```
+
+### Bounded class output
+
+A class field constrains the model to a known label set.
+
+```java
+AxGen router = Ax.ax(
+    "messageText:string -> routeClass:class \"support, sales, engineering\"");
+```
+
+### Fluent constraints
+
+Java exposes the native fluent builder for validation constraints and objects.
+
+```java
+AxSignature signature = Ax.f().call()
+    .input("contactEmail", Ax.f().string("Contact email").email())
+    .output("partySize", Ax.f().number("Guests").min(1).max(12))
+    .output("bookingCode", Ax.f().string().regex("^[A-Z]{3}-\\d{4}$", "ABC-1234"))
+    .build();
+```
+
+### JSON schema
+
+Render the output contract for tools, validators, or external consumers.
+
+```java
+var schema = signature.toJsonSchema("outputs", java.util.Map.of());
+```
+
+### Reuse the signature
+
+Pass one built signature into AxGen and call it like any other program.
+
+```java
+AxGen program = Ax.ax(signature);
+var output = program.forward(client, inputs);
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/java/subsystems/s/.
+
+## Decision evidence
+
+Add (evidence) to boolean/class/score/box signature outputs to retain probabilities, values, provenance, and native class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
+
+Native selected classes and continuous scores are preserved, even when they differ from argmax or a weighted mean. Generative providers elicit probabilities, derive values locally, omit confidence, and use provenance.source=elicited. Ax attaches actual provider/model provenance. The result shape does not make confidence or calibration comparable across models.
+
+By default a decision refusal raises a terminal AxDecisionRefusalError without correction retries. Use (evidence, refusal return) for an answered/refused union. Generated-language error envelopes retain the decision error type. Arrays, optional fields and nested evidence work with generative models; native providers require flat required scalar fields. Streaming emits only complete evidence. Label-only examples never manufacture distributions.
+
+For reranking, evaluate query/document pairs with the same score rubric, retain candidate IDs outside the model, and sort by relevance.value. Runnable decision-evidence examples are under src/examples/java/generation/.
+
+## Typesafe / Jev
+
+The typesafe provider supports required boolean, class, ordered rubric score, and box outputs. Use score "Low, Medium, High" to declare a rubric. Numeric bounds never define a Score rubric; ordinary numbers, freeform strings, optional outputs, output arrays, nested outputs, audio, tools, and sampling controls are rejected before transport.
+
+Set provider trueThreshold (or true_threshold) to a finite value in [0,1], default 0.5. Boolean conversion uses noul >= threshold; this policy is local and never sent. Choice returns the selected label without a confidence cutoff.
+
+Use boolean(true "Core task blocked", false "Routine request") and class label descriptions for criteria. Fluent describe_values / describeValues / DescribeValues keeps the same field value type. C++ uses valueDescriptions on its existing field descriptors. Other providers receive readable prompt and schema descriptions.
+
+The separate native client exposes system_one / systemOne / SystemOne and list_models / listModels / ListModels. Native probabilities remain unchanged. Score returns a fractional zero-based rubric position: convert scales explicitly in application code. Entries may be text, structured JSON objects/arrays, or null. Choice allows 1–255 labels; Score requires 2–10 rubric levels. The service context limit covers state, questions, and criteria; Ax never truncates or pretends to count native tokens exactly.
+
+Choice and Score probabilities must be finite values in [0,1], match the criteria keys, and sum to one within an inclusive 0.01 tolerance. Totals of 0.99 and 1.01 are accepted with an allowance for floating-point summation error. Ax preserves the returned probabilities without renormalizing them.
+
+Image localization uses photo:image -> visible:boolean, target:box(evidence). Inputs accept PNG/JPEG base64 in {mimeType, data}; native requests use assets keyed by unique references appearing in string values of state, instructions, or criteria. Ax preserves image order and sends TypeSafe-Danger-Zone-Images: true. Use jev-1.14.0 or jev-preview for experimental Box support. A Box always exists even when the target is absent; check a presence boolean before consuming it.
+
+Box edges are normalized top, bottom, left, right in [0,1], with top < bottom and left < right. Plain box fields return coordinates; evidence adds value, provenance, and native confidence when supplied. Generative vision providers use the same validated schema with elicited provenance and no invented confidence. OpenAI Decisions accepts images for boolean/class/score questions and rejects native Box outputs before transport.
+
+Native Box questions require instructions and an image asset and omit criteria. Rust keeps existing TypesafeRequest literals and adds assets with request.with_assets(...). Image assets use format png/jpg/jpeg and data_base64; multipart uploads are unsupported. Every reference must occur in a string value, never only an object key. Ax enforces 16 MiB per decoded image, 32 MiB per request and reference byte limits. Jev enforces 256–1568 pixels per side and at least 78,400 pixels; Ax does not resize images. Runnable localization examples are under src/examples/java/generation/.
+
+The default model is jev-latest. Use API keys or renewable credential callbacks, the shared HTTP transport, retry settings, timeout, and cancellation. Native model discovery is separate from configured Ax model aliases. Typed native answers retain question names; only TypeScript can infer literal question keys and Choice-label unions at compile time. Other languages use their native typed maps/records/enums.
+
+Typesafe-only balancers propagate the output-schema requirement. Mixed pools retain ordinary prompts and select Typesafe only when the actual request already has a supported schema. Unsupported requests remain excluded during fallback and degradation. Typesafe has no token streaming; the provider returns one completed result through its stream interface.
+
+Runnable signature, native criteria/scoring, and two-program hybrid examples are under src/examples/java/generation/. See https://axllm.dev/java/examples/generation/.
+
+## OpenAI Decisions
+
+The openai-decisions provider uses /v1/decisions with gpt-6-luna by default. Required boolean fields become predicates; required class fields become choices; score fields become labelled native rubrics. Use normal AxGen signatures with (evidence) to retain probabilities, provider-selected values, native confidence, and trusted provenance; use (evidence, refusal return) for an answered/refused union. See the Typesafe/Jev skill for decision evidence and reranking across both providers. trueThreshold (or true_threshold) defaults to 0.5, is finite in [0,1], and uses an inclusive comparison. Field value descriptions become criteria instructions or choice descriptions. Raw answers remain in providerMetadata.openaiDecisions.answers; usage uses existing program APIs.
+
+Use `Ax.openaiDecisions` for explicit provider request shapes and native JSON input. Its create operation (Go: Create) accepts input and an ordered questions array. Each question has string instructions and an optional unique string name; unnamed answers retain name: null. Predicate returns probability. Choice requires 2-255 string or boolean choices and returns choice, confidence, and probabilities. Score requires 2-10 explicitly labelled levels and returns a fractional zero-based score, confidence, and probabilities. Handle type: refusal before accessing answer values. Preserve full model, answer order, and usage.
+
+Core validates response names, kinds, rubric membership, finite bounds, and distributions summing to one within an inclusive 0.01 tolerance. Probabilities are never normalized. Native input is text or user messages containing input_text and inline input_image data URLs (up to 128 images). Hosted image URLs, audio, non-user roles, and tool items are rejected. Signature prompt/history becomes role-labelled text evidence in one user message. Numeric bounds never define a score rubric; optional, numeric, nested, array, freeform, tool, and sampling requests are rejected before transport.
+
+Use api_key/apiKey or renewable credential providers with shared timeout, retry, and cancellation. Fresh credential headers override static/custom headers case-insensitively on every attempt. Inherited and per-call cancellation both apply. The endpoint returns a completed result without token streaming. Public signature and native examples are under src/examples/java/generation/.
+
+## Relevant API Surface
+
+- Signatures: `Ax.s`, `Ax.f`, `AxSignature`
+- Tools: `Ax.fn`, `Tool`
+
+## Guardrails
+
+- Start from package examples for exact native syntax before inventing a new call shape.
+- Use `provider-api` examples only when the user explicitly has provider credentials available.
+- Use `no-key` examples for deterministic local checks and provider request mapping.
+- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
+- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.

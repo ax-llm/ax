@@ -984,6 +984,7 @@ impl FieldType {
         _evidence_validate_type_impl(&[core_field_type_value(&self)?])?;
         Ok(self)
     }
+    pub fn box_() -> Self { Self::new("box") }
     pub fn score(levels: Vec<String>) -> Result<Self, AxError> {
         let mut result = Self::new("score"); result.options = Some(levels);
         _evidence_validate_type_impl(&[core_field_type_value(&result)?])?;
@@ -2846,6 +2847,10 @@ impl OpenAICompatibleClient {
         }
         headers = core_value_to_json(&provider_merge_headers(&[core_value_from_json(&Value::Object(headers)), core_value_from_json(descriptor.get("headers").unwrap_or(&json!({})))])?).as_object().cloned().unwrap_or_default();
         headers = core_value_to_json(&provider_merge_headers(&[core_value_from_json(&Value::Object(headers)), core_value_from_json(self.options.get("headers").unwrap_or(&json!({})))])?).as_object().cloned().unwrap_or_default();
+        if self.profile == "typesafe" {
+            let extra = core_value_to_json(&typesafe_image_headers(&[core_value_from_json(payload)])?);
+            headers = core_value_to_json(&provider_merge_headers(&[core_value_from_json(&Value::Object(headers)), core_value_from_json(&extra)])?).as_object().cloned().unwrap_or_default();
+        }
         let body_key = if operation_descriptor.get("body").and_then(Value::as_str) == Some("multipart") {
             "data"
         } else {
@@ -4301,15 +4306,33 @@ pub type OpenAIResponsesClient = OpenAICompatibleClient;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TypesafeQuestion {
+    Box { instructions: Value },
     Noul { #[serde(default, deserialize_with="typesafe_present_entry", skip_serializing_if = "Option::is_none")] instructions: Option<Value>, #[serde(default, skip_serializing_if = "Option::is_none")] criteria: Option<Map<String, Value>> },
     Choice { #[serde(default, deserialize_with="typesafe_present_entry", skip_serializing_if = "Option::is_none")] instructions: Option<Value>, criteria: Map<String, Value> },
     Score { #[serde(default, deserialize_with="typesafe_present_entry", skip_serializing_if = "Option::is_none")] instructions: Option<Value>, criteria: Vec<Value> },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AxBox { pub top: f64, pub bottom: f64, pub left: f64, pub right: f64 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypesafeImageAsset { pub format: String, pub data_base64: String, #[serde(default, skip_serializing_if="Option::is_none")] pub r#type: Option<String> }
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TypesafeRequest { pub state: Value, pub questions: std::collections::BTreeMap<String, TypesafeQuestion>, #[serde(default, skip_serializing_if = "Option::is_none")] pub model: Option<String> }
+/// A native request with image assets. Existing TypesafeRequest literals remain valid.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypesafeImageRequest {
+    #[serde(flatten)] pub request: TypesafeRequest,
+    #[serde(default, skip_serializing_if="BTreeMap::is_empty")] pub assets: BTreeMap<String,TypesafeImageAsset>,
+}
+impl TypesafeRequest {
+    pub fn with_assets(self, assets: BTreeMap<String,TypesafeImageAsset>) -> TypesafeImageRequest { TypesafeImageRequest { request:self, assets } }
+}
+impl From<TypesafeRequest> for TypesafeImageRequest {
+    fn from(request:TypesafeRequest)->Self { request.with_assets(BTreeMap::new()) }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TypesafeAnswer {
+    Box { r#box: AxBox, confidence: f64 },
     Noul { noul: f64 },
     Choice { choice: String, confidence: f64, probabilities: std::collections::BTreeMap<String, f64> },
     Score { score: f64, confidence: f64, probabilities: std::collections::BTreeMap<String, f64>, legend: Map<String, Value> },
@@ -4329,10 +4352,10 @@ pub fn typesafe(options: Value) -> AxResult<AxAITypesafeClient> { Ok(AxAITypesaf
 impl AxAITypesafeClient {
     pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self { self.client = self.client.with_transport(transport); self }
     pub fn with_credential_provider(mut self, provider: impl AxCredentialProvider + 'static) -> Self { self.client = self.client.with_credential_provider(provider); self }
-    pub fn system_one(&mut self, request: TypesafeRequest) -> AxResult<TypesafeResponse> { self.system_one_with_cancellation(request, None) }
-    pub fn system_one_with_cancellation(&mut self, request: TypesafeRequest, cancellation: Option<&AxCancellationToken>) -> AxResult<TypesafeResponse> {
+    pub fn system_one(&mut self, request: impl Into<TypesafeImageRequest>) -> AxResult<TypesafeResponse> { self.system_one_with_cancellation(request, None) }
+    pub fn system_one_with_cancellation(&mut self, request: impl Into<TypesafeImageRequest>, cancellation: Option<&AxCancellationToken>) -> AxResult<TypesafeResponse> {
         let _scope = match cancellation { Some(token) => Some(AxCancellationScope::enter(token)?), None => None };
-        let mut payload = serde_json::to_value(request)?;
+        let mut payload = serde_json::to_value(request.into())?;
         if payload.get("model").is_none() { payload["model"] = json!(self.client.model); }
         typesafe_validate_request(&[core_value_from_json(&payload)])?;
         let raw = self.request("chat", &payload)?;
@@ -11604,7 +11627,7 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
                 if fixture["operation"]=="models"{return Ok(serde_json::to_value(client.list_models()?)?)}
                 // Keep runtime validation as the oracle for invalid union tags and shapes.
                 typesafe_validate_request(&[core_value_from_json(&fixture["request"])])?;
-                Ok(serde_json::to_value(client.system_one(serde_json::from_value(fixture["request"].clone())?)?)?)
+                Ok(serde_json::to_value(client.system_one(serde_json::from_value::<TypesafeImageRequest>(fixture["request"].clone())?)?)?)
             })();
             if fixture.get("expected_error_contains").is_some(){expect_validation_result(result.map(|_|()),&fixture)?;}
             else{expect_json_equal("native Typesafe output",&result?,&fixture["expected_output"])?;}
@@ -11785,10 +11808,11 @@ fn run_signature_error_fixture(fixture: &Value) -> AxResult<()> {
 fn run_json_schema_fixture(fixture: &Value) -> AxResult<()> {
     let sig = build_fixture_signature(fixture)?;
     let target = fixture.get("target").and_then(Value::as_str).unwrap_or("outputs");
-    let schema = sig.to_json_schema_with_options(
-        target,
-        fixture.get("schema_options").unwrap_or(&Value::Null),
-    );
+    // Fixtures pin TypeScript toJsonSchema (request mode). Public Signature
+    // schema methods deliberately default to the decoded result contract.
+    let mut options=json!({"decisionMode":"request"});
+    if let Some(extra)=fixture.get("schema_options").and_then(Value::as_object){options.as_object_mut().unwrap().extend(extra.clone());}
+    let schema = sig.to_json_schema_with_options(target, &options);
     if let Some(expected) = fixture.get("expected_schema") {
         expect_json_equal("json schema", &schema, expected)?;
     }
@@ -20544,6 +20568,10 @@ fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
     }
 }
 
+fn core_string_utf8_length(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let bytes=core_arg(args,0).text().chars().map(|ch|if lone_surrogate_unit(ch).is_some(){3}else{ch.len_utf8()}).sum::<usize>();
+    Ok(CoreValue::Num(bytes as f64))
+}
 fn core_string_utf16_units(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     // A lone surrogate's mark is the one UTF-16 unit it stands for.
     let mut units = Vec::new();
@@ -28138,6 +28166,20 @@ fn request_retry_wait(config: &Value, attempt: i64, error: &AxError, retry_after
 #[cfg(test)]
 mod typesafe_native_tests {
     use super::*;
+    #[test]
+    fn image_box_typed_api()->AxResult<()> {
+        let transport=TestTransport(|call:Value|{
+            assert_eq!(call["headers"]["TypeSafe-Danger-Zone-Images"],"true");
+            Ok(json!({"model":"jev-1.14.0","answers":{"target":{"type":"box","box":{"top":0.2,"bottom":0.8,"left":0.1,"right":0.7},"confidence":0}},"usage":{"input_tokens":1,"output_tokens":1}}))
+        });
+        let request=TypesafeRequest{state:json!("photo"),model:None,questions:BTreeMap::from([("target".into(),TypesafeQuestion::Box{instructions:json!("Find it in photo")})])}
+            .with_assets(BTreeMap::from([("photo".into(),TypesafeImageAsset{format:"png".into(),data_base64:"AAAA".into(),r#type:None})]));
+        let mut client=typesafe(json!({"api_key":"test"}))?.with_transport(transport);
+        let response=client.system_one(request)?;
+        match &response.answers["target"] {TypesafeAnswer::Box{r#box,confidence}=>{assert_eq!(r#box.top,0.2);assert_eq!(*confidence,0.0)},_=>panic!("expected typed Box")}
+        FieldType::box_().with_evidence(Map::new())?;
+        Ok(())
+    }
     #[test]
     fn decisions_native_and_adapter_credentials_retry_cancellation()->AxResult<()> {
         for native in [true,false] {

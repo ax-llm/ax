@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-ai"
 description: "Use when writing Rust code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers."
-version: "25.3.2"
+version: "25.4.2"
 ---
 # AxAI Providers For Rust
 
@@ -39,7 +39,7 @@ let llm = ai("openai", options)?;
 
 ## Decision evidence
 
-Add (evidence) to boolean/class/score signature outputs to retain probabilities, values, provenance, and native class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
+Add (evidence) to boolean/class/score/box signature outputs to retain probabilities, values, provenance, and native class/score confidence through AxGen. Boolean threshold 0.7 is local to that field; scalar fields still use provider trueThreshold. A plain score returns a continuous zero-based rubric index.
 
 Native selected classes and continuous scores are preserved, even when they differ from argmax or a weighted mean. Generative providers elicit probabilities, derive values locally, omit confidence, and use provenance.source=elicited. Ax attaches actual provider/model provenance. The result shape does not make confidence or calibration comparable across models.
 
@@ -49,7 +49,7 @@ For reranking, evaluate query/document pairs with the same score rubric, retain 
 
 ## Typesafe / Jev
 
-The typesafe provider supports required boolean, class, and ordered rubric score outputs. Use score "Low, Medium, High" to declare a rubric. Numeric bounds never define a Score rubric; ordinary numbers, freeform strings, optional outputs, arrays, nesting, media, tools, and sampling controls are rejected before transport.
+The typesafe provider supports required boolean, class, ordered rubric score, and box outputs. Use score "Low, Medium, High" to declare a rubric. Numeric bounds never define a Score rubric; ordinary numbers, freeform strings, optional outputs, output arrays, nested outputs, audio, tools, and sampling controls are rejected before transport.
 
 Set provider trueThreshold (or true_threshold) to a finite value in [0,1], default 0.5. Boolean conversion uses noul >= threshold; this policy is local and never sent. Choice returns the selected label without a confidence cutoff.
 
@@ -58,6 +58,12 @@ Use boolean(true "Core task blocked", false "Routine request") and class label d
 The separate native client exposes system_one / systemOne / SystemOne and list_models / listModels / ListModels. Native probabilities remain unchanged. Score returns a fractional zero-based rubric position: convert scales explicitly in application code. Entries may be text, structured JSON objects/arrays, or null. Choice allows 1–255 labels; Score requires 2–10 rubric levels. The service context limit covers state, questions, and criteria; Ax never truncates or pretends to count native tokens exactly.
 
 Choice and Score probabilities must be finite values in [0,1], match the criteria keys, and sum to one within an inclusive 0.01 tolerance. Totals of 0.99 and 1.01 are accepted with an allowance for floating-point summation error. Ax preserves the returned probabilities without renormalizing them.
+
+Image localization uses photo:image -> visible:boolean, target:box(evidence). Inputs accept PNG/JPEG base64 in {mimeType, data}; native requests use assets keyed by unique references appearing in string values of state, instructions, or criteria. Ax preserves image order and sends TypeSafe-Danger-Zone-Images: true. Use jev-1.14.0 or jev-preview for experimental Box support. A Box always exists even when the target is absent; check a presence boolean before consuming it.
+
+Box edges are normalized top, bottom, left, right in [0,1], with top < bottom and left < right. Plain box fields return coordinates; evidence adds value, provenance, and native confidence when supplied. Generative vision providers use the same validated schema with elicited provenance and no invented confidence. OpenAI Decisions accepts images for boolean/class/score questions and rejects native Box outputs before transport.
+
+Native Box questions require instructions and an image asset and omit criteria. Rust keeps existing TypesafeRequest literals and adds assets with request.with_assets(...). Image assets use format png/jpg/jpeg and data_base64; multipart uploads are unsupported. Every reference must occur in a string value, never only an object key. Ax enforces 16 MiB per decoded image, 32 MiB per request and reference byte limits. Jev enforces 256–1568 pixels per side and at least 78,400 pixels; Ax does not resize images. Runnable localization examples are under src/examples/rust/generation/.
 
 The default model is jev-latest. Use API keys or renewable credential callbacks, the shared HTTP transport, retry settings, timeout, and cancellation. Native model discovery is separate from configured Ax model aliases. Typed native answers retain question names; only TypeScript can infer literal question keys and Choice-label unions at compile time. Other languages use their native typed maps/records/enums.
 

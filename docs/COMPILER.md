@@ -199,8 +199,27 @@ target is executable. `API.md` and `axir-api.json` are emitted from
 compiler-owned API metadata so package docs, future docs-site pages, and agent
 docs can consume the same source without scraping generated code.
 
-The npm-installed Claude Code skills in `@ax-llm/ax` stay focused on the
-TypeScript package. Generated Python, Java, C++, Go, and Rust API docs ship with
+The npm-installed Claude Code skill in `@ax-llm/ax` stays focused on the
+TypeScript package: automatic setup registers only `ax-llm`, whose compact
+index links to bundled local reference guides. From the consumer project root,
+`npx @ax-llm/ax skills-auto-install off` saves `ax.skills.autoInstall: false`
+in `package.json` to disable future automatic setup; `skills-auto-install on`
+restores it. The same setting can be added before the first installation.
+`AX_SKIP_SKILL_INSTALL=1` skips automatic setup for a single installation;
+CI environments skip it even if the saved setting is enabled. Manual `setup-claude`
+defaults to the same bundle, with `--all` or `--skill <name>` for optional
+specialists. Existing specialist installations are preserved and upgraded
+alongside the entry point; automatic setup adds no new specialist entries.
+Changing the preference leaves installed skills in place. Manual setup and
+removal work independently of the saved automatic setup preference.
+
+Each generated language similarly ships an `ax-<language>-llm` entry point
+with ordinary `references/*.md` guides and separately installable specialist
+skills. The compiler emits both from the same documentation. Website discovery
+indexes publish bundles as digest-verified archives so reference files travel
+with the entry point. Default website install commands select that one skill.
+
+Generated Python, Java, C++, Go, and Rust API docs ship with
 their package trees instead of being auto-installed into user projects as npm
 skills. The committed package output lives under `packages/python`,
 `packages/java`, `packages/cpp`, `packages/go`, and `packages/rust`; AxIR

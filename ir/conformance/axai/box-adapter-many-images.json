@@ -1,0 +1,282 @@
+{
+  "expected_output": {
+    "modelUsage": {
+      "ai": "Typesafe",
+      "model": "jev-1.14.0",
+      "tokens": {
+        "completionTokens": 4,
+        "promptTokens": 10,
+        "totalTokens": 14
+      }
+    },
+    "providerMetadata": {
+      "typesafe": {
+        "answers": {
+          "target": {
+            "box": {
+              "bottom": 0.8,
+              "left": 0.1,
+              "right": 0.7,
+              "top": 0.2
+            },
+            "confidence": 0.9,
+            "type": "box"
+          }
+        }
+      }
+    },
+    "results": [
+      {
+        "content": "{\"target\":{\"box\":{\"bottom\":0.8,\"left\":0.1,\"right\":0.7,\"top\":0.2}}}",
+        "decisionContext": {
+          "native": {
+            "target": {
+              "confidence": 0.9
+            }
+          },
+          "provenance": {
+            "model": "jev-1.14.0",
+            "provider": "Typesafe",
+            "source": "native"
+          }
+        },
+        "finishReason": "stop",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "assets": {
+        "ax-image-0-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-1-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-10-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-11-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-2-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-3-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-4-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-5-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-6-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-7-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-8-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        },
+        "ax-image-9-ref": {
+          "data_base64": "aGVsbG8=",
+          "format": "png",
+          "type": "image"
+        }
+      },
+      "model": "jev-1.14.0",
+      "questions": {
+        "target": {
+          "instructions": "target: Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right.",
+          "type": "box"
+        }
+      },
+      "state": {
+        "messages": [
+          {
+            "content": "ax-image-0-ref\nax-image-1-ref\nax-image-2-ref\nax-image-3-ref\nax-image-4-ref\nax-image-5-ref\nax-image-6-ref\nax-image-7-ref\nax-image-8-ref\nax-image-9-ref\nax-image-10-ref\nax-image-11-ref",
+            "role": "user"
+          }
+        ]
+      }
+    }
+  },
+  "expected_transport_request_count": 1,
+  "kind": "ai_chat",
+  "name": "box-adapter-many-images",
+  "provider": "typesafe",
+  "request": {
+    "model": "jev-1.14.0",
+    "chatPrompt": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          }
+        ]
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "type": "json_schema",
+      "schema": {
+        "name": "box",
+        "schema": {
+          "type": "object",
+          "title": "Schema",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "box": {
+                  "type": "object",
+                  "properties": {
+                    "top": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "bottom": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "left": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "right": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": ["top", "bottom", "left", "right"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["box"],
+              "additionalProperties": false,
+              "description": "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right."
+            }
+          },
+          "required": ["target"],
+          "additionalProperties": false
+        }
+      },
+      "decisionFields": {
+        "target": {
+          "type": "box",
+          "evidence": {}
+        }
+      }
+    }
+  },
+  "transport_responses": [
+    {
+      "answers": {
+        "target": {
+          "box": {
+            "bottom": 0.8,
+            "left": 0.1,
+            "right": 0.7,
+            "top": 0.2
+          },
+          "confidence": 0.9,
+          "type": "box"
+        }
+      },
+      "model": "jev-1.14.0",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 4
+      }
+    }
+  ]
+}

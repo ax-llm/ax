@@ -1,51 +1,38 @@
 ---
 name: "ax-java-llm"
 description: "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.3.2"
+version: "25.4.2"
 ---
-# Ax LLM Quick Reference For Java
+# Ax For Java
 
-This skill helps an agent write Java code with the generated Ax package `dev.axllm:ax`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+Use this entry point when working with `dev.axllm:ax`. Read the guides relevant to the task before writing code. The guides are bundled locally; no additional skill installation is needed. Load more guides when a task crosses into another area.
 
-## When To Use
+## Choose A Guide
 
-- Start a generated-language Ax program from package docs or examples.
-- Translate the Ax mental model into the target package without TypeScript-only imports.
-- Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
-- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
+| Task | Read |
+| --- | --- |
+| Start a program, choose native factories, or find package docs and examples | [Quick reference](references/quickstart.md) |
+| provider clients and model routing | [AxAI Providers](references/ax-java-ai.md) |
+| decision signatures and native questions | [Typesafe / Jev](references/ax-java-typesafe.md) |
+| audio and realtime provider mappings | [Ax Audio And Realtime](references/ax-java-audio.md) |
+| signatures, fields, schemas, and validation | [Ax Signatures](references/ax-java-signature.md) |
+| structured generation and tools | [AxGen Structured Generation](references/ax-java-gen.md) |
+| RLM agents and tools | [AxAgent](references/ax-java-agent.md) |
+| runtime sessions and actor-code execution | [AxAgent RLM Runtime](references/ax-java-agent-rlm.md) |
+| memory, recall, and dynamic skill loading | [AxAgent Memory And Skills](references/ax-java-agent-memory-skills.md) |
+| traces, logs, usage, and diagnostics | [AxAgent Observability](references/ax-java-agent-observability.md) |
+| agent evaluation and optimization artifacts | [AxAgent Optimize](references/ax-java-agent-optimize.md) |
+| choosing context maps, policy, optimization, and recall | [AxAgent Context Selection](references/ax-java-agent-context.md) |
+| workflow graphs and orchestration | [AxFlow](references/ax-java-flow.md) |
+| Pareto optimization and prompt evolution | [Ax GEPA](references/ax-java-gepa.md) |
+| evolving context playbooks | [Ax Playbook](references/ax-java-playbook.md) |
+| candidate improvement and evaluation feedback | [Ax Refinement Patterns](references/ax-java-refine.md) |
 
-## Package Facts
+For an agent with persistent recall, read the agent and memory guides. For a provider-backed workflow, read the AI, generation, and flow guides.
 
-- Language: Java.
-- Package: `dev.axllm:ax`.
-- Package API docs: `API.md` and `axir-api.json`.
-- Capability manifest: `axir-capabilities.json`.
-- Runnable examples: `examples/`.
-- Real network support: yes.
-- Scripted no-key transport support: yes.
-- Runtime profiles: `javascript-quickjs`, `python-pyodide`.
+## Essential Conventions
 
-## Core Pattern
-
-```java
-import dev.axllm.ax.*;
-
-var llm = Ax.ai("openai", java.util.Map.of("apiKey", System.getenv("OPENAI_API_KEY")));
-```
-
-## Relevant API Surface
-
-- Signatures: `Ax.s`, `Ax.f`, `AxSignature`
-- AxGen: `Ax.ax`, `AxGen`, `Ax.runControl`, `AxRunControl`, `AxCachingFunction`, `AxGlobals.setCachingFunction`
-- AxAI: `Ax.ai`, `Ax.openaiDecisions`, `AxAIOpenAIDecisionsClient`, `Ax.typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `Ax.getSupportedAIModels`, `OpenAICompatibleClient.CredentialRequest`, `OpenAICompatibleClient.CredentialProvider`, `AiClient.ownedWorkerFactory`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `AxGlobals.setRateLimiter`, `AxGlobals.setTracer`, `AxGlobals.setMeter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
-- Agents And RLM: `Ax.agent`, `AxAgent`, `AxAgent.addChildAgent`, `AxAgent.streamingForward`
-- Flow: `Ax.flow`, `AxFlow`, `AxProgram.ownedWorkerFactory`
-- Optimizers: `Ax.optimize`, `Ax.playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
-
-## Guardrails
-
-- Start from package examples for exact native syntax before inventing a new call shape.
-- Use `provider-api` examples only when the user explicitly has provider credentials available.
-- Use `no-key` examples for deterministic local checks and provider request mapping.
-- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
-- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- Use this language's native package API and examples; TypeScript call shapes are not interchangeable.
+- Check the installed package version against the guide version before using an API from another release.
+- Start with a focused guide. Use the package's `API.md`, `axir-api.json`, and `axir-capabilities.json` for exact signatures and supported surfaces.
+- Specialist skills remain optional when separate skill entries are useful.

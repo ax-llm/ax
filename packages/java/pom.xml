@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>dev.axllm</groupId>
   <artifactId>ax</artifactId>
-  <version>25.3.2</version>
+  <version>25.4.2</version>
   <name>Ax</name>
   <url>https://axllm.dev</url>
   <licenses>
@@ -40,7 +40,7 @@
         <directory>${project.basedir}</directory>
         <includes>
           <include>axir-capabilities.json</include>
-          <include>skills/**/SKILL.md</include>
+          <include>skills/**/*.md</include>
         </includes>
       </resource>
     </resources>

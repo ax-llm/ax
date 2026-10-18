@@ -148,6 +148,164 @@ module @ax.typesafe version "0.1" {
     }
   }
 
+  op ax.provider.semantic @typesafe_utf8_size {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "typesafe-image-utf8-size"
+    type signature = "(string) -> i64"
+    body @entry(%text: string) {
+      %size = core.call intrinsic.string.utf8_length(%text)
+      core.return %size
+    }
+  }
+
+  op ax.provider.semantic @typesafe_collect_strings {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "typesafe-image-reference-values"
+    type signature = "(json) -> list<string>"
+    body @entry(%value: json) {
+      %out = core.list
+      %string = core.type_is %value type "string"
+      core.if %string { core.append %out, %value }
+      else {
+        %object = core.type_is %value type "object"
+        %list = core.type_is %value type "list"
+        %items = core.list
+        core.if %object {
+          %keys = core.call intrinsic.map.keys(%value)
+          core.for %key in %keys {
+            %item = core.get %value[%key]
+            core.append %items, %item
+          }
+        } else { core.if %list { %items = core.let %value } }
+        core.for %item in %items {
+          %strings = core.call @typesafe_collect_strings(%item)
+          core.for %text in %strings { core.append %out, %text }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @typesafe_validate_assets {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/validate.ts"
+    type signature = "(json) -> void throws"
+    body @entry(%request: json) {
+      %present = core.call intrinsic.map.contains(%request, "assets")
+      %absent = core.call intrinsic.not(%present)
+      core.if %absent { core.return }
+      %assets = core.get %request["assets"]
+      core.call @typesafe_require_object(%assets, "assets")
+      %state = core.get %request["state"]
+      %strings = core.call @typesafe_collect_strings(%state)
+      %questions = core.get %request["questions"]
+      core.call @typesafe_validate_json(%questions)
+      %question_keys = core.call intrinsic.map.keys(%questions)
+      core.for %name in %question_keys {
+        %question = core.get %questions[%name]
+        %instructions = core.get %question["instructions"]
+        %criteria = core.get %question["criteria"]
+        %entries = core.list
+        core.append %entries, %instructions
+        core.append %entries, %criteria
+        core.for %entry in %entries {
+          %texts = core.call @typesafe_collect_strings(%entry)
+          core.for %text in %texts { core.append %strings, %text }
+        }
+      }
+      %keys = core.call intrinsic.map.keys(%assets)
+      %total_key_bytes = core.let 0
+      core.for %key in %keys {
+        %trimmed = core.string_trim %key
+        %bytes = core.call @typesafe_utf8_size(%key)
+        %total_key_bytes = core.call intrinsic.add(%total_key_bytes, %bytes)
+        %empty = core.call intrinsic.eq(%trimmed, "")
+        %long_key = core.call intrinsic.gt(%bytes, 1024)
+        %too_many = core.call intrinsic.gt(%total_key_bytes, 65536)
+        %invalid = core.call intrinsic.or(%empty, %long_key)
+        %invalid = core.call intrinsic.or(%invalid, %too_many)
+        core.if %invalid { core.raise "Typesafe: invalid image reference length" }
+        %used = core.let false
+        core.for %text in %strings {
+          %index = core.call intrinsic.string.index_of(%text, %key, 0)
+          %found = core.call intrinsic.gte(%index, 0)
+          %used = core.call intrinsic.or(%used, %found)
+        }
+        %unused = core.call intrinsic.not(%used)
+        core.if %unused { core.raise "Typesafe: image asset is not referenced" }
+        %asset = core.get %assets[%key]
+        core.call @typesafe_require_object(%asset, "image asset")
+        %kind = core.get %asset["type"] default "image"
+        %not_image = core.call intrinsic.ne(%kind, "image")
+        core.if %not_image { core.raise "Typesafe: assets must be images" }
+        %multipart = core.call intrinsic.map.contains(%asset, "part")
+        core.if %multipart { core.raise "Typesafe: multipart assets are not supported; use data_base64" }
+        %format = core.get %asset["format"]
+        %formats = core.list
+        core.append %formats, "png"
+        core.append %formats, "jpg"
+        core.append %formats, "jpeg"
+        %valid = core.call intrinsic.contains(%formats, %format)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid { core.raise "Typesafe: images must be PNG or JPEG" }
+        %data = core.get %asset["data_base64"]
+        core.call @typesafe_require_string(%data, "image data_base64", true)
+        %length = core.call intrinsic.len(%data)
+        %groups = core.call intrinsic.div(%length, 4)
+        %whole = core.call intrinsic.math.floor(%groups)
+        %padded = core.call intrinsic.eq(%groups, %whole)
+        %base64 = core.regex_match %data pattern "^[A-Za-z0-9+/]+={0,2}$"
+        // Some native regex engines match before a final line terminator.
+        %lf = core.call intrinsic.string.ends_with(%data, "\n")
+        %cr = core.call intrinsic.string.ends_with(%data, "\r")
+        %newline = core.call intrinsic.or(%lf, %cr)
+        %no_newline = core.call intrinsic.not(%newline)
+        %base64 = core.call intrinsic.and(%base64, %no_newline)
+        %valid = core.call intrinsic.and(%padded, %base64)
+        %invalid = core.call intrinsic.not(%valid)
+        core.if %invalid { core.raise "Typesafe: image data_base64 must be padded base64 without a data URL prefix" }
+        %bytes = core.call intrinsic.mul(%groups, 3)
+        %two_padding = core.call intrinsic.string.ends_with(%data, "==")
+        %one_padding = core.call intrinsic.string.ends_with(%data, "=")
+        core.if %two_padding { %bytes = core.call intrinsic.add(%bytes, -2) }
+        else { core.if %one_padding { %bytes = core.call intrinsic.add(%bytes, -1) } }
+        %too_large = core.call intrinsic.gt(%bytes, 16777216)
+        core.if %too_large { core.raise "Typesafe: image exceeds 16 MiB" }
+      }
+      %json = core.call intrinsic.json.stringify(%request)
+      %size = core.call @typesafe_utf8_size(%json)
+      %too_large = core.call intrinsic.gt(%size, 33554432)
+      core.if %too_large { core.raise "Typesafe: image request exceeds 32 MiB" }
+      core.return
+    }
+  }
+
+  op ax.provider.semantic @typesafe_image_headers {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/typesafe/images.ts"
+    type signature = "(json) -> json"
+    body @entry(%request: json) {
+      %assets = core.get %request["assets"]
+      %enabled = core.call intrinsic.truthy(%assets)
+      %questions = core.get %request["questions"]
+      %keys = core.call intrinsic.map.keys(%questions)
+      core.for %key in %keys {
+        %question = core.get %questions[%key]
+        %kind = core.get %question["type"]
+        %box = core.call intrinsic.eq(%kind, "box")
+        %enabled = core.call intrinsic.or(%enabled, %box)
+      }
+      %headers = core.map
+      core.if %enabled { core.set %headers["TypeSafe-Danger-Zone-Images"] = "true" }
+      core.return %headers
+    }
+  }
+
   op ax.provider.semantic @typesafe_validate_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -167,6 +325,7 @@ module @ax.typesafe version "0.1" {
       core.call @typesafe_validate_entry(%state, "state")
       %questions = core.get %request["questions"]
       core.call @typesafe_require_object(%questions, "questions")
+      core.call @typesafe_validate_assets(%request)
       %keys = core.call intrinsic.map.keys(%questions)
       %count = core.call intrinsic.len(%keys)
       %empty = core.call intrinsic.eq(%count, 0)
@@ -180,6 +339,24 @@ module @ax.typesafe version "0.1" {
         core.call @typesafe_validate_entry(%instructions, %key)
         %kind = core.get %question["type"]
         %criteria = core.get %question["criteria"]
+        %is_box = core.call intrinsic.eq(%kind, "box")
+        core.if %is_box {
+          %has_instructions = core.call intrinsic.is_not_none(%instructions)
+          %string = core.type_is %instructions type "string"
+          core.if %string {
+            %trimmed = core.string_trim %instructions
+            %has_instructions = core.call intrinsic.ne(%trimmed, "")
+          }
+          %missing = core.call intrinsic.not(%has_instructions)
+          core.if %missing { core.raise "Typesafe: Box requires instructions" }
+          %has_criteria = core.call intrinsic.map.contains(%question, "criteria")
+          core.if %has_criteria { core.raise "Typesafe: Box does not accept criteria" }
+          %assets = core.get %request["assets"]
+          %has_images = core.call intrinsic.truthy(%assets)
+          %missing = core.call intrinsic.not(%has_images)
+          core.if %missing { core.raise "Typesafe: Box requires an image asset" }
+          core.continue
+        }
         %is_noul = core.call intrinsic.eq(%kind, "noul")
         %is_choice = core.call intrinsic.eq(%kind, "choice")
         %is_score = core.call intrinsic.eq(%kind, "score")
@@ -290,6 +467,12 @@ module @ax.typesafe version "0.1" {
         } else {
           %confidence = core.get %answer["confidence"]
           core.call @typesafe_require_number(%confidence, "confidence", 0, 1)
+          %is_box = core.call intrinsic.eq(%kind, "box")
+          core.if %is_box {
+            %box = core.get %answer["box"]
+            core.call @box_validate_impl(%box, %key)
+            core.continue
+          }
           %criteria = core.get %question["criteria"]
           %is_choice = core.call intrinsic.eq(%kind, "choice")
           %labels = core.list
@@ -512,10 +695,12 @@ module @ax.typesafe version "0.1" {
         %supported_type = core.call intrinsic.or(%is_boolean, %is_class)
         %is_score = core.call intrinsic.eq(%type_name, "score")
         %supported_type = core.call intrinsic.or(%supported_type, %is_score)
+        %is_box = core.call intrinsic.eq(%type_name, "box")
+        %supported_type = core.call intrinsic.or(%supported_type, %is_box)
         %supported = core.call intrinsic.and(%supported, %supported_type)
         %unsupported = core.call intrinsic.not(%supported)
         core.if %unsupported {
-          %message = core.call intrinsic.string.format("Typesafe cannot evaluate output {}. Use required boolean, class or rubric score fields, or a generative provider for other outputs", %name)
+          %message = core.call intrinsic.string.format("Typesafe cannot evaluate output {}. Use required boolean, class, rubric score or box fields, or a generative provider for other outputs", %name)
           %error = core.call intrinsic.error.validation(%message)
           core.raise %error
         }
@@ -552,6 +737,11 @@ module @ax.typesafe version "0.1" {
         }
         %question = core.map
         core.set %question["instructions"] = %instructions
+        core.if %is_box {
+          core.set %question["type"] = "box"
+          core.set %questions[%name] = %question
+          core.continue
+        }
         core.if %is_score {
           core.set %question["type"] = "score"
           %levels = core.get %decision["options"]
@@ -583,6 +773,9 @@ module @ax.typesafe version "0.1" {
       %prompt_snake = core.get %request["chat_prompt"] default %empty_list
       %prompt = core.get %request["chatPrompt"] default %prompt_snake
       %messages = core.list
+      %assets = core.map
+      %reference_index = core.let 0
+      %request_json = core.call intrinsic.json.stringify(%request)
       core.for %message in %prompt {
         %role = core.get %message["role"]
         %content = core.get %message["content"] default ""
@@ -608,13 +801,56 @@ module @ax.typesafe version "0.1" {
           %texts = core.list
           core.for %part in %content {
             %kind = core.get %part["type"]
-            %nontext = core.call intrinsic.ne(%kind, "text")
-            core.if %nontext {
-              core.raise "Typesafe supports text input only"
+            %is_text = core.call intrinsic.eq(%kind, "text")
+            core.if %is_text {
+              %text = core.get %part["text"]
+              core.call @typesafe_require_string(%text, "message text", false)
+              core.append %texts, %text
+            } else {
+              %is_image = core.call intrinsic.eq(%kind, "image")
+              %is_user = core.call intrinsic.eq(%role, "user")
+              %valid = core.call intrinsic.and(%is_image, %is_user)
+              %invalid = core.call intrinsic.not(%valid)
+              core.if %invalid { core.raise "Typesafe supports text and inline PNG/JPEG images only" }
+              %mime = core.get %part["mimeType"]
+              %png = core.call intrinsic.eq(%mime, "image/png")
+              %jpeg = core.call intrinsic.eq(%mime, "image/jpeg")
+              %jpg = core.call intrinsic.eq(%mime, "image/jpg")
+              %valid = core.call intrinsic.or(%png, %jpeg)
+              %valid = core.call intrinsic.or(%valid, %jpg)
+              %invalid = core.call intrinsic.not(%valid)
+              core.if %invalid { core.raise "Typesafe images must be PNG or JPEG" }
+              %format = core.let "png"
+              core.if %jpeg { %format = core.let "jpeg" }
+              core.if %jpg { %format = core.let "jpg" }
+              %data = core.get %part["image"]
+              core.call @typesafe_require_string(%data, "image data", true)
+              %data_url = core.call intrinsic.string.starts_with(%data, "data:")
+              core.if %data_url {
+                %prefix = core.call intrinsic.string.format("data:{};base64,", %mime)
+                %matches = core.call intrinsic.string.starts_with(%data, %prefix)
+                %invalid = core.call intrinsic.not(%matches)
+                core.if %invalid { core.raise "Typesafe image data URL must match its MIME type" }
+                %offset = core.call intrinsic.len(%prefix)
+                %data = core.call intrinsic.string.slice(%data, %offset)
+              }
+              %reference = core.let ""
+              // Stable references simplify reproducible requests. Check the entire
+              // caller input so a reference cannot accidentally bind unrelated text.
+              core.loop {
+                %reference = core.call intrinsic.string.format("ax-image-{}-ref", %reference_index)
+                %reference_index = core.call intrinsic.add(%reference_index, 1)
+                %collision = core.call intrinsic.string.index_of(%request_json, %reference, 0)
+                %unused = core.call intrinsic.lt(%collision, 0)
+                core.if %unused { core.break }
+              }
+              %asset = core.map
+              core.set %asset["type"] = "image"
+              core.set %asset["format"] = %format
+              core.set %asset["data_base64"] = %data
+              core.set %assets[%reference] = %asset
+              core.append %texts, %reference
             }
-            %text = core.get %part["text"]
-            core.call @typesafe_require_string(%text, "message text", false)
-            core.append %texts, %text
           }
           %content = core.call intrinsic.string.join("\n", %texts)
         }
@@ -631,6 +867,8 @@ module @ax.typesafe version "0.1" {
       core.set %payload["model"] = %model
       core.set %payload["state"] = %state
       core.set %payload["questions"] = %questions
+      %has_assets = core.call intrinsic.truthy(%assets)
+      core.if %has_assets { core.set %payload["assets"] = %assets }
       core.call @typesafe_validate_request(%payload)
       core.return %payload
     }
@@ -658,6 +896,23 @@ module @ax.typesafe version "0.1" {
         %kind = core.get %answer["type"]
         %decision = core.get %decision_fields[%name]
         %rich = core.call intrinsic.is_not_none(%decision)
+        %box = core.call intrinsic.eq(%kind, "box")
+        core.if %box {
+          %coordinates = core.get %answer["box"]
+          %evidence = core.get %decision["evidence"]
+          %has_evidence = core.call intrinsic.is_not_none(%evidence)
+          %value = core.let %coordinates
+          core.if %has_evidence {
+            %value = core.map
+            core.set %value["box"] = %coordinates
+            %native_box = core.map
+            %confidence = core.get %answer["confidence"]
+            core.set %native_box["confidence"] = %confidence
+            core.set %native_state[%name] = %native_box
+          }
+          core.set %values[%name] = %value
+          core.continue
+        }
         core.if %rich {
           %raw_evidence = core.map
           %native_evidence = core.map

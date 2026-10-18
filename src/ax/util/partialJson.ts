@@ -109,18 +109,62 @@ export function parsePartialJson(json: string): ParsedPartialJson {
   }
 }
 
+/**
+ * Removes a comma that directly precedes a closing bracket or brace, leaving the text of
+ * string values alone ("[1, 2, ]" inside a string is content, not structure).
+ */
+function stripTrailingCommas(json: string): string {
+  let out = '';
+  let inString = false;
+  let isEscaped = false;
+  for (let i = 0; i < json.length; i++) {
+    const char = json[i] as string;
+    if (isEscaped) {
+      isEscaped = false;
+      out += char;
+      continue;
+    }
+    if (inString && char === '\\') {
+      isEscaped = true;
+      out += char;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      out += char;
+      continue;
+    }
+    if (!inString && char === ',') {
+      let j = i + 1;
+      while (j < json.length && /\s/.test(json[j] as string)) j++;
+      if (json[j] === '}' || json[j] === ']') continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
 function repairJson(json: string): string {
   let result = json.trim();
 
+  // When the cut falls inside a string value, what precedes the cut is the text of that
+  // string, not structure: a trailing ", t" is the start of a word, not a truncated `true`,
+  // and a trailing "." or "," is not a truncated number or a dangling comma. Streaming
+  // consumers compare each partial value with the previous one, so a repaired string that is
+  // not a prefix of the final value is emitted again in full.
+  const cutInsideString = analyzeJsonContext(result).inString;
+
   // Remove trailing comma at the end of the string
-  if (result.endsWith(',')) {
+  if (!cutInsideString && result.endsWith(',')) {
     result = result.slice(0, -1);
   }
 
   // Handle trailing colon (incomplete property value)
   // e.g. {"name": "John", "age": -> {"name": "John"}
   // We need to remove the key and colon
-  if (result.match(/,\s*"[^"]*"\s*:\s*$/)) {
+  if (cutInsideString) {
+    // Nothing to strip: the open string is closed below.
+  } else if (result.match(/,\s*"[^"]*"\s*:\s*$/)) {
     result = result.replace(/,\s*"[^"]*"\s*:\s*$/, '');
   } else if (result.match(/\{\s*"[^"]*"\s*:\s*$/)) {
     // Handle case where it's the first/only property: {"age": -> {}
@@ -132,7 +176,10 @@ function repairJson(json: string): string {
   // e.g. 12. -> 12, 12e -> 12, 12e+ -> 12
   // We loop because we might have 12.e (invalid but possible in stream?) or 12e+
   // Also handle patterns like 12e+ or 12e- where exponent sign is present but no digits
-  while (result.match(/[0-9][eE.+-]$/) || result.match(/[eE][+-]$/)) {
+  while (
+    !cutInsideString &&
+    (result.match(/[0-9][eE.+-]$/) || result.match(/[eE][+-]$/))
+  ) {
     result = result.slice(0, -1);
   }
   // If it ends with just a sign or empty exponent part that leaves no number, we might need to be careful
@@ -140,7 +187,7 @@ function repairJson(json: string): string {
   // But let's handle the "invalid value" case generally.
 
   // Remove trailing comma before closing brackets (standard JSON fix)
-  result = result.replace(/,(\s*[}\]])/g, '$1');
+  result = stripTrailingCommas(result);
 
   // Fix truncated primitives (true, false, null)
   // If the string ends with a partial primitive, remove it or complete it
@@ -150,6 +197,7 @@ function repairJson(json: string): string {
 
   // Check for truncated "true"
   if (
+    !cutInsideString &&
     result.match(/t(r(u(e)?)?)?$/) &&
     !result.endsWith('"') &&
     !result.endsWith('true')
@@ -162,6 +210,7 @@ function repairJson(json: string): string {
 
   // Check for truncated "false"
   if (
+    !cutInsideString &&
     result.match(/f(a(l(s(e)?)?)?)?$/) &&
     !result.endsWith('"') &&
     !result.endsWith('false')
@@ -173,6 +222,7 @@ function repairJson(json: string): string {
 
   // Check for truncated "null"
   if (
+    !cutInsideString &&
     result.match(/n(u(l(l)?)?)?$/) &&
     !result.endsWith('"') &&
     !result.endsWith('null')

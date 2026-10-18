@@ -265,3 +265,21 @@ filingText:string(cache) -> revenueByPeriod:object{ periodLabel:string, amountUs
 - Treat generated JSON schema as a public contract when tools, SDKs, or external callers rely on it.
 
 See [Tools]({{langRoot}}/concepts/tools/), [s() signatures]({{langRoot}}/subsystems/s/), and [s() API]({{langRoot}}/api/s/).
+
+## Image localization with Box
+
+Use `photo:image -> target:box` for normalized bounding-box coordinates:
+`{ top, bottom, left, right }`, all in `[0, 1]` with ordered edges.
+`target:box(evidence)` adds native confidence when available and provider
+provenance around the coordinates in `value`. TypeScript and Python use
+`f.box()`, Java uses `Ax.f().box()`, Go uses `Box()`, and Rust uses
+`FieldType::box_()`. Evidence is optional.
+
+Jev 1.14 uses its experimental native Box primitive. Generative vision providers
+use a validated JSON schema; elicited results do not invent native confidence.
+OpenAI Decisions accepts image inputs for its boolean/class/score questions but
+does not expose a native Box primitive. Pair Box with a presence boolean because
+Jev returns a box even when the requested target is absent.
+
+Runnable image localization examples are available under each language’s
+`src/examples/<language>/generation/` directory, alongside the native Jev examples.

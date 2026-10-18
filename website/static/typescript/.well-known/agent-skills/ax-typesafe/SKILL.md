@@ -1,7 +1,7 @@
 ---
 name: ax-typesafe
-description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
-version: "25.3.2"
+description: Use Typesafe Jev models with @ax-llm/ax in TypeScript. Covers images, box outputs, and boolean/class/rubric score signatures with decision evidence, value descriptions, provider trueThreshold, native Noul/Choice/Score questions, structured criteria, probability-based decisions, and explicit hybrid generation.
+version: "25.4.2"
 ---
 
 <!-- cspell:ignore noul -->
@@ -18,6 +18,7 @@ Use their generated `ax-<language>-typesafe` skills for native syntax and types.
 | Need | Interface | Result |
 |---|---|---|
 | Required booleans and fixed classes | `ai({ name: 'typesafe', ... })` with `ax(...).forward()` | Ordinary signature-shaped values |
+| PNG/JPEG images and localization (TypeScript) | `ax(...)` with `image` inputs and `box` outputs | Coordinates, optional evidence |
 | Probabilities, confidence, and rubric scoring | `ax(...)` with evidence fields | Typed evidence in normal program results |
 | Advanced structured criteria/state | `typesafe(...).systemOne(...)` | Native request features |
 | Decisions followed by prose or tool use | A Typesafe decision step followed by a generative provider | Explicitly composed program results |
@@ -137,11 +138,70 @@ Structured JSON criteria and custom numeric rubric entries use native requests
 below, rather than encoded JSON inside a quoted description.
 
 The adapter sends the normal Ax prompt as native state and batches the outputs
-in one request. Required boolean/class/rubric score outputs are supported; optional, array,
-nested, numeric, and freeform outputs fail before network access. Media, tools,
+in one request. Required boolean/class/rubric score/box outputs are supported; optional, array,
+nested, ordinary numeric, and freeform outputs fail before network access. PNG/JPEG image inputs are supported; audio, files, tools,
 multiple completion samples, and generation controls such as `temperature` or
 `maxTokens` are unsupported. There is no token streaming; Ax's
 `streamingForward()` can deliver a completed result.
+
+## Image inputs and Box outputs
+
+```typescript
+const vision = ai({
+  name: 'typesafe', apiKey,
+  config: { model: 'jev-1.14.0' },
+});
+const locate = ax(`
+  photo:image ->
+  visible:boolean "Is the red square visible in photo?",
+  target:box(evidence) "The red square in photo"
+`);
+const result = await locate.forward(vision, {
+  photo: { mimeType: 'image/png', data: imageBase64 },
+});
+// result.target.value: { top, bottom, left, right }, each in [0, 1]
+// result.target.confidence: native confidence, when supplied
+// result.target.provenance.source: 'native'
+```
+
+`target:box` returns just the four coordinates. The fluent equivalents are
+`f.box(description)` and `f.box(description).withEvidence()`. Coordinates are
+fractions measured from the image's top-left; multiply left/right by width and
+top/bottom by height to get pixels. Ax rejects non-finite, out-of-range, inverted,
+and zero-area boxes. It never clamps coordinates. Box always returns a region,
+even when the target is absent: ask a presence boolean alongside it and use that
+to decide whether to consume the box.
+
+Jev images and Box are experimental. Ax sends the required
+`TypeSafe-Danger-Zone-Images: true` header for image/Box requests. Box needs Jev
+1.14 (`jev-1.14.0` or `jev-preview`); the ordinary default remains `jev-latest`.
+Send still PNG/JPEG images as base64. Ax maps `image` and `image[]` inputs to
+referenced image assets, retaining their prompt order. It accepts raw base64 or
+matching image data URLs, never hosted URLs. Jev enforces image dimensions:
+each side 256–1568 pixels, total area at least 78,400 pixels. A 256×256 image is
+too small. Limits also include 16 MiB per decoded image and 32 MiB per request.
+Prepare image orientation and dimensions before calling; Ax does not resize.
+
+The native client accepts `assets: { [reference]: { type: 'image', format:
+'png' | 'jpg' | 'jpeg', data_base64: string } }`. Use each reference in state,
+question instructions, or criteria. References match substrings in string values,
+so use unique long references, preferably UUIDs. Box questions use
+`{ type: 'box', instructions: 'The target in photo' }`, with no criteria, and
+return `{ type: 'box', box: { top, bottom, left, right }, confidence }`.
+Multipart uploads are not supported by this client.
+
+Generative vision providers use the same `box` signature through a validated
+JSON schema. Their evidence has `provenance.source: 'elicited'` and no invented
+confidence. OpenAI Decisions already supports inline image inputs for its
+boolean/class/score questions, but has no documented native Box primitive;
+Ax rejects Box outputs on that endpoint before transport. Use a generative
+OpenAI vision model for Box instead.
+
+Image and Box signatures are available in TypeScript, Python, Java, C++, Go, and
+Rust. Runnable image localization examples live under each language’s
+`src/examples/<language>/generation/` directory. See the upstream
+[Images](https://docs.typesafe.ai/images) and
+[Box](https://docs.typesafe.ai/primitives/box) contracts.
 
 ## Native Questions and Application Decisions
 

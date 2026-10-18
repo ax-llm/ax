@@ -1,0 +1,40 @@
+{
+  "name": "box-nested-array",
+  "kind": "forward",
+  "signature": "query:string -> group:object { targets?:box[] }",
+  "input": {
+    "query": "Locate"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"group\":{\"targets\":[{\"bottom\":0.8,\"left\":0.1,\"right\":0.7,\"top\":0.2},{\"bottom\":0.8,\"left\":0.1,\"right\":0.7,\"top\":0.2}]}}"
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "group": {
+      "targets": [
+        {
+          "bottom": 0.8,
+          "left": 0.1,
+          "right": 0.7,
+          "top": 0.2
+        },
+        {
+          "bottom": 0.8,
+          "left": 0.1,
+          "right": 0.7,
+          "top": 0.2
+        }
+      ]
+    }
+  },
+  "expected_request_count": 1
+}

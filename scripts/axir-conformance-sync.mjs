@@ -471,6 +471,12 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'box-goldens.ts',
+      'Jev images and Box'
+    );
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'decisions-goldens.ts',
       'OpenAI Decisions'
     );

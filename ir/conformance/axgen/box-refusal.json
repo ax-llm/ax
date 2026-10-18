@@ -1,0 +1,31 @@
+{
+  "name": "box-refusal",
+  "kind": "forward",
+  "signature": "query:string -> target:box(evidence, refusal return)",
+  "input": {
+    "query": "Locate"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"target\":{\"status\":\"refused\"}}"
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "target": {
+      "status": "refused",
+      "provenance": {
+        "source": "elicited",
+        "provider": "AI"
+      }
+    }
+  },
+  "expected_request_count": 1
+}

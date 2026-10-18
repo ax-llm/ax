@@ -1,5 +1,5 @@
 {
-  "expected_error_contains": "text input only",
+  "expected_error_contains": "Typesafe supports text",
   "expected_transport_request_count": 0,
   "kind": "ai_chat",
   "name": "typesafe-reject-media",
@@ -9,9 +9,9 @@
       {
         "content": [
           {
-            "image": "AAAA",
-            "mimeType": "image/png",
-            "type": "image"
+            "data": "AAAA",
+            "format": "wav",
+            "type": "audio"
           }
         ],
         "role": "user"

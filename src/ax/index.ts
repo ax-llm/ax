@@ -696,8 +696,10 @@ import {
 } from './ai/typesafe/client.js';
 import type {
   AxAITypesafeAnswer,
+  AxAITypesafeBoxQuestion,
   AxAITypesafeChoiceQuestion,
   AxAITypesafeEntry,
+  AxAITypesafeImageAsset,
   AxAITypesafeJsonValue,
   AxAITypesafeModelCard,
   AxAITypesafeNoulQuestion,
@@ -755,6 +757,7 @@ import {
   type AxStreamingAssertion,
   AxStreamingAssertionError,
 } from './dsp/asserts.js';
+import type { AxBox } from './dsp/box.js';
 import type {
   AxCheckpointLoadFn,
   AxCheckpointSaveFn,
@@ -774,6 +777,7 @@ import type {
 import type { AxDateRange } from './dsp/datetime.js';
 import {
   type AxBooleanEvidence,
+  type AxBoxEvidence,
   type AxClassEvidence,
   type AxDecisionProvenance,
   type AxDecisionRefusal,
@@ -1781,10 +1785,12 @@ export type {
   AxAIServiceOptions,
   AxAITypesafeAnswer,
   AxAITypesafeArgs,
+  AxAITypesafeBoxQuestion,
   AxAITypesafeChoiceQuestion,
   AxAITypesafeClientArgs,
   AxAITypesafeClientOptions,
   AxAITypesafeEntry,
+  AxAITypesafeImageAsset,
   AxAITypesafeJsonValue,
   AxAITypesafeModelCard,
   AxAITypesafeNoulQuestion,
@@ -1828,6 +1834,8 @@ export type {
   AxBestOfNOptions,
   AxBooleanEvidence,
   AxBootstrapOptimizerOptions,
+  AxBox,
+  AxBoxEvidence,
   AxChatAudioConfig,
   AxChatAudioOutput,
   AxChatImageOutput,

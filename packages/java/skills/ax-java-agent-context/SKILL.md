@@ -1,7 +1,7 @@
 ---
 name: "ax-java-agent-context"
 description: "Use when writing Java code with `dev.axllm:ax` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents."
-version: "25.3.2"
+version: "25.4.2"
 ---
 # AxAgent Context Selection For Java
 

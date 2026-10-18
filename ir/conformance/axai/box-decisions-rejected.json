@@ -1,0 +1,93 @@
+{
+  "name": "box-decisions-rejected",
+  "kind": "ai_chat",
+  "provider": "openai-decisions",
+  "request": {
+    "model": "jev-1.14.0",
+    "chatPrompt": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "before"
+          },
+          {
+            "type": "image",
+            "mimeType": "image/png",
+            "image": "aGVsbG8="
+          },
+          {
+            "type": "text",
+            "text": "after"
+          },
+          {
+            "type": "image",
+            "mimeType": "image/jpeg",
+            "image": "data:image/jpeg;base64,AAAA"
+          }
+        ]
+      }
+    ],
+    "modelConfig": {
+      "stream": false
+    },
+    "responseFormat": {
+      "type": "json_schema",
+      "schema": {
+        "name": "box",
+        "schema": {
+          "type": "object",
+          "title": "Schema",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "box": {
+                  "type": "object",
+                  "properties": {
+                    "top": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "bottom": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "left": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "right": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": ["top", "bottom", "left", "right"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["box"],
+              "additionalProperties": false,
+              "description": "Return normalized top, bottom, left and right edges in [0, 1], measured from the image top-left; top < bottom and left < right."
+            }
+          },
+          "required": ["target"],
+          "additionalProperties": false
+        }
+      },
+      "decisionFields": {
+        "target": {
+          "type": "box",
+          "evidence": {}
+        }
+      }
+    }
+  },
+  "expected_error_contains": "box",
+  "expected_transport_request_count": 0
+}

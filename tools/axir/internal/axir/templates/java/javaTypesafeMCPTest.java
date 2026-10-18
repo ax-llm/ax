@@ -176,5 +176,17 @@ public final class TypesafeMCPTest {
       check(inherited.subscriptionCount()==0&&perCall.subscriptionCount()==0,"Decisions cancellation subscription leak");
     }
   }
-  public static void main(String[] args)throws Exception{decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+  static void imageBox()throws Exception{
+    var coordinates=new AxAITypesafeClient.BoxCoordinates(0.2,0.8,0.1,0.7);
+    OpenAICompatibleClient.Transport transport=call->{
+      check("true".equals(((Map<?,?>)call.get("headers")).get("TypeSafe-Danger-Zone-Images")),"experimental image header");
+      return Map.of("model","jev-1.14.0","answers",Map.of("target",new AxAITypesafeClient.Box(coordinates,0).toMap()),"usage",Map.of("input_tokens",1,"output_tokens",1));
+    };
+    var request=new AxAITypesafeClient.Request("photo",Map.of("target",AxAITypesafeClient.Question.box("Find it in photo")),"jev-1.14.0",Map.of("photo",new AxAITypesafeClient.ImageAsset("png","AAAA")));
+    var result=Ax.typesafe(Map.of("apiKey","test","transport",transport)).systemOne(request);
+    var answer=(AxAITypesafeClient.Box)result.answers().get("target");
+    check(answer.box().equals(coordinates)&&answer.confidence()==0,"typed Box changed");
+    Ax.f().call().input("query",Ax.f().string()).output("target",Ax.f().box().withEvidence()).build();
+  }
+  public static void main(String[] args)throws Exception{imageBox();decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

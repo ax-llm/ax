@@ -1,0 +1,110 @@
+{
+  "expected_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "target": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "enum": ["native", "elicited"],
+                    "type": "string"
+                  }
+                },
+                "required": ["source", "provider"],
+                "type": "object"
+              },
+              "status": {
+                "enum": ["answered"],
+                "type": "string"
+              },
+              "value": {
+                "additionalProperties": false,
+                "properties": {
+                  "bottom": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "left": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "right": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "top": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": ["top", "bottom", "left", "right"],
+                "type": "object"
+              }
+            },
+            "required": ["value", "provenance", "status"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "model": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "enum": ["native", "elicited"],
+                    "type": "string"
+                  }
+                },
+                "required": ["source", "provider"],
+                "type": "object"
+              },
+              "status": {
+                "enum": ["refused"],
+                "type": "string"
+              }
+            },
+            "required": ["status", "provenance"],
+            "type": "object"
+          }
+        ],
+        "description": ""
+      }
+    },
+    "required": ["target"],
+    "title": "Schema",
+    "type": "object"
+  },
+  "kind": "json_schema",
+  "name": "box-refusal-result",
+  "schema_options": {
+    "decisionMode": "result"
+  },
+  "signature": "query:string -> target:box(evidence, refusal return)",
+  "target": "outputs"
+}

@@ -1,0 +1,50 @@
+{
+  "name": "box-native",
+  "kind": "forward",
+  "signature": "query:string -> target:box(evidence)",
+  "input": {
+    "query": "Locate"
+  },
+  "features": {
+    "structured_outputs": true
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"target\":{\"box\":{\"bottom\":0.8,\"left\":0.1,\"right\":0.7,\"top\":0.2}}}",
+          "decisionContext": {
+            "provenance": {
+              "source": "native",
+              "provider": "Typesafe",
+              "model": "jev-1.14.0"
+            },
+            "native": {
+              "target": {
+                "confidence": 0.9
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "target": {
+      "value": {
+        "bottom": 0.8,
+        "left": 0.1,
+        "right": 0.7,
+        "top": 0.2
+      },
+      "provenance": {
+        "source": "native",
+        "provider": "Typesafe",
+        "model": "jev-1.14.0"
+      },
+      "confidence": 0.9
+    }
+  },
+  "expected_request_count": 1
+}

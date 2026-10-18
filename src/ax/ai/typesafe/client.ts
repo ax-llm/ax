@@ -1,7 +1,9 @@
 // cspell:ignore jev systemone
+
 import { mergeAbortSignals } from '../../util/abort.js';
 import { apiCall } from '../../util/apicall.js';
 import type { AxAICredentialProvider, AxAIServiceOptions } from '../types.js';
+import { typesafeImageHeaders } from './images.js';
 import type {
   AxAITypesafeModelCard,
   AxAITypesafeQuestions,
@@ -111,6 +113,9 @@ export class AxAITypesafeClient {
         resolveHeaders: async ({ method, url }) => ({
           ...(this.args.apiKey
             ? { Authorization: `Bearer ${this.args.apiKey}` }
+            : {}),
+          ...(method === 'POST'
+            ? typesafeImageHeaders(body as AxAITypesafeRequest)
             : {}),
           ...this.args.headers,
           ...(await this.args.credentialProvider?.({

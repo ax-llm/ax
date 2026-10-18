@@ -6,6 +6,13 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  parseSkillFrontmatter,
+  readTypeScriptSkillBundles,
+} from '../src/ax/scripts/skill-bundles.mjs';
+import { createSkillArchive } from './skill-archives.mjs';
+
+export { parseSkillFrontmatter };
 
 export const skillDiscoverySchema =
   'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -32,21 +39,32 @@ export async function readSkillMirrorSources(repoRoot, languageIds) {
   const version = String(rootPackage.version ?? '0.1.0');
   const out = {};
   for (const languageId of languageIds) {
+    if (languageId === 'typescript') {
+      out[languageId] = readTypeScriptSkillBundles(
+        path.join(repoRoot, 'src/ax/skills'),
+        version
+      ).map((skill) => ({ ...skill, source: `src/ax/skills/${skill.file}` }));
+      continue;
+    }
     const skills = [];
     for (const source of await skillSourceFiles(repoRoot, languageId)) {
       let content = await readFile(path.join(repoRoot, source), 'utf8');
-      if (languageId === 'typescript') {
-        content = content.replace(
-          /^version:\s*["']?__VERSION__["']?/m,
-          `version: "${version}"`
-        );
-      }
       if (!content.endsWith('\n')) content += '\n';
       const frontmatter = parseSkillFrontmatter(content);
       if (!frontmatter.name || !frontmatter.description) {
         throw new Error(`${source} is missing skill name or description`);
       }
-      skills.push({ ...frontmatter, content, source });
+      const dir = path.dirname(path.join(repoRoot, source));
+      const files = {};
+      for (const file of (
+        await readdir(dir, { recursive: true, withFileTypes: true })
+      ).filter((entry) => entry.isFile())) {
+        const abs = path.join(file.parentPath ?? file.path, file.name);
+        files[path.relative(dir, abs).replaceAll(path.sep, '/')] =
+          await readFile(abs, 'utf8');
+      }
+      files['SKILL.md'] = content;
+      skills.push({ ...frontmatter, content, source, files });
     }
     out[languageId] = skills;
   }
@@ -54,24 +72,24 @@ export async function readSkillMirrorSources(repoRoot, languageIds) {
 }
 
 export function skillIndexEntry(skill) {
+  const artifact = skillArtifact(skill);
   return {
     name: skill.name,
-    type: 'skill-md',
+    type: artifact.type,
     description: skill.description,
-    url: `${skill.name}/SKILL.md`,
-    digest: sha256Digest(skill.content),
+    url: artifact.url,
+    digest: sha256Digest(artifact.bytes),
   };
 }
 
-export function parseSkillFrontmatter(markdown) {
-  if (!markdown.startsWith('---\n')) return {};
-  const end = markdown.indexOf('\n---', 4);
-  if (end === -1) return {};
-  const text = markdown.slice(4, end);
+export function skillArtifact(skill) {
+  const bundled = Object.keys(skill.files).length > 1;
   return {
-    name: frontmatterField(text, 'name'),
-    description: frontmatterField(text, 'description'),
-    version: frontmatterField(text, 'version'),
+    type: bundled ? 'archive' : 'skill-md',
+    url: `${skill.name}/${bundled ? 'skill.tar.gz' : 'SKILL.md'}`,
+    bytes: bundled
+      ? createSkillArchive(skill.files)
+      : Buffer.from(skill.content),
   };
 }
 
@@ -80,24 +98,10 @@ export function sha256Digest(data) {
 }
 
 async function skillSourceFiles(repoRoot, languageId) {
-  if (languageId === 'typescript') {
-    const files = await readdir(path.join(repoRoot, 'src/ax/skills'));
-    return files
-      .filter((file) => file.endsWith('.md'))
-      .sort()
-      .map((file) => `src/ax/skills/${file}`);
-  }
   const root = `packages/${languageId}/skills`;
   const files = await readdir(path.join(repoRoot, root), { recursive: true });
   return files
     .filter((file) => path.basename(file) === 'SKILL.md')
     .map((file) => `${root}/${file.replaceAll(path.sep, '/')}`)
     .sort();
-}
-
-function frontmatterField(frontmatterText, key) {
-  const match = frontmatterText.match(
-    new RegExp(`^${key}:\\s*["']?(.+?)["']?\\s*$`, 'm')
-  );
-  return match?.[1]?.trim();
 }

@@ -1,51 +1,38 @@
 ---
 name: "ax-go-llm"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.3.2"
+version: "25.4.2"
 ---
-# Ax LLM Quick Reference For Go
+# Ax For Go
 
-This skill helps an agent write Go code with the generated Ax package `github.com/ax-llm/ax/packages/go`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+Use this entry point when working with `github.com/ax-llm/ax/packages/go`. Read the guides relevant to the task before writing code. The guides are bundled locally; no additional skill installation is needed. Load more guides when a task crosses into another area.
 
-## When To Use
+## Choose A Guide
 
-- Start a generated-language Ax program from package docs or examples.
-- Translate the Ax mental model into the target package without TypeScript-only imports.
-- Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
-- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
+| Task | Read |
+| --- | --- |
+| Start a program, choose native factories, or find package docs and examples | [Quick reference](references/quickstart.md) |
+| provider clients and model routing | [AxAI Providers](references/ax-go-ai.md) |
+| decision signatures and native questions | [Typesafe / Jev](references/ax-go-typesafe.md) |
+| audio and realtime provider mappings | [Ax Audio And Realtime](references/ax-go-audio.md) |
+| signatures, fields, schemas, and validation | [Ax Signatures](references/ax-go-signature.md) |
+| structured generation and tools | [AxGen Structured Generation](references/ax-go-gen.md) |
+| RLM agents and tools | [AxAgent](references/ax-go-agent.md) |
+| runtime sessions and actor-code execution | [AxAgent RLM Runtime](references/ax-go-agent-rlm.md) |
+| memory, recall, and dynamic skill loading | [AxAgent Memory And Skills](references/ax-go-agent-memory-skills.md) |
+| traces, logs, usage, and diagnostics | [AxAgent Observability](references/ax-go-agent-observability.md) |
+| agent evaluation and optimization artifacts | [AxAgent Optimize](references/ax-go-agent-optimize.md) |
+| choosing context maps, policy, optimization, and recall | [AxAgent Context Selection](references/ax-go-agent-context.md) |
+| workflow graphs and orchestration | [AxFlow](references/ax-go-flow.md) |
+| Pareto optimization and prompt evolution | [Ax GEPA](references/ax-go-gepa.md) |
+| evolving context playbooks | [Ax Playbook](references/ax-go-playbook.md) |
+| candidate improvement and evaluation feedback | [Ax Refinement Patterns](references/ax-go-refine.md) |
 
-## Package Facts
+For an agent with persistent recall, read the agent and memory guides. For a provider-backed workflow, read the AI, generation, and flow guides.
 
-- Language: Go.
-- Package: `github.com/ax-llm/ax/packages/go`.
-- Package API docs: `API.md` and `axir-api.json`.
-- Capability manifest: `axir-capabilities.json`.
-- Runnable examples: `examples/`.
-- Real network support: yes.
-- Scripted no-key transport support: yes.
-- Runtime profiles: `javascript-goja`.
+## Essential Conventions
 
-## Core Pattern
-
-```go
-import ax "github.com/ax-llm/ax/packages/go"
-
-llm := ax.NewAI("openai", map[string]ax.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})
-```
-
-## Relevant API Surface
-
-- Signatures: `axllm.S`, `axllm.FieldType`, `axllm.AxSignature`
-- AxGen: `axllm.NewAx`, `axllm.AxGen`, `axllm.RunControl`, `axllm.AxRunControl`, `axllm.AxCachingFunction`, `axllm.SetCachingFunction`
-- AxAI: `axllm.NewAI`, `axllm.OpenAIDecisions`, `axllm.AxAIOpenAIDecisionsClient`, `axllm.Typesafe`, `axllm.AxAITypesafeClient`, `context.Context`, `axllm.AxAIServiceAbortedError`, `axllm.GetSupportedAIModels`, `axllm.AxCredentialRequest`, `axllm.AxCredentialProvider`, `AxOwnedClientFactory.OwnedWorkerFactory`, `axllm.AxChatSession`, `axllm.AxChatStream`, `axllm.OpenAICompatibleClient`, `axllm.OpenAIResponsesClient`, `axllm.GoogleGeminiClient`, `axllm.AnthropicClient`, `axllm.AxUsageContext`, `axllm.AxUsageEvent`, `axllm.AxUsageObserver`, `axllm.SetUsageObserver`, `axllm.AxRuntimeHooks`, `axllm.AxRateLimitInfo`, `axllm.AxRateLimiter`, `axllm.AxTracer`, `axllm.AxMeter`, `axllm.AxGlobals`, `axllm.SetRateLimiter`, `axllm.SetTracer`, `axllm.SetMeter`, `axllm.AxBalancer`, `axllm.AxBalancerAdaptiveStrategy`, `axllm.AxBalancerStatsStore`, `axllm.AxInMemoryBalancerStatsStore`, `axllm.CreateBalancerRouteStats`, `axllm.UpdateBalancerRouteStats`, `axllm.SampleBalancerRouteHealth`, `axllm.MultiServiceRouter`, `axllm.ProviderRouter`
-- Agents And RLM: `axllm.NewAgent`, `axllm.AxAgent`, `AxAgent.AddChildAgent`, `AxAgent.StreamingForward`
-- Flow: `axllm.NewFlow`, `axllm.AxFlow`, `AxOwnedProgramFactory.OwnedWorkerFactory`
-- Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
-
-## Guardrails
-
-- Start from package examples for exact native syntax before inventing a new call shape.
-- Use `provider-api` examples only when the user explicitly has provider credentials available.
-- Use `no-key` examples for deterministic local checks and provider request mapping.
-- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
-- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- Use this language's native package API and examples; TypeScript call shapes are not interchangeable.
+- Check the installed package version against the guide version before using an API from another release.
+- Start with a focused guide. Use the package's `API.md`, `axir-api.json`, and `axir-capabilities.json` for exact signatures and supported surfaces.
+- Specialist skills remain optional when separate skill entries are useful.

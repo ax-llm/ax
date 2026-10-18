@@ -1,0 +1,87 @@
+{
+  "expected_deltas": [
+    {
+      "delta": {
+        "target": {
+          "provenance": {
+            "model": "actual-model",
+            "provider": "AI",
+            "source": "elicited"
+          },
+          "value": {
+            "bottom": 0.8,
+            "left": 0.1,
+            "right": 0.7,
+            "top": 0.2
+          }
+        }
+      },
+      "index": 0,
+      "version": 0
+    }
+  ],
+  "expected_output": {
+    "target": {
+      "provenance": {
+        "model": "actual-model",
+        "provider": "AI",
+        "source": "elicited"
+      },
+      "value": {
+        "bottom": 0.8,
+        "left": 0.1,
+        "right": 0.7,
+        "top": 0.2
+      }
+    }
+  },
+  "expected_request_count": 1,
+  "features": {
+    "structured_outputs": true
+  },
+  "input": {
+    "query": "Locate"
+  },
+  "kind": "streaming_forward",
+  "name": "box-streaming",
+  "responses": [
+    {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "{\"target\":{\"box\":{\"bottom\":0.8,\"lef",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "results": [
+            {
+              "content": "t\":0.1,\"right\":0.7,\"top\":0.2}}}",
+              "index": 0
+            }
+          ]
+        },
+        {
+          "modelUsage": {
+            "ai": "AI",
+            "model": "actual-model",
+            "tokens": {
+              "completionTokens": 1,
+              "promptTokens": 1,
+              "totalTokens": 2
+            }
+          },
+          "results": [
+            {
+              "finish_reason": "stop",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> target:box(evidence)"
+}

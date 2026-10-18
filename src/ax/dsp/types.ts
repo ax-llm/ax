@@ -19,6 +19,7 @@ import type { AxUCPClient } from '../ucp/client.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type {
   AxBooleanEvidence,
+  AxBoxEvidence,
   AxClassEvidence,
   AxScoreEvidence,
 } from './decision.js';
@@ -170,13 +171,15 @@ type EvidenceExampleValue<T> = T extends AxBooleanEvidence
   ? T | boolean
   : T extends AxClassEvidence<infer L>
     ? T | L
-    : T extends AxScoreEvidence
-      ? T | number
-      : T extends readonly unknown[]
-        ? { [K in keyof T]: EvidenceExampleValue<T[K]> }
-        : T extends object
+    : T extends AxBoxEvidence
+      ? T | T['value']
+      : T extends AxScoreEvidence
+        ? T | number
+        : T extends readonly unknown[]
           ? { [K in keyof T]: EvidenceExampleValue<T[K]> }
-          : T;
+          : T extends object
+            ? { [K in keyof T]: EvidenceExampleValue<T[K]> }
+            : T;
 
 export type AxProgramDemos<IN, OUT, ID extends string = string> = {
   traces: ((OUT | EvidenceExampleValue<OUT>) & Partial<IN>)[];

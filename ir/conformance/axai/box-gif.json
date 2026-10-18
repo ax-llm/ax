@@ -1,0 +1,26 @@
+{
+  "name": "box-gif",
+  "kind": "ai_typesafe_native",
+  "operation": "system_one",
+  "request": {
+    "model": "jev-1.14.0",
+    "state": {
+      "image": "photo"
+    },
+    "assets": {
+      "photo": {
+        "type": "image",
+        "format": "gif",
+        "data_base64": "aGVsbG8="
+      }
+    },
+    "questions": {
+      "target": {
+        "type": "box",
+        "instructions": "Find the square in photo"
+      }
+    }
+  },
+  "expected_transport_request_count": 0,
+  "expected_error_contains": "PNG or JPEG"
+}

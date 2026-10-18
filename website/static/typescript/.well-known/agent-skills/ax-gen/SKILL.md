@@ -1,7 +1,7 @@
 ---
 name: ax-gen
 description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
-version: "25.3.2"
+version: "25.4.2"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
@@ -626,6 +626,6 @@ session parity remains open; see `docs/COMPILER.md`.
 Use boolean/class `.withEvidence()` or a rubric `f.score(levels).withEvidence()`
 to retain probabilities and native confidence through `forward()`. String equivalents
 are `boolean(evidence)` and `score "Low, Medium, High"(evidence)`. See
-[decision evidence](ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
+[decision evidence](references/ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
 provenance, refusal policy, and reranking. These are normal program outputs;
 processors, assertions, result selection, traces, and caches receive decoded evidence.

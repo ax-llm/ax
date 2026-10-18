@@ -269,6 +269,24 @@ module @ax.validate version "0.1" {
         }
         core.return
       }
+      %box = core.call intrinsic.eq(%type_name, "box")
+      core.if %box {
+        %evidence = core.get %typ["evidence"]
+        %rich = core.call intrinsic.is_not_none(%evidence)
+        %coordinates = core.let %value
+        core.if %rich {
+          %policy = core.get %evidence["onRefusal"]
+          %return_refusal = core.call intrinsic.eq(%policy, "return")
+          %status = core.get %value["status"]
+          %refused = core.call intrinsic.eq(%status, "refused")
+          %allow_refusal = core.call intrinsic.and(%return_refusal, %refused)
+          core.if %allow_refusal { core.return }
+          %wire = core.get %value["box"] default %value
+          %coordinates = core.get %value["value"] default %wire
+        }
+        core.call @box_validate_impl(%coordinates, %path)
+        core.return
+      }
       %decision = core.call @evidence_is_type_impl(%typ)
       core.if %decision { core.return }
       %is_image = core.call intrinsic.eq(%type_name, "image")

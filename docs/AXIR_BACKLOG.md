@@ -1426,3 +1426,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-13
   - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
   - Verification: `Current TS-derived streaming and overload-retry fixtures cover cumulative input/cache usage, explicit zero, null and omitted fields, successive deltas, and retained speed metadata. The shared stream state keeps the latest normalized usage. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
+- `axir-2026-10-15-port-jev-image-assets-and-box-signature-fields` [axai] Port Jev image assets and Box signature fields
+  - Status: done
+  - Source PR: #848
+  - Source commit: `3d5aa8dac28a2637e4150f022dcd02e6fc3309f0`
+  - TS paths: `src/ax/ai/typesafe`, `src/ax/ai/openai-decisions/api.ts`, `src/ax/dsp/decision.ts`, `src/ax/dsp/jsonSchema.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/prompt.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`, `src/ax/dsp/types.ts`, `src/ax/dsp/util.ts`, `src/ax/dsp/box.ts`, `src/ax/dsp/box.test.ts`, `src/ax/dsp/box.test-d.ts`
+  - Impact: Port TypeScript PNG/JPEG assets and experimental headers, native Box questions, normalized box signature parsing and inference, schema validation, evidence and provenance to AxIR and generated language runtimes; update capabilities, examples, conformance and language docs.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-15
+  - Completed by: `ac97e1f260ccb09bf777842ea69be9bf7fa3a67e`
+  - Verification: `41 TypeScript-derived image and Box regressions and 1956 conformance cases pass across Python, Java, C++, Go and Rust. Native typed APIs, PNG/JPEG references, experimental headers, Box schemas, evidence, refusal handling, streaming and Decisions rejection are covered. All five public localization examples pass against live Jev 1.14.0. Full TypeScript checks pass with 3937 tests and one skip; 72 CI compiler tests, fixture synchronization, generated package freshness, provider profiles and the 1992-page website checks pass.`

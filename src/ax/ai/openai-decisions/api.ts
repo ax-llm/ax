@@ -90,6 +90,10 @@ class DecisionsImpl {
     return Object.entries(properties).map(([name, value]) => {
       const wireField = record(value, `field ${name}`);
       const decision = req.responseFormat?.decisionFields?.[name];
+      if (decision?.type === 'box')
+        throw new Error(
+          'OpenAI Decisions does not support box outputs; use Typesafe or a generative vision provider'
+        );
       if (decision?.isArray || decision?.isOptional)
         throw new Error(
           'Decision providers require flat, required scalar outputs'

@@ -4280,6 +4280,8 @@ def _field_payload(field):
 
 def _type_payload(typ):
     out = {"name": typ.name, "isArray": bool(typ.is_array)}
+    if typ.evidence is not None:
+        out["evidence"] = dict(typ.evidence)
     if typ.options is not None:
         out["options"] = list(typ.options)
     if typ.description is not None:

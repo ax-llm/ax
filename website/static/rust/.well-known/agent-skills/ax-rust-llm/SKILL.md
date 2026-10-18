@@ -1,51 +1,38 @@
 ---
 name: "ax-rust-llm"
 description: "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "25.3.2"
+version: "25.4.2"
 ---
-# Ax LLM Quick Reference For Rust
+# Ax For Rust
 
-This skill helps an agent write Rust code with the generated Ax package `axllm`. Use the generated package API, examples, and manifests; do not import TypeScript-only APIs unless you are editing the TypeScript package.
+Use this entry point when working with `axllm`. Read the guides relevant to the task before writing code. The guides are bundled locally; no additional skill installation is needed. Load more guides when a task crosses into another area.
 
-## When To Use
+## Choose A Guide
 
-- Start a generated-language Ax program from package docs or examples.
-- Translate the Ax mental model into the target package without TypeScript-only imports.
-- Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
-- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
+| Task | Read |
+| --- | --- |
+| Start a program, choose native factories, or find package docs and examples | [Quick reference](references/quickstart.md) |
+| provider clients and model routing | [AxAI Providers](references/ax-rust-ai.md) |
+| decision signatures and native questions | [Typesafe / Jev](references/ax-rust-typesafe.md) |
+| audio and realtime provider mappings | [Ax Audio And Realtime](references/ax-rust-audio.md) |
+| signatures, fields, schemas, and validation | [Ax Signatures](references/ax-rust-signature.md) |
+| structured generation and tools | [AxGen Structured Generation](references/ax-rust-gen.md) |
+| RLM agents and tools | [AxAgent](references/ax-rust-agent.md) |
+| runtime sessions and actor-code execution | [AxAgent RLM Runtime](references/ax-rust-agent-rlm.md) |
+| memory, recall, and dynamic skill loading | [AxAgent Memory And Skills](references/ax-rust-agent-memory-skills.md) |
+| traces, logs, usage, and diagnostics | [AxAgent Observability](references/ax-rust-agent-observability.md) |
+| agent evaluation and optimization artifacts | [AxAgent Optimize](references/ax-rust-agent-optimize.md) |
+| choosing context maps, policy, optimization, and recall | [AxAgent Context Selection](references/ax-rust-agent-context.md) |
+| workflow graphs and orchestration | [AxFlow](references/ax-rust-flow.md) |
+| Pareto optimization and prompt evolution | [Ax GEPA](references/ax-rust-gepa.md) |
+| evolving context playbooks | [Ax Playbook](references/ax-rust-playbook.md) |
+| candidate improvement and evaluation feedback | [Ax Refinement Patterns](references/ax-rust-refine.md) |
 
-## Package Facts
+For an agent with persistent recall, read the agent and memory guides. For a provider-backed workflow, read the AI, generation, and flow guides.
 
-- Language: Rust.
-- Package: `axllm`.
-- Package API docs: `API.md` and `axir-api.json`.
-- Capability manifest: `axir-capabilities.json`.
-- Runnable examples: `examples/`.
-- Real network support: yes.
-- Scripted no-key transport support: yes.
-- Runtime profiles: `javascript-quickjs`.
+## Essential Conventions
 
-## Core Pattern
-
-```rust
-use axllm::ai;
-
-let llm = ai("openai", options)?;
-```
-
-## Relevant API Surface
-
-- Signatures: `s`, `f`, `AxSignature`
-- AxGen: `ax`, `AxGen`, `run_control`, `AxRunControl`, `AxCachingFunction`, `set_caching_function`
-- AxAI: `ai`, `openai_decisions`, `AxAIOpenAIDecisionsClient`, `typesafe`, `AxAITypesafeClient`, `AxCancellationToken`, `AxAIServiceAbortedError`, `get_supported_ai_models`, `AxCredentialRequest`, `AxCredentialProvider`, `AxAIClient::owned_worker_factory`, `AxChatSession`, `AxChatStream`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
-- Agents And RLM: `agent`, `AxAgent`, `AxAgent::with_child_agent`, `AxAgent::streaming_forward`
-- Flow: `flow`, `AxFlow`, `AxExecutableProgram::owned_worker_factory`
-- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
-
-## Guardrails
-
-- Start from package examples for exact native syntax before inventing a new call shape.
-- Use `provider-api` examples only when the user explicitly has provider credentials available.
-- Use `no-key` examples for deterministic local checks and provider request mapping.
-- Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
-- Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- Use this language's native package API and examples; TypeScript call shapes are not interchangeable.
+- Check the installed package version against the guide version before using an API from another release.
+- Start with a focused guide. Use the package's `API.md`, `axir-api.json`, and `axir-capabilities.json` for exact signatures and supported surfaces.
+- Specialist skills remain optional when separate skill entries are useful.

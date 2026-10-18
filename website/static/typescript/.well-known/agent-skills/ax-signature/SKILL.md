@@ -1,7 +1,7 @@
 ---
 name: ax-signature
 description: This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.
-version: "25.3.2"
+version: "25.4.2"
 ---
 
 # Ax Signature Reference
@@ -111,7 +111,7 @@ original annotations remain separate in the signature and survive `toString()`
 round-trips. Rendering does not mutate the signature or duplicate descriptions.
 Boolean and class return types, optional/array behavior, and allowed values stay
 unchanged. Descriptions are guidance, not additional output validation. Number
-bounds still describe validation constraints; Typesafe Score rubrics remain native-only.
+bounds still describe validation constraints; use an explicit `score` field for an ordered rubric.
 The same descriptions, validation, serialization, schemas, and prompt semantics
 are generated for Python, Java, C++, Go, and Rust.
 
@@ -486,4 +486,22 @@ Boolean and class fields can opt in with `.withEvidence()` or `(evidence)`.
 A rubric `score "Low, Medium, High"` returns a continuous zero-based index;
 add `(evidence)` to keep ordered probabilities and provenance. Boolean
 `threshold 0.7` applies locally to evidence fields only. `refusal return` adds
-a tagged answered/refused union. See [decision evidence](ax-typesafe.md#decision-evidence-and-reranking).
+a tagged answered/refused union. See [decision evidence](references/ax-typesafe.md#decision-evidence-and-reranking).
+
+## Bounding boxes (TypeScript)
+
+`photo:image -> target:box` returns `AxBox`: normalized `top`, `bottom`, `left`,
+and `right` coordinates in `[0, 1]`, measured from the image top-left. Ax validates
+`top < bottom` and `left < right`. `target:box(evidence)` returns `AxBoxEvidence`:
+`{ value: AxBox, confidence?: number, provenance }`. Use `f.box()` or
+`f.box().withEvidence()` in fluent signatures. Arrays, optional boxes, nested
+boxes, and box inputs work with generative providers. Native Jev outputs must be
+flat, required, single boxes.
+
+Jev 1.14 supports native localization using PNG/JPEG image inputs. Ax supplies its
+required experimental image header. A Box does not indicate presence; pair it
+with a boolean when the target might be absent. Generative vision models use
+validated structured output with elicited provenance and no native confidence.
+OpenAI Decisions supports images but rejects Box outputs. See `ax-typesafe.md`
+for transport details, image preparation limits, and model selection. Generated
+language Box support remains tracked in the AxIR backlog.

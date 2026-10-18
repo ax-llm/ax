@@ -8,6 +8,13 @@ import re
 from typing import Any
 # AXIR_CORE_IMPORTS
 
+def _core_string_utf8_length(value):
+    return len(str(value).encode("utf-8", "surrogatepass"))
+
+def _core_validation_error(message):
+    return ValueError(str(message))
+
+
 
 class AxSignatureError(ValueError):
     pass
@@ -428,6 +435,7 @@ class FluentFactory:
 
     def string(self, description: str | None = None): return FluentField("string", description)
     def number(self, description: str | None = None): return FluentField("number", description)
+    def box(self, description: str | None = None): return FluentField("box", description)
     def score(self, levels: list[str], description: str | None = None):
         item = FluentField("score", description)
         item.type.options = list(levels)

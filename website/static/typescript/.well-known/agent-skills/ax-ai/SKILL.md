@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.
-version: "25.3.2"
+version: "25.4.2"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -60,7 +60,7 @@ hybrid examples. The two interfaces serve different output contracts:
 Use `.withEvidence()` on boolean/class fields or `f.score(levels).withEvidence()`
 to retain probabilities, native scores, and confidence through normal AxGen
 outputs. The string forms use `(evidence)`. See the
-[decision evidence guide](ax-typesafe.md#decision-evidence-and-reranking) for
+[decision evidence guide](references/ax-typesafe.md#decision-evidence-and-reranking) for
 result shapes, provenance, and reranking with both Jev and OpenAI Decisions.
 
 Both default to `jev-latest`. Set the adapter's model with `config.model`; set

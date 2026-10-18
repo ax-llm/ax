@@ -302,11 +302,11 @@ function createOfficeEnvironment(): OfficeEnvironment {
   const callLog: ToolCall[] = [];
   const toolErrors: string[] = [];
 
-  const recordSuccess = (
+  const recordSuccess = <T>(
     qualifiedName: string,
     args: Record<string, unknown>,
-    result: unknown
-  ) => {
+    result: T
+  ): T => {
     callLog.push({ qualifiedName, arguments: args, result });
     return result;
   };

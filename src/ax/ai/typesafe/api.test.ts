@@ -303,12 +303,12 @@ describe('Typesafe signature adapter', () => {
           {
             role: 'user',
             content: [
-              { type: 'image', image: 'aGVsbG8=', mimeType: 'image/png' },
+              { type: 'image', image: 'aGVsbG8=', mimeType: 'image/webp' },
             ],
           },
         ],
       })
-    ).rejects.toThrow('text input only');
+    ).rejects.toThrow('PNG or JPEG');
     expect(fetch).not.toHaveBeenCalled();
   });
 
