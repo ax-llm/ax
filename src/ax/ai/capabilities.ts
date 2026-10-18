@@ -382,6 +382,14 @@ export function axScoreProvidersForRequest(
         }
       }
 
+      if (
+        requirements.hasAudioOutput &&
+        features.media.audio.output?.supported
+      ) {
+        score += 25;
+        supportedCapabilities.push('Audio output');
+      }
+
       if (requirements.hasFiles) {
         if (features.media.files.supported) {
           score += 25;
@@ -609,6 +617,7 @@ export function axGetCompatibilityReport(
   const totalRequirements = [
     requirements.hasImages && 'images',
     requirements.hasAudio && 'audio',
+    requirements.hasAudioOutput && 'audio output',
     requirements.hasFiles && 'files',
     requirements.hasUrls && 'URLs',
     requirements.requiresFunctions && 'functions',
