@@ -1,8 +1,51 @@
+import { getEventListeners } from 'node:events';
 import { describe, expect, it } from 'vitest';
 
 import { mergeAbortSignals } from './abort.js';
 
 describe('mergeAbortSignals', () => {
+  it.each([0, 1])(
+    'cleans up both fallback listeners when signal %i aborts first',
+    (first) => {
+      const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any');
+      Object.defineProperty(AbortSignal, 'any', {
+        configurable: true,
+        value: undefined,
+      });
+
+      try {
+        const controllers = [new AbortController(), new AbortController()];
+        const merged = mergeAbortSignals(
+          controllers[0].signal,
+          controllers[1].signal
+        )!;
+        const reason = new Error('first abort');
+
+        expect(merged.aborted).toBe(false);
+        for (const controller of controllers) {
+          expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1);
+        }
+
+        controllers[first].abort(reason);
+
+        expect(merged.aborted).toBe(true);
+        expect(merged.reason).toBe(reason);
+        for (const controller of controllers) {
+          expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+        }
+
+        controllers[1 - first].abort(new Error('second abort'));
+        expect(merged.reason).toBe(reason);
+      } finally {
+        if (descriptor) {
+          Object.defineProperty(AbortSignal, 'any', descriptor);
+        } else {
+          Reflect.deleteProperty(AbortSignal, 'any');
+        }
+      }
+    }
+  );
+
   it('returns undefined when both signals are undefined', () => {
     expect(mergeAbortSignals(undefined, undefined)).toBeUndefined();
   });
