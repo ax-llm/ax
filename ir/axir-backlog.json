@@ -3552,6 +3552,28 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-10-15-preserve-all-gemini-cached-system-messages",
+      "status": "open",
+      "title": "Preserve all Gemini cached system messages",
+      "createdAt": "2026-10-15",
+      "sourcePR": 851,
+      "sourceCommit": "2503761ae75b5cc858f04c107a7a47ef3dab6713",
+      "tsPaths": [
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/google-gemini/api.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Generated Gemini adapters must combine every system message in prompt order when creating a context cache, matching ordinary requests and retaining instructions after the cache breakpoint.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

@@ -51,6 +51,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/util/partialJson.ts`, `src/ax/util/partialJson.test.ts`
   - Impact: Generated partial JSON repair in ir/axcore/stream.axir must preserve string fragments and remove trailing commas only outside strings, matching the TypeScript fix in PR 846.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-15-preserve-all-gemini-cached-system-messages` [axai] Preserve all Gemini cached system messages
+  - Status: open
+  - Source PR: #851
+  - Source commit: `2503761ae75b5cc858f04c107a7a47ef3dab6713`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: Generated Gemini adapters must combine every system message in prompt order when creating a context cache, matching ordinary requests and retaining instructions after the cache breakpoint.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

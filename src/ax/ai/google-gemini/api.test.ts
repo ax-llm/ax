@@ -2186,7 +2186,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(assistantMsg.parts[1].thought_signature).toBe('sig1');
   });
 
-  describe('context caching tool semantics', () => {
+  describe('context caching semantics', () => {
     const cacheCreateResponse = {
       name: 'cachedContents/test-cache',
       expireTime: '2099-01-01T00:00:00Z',
@@ -2221,6 +2221,83 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         },
       };
     };
+
+    it.each([
+      {
+        name: 'multiple system messages before and after the breakpoint',
+        before: ['Follow the policy.', 'Keep answers concise.'],
+        after: ['Answer in French.'],
+        expected: {
+          role: 'user',
+          parts: [
+            {
+              text: 'Follow the policy. Keep answers concise. Answer in French.',
+            },
+          ],
+        },
+      },
+      {
+        name: 'one system message',
+        before: ['Follow the policy.'],
+        after: [],
+        expected: { role: 'user', parts: [{ text: 'Follow the policy.' }] },
+      },
+      {
+        name: 'no system messages',
+        before: [],
+        after: [],
+        expected: undefined,
+      },
+    ])('preserves $name when caching', async ({ before, after, expected }) => {
+      const ai = createAI({
+        name: 'google-gemini',
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini38Flash },
+      });
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [
+          generateResponse,
+          cacheCreateResponse,
+          generateResponse,
+          generateResponse,
+        ],
+        capture
+      );
+      const { registry } = createRegistry();
+      ai.setOptions({ fetch });
+
+      const chatPrompt = [
+        ...before.map((content) => ({ role: 'system' as const, content })),
+        { role: 'user' as const, content: 'Reference material', cache: true },
+        ...after.map((content) => ({ role: 'system' as const, content })),
+        { role: 'user' as const, content: 'Summarize it.' },
+      ];
+
+      await ai.chat({ chatPrompt }, { stream: false });
+      const options = {
+        stream: false,
+        contextCache: { minTokens: 0, registry },
+      };
+      await ai.chat({ chatPrompt }, options);
+      await ai.chat({ chatPrompt }, options);
+
+      expect(capture.calls).toHaveLength(4);
+      const uncachedRequest = capture.calls[0]?.body;
+      const cacheCreateRequest = capture.calls[1]?.body;
+      expect(uncachedRequest.systemInstruction).toEqual(expected);
+      expect(cacheCreateRequest.systemInstruction).toEqual(expected);
+      expect(cacheCreateRequest.contents).toEqual([
+        { role: 'user', parts: [{ text: 'Reference material' }] },
+      ]);
+      for (const { body } of capture.calls.slice(2)) {
+        expect(body.cachedContent).toBe('cachedContents/test-cache');
+        expect(body).not.toHaveProperty('systemInstruction');
+        expect(body.contents).toEqual([
+          { role: 'user', parts: [{ text: 'Summarize it.' }] },
+        ]);
+      }
+    });
 
     it.each([
       AxAIGoogleGeminiModel.Gemini38Flash,
