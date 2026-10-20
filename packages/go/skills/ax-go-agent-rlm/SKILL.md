@@ -1,7 +1,7 @@
 ---
 name: "ax-go-agent-rlm"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles."
-version: "25.4.3"
+version: "25.4.4"
 ---
 # AxAgent RLM Runtime For Go
 

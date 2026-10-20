@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-agent-rlm"
 description: "Use when writing Rust code with `axllm` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles."
-version: "25.4.3"
+version: "25.4.4"
 ---
 # AxAgent RLM Runtime For Rust
 
