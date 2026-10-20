@@ -1,5 +1,18 @@
 # Changelog
 
+## [25.4.4](https://github.com/ax-llm/ax/compare/25.4.3...25.4.4) (2026-10-21)
+
+### Bug Fixes
+
+* **gemini:** preserve every system message in context caches, matching uncached requests and retaining instructions on both sides of the cache breakpoint ([#851](https://github.com/ax-llm/ax/pull/851)).
+
+### Tests
+
+* Cover abort-signal fallback listener cleanup and first-abort reason preservation ([#859](https://github.com/ax-llm/ax/pull/859)).
+* Cover decoder-polyfill UTF-8 buffering and final incomplete-sequence flushing ([#860](https://github.com/ax-llm/ax/pull/860)).
+
+The Gemini fix applies to TypeScript. Generated-language parity remains tracked in the AxIR backlog; existing provider caches need expiry or recreation to receive the corrected instructions.
+
 ## [25.4.3](https://github.com/ax-llm/ax/compare/25.4.2...25.4.3) (2026-10-18)
 
 ### Bug Fixes

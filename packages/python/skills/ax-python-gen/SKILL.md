@@ -1,7 +1,7 @@
 ---
 name: "ax-python-gen"
 description: "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing."
-version: "25.4.3"
+version: "25.4.4"
 ---
 # AxGen Structured Generation For Python
 
