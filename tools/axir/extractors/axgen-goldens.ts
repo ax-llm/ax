@@ -2197,6 +2197,11 @@ for (const [name, cache, input, ignoreBreakpoints] of [
 
 // Evaluated by the TypeScript public utility, then replayed via every native public adapter.
 const novelCases = [
+  ['literal-backslash', '', 'kiwi\\mango', 'kiwimango'],
+  ['article-a-before-punctuation', '', 'a,kiwi', 'kiwi'],
+  ['article-an-before-punctuation', '', 'an,kiwi', 'kiwi'],
+  ['article-the-before-punctuation', '', 'the,kiwi', 'kiwi'],
+  ['unicode-case-across-backslash', '', 'ΟΣ\\Σ', 'ος\\σ'],
   ['multiset-overlap', '', 'kiwi kiwi mango', 'kiwi mango mango'],
   ['prediction-repetition', '', 'kiwi kiwi kiwi kiwi', 'kiwi'],
   ['recall-denominator', '', 'kiwi', 'kiwi kiwi mango'],

@@ -2,6 +2,7 @@
 // Unicode 17 data: https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt
 // License: https://www.unicode.org/license.txt
 import { readFileSync, writeFileSync } from 'node:fs';
+import { AxEvalUtil } from '../../../src/ax/dsp/eval.js';
 import { stopwords } from '../../../src/ax/dsp/stopwords.js';
 
 if (process.versions.unicode !== '17.0')
@@ -35,11 +36,19 @@ for (let cp = 0; cp <= 0x10ffff; cp++) {
   if (/\p{Cased}/u.test(text)) cased[cp] = true;
   if (/\p{Case_Ignorable}/u.test(text)) caseIgnorable[cp] = true;
 }
+// Derive the exact ASCII removal set through the public TS metric. In particular,
+// its punctuation expression preserves backslashes, unlike a generic punctuation set.
 const punctuation = Object.fromEntries(
-  Array.from('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~', (ch) => [
-    ch.codePointAt(0)!,
-    true,
-  ])
+  Array.from({ length: 128 }, (_, cp) => cp)
+    .filter(
+      (cp) =>
+        AxEvalUtil.novelF1ScoreOptimized(
+          '',
+          `kiwi${String.fromCharCode(cp)}mango`,
+          'kiwimango'
+        ) === 1
+    )
+    .map((cp) => [cp, true])
 );
 const whitespace = Object.fromEntries(
   Array.from(

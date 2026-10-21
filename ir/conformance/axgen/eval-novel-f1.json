@@ -1,6 +1,86 @@
 {
   "cases": [
     {
+      "expected": 0,
+      "ground_truth": "kiwimango",
+      "history": "",
+      "name": "literal-backslash-f1",
+      "prediction": "kiwi\\mango",
+      "return_recall": false
+    },
+    {
+      "expected": 0,
+      "ground_truth": "kiwimango",
+      "history": "",
+      "name": "literal-backslash-recall",
+      "prediction": "kiwi\\mango",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "article-a-before-punctuation-f1",
+      "prediction": "a,kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "article-a-before-punctuation-recall",
+      "prediction": "a,kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "article-an-before-punctuation-f1",
+      "prediction": "an,kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "article-an-before-punctuation-recall",
+      "prediction": "an,kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "article-the-before-punctuation-f1",
+      "prediction": "the,kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "article-the-before-punctuation-recall",
+      "prediction": "the,kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "ος\\σ",
+      "history": "",
+      "name": "unicode-case-across-backslash-f1",
+      "prediction": "ΟΣ\\Σ",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "ος\\σ",
+      "history": "",
+      "name": "unicode-case-across-backslash-recall",
+      "prediction": "ΟΣ\\Σ",
+      "return_recall": true
+    },
+    {
       "expected": 0.6666666666666666,
       "ground_truth": "kiwi mango mango",
       "history": "",
