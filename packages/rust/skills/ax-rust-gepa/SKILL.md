@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-gepa"
 description: "Use when writing Rust code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts."
-version: "25.4.4"
+version: "25.4.5"
 ---
 # Ax GEPA For Rust
 
