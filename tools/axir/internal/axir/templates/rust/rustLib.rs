@@ -11616,7 +11616,10 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "eval_novel_f1" => {
             for item in fixture["cases"].as_array().ok_or_else(|| AxError::new("fixture", "missing metric cases"))? {
                 let score = novel_f1_score(item["history"].as_str().unwrap(), item["prediction"].as_str().unwrap(), item["ground_truth"].as_str().unwrap(), item["return_recall"].as_bool().unwrap_or(false))?;
-                expect_json_equal("novel F1", &json!(score), &item["expected"])?;
+                let expected = item["expected"].as_f64().ok_or_else(|| AxError::new("fixture", "expected a numeric novel F1 score"))?;
+                if !score.is_finite() || (score - expected).abs() > 1e-12 {
+                    return Err(AxError::new("fixture", format!("novel F1 {}: expected {expected}, got {score}", item["name"])));
+                }
             }
         }
         "stream" => run_stream_fixture(&fixture)?,
