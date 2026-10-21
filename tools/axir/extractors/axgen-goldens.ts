@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
+import { AxEvalUtil } from '../../../src/ax/dsp/eval.js';
 import {
   type extractionState,
   extractValues,
@@ -2193,3 +2194,49 @@ for (const [name, cache, input, ignoreBreakpoints] of [
     expected_request_count: 1,
   });
 }
+
+// Evaluated by the TypeScript public utility, then replayed via every native public adapter.
+const novelCases = [
+  ['literal-backslash', '', 'kiwi\\mango', 'kiwimango'],
+  ['article-a-before-punctuation', '', 'a,kiwi', 'kiwi'],
+  ['article-an-before-punctuation', '', 'an,kiwi', 'kiwi'],
+  ['article-the-before-punctuation', '', 'the,kiwi', 'kiwi'],
+  ['unicode-case-across-backslash', '', 'ΟΣ\\Σ', 'ος\\σ'],
+  ['multiset-overlap', '', 'kiwi kiwi mango', 'kiwi mango mango'],
+  ['prediction-repetition', '', 'kiwi kiwi kiwi kiwi', 'kiwi'],
+  ['recall-denominator', '', 'kiwi', 'kiwi kiwi mango'],
+  ['history-exclusion', 'kiwi', 'kiwi mango peach', 'kiwi mango pear'],
+  ['stopwords', '', 'the and kiwi', 'kiwi'],
+  ['empty-both', '', '', ''],
+  ['empty-prediction', '', '', 'kiwi'],
+  ['empty-truth', '', 'kiwi', ''],
+  ['all-filtered', 'kiwi', 'kiwi the', 'the kiwi'],
+  ['disjoint', '', 'kiwi', 'mango'],
+  ['prototype-tokens', '', 'constructor constructor', 'constructor'],
+  ['unicode-nfd', '', 'CAFÉ', 'cafe\u0301'],
+  ['unicode-order', '', 'cafe\u0301\u0323', 'cafe\u0323\u0301'],
+  ['unicode-hangul', '', '가나다', '가나다'],
+  ['unicode-case', '', 'ΟΣ', 'ος'],
+  ['unicode-astral-case', '', '𐐀', '𐐨'],
+  ['ascii-word-boundary', '', 'éthe kiwi', 'é kiwi'],
+  ['normalization-order', '', 'THE café!', 'cafe\u0301'],
+  ['whitespace', '', '\ufeffkiwi\u2028mango\u00a0', 'kiwi mango'],
+];
+writeFixture('eval-novel-f1', {
+  kind: 'eval_novel_f1',
+  cases: novelCases.flatMap(([name, history, prediction, groundTruth]) =>
+    [false, true].map((returnRecall) => ({
+      name: `${name}-${returnRecall ? 'recall' : 'f1'}`,
+      history: history!,
+      prediction: prediction!,
+      ground_truth: groundTruth!,
+      return_recall: returnRecall,
+      expected: AxEvalUtil.novelF1ScoreOptimized(
+        history!,
+        prediction!,
+        groundTruth!,
+        returnRecall
+      ),
+    }))
+  ),
+});

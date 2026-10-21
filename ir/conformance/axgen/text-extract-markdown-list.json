@@ -1,6 +1,11 @@
 {
   "expected_output": {
-    "answers": ["a", "b", "c", "d"]
+    "answers": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ]
   },
   "expected_request_count": 1,
   "input": {

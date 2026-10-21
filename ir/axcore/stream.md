@@ -17,3 +17,9 @@ Core operations:
 These operations port the deterministic semantics exercised by generated
 conformance runners. They do not add a new incremental AxGen API to the five
 generated packages.
+
+Partial JSON repair checks whether the cut is inside a quoted string before
+repairing commas, numbers, dangling keys, or primitive literals. Its structural
+comma scan tracks quotes and escapes. Public `streaming_forward` regressions
+assert intermediate deltas as well as the final output, preventing temporary
+string corruption from being hidden by the completed JSON.

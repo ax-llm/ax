@@ -18,7 +18,9 @@
     },
     "stats": {
       "capabilityMatrix": {
-        "Functions": ["TextOnly"]
+        "Functions": [
+          "TextOnly"
+        ]
       },
       "recommendedProvider": "TextOnly",
       "totalProviders": 1

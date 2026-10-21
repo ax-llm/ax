@@ -48,7 +48,9 @@
               "type": "string"
             }
           },
-          "required": ["query"],
+          "required": [
+            "query"
+          ],
           "type": "object"
         }
       }

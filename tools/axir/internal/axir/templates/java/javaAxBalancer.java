@@ -342,6 +342,7 @@ public final class AxBalancer implements AxAIService,ChatRunSelector,AxChatSessi
     boolean allModesAdvertised = !services.isEmpty();
     for (AxAIService service : services) {
       Map<String, Object> raw = service.getFeatures(model);
+      features = Core.asMap(Core.provider_merge_audio_output(features, raw));
       Object rawModes = raw.containsKey("structuredOutputModes") ? raw.get("structuredOutputModes") : raw.get("structured_output_modes");
       if (rawModes == null) allModesAdvertised = false;
       else appendUnique(structuredOutputModes, rawModes);

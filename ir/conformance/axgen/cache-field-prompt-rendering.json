@@ -2,7 +2,10 @@
   "expected_output": {
     "answer": "Cached text"
   },
-  "expected_request_contains": ["Cached text", "cache"],
+  "expected_request_contains": [
+    "Cached text",
+    "cache"
+  ],
   "expected_request_count": 1,
   "input": {
     "document": "Cached text",

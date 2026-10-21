@@ -1,9 +1,9 @@
 {
   "expected_output": {
-    "thought": "JSON thought",
     "user": {
       "name": "Ada"
-    }
+    },
+    "thought": "JSON thought"
   },
   "expected_request": {
     "provider_metadata": {
@@ -14,7 +14,9 @@
   },
   "features": {
     "functions": true,
-    "structured_output_modes": ["json_object"],
+    "structured_output_modes": [
+      "json_object"
+    ],
     "structured_outputs": false
   },
   "input": {

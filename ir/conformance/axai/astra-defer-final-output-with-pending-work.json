@@ -55,7 +55,9 @@
     },
     {
       "event": {
-        "ids": ["final"],
+        "ids": [
+          "final"
+        ],
         "type": "results.submitted"
       },
       "expected_action": {
@@ -95,7 +97,9 @@
     },
     {
       "event": {
-        "ids": ["background"],
+        "ids": [
+          "background"
+        ],
         "type": "results.submitted"
       },
       "expected_action": {

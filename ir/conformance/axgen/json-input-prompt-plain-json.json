@@ -1,10 +1,17 @@
 {
-  "expected_chat_prompt_contains": ["<b>&", "inner"],
+  "expected_chat_prompt_contains": [
+    "<b>&",
+    "inner"
+  ],
   "expected_output": {
     "answer": "ok"
   },
   "expected_request_count": 1,
-  "expected_request_not_contains": ["__order", "\\u003c", "\\u0026"],
+  "expected_request_not_contains": [
+    "__order",
+    "\\u003c",
+    "\\u0026"
+  ],
   "input": {
     "plan": {
       "alpha": {

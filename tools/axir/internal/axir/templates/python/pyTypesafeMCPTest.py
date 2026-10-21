@@ -132,6 +132,29 @@ class ParityTests(unittest.TestCase):
             self.assertEqual(model.api_key,"typesafe-test")
             self.assertEqual(model.base_url,"https://api.typesafe.ai")
 
+    def test_mcp_close_wakes_reconnect_delay(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from axllm import AxMCPStreamableHTTPTransport
+        import time
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                self.send_response(200); self.send_header('Content-Type', 'text/event-stream')
+                self.send_header('Content-Length', '0'); self.end_headers()
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+        ended = threading.Event()
+        transport = AxMCPStreamableHTTPTransport(f'http://127.0.0.1:{server.server_port}', {'reconnectDelay': 5, 'ssrfProtection': {'requireHttps': False, 'allowLocalhost': True, 'allowPrivateNetworks': True}})
+        transport.set_lifecycle_handler(lambda event: ended.set() if event == 'disconnected' else None)
+        try:
+            transport.start_listening()
+            self.assertTrue(ended.wait(2))
+            started = time.monotonic(); transport.close()
+            self.assertLess(time.monotonic() - started, .5)
+            self.assertTrue(transport._listen_thread is None or not transport._listen_thread.is_alive())
+        finally:
+            transport.close(); server.shutdown(); server.server_close(); worker.join(2)
+
     def test_websocket_cleanup(self):
         socket=Socket()
         transport=AxMCPWebSocketTransport('ws://example.test',web_socket_factory=lambda *args:socket)

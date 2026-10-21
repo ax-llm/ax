@@ -630,3 +630,16 @@ are `boolean(evidence)` and `score "Low, Medium, High"(evidence)`. See
 [decision evidence](references/ax-typesafe.md#decision-evidence-and-reranking) for result shapes,
 provenance, refusal policy, and reranking. These are normal program outputs;
 processors, assertions, result selection, traces, and caches receive decoded evidence.
+
+## Novel F1 evaluation
+
+`AxEvalUtil.novelF1ScoreOptimized(history, prediction, groundTruth, returnRecall)`
+normalizes text, excludes stopwords and history tokens, and measures multiset
+word overlap. Repeated words count at most as often as they occur in the ground
+truth. The default returns F1; `returnRecall: true` returns recall. Two empty
+filtered inputs score `1`; a single empty filtered input scores `0`.
+
+Generated Python, C++, and Rust expose `novel_f1_score`; Go exposes
+`NovelF1Score`; Java exposes `Ax.novelF1Score`. They share the same Core metric,
+including Unicode normalization and finite empty-input scores. The optimization
+examples show scoring a rationale returned by a real provider.

@@ -8,7 +8,9 @@
   "name": "call-timeout-ms-from-client-options-embed",
   "provider": "openai",
   "request": {
-    "texts": ["hello"]
+    "texts": [
+      "hello"
+    ]
   },
   "service_options": {
     "timeoutMs": 250
@@ -18,7 +20,10 @@
       "json": {
         "data": [
           {
-            "embedding": [0.1, 0.2],
+            "embedding": [
+              0.1,
+              0.2
+            ],
             "index": 0
           }
         ],

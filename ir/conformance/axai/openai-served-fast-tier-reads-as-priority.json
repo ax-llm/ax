@@ -28,7 +28,9 @@
           }
         },
         "supported": {
-          "serviceTiers": ["priority"]
+          "serviceTiers": [
+            "priority"
+          ]
         }
       }
     ],

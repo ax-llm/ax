@@ -46,14 +46,19 @@
                     "properties": {
                       "units": {
                         "description": "Units",
-                        "type": ["string", "null"]
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "required": [],
                     "type": "object"
                   }
                 },
-                "required": ["city"],
+                "required": [
+                  "city"
+                ],
                 "title": "Schema",
                 "type": "object"
               }
@@ -89,14 +94,19 @@
               "properties": {
                 "units": {
                   "description": "Units",
-                  "type": ["string", "null"]
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [],
               "type": "object"
             }
           },
-          "required": ["city"],
+          "required": [
+            "city"
+          ],
           "title": "Schema",
           "type": "object"
         }

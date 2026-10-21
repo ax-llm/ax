@@ -6,14 +6,14 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:5a0142d43e539d5b86fcdd7b57cca50a8e9678171b13216311a73396b5f64279"
+      "digest": "sha256:3f63f7e7721f2291b63d80f4fe32f389cc1eabf827ca716d21dbc674d2b030a1"
     },
     {
       "name": "ax-ai",
       "type": "archive",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/skill.tar.gz",
-      "digest": "sha256:4e0c686b6261ffe8ebdad96221c865ad27749d55a66cc3136c6606cda570082d"
+      "digest": "sha256:9876974c0ad99e5fd89ebc1e79f4f6ba5cc4f587917158db3e334499088670d8"
     },
     {
       "name": "ax-typesafe",
@@ -41,7 +41,7 @@
       "type": "archive",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/skill.tar.gz",
-      "digest": "sha256:73aff95de6f13b683dbba513e5c89322015668e67695383b26e90e4d4fe877b1"
+      "digest": "sha256:16472edce5675bd83e0094042bd5f98933af75577ab8c29ab64a32820e4d8410"
     },
     {
       "name": "ax-mcp",

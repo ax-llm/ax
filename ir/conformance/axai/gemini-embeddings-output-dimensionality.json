@@ -1,7 +1,12 @@
 {
   "embed_model": "gemini-embedding-2",
   "expected_output": {
-    "embeddings": [[0.1, 0.2]]
+    "embeddings": [
+      [
+        0.1,
+        0.2
+      ]
+    ]
   },
   "expected_transport_request": {
     "headers": {
@@ -29,14 +34,19 @@
   "provider": "google-gemini",
   "request": {
     "dimensions": 512,
-    "texts": ["one"]
+    "texts": [
+      "one"
+    ]
   },
   "transport_responses": [
     {
       "json": {
         "embeddings": [
           {
-            "values": [0.1, 0.2]
+            "values": [
+              0.1,
+              0.2
+            ]
           }
         ]
       },

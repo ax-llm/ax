@@ -3,7 +3,9 @@
     "answer": "Recovered"
   },
   "expected_request_count": 2,
-  "expected_request_not_contains": ["Model refused the fixture request"],
+  "expected_request_not_contains": [
+    "Model refused the fixture request"
+  ],
   "input": {
     "question": "Status?"
   },

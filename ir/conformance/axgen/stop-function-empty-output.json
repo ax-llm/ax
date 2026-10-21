@@ -29,7 +29,9 @@
     }
   ],
   "signature": "query:string -> answer:string",
-  "stop_functions": ["search"],
+  "stop_functions": [
+    "search"
+  ],
   "tools": [
     {
       "args": {

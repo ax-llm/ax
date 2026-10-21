@@ -1,7 +1,12 @@
 {
   "embed_model": "gemini-embedding-2",
   "expected_output": {
-    "embeddings": [[0.1, 0.2]]
+    "embeddings": [
+      [
+        0.1,
+        0.2
+      ]
+    ]
   },
   "expected_transport_request": {
     "headers": {
@@ -28,7 +33,9 @@
   "name": "gemini-embeddings-task-type",
   "provider": "google-gemini",
   "request": {
-    "texts": ["one"]
+    "texts": [
+      "one"
+    ]
   },
   "service_options": {
     "embedType": "RETRIEVAL_DOCUMENT"
@@ -38,7 +45,10 @@
       "json": {
         "embeddings": [
           {
-            "values": [0.1, 0.2]
+            "values": [
+              0.1,
+              0.2
+            ]
           }
         ]
       },

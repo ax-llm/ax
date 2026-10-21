@@ -26,7 +26,9 @@
               "type": "array"
             }
           },
-          "required": ["result"],
+          "required": [
+            "result"
+          ],
           "type": "object"
         }
       },

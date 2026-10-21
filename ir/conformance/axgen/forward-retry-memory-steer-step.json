@@ -26,12 +26,27 @@
     "answer": "Paris",
     "city": "Paris"
   },
-  "expected_request_contains": ["Answer in French."],
+  "expected_request_contains": [
+    "Answer in French."
+  ],
   "expected_request_count": 3,
   "expected_request_roles": [
-    ["system", "user"],
-    ["system", "user", "assistant", "user"],
-    ["system", "user", "assistant", "user"]
+    [
+      "system",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "user"
+    ]
   ],
   "input": {
     "question": "Status?"

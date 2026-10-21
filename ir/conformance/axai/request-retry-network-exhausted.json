@@ -2,7 +2,11 @@
   "description": "apiCall surfaces the network error once maxRetries retries are spent. TS request count and delays from src/ax/util/apicall.ts.",
   "expected_error_contains": "Network Error: fetch failed",
   "expected_error_type": "AxAIServiceNetworkError",
-  "expected_retry_delays_ms": [1000, 2000, 4000],
+  "expected_retry_delays_ms": [
+    1000,
+    2000,
+    4000
+  ],
   "expected_transport_request_count": 4,
   "kind": "ai_error",
   "method": "chat",

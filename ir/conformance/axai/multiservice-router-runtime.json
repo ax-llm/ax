@@ -39,7 +39,12 @@
         ]
       },
       "embed": {
-        "embeddings": [[1, 2]],
+        "embeddings": [
+          [
+            1,
+            2
+          ]
+        ],
         "modelUsage": {
           "ai": "A"
         }
@@ -108,7 +113,9 @@
       },
       "request": {
         "embedModel": "embed-a",
-        "texts": ["x"]
+        "texts": [
+          "x"
+        ]
       }
     },
     {
@@ -151,7 +158,9 @@
       "features": {
         "caching": {
           "supported": true,
-          "types": ["ephemeral"]
+          "types": [
+            "ephemeral"
+          ]
         },
         "functions": true,
         "media": {
@@ -169,7 +178,9 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png"],
+            "formats": [
+              "png"
+            ],
             "supported": true
           },
           "urls": {

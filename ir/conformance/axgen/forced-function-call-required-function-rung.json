@@ -7,7 +7,9 @@
   "expected_request_count": 2,
   "expected_step_requests": [
     {
-      "function_names": ["search"],
+      "function_names": [
+        "search"
+      ],
       "index": 0,
       "request": {
         "function_call": "required",
@@ -15,7 +17,9 @@
       }
     },
     {
-      "function_names": ["__axOutput"],
+      "function_names": [
+        "__axOutput"
+      ],
       "index": 1,
       "request": {
         "function_call": {

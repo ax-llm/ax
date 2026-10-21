@@ -78,6 +78,13 @@ Lineage: Self-Harness (mine weaknesses, validate edits), STOP (recursive improve
 
 Normalize scores to `0..1` when possible. Keep objective names stable across calls.
 
+For word overlap, novel F1 excludes history and stopwords and counts repeated
+words by their frequency in each answer. Both empty filtered answers score `1`;
+a single empty answer scores `0`. Use `AxEvalUtil.novelF1ScoreOptimized` in
+TypeScript, `novel_f1_score` in Python/C++/Rust, `NovelF1Score` in Go, or
+`Ax.novelF1Score` in Java. Set the recall flag to return recall instead of F1.
+The AxGen optimization examples score the rationale from a provider response.
+
 ## Bootstrap And GEPA Together
 
 Bootstrap demos are useful for small starter sets because they seed the model with concrete successful examples before GEPA mutates instructions/components. TypeScript `optimize(...)` composes the practical bootstrap-plus-GEPA path. Generated languages expose the optimizer primitives supported by their AxIR contract.

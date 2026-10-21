@@ -80,6 +80,21 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "NovelF1Score",
+          "public_name": "axllm.NovelF1Score",
+          "kind": "function",
+          "description": "Score novel multiset token overlap after Unicode normalization and history/stopword exclusion. Two empty filtered answers score one; a single empty answer scores zero.",
+          "form": "axllm.NovelF1Score",
+          "important_options": [
+            "history",
+            "prediction",
+            "ground truth",
+            "return recall"
+          ],
+          "returns": "score in [0, 1]"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "AxGen",
           "public_name": "axllm.AxGen",
           "kind": "type",
@@ -716,6 +731,18 @@
             "routing"
           ],
           "returns": "AI service"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "ProviderRouter.GetCompatibilityReport",
+          "public_name": "axllm.ProviderRouter.GetCompatibilityReport",
+          "kind": "method",
+          "description": "Rank request-compatible providers and summarize supported requirements, counting audio input and audio output independently.",
+          "form": "axllm.ProviderRouter.GetCompatibilityReport",
+          "important_options": [
+            "request"
+          ],
+          "returns": "provider names, scores and compatibility summary"
         },
         {
           "target_name": "go",

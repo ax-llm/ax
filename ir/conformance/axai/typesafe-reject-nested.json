@@ -25,11 +25,15 @@
                   "type": "boolean"
                 }
               },
-              "required": ["flag"],
+              "required": [
+                "flag"
+              ],
               "type": "object"
             }
           },
-          "required": ["result"],
+          "required": [
+            "result"
+          ],
           "type": "object"
         }
       },

@@ -17,7 +17,9 @@
       "features": {
         "caching": {
           "supported": true,
-          "types": ["ephemeral"]
+          "types": [
+            "ephemeral"
+          ]
         },
         "functions": true,
         "media": {
@@ -35,7 +37,9 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png"],
+            "formats": [
+              "png"
+            ],
             "supported": true
           },
           "urls": {
@@ -67,7 +71,9 @@
       "features": {
         "caching": {
           "supported": true,
-          "types": ["ephemeral"]
+          "types": [
+            "ephemeral"
+          ]
         },
         "functions": true,
         "media": {
@@ -85,7 +91,9 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png"],
+            "formats": [
+              "png"
+            ],
             "supported": true
           },
           "urls": {

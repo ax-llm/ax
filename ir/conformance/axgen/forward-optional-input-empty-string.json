@@ -1,5 +1,7 @@
 {
-  "expected_chat_prompt_contains": ["\"First: a\\n\""],
+  "expected_chat_prompt_contains": [
+    "\"First: a\\n\""
+  ],
   "expected_output": {
     "answer": "ok"
   },

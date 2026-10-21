@@ -1,14 +1,14 @@
 // ax-example:start
 // title: Rust AxGen Optimization
 // group: optimization
-// description: Runs a baseline OpenAI prediction and applies an optimizer artifact.
+// description: Runs an OpenAI prediction, applies an optimizer artifact, and scores novel rationale overlap.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
 // order: 10
 // story: 50
 // ax-example:end
-use axllm::{ax, AxResult, OpenAICompatibleClient, OptimizerEngine};
+use axllm::{novel_f1_score, ax, AxResult, OpenAICompatibleClient, OptimizerEngine};
 use serde_json::{json, Value};
 use std::env;
 
@@ -21,7 +21,7 @@ impl OptimizerEngine for ExampleOptimizer {
 
 fn openai_client() -> AxResult<OpenAICompatibleClient> {
     let api_key = env::var("OPENAI_API_KEY").or_else(|_| env::var("OPENAI_APIKEY")).map_err(|_| axllm::AxError::runtime("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example."))?;
-    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    let model = env::var("AX_OPENAI_MODEL").unwrap_or_else(|_| "gpt-6-luna".to_string());
     axllm::ai("openai", json!({"api_key": api_key, "model": model, "model_config": {"temperature": 0}}))
 }
 
@@ -31,6 +31,7 @@ fn main() -> AxResult<()> {
     let baseline = program.forward(&mut client, json!({"emailText": "Production checkout is failing for enterprise customers."}))?;
     let mut optimizer = ExampleOptimizer;
     let artifact = optimizer.optimize(json!({"candidate": "priority"}), &mut |_candidate| Ok(json!({"score": 1.0})))?;
-    println!("{}", serde_json::to_string_pretty(&json!({"baseline": baseline, "artifact": artifact}))?);
+    let score = novel_f1_score("", baseline["rationale"].as_str().unwrap_or_default(), "Production checkout is failing for enterprise customers.", false)?;
+    println!("{}", serde_json::to_string_pretty(&json!({"baseline": baseline, "artifact": artifact, "rationaleNovelF1": score}))?);
     Ok(())
 }

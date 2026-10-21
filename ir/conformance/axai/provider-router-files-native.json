@@ -23,18 +23,24 @@
       "degradations": [],
       "processingApplied": [],
       "provider": "Files",
-      "warnings": ["Content caching not supported"]
+      "warnings": [
+        "Content caching not supported"
+      ]
     },
     "stats": {
       "capabilityMatrix": {
-        "Files": ["Files"]
+        "Files": [
+          "Files"
+        ]
       },
       "recommendedProvider": "Files",
       "totalProviders": 1
     },
     "validation": {
       "canHandle": false,
-      "issues": ["Content caching not supported"],
+      "issues": [
+        "Content caching not supported"
+      ],
       "recommendations": []
     }
   },
@@ -93,7 +99,9 @@
             "supported": false
           },
           "files": {
-            "formats": ["application/pdf"],
+            "formats": [
+              "application/pdf"
+            ],
             "supported": true,
             "uploadMethod": "inline"
           },

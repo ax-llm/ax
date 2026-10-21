@@ -1,6 +1,9 @@
 {
   "description": "apiCall sends a non-streaming chat again for each listed status, after its jittered backoff. TS request count and delays from src/ax/util/apicall.ts.",
-  "expected_retry_delays_ms": [1000, 2000],
+  "expected_retry_delays_ms": [
+    1000,
+    2000
+  ],
   "expected_transport_request_count": 3,
   "kind": "ai_chat",
   "model": "gpt-5.4-mini",

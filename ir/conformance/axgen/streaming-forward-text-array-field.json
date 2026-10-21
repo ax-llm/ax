@@ -9,7 +9,10 @@
     },
     {
       "delta": {
-        "items": ["apple", "banana"]
+        "items": [
+          "apple",
+          "banana"
+        ]
       },
       "index": 0,
       "version": 0
@@ -17,7 +20,10 @@
   ],
   "expected_output": {
     "summary": "two fruits",
-    "items": ["apple", "banana"]
+    "items": [
+      "apple",
+      "banana"
+    ]
   },
   "expected_request_count": 1,
   "input": {

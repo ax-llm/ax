@@ -44,13 +44,20 @@
     "answer": "green"
   },
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "expected_session_log": [
     {
       "op": "open"
     },
     {
-      "call_ids": ["c1"],
+      "call_ids": [
+        "c1"
+      ],
       "op": "continue"
     },
     {

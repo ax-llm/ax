@@ -123,7 +123,7 @@ Each tool result goes back to the model as TypeScript's default `functionResultF
 
 ## Relevant API Surface
 
-- AxGen: `axllm.NewAx`, `axllm.AxGen`, `axllm.RunControl`, `axllm.AxRunControl`, `axllm.AxCachingFunction`, `axllm.SetCachingFunction`
+- AxGen: `axllm.NewAx`, `axllm.NovelF1Score`, `axllm.AxGen`, `axllm.RunControl`, `axllm.AxRunControl`, `axllm.AxCachingFunction`, `axllm.SetCachingFunction`
 - Tools: `axllm.Fn`, `axllm.Tool`
 - MCP: `axllm.AxMCPClient`, `axllm.AxMCPStreamableHTTPTransport`, `axllm.AxMCPWebSocketTransport`, `axllm.AxMCPStdioTransport`
 

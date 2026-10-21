@@ -35,6 +35,7 @@ def _fixture_function_result_formatter(spec):
 from .ai import _ai_error_request, openai_normalize_error, provider_realtime_ws_url
 from .ai import _REQUEST_RETRY_HOOKS, _core_ai_capture_warnings, _core_axgen_capture_deprecations, _check_cancelled
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
+from .gen import novel_f1_score
 from .gen import (
     _parse_text_output_fields_impl,
     _stream_field_value_impl,
@@ -764,6 +765,9 @@ def _run_fixture_kind(fixture: dict[str, Any], *, source: str | None = None):
             _run_template_error(fixture)
         elif kind == "template_validate":
             _run_template_validate(fixture)
+        elif kind == "eval_novel_f1":
+            for item in fixture["cases"]:
+                _assert_equal(novel_f1_score(item["history"], item["prediction"], item["ground_truth"], item.get("return_recall", False)), item["expected"], "novel F1: " + item["name"])
         elif kind == "stream":
             _run_stream(fixture)
         elif kind == "validate_value":
@@ -4082,6 +4086,8 @@ def _run_ai_provider_router(fixture):
     })
     request = fixture.get("request") or {}
     rec = router.get_routing_recommendation(request)
+    if "expected_compatibility_report" in fixture:
+        _assert_equal(router.get_compatibility_report(request), fixture["expected_compatibility_report"], "compatibility report")
     provider = rec.get("provider")
     recommendation = {
         "provider": provider.get_name() if provider else rec.get("providerName"),

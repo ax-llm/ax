@@ -8,7 +8,11 @@
     "model": "jev-latest",
     "questions": {
       "decision": {
-        "criteria": [null, null, null],
+        "criteria": [
+          null,
+          null,
+          null
+        ],
         "type": "score"
       }
     },

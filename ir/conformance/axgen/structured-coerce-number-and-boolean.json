@@ -1,11 +1,11 @@
 {
   "expected_output": {
     "count": 7,
+    "done": true,
     "detail": {
       "open": false,
       "size": 12
-    },
-    "done": true
+    }
   },
   "expected_request_count": 1,
   "features": {

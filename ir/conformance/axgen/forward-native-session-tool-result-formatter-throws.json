@@ -23,7 +23,12 @@
   "expected_error_cause_contains": "Chat session failed: formatter broke; unresolved calls: none",
   "expected_error_contains": "Generate failed: Chat session failed: formatter broke; unresolved calls: none",
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "expected_session_log": [
     {
       "op": "open"
@@ -110,7 +115,9 @@
       "description": "Look up a key",
       "name": "lookup",
       "result": {
-        "a": [2],
+        "a": [
+          2
+        ],
         "b": 1,
         "c": null
       }

@@ -62,7 +62,9 @@
               "type": "string"
             }
           },
-          "required": ["city"],
+          "required": [
+            "city"
+          ],
           "type": "object"
         }
       }

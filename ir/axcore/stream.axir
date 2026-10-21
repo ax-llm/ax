@@ -2253,45 +2253,52 @@ module @ax.stream version "0.1" {
     body @entry(%json_text: string) {
       // repairJson: best-effort completion of truncated streamed JSON.
       %result = core.string_trim %json_text
-      %trailing_comma = core.call intrinsic.string.ends_with(%result, ",")
-      core.if %trailing_comma {
-        %result_length = core.call intrinsic.len(%result)
-        %without_comma = core.call intrinsic.add(%result_length, -1)
-        %result = core.call intrinsic.string.slice(%result, 0, %without_comma)
-      }
-      // A key with no value yet: drop `, "key":` or the `"key":` after `{`.
-      %after_comma_key = core.call @stream_json_strip_dangling_key_impl(%result, true, ",")
-      %comma_key_is_map = core.type_is %after_comma_key type "object"
-      core.if %comma_key_is_map {
-        %comma_at = core.get %after_comma_key["lead_at"] default 0
-        %result = core.call intrinsic.string.slice(%result, 0, %comma_at)
-      } else {
-        %after_brace_key = core.call @stream_json_strip_dangling_key_impl(%result, true, "{")
-        %brace_key_is_map = core.type_is %after_brace_key type "object"
-        core.if %brace_key_is_map {
-          %key_at = core.get %after_brace_key["key_at"] default 0
-          %result = core.call intrinsic.string.slice(%result, 0, %key_at)
+      %context = core.call @stream_json_context_impl(%result)
+      %cut_inside_string = core.get %context["in_string"] default false
+      %outside_string = core.call intrinsic.not(%cut_inside_string)
+      core.if %outside_string {
+        %trailing_comma = core.call intrinsic.string.ends_with(%result, ",")
+        core.if %trailing_comma {
+          %result_length = core.call intrinsic.len(%result)
+          %without_comma = core.call intrinsic.add(%result_length, -1)
+          %result = core.call intrinsic.string.slice(%result, 0, %without_comma)
+        }
+        // A key with no value yet: drop `, "key":` or the `"key":` after `{`.
+        %after_comma_key = core.call @stream_json_strip_dangling_key_impl(%result, true, ",")
+        %comma_key_is_map = core.type_is %after_comma_key type "object"
+        core.if %comma_key_is_map {
+          %comma_at = core.get %after_comma_key["lead_at"] default 0
+          %result = core.call intrinsic.string.slice(%result, 0, %comma_at)
+        } else {
+          %after_brace_key = core.call @stream_json_strip_dangling_key_impl(%result, true, "{")
+          %brace_key_is_map = core.type_is %after_brace_key type "object"
+          core.if %brace_key_is_map {
+            %key_at = core.get %after_brace_key["key_at"] default 0
+            %result = core.call intrinsic.string.slice(%result, 0, %key_at)
+          }
+        }
+        // Truncated numbers: 12. 12e 12e+ lose their incomplete tail.
+        core.loop {
+          %tail_length = core.call intrinsic.len(%result)
+          %tail_from = core.call intrinsic.add(%tail_length, -2)
+          %tail = core.call @stream_substring_impl(%result, %tail_from, %tail_length)
+          %number_tail = core.regex_match %tail pattern "^[0-9][eE.+-]$"
+          %exponent_tail = core.regex_match %tail pattern "^[eE][+-]$"
+          %strip = core.call intrinsic.or(%number_tail, %exponent_tail)
+          %keep = core.call intrinsic.not(%strip)
+          core.if %keep {
+            core.break
+          }
+          %shorter = core.call intrinsic.add(%tail_length, -1)
+          %result = core.call intrinsic.string.slice(%result, 0, %shorter)
         }
       }
-      // Truncated numbers: 12. 12e 12e+ lose their incomplete tail.
-      core.loop {
-        %tail_length = core.call intrinsic.len(%result)
-        %tail_from = core.call intrinsic.add(%tail_length, -2)
-        %tail = core.call @stream_substring_impl(%result, %tail_from, %tail_length)
-        %number_tail = core.regex_match %tail pattern "^[0-9][eE.+-]$"
-        %exponent_tail = core.regex_match %tail pattern "^[eE][+-]$"
-        %strip = core.call intrinsic.or(%number_tail, %exponent_tail)
-        %keep = core.call intrinsic.not(%strip)
-        core.if %keep {
-          core.break
-        }
-        %shorter = core.call intrinsic.add(%tail_length, -1)
-        %result = core.call intrinsic.string.slice(%result, 0, %shorter)
-      }
-      // Commas before a closing bracket, anywhere.
+      // Remove structural trailing commas while preserving quoted text and escapes.
       %cleaned = core.list
       %clean_length = core.call intrinsic.len(%result)
       %clean_cursor = core.let 0
+      %clean_in_string = core.let false
+      %clean_escaped = core.let false
       core.loop {
         %clean_done = core.call intrinsic.gte(%clean_cursor, %clean_length)
         core.if %clean_done {
@@ -2299,8 +2306,23 @@ module @ax.stream version "0.1" {
         }
         %clean_next = core.call intrinsic.add(%clean_cursor, 1)
         %clean_ch = core.call intrinsic.string.slice(%result, %clean_cursor, %clean_next)
+        %clean_outside = core.call intrinsic.not(%clean_in_string)
+        %is_quote = core.call intrinsic.eq(%clean_ch, "\"")
+        %is_backslash = core.call intrinsic.eq(%clean_ch, "\\")
+        // Both branches must test the state before this character clears it.
+        %was_clean_escaped = core.let %clean_escaped
+        core.if %was_clean_escaped {
+          %clean_escaped = core.let false
+        } else {
+          core.if %is_quote {
+            %clean_in_string = core.call intrinsic.not(%clean_in_string)
+          } else {
+            %clean_escaped = core.call intrinsic.and(%clean_in_string, %is_backslash)
+          }
+        }
         %is_comma = core.call intrinsic.eq(%clean_ch, ",")
-        core.if %is_comma {
+        %structural_comma = core.call intrinsic.and(%is_comma, %clean_outside)
+        core.if %structural_comma {
           %ahead = core.call intrinsic.string.slice(%result, %clean_next)
           %ahead_trimmed = core.call @stream_trim_start_impl(%ahead)
           %closes_object = core.call intrinsic.string.starts_with(%ahead_trimmed, "}")
@@ -2315,9 +2337,11 @@ module @ax.stream version "0.1" {
         %clean_cursor = core.let %clean_next
       }
       %result = core.string_join %cleaned sep ""
-      %result = core.call @stream_json_complete_literal_impl(%result, "true")
-      %result = core.call @stream_json_complete_literal_impl(%result, "false")
-      %result = core.call @stream_json_complete_literal_impl(%result, "null")
+      core.if %outside_string {
+        %result = core.call @stream_json_complete_literal_impl(%result, "true")
+        %result = core.call @stream_json_complete_literal_impl(%result, "false")
+        %result = core.call @stream_json_complete_literal_impl(%result, "null")
+      }
       // Close strings and structures in reverse opening order.
       %closers = core.list
       %in_string = core.let false

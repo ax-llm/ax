@@ -60,15 +60,27 @@
   },
   "expected_request_count": 2,
   "expected_request_roles": [
-    ["system", "user"],
-    ["system", "user", "assistant", "function", "assistant", "user"]
+    [
+      "system",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "function",
+      "assistant",
+      "user"
+    ]
   ],
   "expected_session_log": [
     {
       "op": "open"
     },
     {
-      "call_ids": ["c1"],
+      "call_ids": [
+        "c1"
+      ],
       "op": "continue"
     },
     {

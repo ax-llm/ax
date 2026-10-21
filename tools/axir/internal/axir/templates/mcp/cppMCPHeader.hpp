@@ -426,6 +426,8 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   std::atomic<bool> listen_stop_{true};
   std::thread listen_thread_;
   std::mutex listen_mutex_;
+  std::mutex listen_wait_mutex_;
+  std::condition_variable listen_wait_condition_;
   std::string last_event_id_;
   std::string sse_buffer_;
   void listen_loop();

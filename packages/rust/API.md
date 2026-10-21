@@ -64,6 +64,16 @@ Create an AxGen program from a string or parsed signature.
 let qa = ax("question:string -> answer:string")?;
 ```
 
+### `novel_f1_score`
+
+Score novel multiset token overlap after Unicode normalization and history/stopword exclusion. Two empty filtered answers score one; a single empty answer scores zero.
+
+- Canonical Ax concept: `novel_f1_score`
+- Kind: `function`
+- Form: `novel_f1_score`
+- Returns: `score in [0, 1]`
+- Important options: history, prediction, ground truth, return recall
+
 ### `AxGen`
 
 Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.
@@ -539,6 +549,16 @@ Choose a service by capability or model routing policy.
 - Form: `MultiServiceRouter`
 - Returns: `AI service`
 - Important options: services, routing
+
+### `ProviderRouter::get_compatibility_report`
+
+Rank request-compatible providers and summarize supported requirements, counting audio input and audio output independently.
+
+- Canonical Ax concept: `ProviderRouter::get_compatibility_report`
+- Kind: `method`
+- Form: `ProviderRouter::get_compatibility_report`
+- Returns: `provider names, scores and compatibility summary`
+- Important options: request
 
 ### `ProviderRouter`
 

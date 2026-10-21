@@ -12,10 +12,16 @@
       }
     ],
     "recommendation": {
-      "degradations": ["File content will be extracted to text"],
-      "processingApplied": ["File-to-text extraction"],
+      "degradations": [
+        "File content will be extracted to text"
+      ],
+      "processingApplied": [
+        "File-to-text extraction"
+      ],
       "provider": "Text",
-      "warnings": ["Content caching not supported"]
+      "warnings": [
+        "Content caching not supported"
+      ]
     },
     "stats": {
       "capabilityMatrix": {},

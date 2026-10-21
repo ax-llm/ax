@@ -377,3 +377,19 @@ func TestTypesafeImageBoxTypedAPI(t *testing.T) {
     if result.Answers["target"].Box!=box || result.Answers["target"].Confidence!=0 {t.Fatal("typed Box changed")}
     if Box().WithEvidence().Name!="box" {t.Fatal("Box factory")}
 }
+
+func TestMCPCloseWakesReconnectDelay(t *testing.T) {
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header().Set("Content-Type","text/event-stream"); w.WriteHeader(200) }))
+    defer server.Close()
+    transport,err := NewAxMCPStreamableHTTPTransport(server.URL,Object("reconnectDelayMs",5000,"ssrfProtection",Object("requireHttps",false,"allowLocalhost",true,"allowPrivateNetworks",true)))
+    if err != nil {t.Fatal(err)}
+    defer transport.Close()
+    ended:=make(chan struct{},1)
+    transport.SetLifecycleHandler(func(event string){if event=="disconnected"{select{case ended<-struct{}{}:default:}}})
+    if err=transport.StartListening();err!=nil{t.Fatal(err)}
+    select{case <-ended:case <-time.After(2*time.Second):t.Fatal("listener did not reach reconnect wait")}
+    done:=transport.listenDone
+    started:=time.Now();if err=transport.Close();err!=nil{t.Fatal(err)}
+    if time.Since(started)>500*time.Millisecond{t.Fatal("close retained reconnect wait")}
+    select{case <-done:default:t.Fatal("listener worker survived close")}
+}

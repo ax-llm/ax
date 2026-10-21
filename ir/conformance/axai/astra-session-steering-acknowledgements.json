@@ -10,7 +10,9 @@
       },
       "expected_response_id": "r1",
       "expected_status": "accepted",
-      "expected_types": ["steering"]
+      "expected_types": [
+        "steering"
+      ]
     },
     {
       "event": {
@@ -35,9 +37,13 @@
         },
         "type": "response.steer.pending"
       },
-      "expected_required_call_ids": ["call1"],
+      "expected_required_call_ids": [
+        "call1"
+      ],
       "expected_status": "pending",
-      "expected_types": ["steering"]
+      "expected_types": [
+        "steering"
+      ]
     },
     {
       "event": {
@@ -67,9 +73,13 @@
         },
         "type": "response.steer.pending"
       },
-      "expected_required_call_ids": ["call2"],
+      "expected_required_call_ids": [
+        "call2"
+      ],
       "expected_status": "pending",
-      "expected_types": ["steering"]
+      "expected_types": [
+        "steering"
+      ]
     },
     {
       "event": {
@@ -84,7 +94,9 @@
       },
       "expected_error": "already closed",
       "expected_status": "failed",
-      "expected_types": ["steering"]
+      "expected_types": [
+        "steering"
+      ]
     }
   ],
   "kind": "ai_session_events",

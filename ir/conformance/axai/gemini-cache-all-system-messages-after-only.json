@@ -1,0 +1,113 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request_count": 2,
+  "expected_transport_requests": [
+    {
+      "json": {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Reference material"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "model": "models/gemini-3.8-flash",
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "Late system instruction."
+            }
+          ],
+          "role": "user"
+        },
+        "ttl": "3600s"
+      },
+      "url": "https://generativelanguage.googleapis.com/v1beta/cachedContents"
+    },
+    {
+      "json": {
+        "cachedContent": "cachedContents/multi-system",
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": "Summarize it."
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "generationConfig": {
+          "responseMimeType": "text/plain"
+        }
+      },
+      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+    }
+  ],
+  "kind": "ai_chat",
+  "model": "gemini-3.8-flash",
+  "name": "gemini-cache-all-system-messages-after-only",
+  "options": {
+    "contextCache": {
+      "minTokens": 0
+    }
+  },
+  "provider": "google-gemini",
+  "request": {
+    "chatPrompt": [
+      {
+        "cache": true,
+        "content": "Reference material",
+        "role": "user"
+      },
+      {
+        "content": "Late system instruction.",
+        "role": "system"
+      },
+      {
+        "content": "Summarize it.",
+        "role": "user"
+      }
+    ]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "expireTime": "2099-01-01T00:00:00Z",
+        "name": "cachedContents/multi-system"
+      },
+      "status": 200
+    },
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ],
+              "role": "model"
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

@@ -33,6 +33,7 @@
 #include <vector>
 
 namespace axllm {
+double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall = false);
 
 struct Value;
 using Array = std::vector<Value>;
@@ -944,6 +945,7 @@ class ProviderRouter : public AIClient {
   Value get_routing_recommendation(Value request);
   Value validate_request(Value request);
   Value get_routing_stats();
+  Value get_compatibility_report(Value request);
   Value chat(Value request, Value options = Value::object());
   Value chat(Value request, Value options, const AxCancellationToken* cancellation);
   std::vector<Value> stream(Value request);

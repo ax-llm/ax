@@ -1,6 +1,10 @@
 {
   "expected_output": {
-    "scores": [1, 2, 3.5]
+    "scores": [
+      1,
+      2,
+      3.5
+    ]
   },
   "expected_request_count": 1,
   "input": {

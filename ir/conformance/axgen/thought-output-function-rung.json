@@ -1,9 +1,9 @@
 {
   "expected_output": {
-    "thought": "Look it up. Done.",
     "user": {
       "name": "Ada"
-    }
+    },
+    "thought": "Look it up. Done."
   },
   "expected_request_count": 2,
   "features": {

@@ -22,7 +22,9 @@
   "expected_request_count": 2,
   "features": {
     "functions": true,
-    "structured_output_modes": ["json_object"],
+    "structured_output_modes": [
+      "json_object"
+    ],
     "structured_outputs": false
   },
   "input": {

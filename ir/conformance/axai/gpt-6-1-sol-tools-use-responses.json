@@ -15,7 +15,9 @@
                 "type": "string"
               }
             },
-            "required": ["id"],
+            "required": [
+              "id"
+            ],
             "type": "object"
           },
           "type": "function"
@@ -46,7 +48,9 @@
               "type": "string"
             }
           },
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "type": "object"
         }
       }

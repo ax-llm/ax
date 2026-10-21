@@ -10,7 +10,10 @@
       }
     }
   ],
-  "expected_chat_prompt_contains": ["cache", "Example Output"],
+  "expected_chat_prompt_contains": [
+    "cache",
+    "Example Output"
+  ],
   "expected_output": {
     "answer": "cached"
   },

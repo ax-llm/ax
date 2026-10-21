@@ -48,7 +48,9 @@
       {
         "name": "custom-flex",
         "supported": {
-          "serviceTiers": ["flex"]
+          "serviceTiers": [
+            "flex"
+          ]
         }
       }
     ],

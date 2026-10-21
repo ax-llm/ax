@@ -1,5 +1,7 @@
 {
-  "alternative_indices": [1],
+  "alternative_indices": [
+    1
+  ],
   "expected_output": {
     "forwardedContent": [
       {
@@ -33,20 +35,31 @@
       "degradations": [],
       "processingApplied": [],
       "provider": "Vision",
-      "warnings": ["Content caching not supported"]
+      "warnings": [
+        "Content caching not supported"
+      ]
     },
     "stats": {
       "capabilityMatrix": {
-        "Functions": ["TextOnly", "Vision"],
-        "Images": ["Vision"],
-        "Streaming": ["Vision"]
+        "Functions": [
+          "TextOnly",
+          "Vision"
+        ],
+        "Images": [
+          "Vision"
+        ],
+        "Streaming": [
+          "Vision"
+        ]
       },
       "recommendedProvider": "TextOnly",
       "totalProviders": 2
     },
     "validation": {
       "canHandle": false,
-      "issues": ["Content caching not supported"],
+      "issues": [
+        "Content caching not supported"
+      ],
       "recommendations": []
     }
   },
@@ -163,7 +176,10 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["jpeg", "png"],
+            "formats": [
+              "jpeg",
+              "png"
+            ],
             "supported": true
           },
           "urls": {

@@ -2782,6 +2782,7 @@ def _merge_service_features(services, model=None):
     all_modes_advertised = bool(services)
     for service in services:
         raw = service.get_features(model) or {}
+        features = provider_merge_audio_output(features, raw)
         raw_modes = raw.get("structuredOutputModes", raw.get("structured_output_modes"))
         if raw_modes is None:
             all_modes_advertised = False
@@ -3414,6 +3415,9 @@ class ProviderRouter:
 
     def validate_request(self, request: dict[str, Any]):
         return provider_route_validation(self._provider_records(request.get("model"), request), _coerce_chat_request(request), self.processing, self.routing)
+
+    def get_compatibility_report(self, request):
+        return provider_compatibility_report(self._provider_records(request.get("model"), request), _coerce_chat_request(request))
 
     def get_routing_stats(self):
         return provider_routing_stats(self._provider_records())
@@ -8676,6 +8680,14 @@ def _provider_features_support(features: Any, path: str) -> bool:
         return value_audio
     else:
         pass
+    is_audio_output = _core_eq(path, "audio_output")
+    if is_audio_output:
+        audio = _core_get(media, "audio", None)
+        output = _core_get(audio, "output", None)
+        supported = _core_get(output, "supported", False)
+        return supported
+    else:
+        pass
     is_files = _core_eq(path, "files")
     if is_files:
         files = _core_get(media, "files", None)
@@ -8956,6 +8968,16 @@ def _provider_route_score(provider: Any, requirements: Any) -> Any:
             missing.append("Audio support")
     else:
         pass
+    needs_audio_output = _core_get(requirements, "hasAudioOutput", False)
+    if needs_audio_output:
+        ok_audio_output = _provider_features_support(features, "audio_output")
+        if ok_audio_output:
+            score = _core_add(score, 25)
+            supported.append("Audio output")
+        else:
+            missing.append("Audio output support")
+    else:
+        pass
     needs_files = _core_get(requirements, "hasFiles", False)
     if needs_files:
         ok_files = _provider_features_support(features, "files")
@@ -9019,6 +9041,94 @@ def _provider_route_score(provider: Any, requirements: Any) -> Any:
         pass
     if multi_turn:
         score = _core_add(score, 2)
+    else:
+        pass
+    media = _core_get(features, "media", None)
+    images = _core_get(media, "images", None)
+    audio = _core_get(media, "audio", None)
+    files = _core_get(media, "files", None)
+    urls = _core_get(media, "urls", None)
+    caching = _core_get(features, "caching", None)
+    image_ok = _provider_features_support(features, "images")
+    image_bonus = _core_and(needs_images, image_ok)
+    if image_bonus:
+        empty = []
+        details = _core_get(images, "detailLevels", empty)
+        high = _core_contains(details, "high")
+        if high:
+            score = _core_add(score, 5)
+        else:
+            pass
+        size = _core_get(images, "maxSize", 0)
+        large = _core_gt(size, 10485760)
+        if large:
+            score = _core_add(score, 3)
+        else:
+            pass
+    else:
+        pass
+    audio_ok = _provider_features_support(features, "audio")
+    audio_bonus = _core_and(needs_audio, audio_ok)
+    if audio_bonus:
+        duration = _core_get(audio, "maxDuration", 0)
+        long_duration = _core_gt(duration, 600)
+        if long_duration:
+            score = _core_add(score, 5)
+        else:
+            pass
+    else:
+        pass
+    files_ok = _provider_features_support(features, "files")
+    file_bonus = _core_and(needs_files, files_ok)
+    if file_bonus:
+        upload = _core_get(files, "uploadMethod", "")
+        cloud = _core_eq(upload, "cloud")
+        if cloud:
+            score = _core_add(score, 3)
+        else:
+            pass
+    else:
+        pass
+    urls_ok = _provider_features_support(features, "urls")
+    url_bonus = _core_and(needs_urls, urls_ok)
+    if url_bonus:
+        search = _core_get(urls, "webSearch", False)
+        if search:
+            score = _core_add(score, 5)
+        else:
+            pass
+    else:
+        pass
+    functions_ok = _provider_features_support(features, "functions")
+    function_bonus = _core_and(needs_functions, functions_ok)
+    if function_bonus:
+        cot = _core_get(features, "functionCot", False)
+        if cot:
+            score = _core_add(score, 3)
+        else:
+            pass
+    else:
+        pass
+    caching_ok = _provider_features_support(features, "caching")
+    cache_bonus = _core_and(needs_caching, caching_ok)
+    if cache_bonus:
+        empty = []
+        types = _core_get(caching, "types", empty)
+        persistent = _core_contains(types, "persistent")
+        if persistent:
+            score = _core_add(score, 3)
+        else:
+            pass
+    else:
+        pass
+    budget = _core_get(features, "hasThinkingBudget", False)
+    if budget:
+        score = _core_add(score, 1)
+    else:
+        pass
+    thoughts = _core_get(features, "hasShowThoughts", False)
+    if thoughts:
+        score = _core_add(score, 1)
     else:
         pass
     missing_count = _core_len(missing)
@@ -9341,6 +9451,17 @@ def provider_balancer_candidate_allowed(features: Any, request: Any) -> bool:
             return False
         else:
             pass
+    else:
+        pass
+    snake_output = _core_get(capabilities, "requires_audio_output", False)
+    requires_output = _core_get(capabilities, "requiresAudioOutput", snake_output)
+    if requires_output:
+        output_ok = _provider_features_support(features, "audio_output")
+        if output_ok:
+            return True
+        else:
+            pass
+        return False
     else:
         pass
     return True
@@ -18705,6 +18826,120 @@ def request_retry_delay(config: Any, attempt: Any, failure: Any, now_ms: Any, ra
     else:
         pass
     return none
+
+
+def provider_merge_audio_output(features: Any, child: Any) -> Any:
+    _core_coverage_mark("provider_merge_audio_output")
+    child_media = _core_get(child, "media", None)
+    child_audio = _core_get(child_media, "audio", None)
+    child_output = _core_get(child_audio, "output", None)
+    supported = _core_get(child_output, "supported", False)
+    if supported:
+        media = _core_get(features, "media", None)
+        audio = _core_get(media, "audio", None)
+        empty = {}
+        output = _core_get(audio, "output", empty)
+        output["supported"] = True
+        empty_formats = []
+        formats = _core_get(output, "formats", empty_formats)
+        child_formats = _core_get(child_output, "formats", empty_formats)
+        for format in child_formats:
+            present = _core_contains(formats, format)
+            missing = _core_not(present)
+            if missing:
+                formats.append(format)
+            else:
+                pass
+        output["formats"] = formats
+        audio["output"] = output
+        media["audio"] = audio
+        features["media"] = media
+    else:
+        pass
+    return features
+
+
+def provider_compatibility_report(providers: Any, request: Any) -> Any:
+    _core_coverage_mark("provider_compatibility_report")
+    requirements = provider_route_request_requirements(request)
+    total = 0
+    keys = _core_json_parse("[\"hasImages\",\"hasAudio\",\"hasAudioOutput\",\"hasFiles\",\"hasUrls\",\"requiresFunctions\",\"requiresStreaming\",\"requiresCaching\"]")
+    for key in keys:
+        required = _core_get(requirements, key, False)
+        if required:
+            total = _core_add(total, 1)
+        else:
+            pass
+    pending = []
+    for provider in providers:
+        compatible = _core_get(provider, "requestCompatible", True)
+        if compatible:
+            entry = _provider_route_score(provider, requirements)
+            name = _core_get(provider, "name", "")
+            entry["provider"] = name
+            pending.append(entry)
+        else:
+            pass
+    scores = []
+    while True:
+        count = _core_len(pending)
+        empty = _core_eq(count, 0)
+        if empty:
+            break
+        else:
+            pass
+        best_index = 0
+        best = _core_list_get(pending, 0)
+        best_score = _core_get(best, "score", 0)
+        index = 0
+        for entry in pending:
+            score = _core_get(entry, "score", 0)
+            better = _core_gt(score, best_score)
+            if better:
+                best = entry
+                best_score = score
+                best_index = index
+            else:
+                pass
+            index = _core_add(index, 1)
+        scores.append(best)
+        remaining = []
+        index = 0
+        for entry in pending:
+            keep = _core_ne(index, best_index)
+            if keep:
+                remaining.append(entry)
+            else:
+                pass
+            index = _core_add(index, 1)
+        pending = remaining
+    recommended = _core_none()
+    summary = "No suitable providers found"
+    count = _core_len(scores)
+    has_best = _core_gt(count, 0)
+    if has_best:
+        best = _core_list_get(scores, 0)
+        recommended = _core_get(best, "provider", None)
+        supported = _core_get(best, "supportedCapabilities", None)
+        supported_count = _core_len(supported)
+        denominator = total
+        none = _core_eq(denominator, 0)
+        if none:
+            denominator = 1
+        else:
+            pass
+        percent = _core_div(supported_count, denominator)
+        percent = _core_mul(percent, 100)
+        percent = _core_add(percent, 0.5)
+        percent = _core_math_floor(percent)
+        summary = _core_string_format("{} supports {}/{} requirements ({}% compatibility)", recommended, supported_count, total, percent)
+    else:
+        pass
+    out = {}
+    out["providerScores"] = scores
+    out["recommendedProvider"] = recommended
+    out["summary"] = summary
+    return out
 
 # END AXIR CORE EMITTED FUNCTIONS
 

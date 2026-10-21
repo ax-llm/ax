@@ -1,7 +1,7 @@
 {
   "expected_output": {
-    "assignedTeam": "engineering",
-    "urgent": true
+    "urgent": true,
+    "assignedTeam": "engineering"
   },
   "expected_request_count": 1,
   "input": {

@@ -65,7 +65,9 @@
         "urgent": {
           "criteria": {
             "false": null,
-            "true": ["Core task blocked"]
+            "true": [
+              "Core task blocked"
+            ]
           },
           "instructions": {
             "task": "Urgent?"
@@ -74,7 +76,11 @@
         }
       },
       "state": {
-        "context": [null, 2, true],
+        "context": [
+          null,
+          2,
+          true
+        ],
         "ticket": "Checkout unavailable"
       }
     },
@@ -111,7 +117,9 @@
       "urgent": {
         "criteria": {
           "false": null,
-          "true": ["Core task blocked"]
+          "true": [
+            "Core task blocked"
+          ]
         },
         "instructions": {
           "task": "Urgent?"
@@ -120,7 +128,11 @@
       }
     },
     "state": {
-      "context": [null, 2, true],
+      "context": [
+        null,
+        2,
+        true
+      ],
       "ticket": "Checkout unavailable"
     }
   },

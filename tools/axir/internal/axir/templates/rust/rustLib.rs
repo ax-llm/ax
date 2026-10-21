@@ -10761,6 +10761,12 @@ impl ProviderRouter {
         Ok(recommendation)
     }
 
+    pub fn get_compatibility_report(&self, request: Value) -> AxResult<Value> {
+        let model=request.get("model").and_then(Value::as_str);
+        let records=Value::Array(self.providers.iter().map(|(key,provider)|json!({"name":key,"id":key,"features":<OpenAICompatibleClient as AxAIClient>::get_features(provider,model),"requestCompatible":provider.validate_chat_request(&request).is_ok()})).collect());
+        Ok(core_value_to_json(&provider_compatibility_report(&[core_value_from_json(&records),core_value_from_json(&request)])?))
+    }
+
     fn provider_key(&self, request: &Value) -> AxResult<String> {
         self.get_routing_recommendation(request.clone())?["provider"]
             .as_str().map(str::to_owned)
@@ -11607,6 +11613,15 @@ fn run_conformance_fixture_kind(fixture: Value) -> AxResult<()> {
         "streaming_forward" => run_streaming_forward_fixture(&fixture)?,
         "cache_sequence" => run_cache_sequence_fixture(&fixture)?,
         "flow_cache_sequence" => run_flow_cache_sequence_fixture(&fixture)?,
+        "eval_novel_f1" => {
+            for item in fixture["cases"].as_array().ok_or_else(|| AxError::new("fixture", "missing metric cases"))? {
+                let score = novel_f1_score(item["history"].as_str().unwrap(), item["prediction"].as_str().unwrap(), item["ground_truth"].as_str().unwrap(), item["return_recall"].as_bool().unwrap_or(false))?;
+                let expected = item["expected"].as_f64().ok_or_else(|| AxError::new("fixture", "expected a numeric novel F1 score"))?;
+                if !score.is_finite() || (score - expected).abs() > 1e-12 {
+                    return Err(AxError::new("fixture", format!("novel F1 {}: expected {expected}, got {score}", item["name"])));
+                }
+            }
+        }
         "stream" => run_stream_fixture(&fixture)?,
         "ai_session_state" => run_ai_session_state_fixture(&fixture)?,
         "ai_session_events" => run_ai_session_events_fixture(&fixture)?,
@@ -13434,6 +13449,10 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
         "degradations": rec.get("degradations").cloned().unwrap_or(Value::Null),
         "warnings": rec.get("warnings").cloned().unwrap_or(Value::Null)
     });
+    if let Some(expected)=fixture.get("expected_compatibility_report") {
+        let report=core_value_to_json(&provider_compatibility_report(&[core_value_from_json(&providers),core_value_from_json(&request)])?);
+        expect_json_equal("compatibility report",&report,expected)?;
+    }
     let validation = core_value_to_json(&provider_route_validation(&[
         core_value_from_json(&providers),
         core_value_from_json(&request),
@@ -13513,6 +13532,7 @@ fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> V
     let mut structured_output_modes = Vec::new();
     let mut all_modes_advertised = !feature_values.is_empty();
     for raw in &feature_values {
+        out = core_value_to_json(&provider_merge_audio_output(&[core_value_from_json(&out), core_value_from_json(raw)]).expect("audio output feature merge"));
         let raw_modes = raw
             .get("structuredOutputModes")
             .or_else(|| raw.get("structured_output_modes"));
@@ -29500,4 +29520,10 @@ fn core_decision_refusal_error(args: &[CoreValue]) -> Result<CoreValue, AxError>
     error.error_type=Some("AxDecisionRefusalError".to_owned());
     error.response_body=Some(json!({"fieldPath":path,"provenance":core_value_to_json(&core_arg(args,1))}));
     Ok(CoreValue::Error(Rc::new(error)))
+}
+
+/// Novel token overlap after history and stopword exclusion. Empty filtered pairs score one.
+pub fn novel_f1_score(history: &str, prediction: &str, ground_truth: &str, return_recall: bool) -> AxResult<f64> {
+    let value = core_value_to_json(&eval_novel_f1(&[core_value_from_json(&json!(history)), core_value_from_json(&json!(prediction)), core_value_from_json(&json!(ground_truth)), core_value_from_json(&json!(return_recall))])?);
+    value.as_f64().ok_or_else(|| AxError::new("eval", "novel F1 returned a non-number"))
 }

@@ -6819,6 +6819,7 @@ func mergedServiceFeatures(services []AxAIService,model string) map[string]Value
 	allModesAdvertised := len(services) > 0
 	for _, service := range services {
 		raw := service.GetFeatures(model)
+		features = asMap(mustCore(provider_merge_audio_output(features, raw)))
 		rawModes := coreGet(raw, "structuredOutputModes", coreGet(raw, "structured_output_modes", nil))
 		if rawModes == nil {
 			allModesAdvertised = false
@@ -7404,6 +7405,9 @@ func (r *ProviderRouter) GetRoutingRecommendation(request map[string]Value) map[
 }
 func (r *ProviderRouter) ValidateRequest(request map[string]Value) map[string]Value {
 	return asMap(mustCore(provider_route_validation(r.providerRecords(display(coreGet(request,"model","")), request), request, r.processing, r.routing)))
+}
+func (r *ProviderRouter) GetCompatibilityReport(request map[string]Value) map[string]Value {
+    return asMap(mustCore(provider_compatibility_report(r.providerRecords(display(coreGet(request,"model","")),request),request)))
 }
 func (r *ProviderRouter) GetRoutingStats() map[string]Value {
 	return asMap(mustCore(provider_routing_stats(r.providerRecords(""))))
@@ -13331,6 +13335,11 @@ func runConformanceFixtureKind(fixture map[string]Value) {
 		}, fixture)
 	case "template_validate":
 		assertEqual(mustCore(validate_prompt_template_syntax(coreGet(fixture, "template", ""), coreGet(fixture, "context", "fixture-template"), coreGet(fixture, "required_variables", Array()))), coreGet(fixture, "expected_result", true), "template validation")
+	case "eval_novel_f1":
+        for _, item := range coreIter(coreGet(fixture, "cases", Array())) {
+            actual := NovelF1Score(display(coreGet(item,"history","")), display(coreGet(item,"prediction","")), display(coreGet(item,"ground_truth","")), coreTruthy(coreGet(item,"return_recall",false)))
+            assertEqual(actual, coreGet(item,"expected",nil), "novel F1: " + display(coreGet(item,"name","")))
+        }
 	case "stream":
 		runConformanceStream(fixture)
 	case "forward":
@@ -14102,6 +14111,8 @@ func runConformanceAIProviderRouter(fixture map[string]Value) {
 		providerName = provider.GetName()
 	}
 	recommendation := Object("provider", providerName, "processingApplied", coreGet(rec, "processingApplied", nil), "degradations", coreGet(rec, "degradations", nil), "warnings", coreGet(rec, "warnings", nil))
+    if expected := coreGet(fixture,"expected_compatibility_report",nil); expected != nil { assertEqual(router.GetCompatibilityReport(request),expected,"compatibility report") }
+
 	actual := Object("recommendation", recommendation, "validation", router.ValidateRequest(request), "stats", router.GetRoutingStats())
 	expected := asMap(coreGet(fixture, "expected_output", Object()))
 	if coreGet(expected, "forwardedContent", nil) != nil {
@@ -20079,3 +20090,9 @@ func extractQuotedSuffix(s string) (Value, error) {
 func _core_type_is_json(value Value) Value { return true }
 
 func Version() string { return "{{AX_VERSION}}" }
+
+// NovelF1Score scores novel token overlap after excluding history and stopwords.
+// Set returnRecall to return recall instead of the harmonic F1 score.
+func NovelF1Score(history, prediction, groundTruth string, returnRecall bool) float64 {
+    return num(mustCore(eval_novel_f1(history, prediction, groundTruth, returnRecall)))
+}

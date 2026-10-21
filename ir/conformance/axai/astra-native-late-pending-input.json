@@ -77,7 +77,9 @@
     },
     {
       "event": {
-        "required_call_ids": ["c1"],
+        "required_call_ids": [
+          "c1"
+        ],
         "response_id": "parent",
         "status": "pending",
         "steer_id": "s1",
@@ -96,7 +98,9 @@
     },
     {
       "event": {
-        "ids": ["c1"],
+        "ids": [
+          "c1"
+        ],
         "type": "results.submitted"
       },
       "expected_action": {

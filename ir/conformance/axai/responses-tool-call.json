@@ -23,7 +23,9 @@
       }
     ]
   },
-  "expected_transport_json_absent": ["text.format.json_schema"],
+  "expected_transport_json_absent": [
+    "text.format.json_schema"
+  ],
   "expected_transport_request": {
     "json": {
       "text": {
@@ -35,7 +37,9 @@
                 "type": "string"
               }
             },
-            "required": ["answer"],
+            "required": [
+              "answer"
+            ],
             "type": "object"
           },
           "type": "json_schema"
@@ -52,7 +56,9 @@
                 "type": "string"
               }
             },
-            "required": ["query"],
+            "required": [
+              "query"
+            ],
             "type": "object"
           },
           "type": "function"
@@ -81,7 +87,9 @@
               "type": "string"
             }
           },
-          "required": ["query"],
+          "required": [
+            "query"
+          ],
           "type": "object"
         }
       }
@@ -98,7 +106,9 @@
               "type": "string"
             }
           },
-          "required": ["answer"],
+          "required": [
+            "answer"
+          ],
           "type": "object"
         }
       },

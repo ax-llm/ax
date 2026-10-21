@@ -3937,6 +3937,7 @@ static void run_ai_provider_router(Value fixture) {
   Value request = Core::get(fixture, "request", Value::object());
   Value rec = router.get_routing_recommendation(request);
   Value recommendation = object({{"provider", Core::get(rec, "providerName")}, {"processingApplied", Core::get(rec, "processingApplied")}, {"degradations", Core::get(rec, "degradations")}, {"warnings", Core::get(rec, "warnings")}});
+  if (!Core::get(fixture,"expected_compatibility_report").is_null()) assert_equal(router.get_compatibility_report(request),Core::get(fixture,"expected_compatibility_report"),"compatibility report");
   Value actual = object({{"recommendation", recommendation}, {"validation", router.validate_request(request)}, {"stats", router.get_routing_stats()}});
   Value expected = Core::get(fixture, "expected_output");
   if (!Core::get(expected, "forwardedContent").is_null()) {
@@ -4619,6 +4620,10 @@ static void run_kind(Value fixture) {
     if (!Core::get(options, "structuredOutputFunctionName").is_null()) Core::set(options, "structured_output_function_name", Core::get(options, "structuredOutputFunctionName"));
     Value messages = Core::render_prompt(sig, Core::get(fixture, "input", Core::get(fixture, "values", Value::object())), Core::get(fixture, "tools", Value::array()), options);
     if (!Core::get(fixture, "expected_messages").is_null()) assert_equal(messages, Core::get(fixture, "expected_messages"), "messages");
+  } else if (kind == "eval_novel_f1") {
+    for (const auto& item : Core::iter(Core::get(fixture, "cases"))) {
+      assert_equal(novel_f1_score(display(Core::get(item,"history")), display(Core::get(item,"prediction")), display(Core::get(item,"ground_truth")), Core::truthy(Core::get(item,"return_recall",false))), Core::get(item,"expected"), "novel F1: " + display(Core::get(item,"name")));
+    }
   } else if (kind == "stream") {
     run_stream(fixture);
   } else if (kind == "forward") {

@@ -4,7 +4,10 @@
     "catalog": [
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -17,7 +20,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -38,7 +44,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -59,7 +68,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -80,7 +93,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -108,7 +125,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -136,7 +157,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -164,7 +189,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -192,7 +221,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -220,7 +253,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -241,7 +278,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -278,7 +319,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -315,7 +360,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -352,7 +401,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -389,7 +442,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -456,7 +513,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -488,7 +549,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -546,7 +610,13 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API",
@@ -558,7 +628,13 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Chat Completions",
@@ -570,7 +646,13 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Messages",
@@ -592,9 +674,18 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "grok-4.6",
         "displayName": "xAI Grok",
@@ -627,7 +718,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -649,7 +744,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -671,7 +769,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -682,7 +784,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -704,7 +809,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -726,7 +834,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -737,7 +849,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -748,7 +864,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -1003,7 +1122,9 @@
     ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
-    "openaiModelTypes": ["code"],
+    "openaiModelTypes": [
+      "code"
+    ],
     "providerCount": 51,
     "providerNames": [
       "mistral",

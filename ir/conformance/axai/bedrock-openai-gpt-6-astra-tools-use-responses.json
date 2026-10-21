@@ -1,6 +1,8 @@
 {
   "base_url": "https://bedrock-mantle.us-west-2.api.aws/openai/v1",
-  "expected_transport_json_absent": ["temperature"],
+  "expected_transport_json_absent": [
+    "temperature"
+  ],
   "expected_transport_request": {
     "json": {
       "model": "openai.gpt-6-astra",
@@ -14,7 +16,9 @@
                 "type": "string"
               }
             },
-            "required": ["id"],
+            "required": [
+              "id"
+            ],
             "type": "object"
           },
           "type": "function"
@@ -45,7 +49,9 @@
               "type": "string"
             }
           },
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "type": "object"
         }
       }

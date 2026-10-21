@@ -36,8 +36,13 @@
       "mimeType": "audio/wav"
     },
     "emitAudioProgress": true,
-    "keywords": ["Ax"],
-    "languageBias": ["en", "es"],
+    "keywords": [
+      "Ax"
+    ],
+    "languageBias": [
+      "en",
+      "es"
+    ],
     "mode": "diarization",
     "model": "muse-voice-transcribe-1.0",
     "partialMode": "delta",

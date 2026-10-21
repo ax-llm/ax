@@ -35,7 +35,9 @@
       }
     ]
   },
-  "expected_transport_json_absent": ["tool_choice"],
+  "expected_transport_json_absent": [
+    "tool_choice"
+  ],
   "expected_transport_request": {
     "json": {
       "messages": [

@@ -1,14 +1,18 @@
 {
   "description": "An embed request goes through the same retry. TS request count and delays from src/ax/util/apicall.ts.",
   "embed_model": "text-embedding-3-small",
-  "expected_retry_delays_ms": [1000],
+  "expected_retry_delays_ms": [
+    1000
+  ],
   "expected_transport_request_count": 2,
   "kind": "ai_embed",
   "model": "gpt-5.4-mini",
   "name": "request-retry-embed",
   "provider": "openai",
   "request": {
-    "texts": ["hi"]
+    "texts": [
+      "hi"
+    ]
   },
   "retry_now_ms": 1800000000000,
   "retry_random": 0.5,
@@ -27,7 +31,10 @@
       "json": {
         "data": [
           {
-            "embedding": [0.1, 0.2],
+            "embedding": [
+              0.1,
+              0.2
+            ],
             "index": 0
           }
         ],

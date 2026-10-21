@@ -38,7 +38,9 @@
     },
     {
       "response": {
-        "output_modalities": ["audio"]
+        "output_modalities": [
+          "audio"
+        ]
       },
       "type": "response.create"
     }
@@ -116,7 +118,9 @@
       },
       "instructions": "You are a concise voice agent.",
       "model": "grok-voice-think-fast-1.0",
-      "output_modalities": ["audio"],
+      "output_modalities": [
+        "audio"
+      ],
       "type": "realtime"
     },
     "type": "session.update"

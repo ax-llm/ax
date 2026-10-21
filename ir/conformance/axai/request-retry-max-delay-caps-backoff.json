@@ -1,6 +1,10 @@
 {
   "description": "maxDelayMs caps the backoff before the jitter. TS request count and delays from src/ax/util/apicall.ts.",
-  "expected_retry_delays_ms": [100, 500, 500],
+  "expected_retry_delays_ms": [
+    100,
+    500,
+    500
+  ],
   "expected_transport_request_count": 4,
   "kind": "ai_chat",
   "model": "gpt-5.4-mini",

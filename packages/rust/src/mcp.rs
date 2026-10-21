@@ -4954,7 +4954,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                     _ => {}
                 }
                 if !stop.load(Ordering::SeqCst) {
-                    thread::sleep(Duration::from_millis(delay))
+                    thread::park_timeout(Duration::from_millis(delay))
                 }
             }
         }));
@@ -5045,15 +5045,18 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     }
     fn close_request_stream(&mut self) -> AxResult<()> {
         self.listen_stop.store(true, Ordering::SeqCst);
-        let _ = self.listen_thread.take();
+        if let Some(thread) = self.listen_thread.take() {
+            thread.thread().unpark();
+        }
         Ok(())
     }
     fn close(&mut self) -> AxResult<()> {
         self.listen_stop.store(true, Ordering::SeqCst);
-        if self.era.as_deref() == Some("modern") {
-            let _ = self.listen_thread.take();
-        } else if let Some(thread) = self.listen_thread.take() {
-            let _ = thread.join();
+        if let Some(thread) = self.listen_thread.take() {
+            thread.thread().unpark();
+            if self.era.as_deref() != Some("modern") {
+                let _ = thread.join();
+            }
         }
         Ok(())
     }
@@ -8527,5 +8530,49 @@ mod websocket_cleanup_tests {
             .contains("closed"));
         assert!(transport.state.lock().unwrap().pending.is_empty());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod listen_delay_cleanup_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    #[test]
+    fn close_wakes_reconnect_delay() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let count = socket.read(&mut chunk).unwrap();
+                assert!(count > 0, "missing listener request headers");
+                request.extend_from_slice(&chunk[..count]);
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let (ended, receiver) = std::sync::mpsc::channel();
+        let mut transport = AxMCPStreamableHTTPTransport::new(format!("http://127.0.0.1:{port}"), json!({"reconnectDelayMs":5000,"ssrfProtection":{"requireHttps":false,"allowLocalhost":true,"allowPrivateNetworks":true}})).unwrap();
+        transport.set_lifecycle_handler(Arc::new(move |event| {
+            if event == "disconnected" {
+                let _ = ended.send(());
+            }
+        }));
+        transport.start_listening().unwrap();
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("listener did not finish the first request");
+        let started = std::time::Instant::now();
+        transport.close().unwrap();
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "close retained reconnect sleep"
+        );
+        assert!(transport.listen_thread.is_none());
+        server.join().unwrap();
     }
 }

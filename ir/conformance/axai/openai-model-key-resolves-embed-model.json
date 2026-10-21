@@ -11,7 +11,9 @@
   "provider": "openai",
   "request": {
     "embed_model": "embed-small",
-    "texts": ["a"]
+    "texts": [
+      "a"
+    ]
   },
   "service_options": {
     "models": [
@@ -36,7 +38,9 @@
       "json": {
         "data": [
           {
-            "embedding": [0.1],
+            "embedding": [
+              0.1
+            ],
             "index": 0
           }
         ],

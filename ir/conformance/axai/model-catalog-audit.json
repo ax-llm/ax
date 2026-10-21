@@ -54,7 +54,14 @@
       "typesafe",
       "openai-decisions"
     ],
-    "filterOptions": ["all", "text", "embeddings", "code", "audio", "image"],
+    "filterOptions": [
+      "all",
+      "text",
+      "embeddings",
+      "code",
+      "audio",
+      "image"
+    ],
     "nextMilestone": "Generated catalog provider clients match the active catalog",
     "providerCount": 51,
     "providerNames": [

@@ -31,7 +31,9 @@
   },
   "expected_transport_request": {
     "json": {
-      "include": ["reasoning.encrypted_content"],
+      "include": [
+        "reasoning.encrypted_content"
+      ],
       "input": [
         {
           "content": [

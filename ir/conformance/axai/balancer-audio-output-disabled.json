@@ -1,0 +1,125 @@
+{
+  "expected_output": {
+    "features": {
+      "asyncTools": false,
+      "caching": {
+        "supported": false,
+        "types": []
+      },
+      "functions": false,
+      "media": {
+        "audio": {
+          "formats": [
+            "wav"
+          ],
+          "supported": true
+        },
+        "files": {
+          "formats": [],
+          "supported": false,
+          "uploadMethod": "none"
+        },
+        "images": {
+          "formats": [],
+          "supported": false
+        },
+        "urls": {
+          "contextFetching": false,
+          "supported": false,
+          "webSearch": false
+        }
+      },
+      "multiTurn": true,
+      "nativeSteering": false,
+      "reasoningUpdates": false,
+      "streaming": false,
+      "structuredOutputs": false,
+      "thinking": false
+    },
+    "outputs": {},
+    "serviceCalls": []
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-audio-output-disabled",
+  "operations": [],
+  "options": {
+    "debug": false,
+    "strategy": "input_order"
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [
+              "wav"
+            ],
+            "output": {
+              "formats": [
+                "disabled-format"
+              ],
+              "supported": false
+            },
+            "supported": true
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "InputOnly-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          },
+          "embed": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          }
+        }
+      },
+      "name": "InputOnly"
+    }
+  ]
+}

@@ -33,6 +33,7 @@
 #include <vector>
 
 namespace axllm {
+double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall = false);
 
 struct Value;
 using Array = std::vector<Value>;
@@ -976,7 +977,10 @@ struct Core {
   static Value _retry_http_date_ms(Value text);
   static Value retry_after_ms(Value header, Value now_ms);
   static Value request_retry_delay(Value config, Value attempt, Value failure, Value now_ms, Value random);
+  static Value provider_merge_audio_output(Value features, Value child);
+  static Value provider_compatibility_report(Value providers, Value request);
   static Value chat_session_mode_enabled(Value options);
+  static Value _eval_codepoints_impl(Value text);
   static Value fold_stream(Value events);
   static Value _render_audio_outputs_impl(Value gen, Value client, Value values, Value options);
   static Value _select_structured_output_rung(Value signature, Value features, Value options);
@@ -986,6 +990,7 @@ struct Core {
   static Value _date_parse_dates_option_impl(Value base_options, Value options);
   static Value _regex_take(Value s);
   static Value stream_extraction_route(Value has_complex_fields);
+  static Value _eval_codepoint_text_impl(Value units);
   static Value _date_is_date_type_impl(Value name);
   static Value _chat_session_argument_equal(Value left, Value right, Value depth);
   static Value _regex_digit(Value c);
@@ -993,6 +998,7 @@ struct Core {
   static Value _validate_optimization_component_value(Value component, Value value);
   static Value _regex_hexdigit(Value c);
   static Value _date_parse_fields_impl(Value fields, Value base_options, Value options);
+  static Value _eval_normalize_impl(Value text, Value tables);
   static Value tool_call_extras(Value options, Value name);
   static Value _render_stream_result_impl(Value run, Value output);
   static Value _regex_node(Value k);
@@ -1013,6 +1019,7 @@ struct Core {
   static Value _apply_model_config_option_impl(Value runtime_options, Value base_options, Value options);
   static Value _date_parse_date_impl(Value text);
   static Value _stream_trim_start_impl(Value text);
+  static Value eval_novel_f1(Value history, Value prediction, Value ground_truth, Value return_recall);
   static Value _serialize_optimized_artifact(Value artifact);
   static Value _stream_is_space_impl(Value ch);
   static Value _regex_escaped(Value s, Value inside);
@@ -1025,6 +1032,7 @@ struct Core {
   static Value _date_parse_offset_datetime_impl(Value units, Value start, Value end);
   static Value _stream_matches_content_impl(Value content, Value prefix, Value start);
   static Value _optimization_component_current_map(Value components);
+  static Value _eval_ascii_word_impl(Value cp);
   static Value _normalize_optimization_dataset(Value dataset);
   static Value _date_parse_named_datetime_impl(Value text, Value units, Value start, Value end);
   static Value _stream_extract_block_impl(Value input);
@@ -1211,52 +1219,52 @@ struct Core {
   static Value _date_pad_impl(Value value, Value width);
   static Value _date_iso_impl(Value millis);
   static Value _regex_validate_names(Value n, Value path, Value seen, Value counter);
-  static Value _stream_json_parse_partial_impl(Value json_text);
   static Value _regex_id_start_ranges();
   static Value _regex_id_continue_ranges();
+  static Value _stream_json_parse_partial_impl(Value json_text);
   static Value _regex_clear_capture(Value caps, Value key);
-  static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _regex_copy_map(Value value);
+  static Value _stream_json_should_parse_impl(Value state, Value content);
   static Value _stream_json_validate_impl(Value fields, Value values, Value allow_missing, Value reject_unknown);
-  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _parse_text_contract_output_impl(Value content, Value output_fields, Value strict_mode);
+  static Value _stream_json_validate_value_impl(Value field, Value value, Value allow_missing);
   static Value _generate_failed_impl(Value error);
   static Value _unable_to_fix_impl(Value error, Value output);
   static Value _attempt_output_impl(Value response);
-  static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
   static Value _max_tokens_error_impl(Value response);
+  static Value _stream_json_validate_nested_impl(Value parent, Value object, Value allow_missing);
   static Value _strict_mode_option_impl(Value base_options, Value options);
-  static Value _stream_json_select_fields_impl(Value fields, Value values);
   static Value _feedback_message_impl(Value text);
   static Value _caching_function_option_impl(Value gen, Value options);
-  static Value _stream_json_nested_fields_impl(Value fields_map);
+  static Value _stream_json_select_fields_impl(Value fields, Value values);
   static Value _cache_key_impl(Value gen, Value values, Value options);
+  static Value _stream_json_nested_fields_impl(Value fields_map);
   static Value _stream_json_flexible_impl(Value field);
   static Value _stream_json_string_value_impl(Value field, Value value);
-  static Value _stream_json_strings_for_field_impl(Value field, Value value);
   static Value _cache_store_impl(Value cache_fn, Value key, Value output);
+  static Value _stream_json_strings_for_field_impl(Value field, Value value);
   static Value _cache_store_streamed_impl(Value cache_fn, Value key, Value output);
   static Value _cache_lookup_impl(Value gen, Value values, Value options, Value ignore_read_errors);
   static Value _stream_json_strings_for_fields_impl(Value fields_map, Value values);
-  static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _cache_lookup_option_impl(Value options);
+  static Value _stream_json_strings_impl(Value fields, Value values, Value partial);
   static Value _apply_control_updates_impl(Value gen, Value messages, Value runtime_options, Value updates);
   static Value _stream_state_impl(Value index);
-  static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _structured_output_render_options_impl(Value selection);
+  static Value _stream_merge_value_impl(Value base, Value has_base, Value delta);
   static Value _completion_function_call_problems(Value response);
   static Value _stream_commit_delta_impl(Value committed, Value current, Value delta);
   static Value _check_completion_function_calls(Value response, Value options);
   static Value _stream_run_state_impl(Value sink, Value buffered, Value thought_field);
-  static Value _stream_run_new_version_impl(Value run, Value version);
   static Value _include_optional_render_option_impl(Value render_options, Value options);
-  static Value _stream_yield_impl(Value run, Value version, Value index, Value delta);
+  static Value _stream_run_new_version_impl(Value run, Value version);
   static Value _memory_cleanup_option_impl(Value options);
+  static Value _stream_yield_impl(Value run, Value version, Value index, Value delta);
   static Value _settle_failed_attempts_impl(Value messages, Value failed, Value cleanup);
   static Value _function_result_text_impl(Value result, Value options);
   static Value _stream_marker_incomplete_impl(Value marker);
-  static Value _stream_apply_structured_impl(Value state, Value fields, Value parsed, Value marker, Value held);
   static Value _run_tool_calls_impl(Value gen, Value functions, Value messages, Value calls, Value options);
+  static Value _stream_apply_structured_impl(Value state, Value fields, Value parsed, Value marker, Value held);
   static Value _stream_feedback_text_impl(Value result);
   static Value _stream_run_processors_impl(Value gen, Value kind, Value state, Value content, Value done);
   static Value _stream_check_assertions_impl(Value gen, Value xstate, Value content, Value done);
@@ -2030,6 +2038,7 @@ class ProviderRouter : public AIClient {
   Value get_routing_recommendation(Value request);
   Value validate_request(Value request);
   Value get_routing_stats();
+  Value get_compatibility_report(Value request);
   Value chat(Value request, Value options = Value::object());
   Value chat(Value request, Value options, const AxCancellationToken* cancellation);
   std::vector<Value> stream(Value request);

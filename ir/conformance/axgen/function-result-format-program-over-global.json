@@ -15,7 +15,9 @@
     "\"from the program\""
   ],
   "expected_request_count": 2,
-  "expected_request_not_contains": ["from the globals"],
+  "expected_request_not_contains": [
+    "from the globals"
+  ],
   "function_result_formatter": {
     "text": "from the program"
   },
@@ -63,7 +65,9 @@
       "description": "Look up lookupObject",
       "name": "lookupObject",
       "result": {
-        "a": [2],
+        "a": [
+          2
+        ],
         "b": 1,
         "c": null
       }

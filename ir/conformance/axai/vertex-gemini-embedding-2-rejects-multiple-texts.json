@@ -7,7 +7,10 @@
   "name": "vertex-gemini-embedding-2-rejects-multiple-texts",
   "provider": "google-gemini",
   "request": {
-    "texts": ["one", "two"]
+    "texts": [
+      "one",
+      "two"
+    ]
   },
   "service_options": {
     "project_id": "demo-project",

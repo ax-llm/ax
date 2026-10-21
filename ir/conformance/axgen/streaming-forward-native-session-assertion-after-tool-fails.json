@@ -22,13 +22,20 @@
   "expected_error_cause_contains": "Chat session failed: No BAD.; unresolved calls: none",
   "expected_error_contains": "Generate failed: Chat session failed: No BAD.; unresolved calls: none",
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "expected_session_log": [
     {
       "op": "open"
     },
     {
-      "call_ids": ["c1"],
+      "call_ids": [
+        "c1"
+      ],
       "op": "continue"
     },
     {

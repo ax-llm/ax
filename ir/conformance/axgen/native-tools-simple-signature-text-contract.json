@@ -2,7 +2,9 @@
   "expected_output": {
     "answer": "Found Ax docs"
   },
-  "expected_request_contains": ["field name: value"],
+  "expected_request_contains": [
+    "field name: value"
+  ],
   "expected_request_count": 2,
   "expected_request_not_contains": [
     "response_format",

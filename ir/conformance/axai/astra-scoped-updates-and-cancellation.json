@@ -84,7 +84,9 @@
       }
     }
   ],
-  "expected_pending": ["unresolved"],
+  "expected_pending": [
+    "unresolved"
+  ],
   "expected_steps": 0,
   "kind": "ai_session_state",
   "max_steps": 3,

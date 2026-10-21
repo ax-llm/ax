@@ -1,13 +1,17 @@
 {
   "description": "retryableStatusCodes replaces the list of statuses to retry. TS request count and delays from src/ax/util/apicall.ts.",
-  "expected_retry_delays_ms": [1000],
+  "expected_retry_delays_ms": [
+    1000
+  ],
   "expected_transport_request_count": 2,
   "kind": "ai_chat",
   "model": "gpt-5.4-mini",
   "name": "request-retry-custom-status-codes",
   "options": {
     "retry": {
-      "retryableStatusCodes": [418]
+      "retryableStatusCodes": [
+        418
+      ]
     }
   },
   "provider": "openai",

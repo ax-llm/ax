@@ -2779,6 +2779,7 @@ def _merge_service_features(services, model=None):
     all_modes_advertised = bool(services)
     for service in services:
         raw = service.get_features(model) or {}
+        features = provider_merge_audio_output(features, raw)
         raw_modes = raw.get("structuredOutputModes", raw.get("structured_output_modes"))
         if raw_modes is None:
             all_modes_advertised = False
@@ -3411,6 +3412,9 @@ class ProviderRouter:
 
     def validate_request(self, request: dict[str, Any]):
         return provider_route_validation(self._provider_records(request.get("model"), request), _coerce_chat_request(request), self.processing, self.routing)
+
+    def get_compatibility_report(self, request):
+        return provider_compatibility_report(self._provider_records(request.get("model"), request), _coerce_chat_request(request))
 
     def get_routing_stats(self):
         return provider_routing_stats(self._provider_records())

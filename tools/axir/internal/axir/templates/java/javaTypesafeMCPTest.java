@@ -188,5 +188,14 @@ public final class TypesafeMCPTest {
     check(answer.box().equals(coordinates)&&answer.confidence()==0,"typed Box changed");
     Ax.f().call().input("query",Ax.f().string()).output("target",Ax.f().box().withEvidence()).build();
   }
-  public static void main(String[] args)throws Exception{imageBox();decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
+  static void mcpListenDelayCleanup() throws Exception {
+    var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+    server.createContext("/",exchange->{exchange.getResponseHeaders().set("Content-Type","text/event-stream");exchange.sendResponseHeaders(200,-1);exchange.close();});
+    server.start();var ended=new CountDownLatch(1);
+    var transport=new AxMCPStreamableHTTPTransport("http://127.0.0.1:"+server.getAddress().getPort(),Map.of("reconnectDelayMs",5000,"ssrfProtection",Map.of("requireHttps",false,"allowLocalhost",true,"allowPrivateNetworks",true)));
+    transport.setLifecycleHandler(event->{if(event.equals("disconnected"))ended.countDown();});
+    try {transport.startListening();check(ended.await(2,TimeUnit.SECONDS),"listener did not reach reconnect wait");long started=System.nanoTime();transport.close();check(System.nanoTime()-started<TimeUnit.MILLISECONDS.toNanos(500),"close retained reconnect delay");}
+    finally {transport.close();server.stop(0);}
+  }
+  public static void main(String[] args)throws Exception{mcpListenDelayCleanup();imageBox();decisionsClient();decisionsNestedValidation();websocket();nativeBinaryFrames();nativeClient();nestedValidation();combinedCancellation();lateServerReply();System.out.println("Java Typesafe native client and MCP WebSocket cleanup passed");}
 }

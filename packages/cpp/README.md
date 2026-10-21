@@ -38,6 +38,7 @@ auto schema = axllm::to_json_schema(axllm::Core::get(sig, "outputs"));
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
 - Optimizers: save, load, apply, and evaluate optimizer artifacts, including the generated GEPA engine.
+- Evaluation: axllm::novel_f1_score scores multiset word overlap after excluding history and stopwords, with matching Unicode normalization and finite empty-input scores.
 
 ## Package Shape
 
