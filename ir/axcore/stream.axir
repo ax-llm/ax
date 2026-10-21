@@ -2309,7 +2309,9 @@ module @ax.stream version "0.1" {
         %clean_outside = core.call intrinsic.not(%clean_in_string)
         %is_quote = core.call intrinsic.eq(%clean_ch, "\"")
         %is_backslash = core.call intrinsic.eq(%clean_ch, "\\")
-        core.if %clean_escaped {
+        // Both branches must test the state before this character clears it.
+        %was_clean_escaped = core.let %clean_escaped
+        core.if %was_clean_escaped {
           %clean_escaped = core.let false
         } else {
           core.if %is_quote {

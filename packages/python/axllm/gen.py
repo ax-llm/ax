@@ -14489,7 +14489,8 @@ def _stream_json_repair_impl(json_text: str) -> str:
         clean_outside = _core_not(clean_in_string)
         is_quote = _core_eq(clean_ch, "\"")
         is_backslash = _core_eq(clean_ch, "\\")
-        if clean_escaped:
+        was_clean_escaped = clean_escaped
+        if was_clean_escaped:
             clean_escaped = False
         else:
             if is_quote:

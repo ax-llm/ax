@@ -66680,6 +66680,7 @@ func _stream_json_repair_impl(args ...Value) (Value, error) {
 	var v_top Value
 	var v_top_index Value
 	var v_trailing_comma Value
+	var v_was_clean_escaped Value
 	var v_without_comma Value
 	var v_without_escape Value
 	if len(args) > 0 { v_json_text = args[0] }
@@ -66759,6 +66760,7 @@ func _stream_json_repair_impl(args ...Value) (Value, error) {
 	_ = v_top
 	_ = v_top_index
 	_ = v_trailing_comma
+	_ = v_was_clean_escaped
 	_ = v_without_comma
 	_ = v_without_escape
 	v_result = coreStringTrim(v_json_text)
@@ -66825,7 +66827,8 @@ func _stream_json_repair_impl(args ...Value) (Value, error) {
 		v_clean_outside = _core_not(v_clean_in_string)
 		v_is_quote = _core_eq(v_clean_ch, "\"")
 		v_is_backslash = _core_eq(v_clean_ch, "\\")
-		if coreTruthy(v_clean_escaped) {
+		v_was_clean_escaped = v_clean_escaped
+		if coreTruthy(v_was_clean_escaped) {
 			v_clean_escaped = false
 		} else {
 			if coreTruthy(v_is_quote) {

@@ -33756,10 +33756,11 @@ Value Core::_stream_json_repair_impl(Value json_text) {
     Value clean_outside = Core::not_(clean_in_string);
     Value is_quote = Core::eq(clean_ch, Value("\""));
     Value is_backslash = Core::eq(clean_ch, Value("\\"));
-    if (Core::truthy(clean_escaped)) {
+    Value was_clean_escaped = clean_escaped;
+    if (Core::truthy(was_clean_escaped)) {
       clean_escaped = Value(false);
     }
-    if (!Core::truthy(clean_escaped)) {
+    if (!Core::truthy(was_clean_escaped)) {
       if (Core::truthy(is_quote)) {
         clean_in_string = Core::not_(clean_in_string);
       }

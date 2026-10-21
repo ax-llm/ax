@@ -31984,10 +31984,11 @@ final class Core {
       Object clean_outside = Core.not(clean_in_string);
       Object is_quote = Core.eq(clean_ch, "\"");
       Object is_backslash = Core.eq(clean_ch, "\\");
-      if (Core.truthy(clean_escaped)) {
+      Object was_clean_escaped = clean_escaped;
+      if (Core.truthy(was_clean_escaped)) {
         clean_escaped = Boolean.FALSE;
       }
-      if (!Core.truthy(clean_escaped)) {
+      if (!Core.truthy(was_clean_escaped)) {
         if (Core.truthy(is_quote)) {
           clean_in_string = Core.not(clean_in_string);
         }

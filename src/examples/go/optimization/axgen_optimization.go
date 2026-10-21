@@ -46,6 +46,7 @@ func main() {
 	program.ApplyOptimizedComponents(map[string]ax.Value{"priority::instruction": "Classify operational risk. Use high for production-impacting urgency."})
 	after, err := program.Forward(ctx, client, map[string]ax.Value{"emailText": "Production checkout is failing for enterprise customers."}, nil)
 	if err != nil { panic(err) }
-	score := ax.NovelF1Score("", fmt.Sprint(after["rationale"]), "Production checkout is failing for enterprise customers.", false)
+	values := after.(map[string]ax.Value)
+	score := ax.NovelF1Score("", fmt.Sprint(values["rationale"]), "Production checkout is failing for enterprise customers.", false)
 	printJSON(ax.Object("baseline", baseline, "artifact", artifact, "after", after, "rationaleNovelF1", score))
 }

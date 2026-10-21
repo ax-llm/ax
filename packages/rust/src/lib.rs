@@ -19632,7 +19632,7 @@ fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> V
     let mut all_modes_advertised = !feature_values.is_empty();
     for raw in &feature_values {
         out = core_value_to_json(
-            &provider_merge_audio_output(&[json_to_core_value(&out), json_to_core_value(raw)])
+            &provider_merge_audio_output(&[core_value_from_json(&out), core_value_from_json(raw)])
                 .expect("audio output feature merge"),
         );
         let raw_modes = raw
@@ -99812,6 +99812,7 @@ fn _stream_json_repair_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_top = CoreValue::Null;
     let mut v_top_index = CoreValue::Null;
     let mut v_trailing_comma = CoreValue::Null;
+    let mut v_was_clean_escaped = CoreValue::Null;
     let mut v_without_comma = CoreValue::Null;
     let mut v_without_escape = CoreValue::Null;
     v_result = core_string_trim(&v_json_text);
@@ -99903,7 +99904,8 @@ fn _stream_json_repair_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_clean_outside = core_not(&[v_clean_in_string.clone()])?;
         v_is_quote = core_eq(&[v_clean_ch.clone(), CoreValue::from("\"")])?;
         v_is_backslash = core_eq(&[v_clean_ch.clone(), CoreValue::from("\\")])?;
-        if core_truthy(&v_clean_escaped) {
+        v_was_clean_escaped = v_clean_escaped.clone();
+        if core_truthy(&v_was_clean_escaped) {
             v_clean_escaped = CoreValue::Bool(false);
         } else {
             if core_truthy(&v_is_quote) {
@@ -148339,10 +148341,10 @@ pub fn novel_f1_score(
     return_recall: bool,
 ) -> AxResult<f64> {
     let value = core_value_to_json(&eval_novel_f1(&[
-        json_to_core_value(&json!(history)),
-        json_to_core_value(&json!(prediction)),
-        json_to_core_value(&json!(ground_truth)),
-        json_to_core_value(&json!(return_recall)),
+        core_value_from_json(&json!(history)),
+        core_value_from_json(&json!(prediction)),
+        core_value_from_json(&json!(ground_truth)),
+        core_value_from_json(&json!(return_recall)),
     ])?);
     value
         .as_f64()
