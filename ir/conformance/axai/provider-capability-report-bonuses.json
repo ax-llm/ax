@@ -1,0 +1,122 @@
+{
+  "alternative_indices": [],
+  "expected_compatibility_report": {
+    "providerScores": [
+      {
+        "missingCapabilities": [],
+        "provider": "AllCapabilities",
+        "score": 201,
+        "supportedCapabilities": [
+          "Images",
+          "Audio",
+          "Audio output",
+          "Files",
+          "URLs",
+          "Functions",
+          "Streaming",
+          "Caching"
+        ]
+      }
+    ],
+    "recommendedProvider": "AllCapabilities",
+    "summary": "AllCapabilities supports 8/8 requirements (100% compatibility)"
+  },
+  "expected_output": {
+    "recommendation": {
+      "degradations": [],
+      "processingApplied": [],
+      "provider": "AllCapabilities",
+      "warnings": []
+    }
+  },
+  "kind": "ai_provider_router",
+  "name": "provider-capability-report-bonuses",
+  "primary_index": 0,
+  "request": {
+    "capabilities": {
+      "requiresAudio": true,
+      "requiresAudioOutput": true,
+      "requiresFiles": true,
+      "requiresImages": true,
+      "requiresWebSearch": true
+    },
+    "chatPrompt": [
+      {
+        "cache": true,
+        "content": "Hello",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Lookup",
+        "name": "lookup",
+        "parameters": {
+          "properties": {},
+          "type": "object"
+        }
+      }
+    ],
+    "modelConfig": {
+      "stream": true
+    }
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": true,
+          "types": [
+            "persistent"
+          ]
+        },
+        "functionCot": true,
+        "functions": true,
+        "hasShowThoughts": true,
+        "hasThinkingBudget": true,
+        "media": {
+          "audio": {
+            "formats": [
+              "wav"
+            ],
+            "maxDuration": 1200,
+            "output": {
+              "formats": [
+                "pcm16"
+              ],
+              "supported": true
+            },
+            "supported": true
+          },
+          "files": {
+            "formats": [
+              "pdf"
+            ],
+            "supported": true,
+            "uploadMethod": "cloud"
+          },
+          "images": {
+            "detailLevels": [
+              "high"
+            ],
+            "formats": [
+              "png"
+            ],
+            "maxSize": 20971520,
+            "supported": true
+          },
+          "urls": {
+            "contextFetching": true,
+            "supported": true,
+            "webSearch": true
+          }
+        },
+        "multiTurn": true,
+        "streaming": true,
+        "thinking": true
+      },
+      "id": "all-capabilities",
+      "name": "AllCapabilities"
+    }
+  ]
+}

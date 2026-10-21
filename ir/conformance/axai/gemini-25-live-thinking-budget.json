@@ -2,7 +2,9 @@
   "expected_setup": {
     "setup": {
       "generationConfig": {
-        "responseModalities": ["AUDIO"],
+        "responseModalities": [
+          "AUDIO"
+        ],
         "speechConfig": {
           "voiceConfig": {
             "prebuiltVoiceConfig": {

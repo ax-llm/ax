@@ -1,8 +1,14 @@
 {
   "expected_output": {
     "detail": {
-      "sizes": [1, 2],
-      "tags": ["a", "b"]
+      "sizes": [
+        1,
+        2
+      ],
+      "tags": [
+        "a",
+        "b"
+      ]
     }
   },
   "expected_request_count": 1,

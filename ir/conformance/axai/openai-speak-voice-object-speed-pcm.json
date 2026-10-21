@@ -5,7 +5,10 @@
     "mimeType": "audio/pcm",
     "transcript": "Hello there"
   },
-  "expected_transport_json_absent": ["voice_id", "language"],
+  "expected_transport_json_absent": [
+    "voice_id",
+    "language"
+  ],
   "expected_transport_request": {
     "json": {
       "input": "Hello there",

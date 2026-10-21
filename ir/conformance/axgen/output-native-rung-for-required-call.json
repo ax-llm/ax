@@ -15,7 +15,9 @@
     }
   },
   "expected_request_count": 2,
-  "expected_request_not_contains": ["__axOutput"],
+  "expected_request_not_contains": [
+    "__axOutput"
+  ],
   "expected_tool_calls": [
     {
       "args": {
@@ -26,7 +28,10 @@
   ],
   "features": {
     "functions": true,
-    "structured_output_modes": ["native", "function"],
+    "structured_output_modes": [
+      "native",
+      "function"
+    ],
     "structured_outputs": true
   },
   "forward_options": {

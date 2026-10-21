@@ -5,7 +5,12 @@
     "mimeType": "audio/mpeg",
     "transcript": "Hello there"
   },
-  "expected_transport_json_absent": ["voice", "voice_id", "speed", "language"],
+  "expected_transport_json_absent": [
+    "voice",
+    "voice_id",
+    "speed",
+    "language"
+  ],
   "expected_transport_request": {
     "json": {
       "input": "Hello there",

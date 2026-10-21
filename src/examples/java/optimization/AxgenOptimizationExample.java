@@ -1,7 +1,7 @@
 // ax-example:start
 // title: Java AxGen Optimization
 // group: optimization
-// description: Runs a baseline OpenAI prediction and applies an optimizer artifact.
+// description: Runs an OpenAI prediction, applies an optimizer artifact, and scores novel rationale overlap.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -24,7 +24,7 @@ public final class AxgenOptimizationExample {
 
   static AxAIService client() {
     return Ax.ai("openai",
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-6-luna"), "model_config", Map.of("temperature", 0.0)));
   }
 
   static final class ExampleOptimizer implements OptimizerEngine {
@@ -41,6 +41,7 @@ public final class AxgenOptimizationExample {
     Map<String, Object> artifact = program.optimizeWith(new ExampleOptimizer(), List.of(Map.of("emailText", "URGENT: checkout is down", "priority", "high")), Map.of("apply", false));
     program.applyOptimization(Json.stringify(artifact));
     Map<String, Object> after = program.forward(client(), Map.of("emailText", "Production checkout is failing for enterprise customers."));
-    System.out.println(Json.stringify(Map.of("baseline", baseline, "after", after)));
+    double score = Ax.novelF1Score("", String.valueOf(after.get("rationale")), "Production checkout is failing for enterprise customers.");
+    System.out.println(Json.stringify(Map.of("baseline", baseline, "after", after, "rationaleNovelF1", score)));
   }
 }

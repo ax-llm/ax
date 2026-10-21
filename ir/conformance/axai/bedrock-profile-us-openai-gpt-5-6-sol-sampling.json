@@ -1,6 +1,9 @@
 {
   "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
-  "expected_transport_json_absent": ["temperature", "top_p"],
+  "expected_transport_json_absent": [
+    "temperature",
+    "top_p"
+  ],
   "expected_transport_request": {
     "json": {
       "model": "us.openai.gpt-5.6-sol"

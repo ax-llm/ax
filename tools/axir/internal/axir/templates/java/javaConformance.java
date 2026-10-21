@@ -863,6 +863,12 @@ public final class Conformance {
       case "template" -> assertEqual(Core.render_template_content(fixture.get("template"), fixture.getOrDefault("vars", Map.of()), fixture.getOrDefault("context", "fixture-template")), fixture.getOrDefault("expected_output", ""), "template output");
       case "template_error" -> runTemplateError(fixture);
       case "template_validate" -> assertEqual(Core.validate_prompt_template_syntax(fixture.get("template"), fixture.getOrDefault("context", "fixture-template"), fixture.getOrDefault("required_variables", List.of())), fixture.getOrDefault("expected_result", true), "template validation");
+      case "eval_novel_f1" -> {
+        for (Object raw : Core.asList(fixture.get("cases"))) {
+          var item = Core.asMap(raw);
+          assertEqual(Ax.novelF1Score(String.valueOf(item.get("history")), String.valueOf(item.get("prediction")), String.valueOf(item.get("ground_truth")), Boolean.TRUE.equals(item.get("return_recall"))), item.get("expected"), "novel F1: " + item.get("name"));
+        }
+      }
       case "stream" -> runStream(fixture);
       case "forward" -> runForward(fixture);
       case "streaming_forward" -> runStreamingForward(fixture);
@@ -3942,6 +3948,7 @@ public final class Conformance {
     recommendation.put("processingApplied", rec.get("processingApplied"));
     recommendation.put("degradations", rec.get("degradations"));
     recommendation.put("warnings", rec.get("warnings"));
+    if (fixture.containsKey("expected_compatibility_report")) assertEqual(router.getCompatibilityReport(request),fixture.get("expected_compatibility_report"),"compatibility report");
     Map<String, Object> actual = new LinkedHashMap<>();
     actual.put("recommendation", recommendation);
     actual.put("validation", router.validateRequest(request));

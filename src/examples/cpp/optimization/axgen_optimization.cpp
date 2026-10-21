@@ -1,7 +1,7 @@
 // ax-example:start
 // title: C++ AxGen Optimization
 // group: optimization
-// description: Runs a baseline OpenAI prediction and applies an optimizer artifact.
+// description: Runs an OpenAI prediction, applies an optimizer artifact, and scores novel rationale overlap.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -33,7 +33,7 @@ int main() {
   const char* model = std::getenv("AX_OPENAI_MODEL");
   auto client = axllm::ai("openai", axllm::object({
       {"api_key", key},
-      {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
+      {"model", model == nullptr || std::string(model).empty() ? "gpt-6-luna" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
   axllm::AxGen program = axllm::ax("emailText:string -> priority:class \"high, normal, low\", rationale:string", axllm::object({{"id", "priority"}, {"instruction", "Classify the email priority."}}));
@@ -42,5 +42,6 @@ int main() {
   axllm::Value artifact = program.optimize_with(optimizer, axllm::array({axllm::object({{"emailText", "URGENT: checkout is down"}, {"priority", "high"}})}), axllm::object({{"apply", false}}));
   program.apply_optimization(artifact);
   axllm::Value after = program.forward(*client, axllm::object({{"emailText", "Production checkout is failing for enterprise customers."}}));
-  std::cout << axllm::stringify(axllm::object({{"baseline", baseline}, {"after", after}})) << "\n";
+  double score = axllm::novel_f1_score("", axllm::display(axllm::Core::get(after,"rationale")), "Production checkout is failing for enterprise customers.");
+  std::cout << axllm::stringify(axllm::object({{"baseline", baseline}, {"after", after}, {"rationaleNovelF1", score}})) << "\n";
 }

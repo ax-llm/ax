@@ -21,7 +21,11 @@
     },
     {
       "delta": {
-        "tags": ["finance", "northern", "quarterly"]
+        "tags": [
+          "finance",
+          "northern",
+          "quarterly"
+        ]
       },
       "index": 0,
       "version": 0
@@ -32,7 +36,11 @@
       "body": "Revenue grew eleven percent while churn fell to four percent. Hiring slowed in the second month, and the team expects a flat third quarter.",
       "title": "Quarterly results for the northern region, including revenue, churn and hiring"
     },
-    "tags": ["finance", "northern", "quarterly"]
+    "tags": [
+      "finance",
+      "northern",
+      "quarterly"
+    ]
   },
   "expected_request_count": 1,
   "features": {

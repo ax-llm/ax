@@ -333,6 +333,12 @@
         "kind": "stream",
         "runner": "java:axgen",
         "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "eval_novel_f1",
+        "runner": "java:axgen",
+        "category": "semantic"
       }
     ],
     "axmcp": [

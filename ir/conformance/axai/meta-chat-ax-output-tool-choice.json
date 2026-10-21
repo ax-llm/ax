@@ -14,7 +14,9 @@
                   "type": "string"
                 }
               },
-              "required": ["answer"],
+              "required": [
+                "answer"
+              ],
               "type": "object"
             }
           },
@@ -61,7 +63,9 @@
               "type": "string"
             }
           },
-          "required": ["answer"],
+          "required": [
+            "answer"
+          ],
           "type": "object"
         }
       }

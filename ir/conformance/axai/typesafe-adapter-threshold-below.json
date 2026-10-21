@@ -27,7 +27,11 @@
       }
     ]
   },
-  "expected_transport_json_absent": ["trueThreshold", "temperature", "stream"],
+  "expected_transport_json_absent": [
+    "trueThreshold",
+    "temperature",
+    "stream"
+  ],
   "expected_transport_request": {
     "json": {
       "model": "jev-latest",
@@ -87,7 +91,9 @@
               "type": "boolean"
             }
           },
-          "required": ["urgent"],
+          "required": [
+            "urgent"
+          ],
           "type": "object"
         }
       },

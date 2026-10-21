@@ -1353,8 +1353,12 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {
 			return report, err
 		}
+		curlMCPObj := filepath.Join(buildDir, "mcp_curl.o")
+		if err := runVerifyCommand(&report, "compile mcp.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", mcpSource, "-o", curlMCPObj); err != nil {
+			return report, err
+		}
 		curlSessionTest := filepath.Join(buildDir, "astra_session_test_curl")
-		if err := runVerifyCommand(&report, "compile Astra HTTP session tests", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), curlObj, mcpObj, "-lcurl", "-o", curlSessionTest); err != nil {
+		if err := runVerifyCommand(&report, "compile Astra HTTP session tests", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, filepath.Join(report.OutDir, "tests", "astra_session_test.cpp"), curlObj, curlMCPObj, "-lcurl", "-o", curlSessionTest); err != nil {
 			return report, err
 		}
 		if err := runVerifyCommand(&report, "Astra HTTP session tests", "", nil, curlSessionTest); err != nil {
@@ -1365,7 +1369,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 			bin := filepath.Join(report.OutDir, example)
 			compileArgs := []string{"-std=c++17", "-I", report.OutDir, source, curlObj}
 			if example == "mcp_modern_roundtrip" || example == "mcp_sse_roundtrip" {
-				compileArgs = append(compileArgs, mcpObj)
+				compileArgs = append(compileArgs, curlMCPObj)
 			}
 			compileArgs = append(compileArgs, "-lcurl", "-o", bin)
 			if err := runVerifyCommand(&report, "compile example "+example, "", nil, cpp, compileArgs...); err != nil {

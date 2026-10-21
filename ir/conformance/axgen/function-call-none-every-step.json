@@ -5,7 +5,9 @@
   "expected_request_count": 1,
   "expected_step_requests": [
     {
-      "function_names": ["search"],
+      "function_names": [
+        "search"
+      ],
       "index": 0,
       "request": {
         "function_call": "none",

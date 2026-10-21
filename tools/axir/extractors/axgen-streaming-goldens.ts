@@ -1397,6 +1397,98 @@ const cases: Record<string, Case> = {
   // TS re-parses streamed structured output after 160 new characters of
   // String.prototype.length (UTF-16 code units): 90 emoji reach it (197
   // units) in the first chunk, so a partial delta streams before the end.
+  'streaming-forward-string-repair-comma': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(
+          JSON.stringify({ user: { name: `${'x'.repeat(170)},` } }).slice(0, -3)
+        ),
+        text('end"}}'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-string-repair-number': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(
+          JSON.stringify({ user: { name: `${'x'.repeat(170)}12e+` } }).slice(
+            0,
+            -3
+          )
+        ),
+        text('end"}}'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-string-repair-literal': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(
+          JSON.stringify({ user: { name: `${'x'.repeat(170)}:tru` } }).slice(
+            0,
+            -3
+          )
+        ),
+        text('end"}}'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-string-repair-closing-comma': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(
+          JSON.stringify({ user: { name: `${'x'.repeat(170)},}` } }).slice(
+            0,
+            -3
+          )
+        ),
+        text('end"}}'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-string-repair-array-comma': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(
+          JSON.stringify({ user: { name: `${'x'.repeat(170)},]` } }).slice(
+            0,
+            -3
+          )
+        ),
+        text('end"}}'),
+        done()
+      ),
+    ],
+  },
+  'streaming-forward-string-repair-escaped-quote': {
+    signature: 'question:string -> user:object{name:string}',
+    features: nativeFeatures,
+    responses: [
+      streamed(
+        text(
+          JSON.stringify({
+            user: { name: `${'x'.repeat(170)}\\\\\\" ,}` },
+          }).slice(0, -3)
+        ),
+        text('end"}}'),
+        done()
+      ),
+    ],
+  },
   'streaming-forward-structured-cadence-utf16-parse': {
     signature: 'question:string -> user:object{name:string}',
     features: nativeFeatures,

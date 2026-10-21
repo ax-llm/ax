@@ -89,7 +89,9 @@
     }
   ],
   "signature": "question:string -> answer:string",
-  "stop_functions": ["finish"],
+  "stop_functions": [
+    "finish"
+  ],
   "tools": [
     {
       "args": {

@@ -333,6 +333,12 @@
         "kind": "stream",
         "runner": "go:axgen",
         "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "eval_novel_f1",
+        "runner": "go:axgen",
+        "category": "semantic"
       }
     ],
     "axmcp": [

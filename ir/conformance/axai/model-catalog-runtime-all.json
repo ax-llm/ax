@@ -4,7 +4,11 @@
     "catalog": [
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -25,7 +29,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -60,7 +68,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -95,7 +107,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -140,7 +156,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -188,7 +208,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -214,7 +238,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -243,7 +271,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -272,7 +304,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -308,7 +344,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -344,7 +384,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -380,7 +424,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -409,7 +457,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -445,7 +497,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -473,7 +529,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -509,7 +569,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -552,7 +616,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -588,7 +656,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -618,12 +690,18 @@
             "type": "text"
           },
           {
-            "aliases": ["gemini-3.1-flash-image-preview"],
+            "aliases": [
+              "gemini-3.1-flash-image-preview"
+            ],
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -650,7 +728,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -672,7 +754,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -700,7 +786,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -743,7 +833,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -786,7 +880,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -829,7 +927,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -867,7 +969,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -907,7 +1013,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -949,7 +1059,11 @@
               "audioInput": false,
               "audioOutput": true,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -969,12 +1083,18 @@
             "type": "audio"
           },
           {
-            "aliases": ["gemini-3-pro-image-preview"],
+            "aliases": [
+              "gemini-3-pro-image-preview"
+            ],
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -1012,7 +1132,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": true,
@@ -1054,7 +1178,11 @@
               "audioInput": true,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -1072,7 +1200,9 @@
             "promptTokenCostPer1M": 2,
             "provider": "google-gemini",
             "supported": {
-              "operations": ["transcribe"]
+              "operations": [
+                "transcribe"
+              ]
             },
             "type": "audio"
           },
@@ -1085,7 +1215,11 @@
               "audioInput": false,
               "audioOutput": true,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -1113,7 +1247,11 @@
               "audioInput": false,
               "audioOutput": true,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -1560,7 +1698,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -1644,7 +1786,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1675,7 +1821,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -1701,7 +1851,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1734,7 +1888,10 @@
             "promptTokenCostPer1M": 0.1,
             "provider": "openai",
             "supported": {
-              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -1745,7 +1902,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -1771,7 +1932,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1817,7 +1982,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1850,7 +2019,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -1871,7 +2044,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -1895,7 +2072,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1926,7 +2107,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1954,7 +2139,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -1987,7 +2176,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2017,7 +2210,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2048,7 +2245,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2079,7 +2280,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -2103,7 +2308,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2134,7 +2343,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2165,7 +2378,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2193,7 +2410,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2221,7 +2442,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2249,7 +2474,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2282,7 +2511,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2310,7 +2543,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2338,7 +2575,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2368,7 +2609,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2401,7 +2646,10 @@
             "promptTokenCostPer1M": 2,
             "provider": "openai",
             "supported": {
-              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -2414,12 +2662,22 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -2462,7 +2720,10 @@
               }
             },
             "supported": {
-              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -2473,7 +2734,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -2499,7 +2764,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2545,7 +2814,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2578,7 +2851,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2606,7 +2883,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2634,7 +2915,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2667,7 +2952,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -2687,14 +2976,20 @@
             "type": "text"
           },
           {
-            "aliases": ["gpt-5.6"],
+            "aliases": [
+              "gpt-5.6"
+            ],
             "cacheReadTokenCostPer1M": 0.4,
             "cacheWriteTokenCostPer1M": 5,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2741,7 +3036,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2786,7 +3085,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -2812,12 +3115,22 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 50,
@@ -2838,7 +3151,10 @@
             "promptTokenCostPer1M": 10,
             "provider": "openai",
             "supported": {
-              "structuredOutputModes": ["native", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -2849,7 +3165,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2880,7 +3200,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -2901,7 +3225,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2929,7 +3257,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -2957,7 +3289,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": false,
@@ -3002,7 +3338,11 @@
               "audioInput": true,
               "audioOutput": true,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3024,7 +3364,11 @@
               "audioInput": true,
               "audioOutput": true,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3046,7 +3390,11 @@
               "audioInput": true,
               "audioOutput": true,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3242,7 +3590,9 @@
             "name": "gpt-transcribe",
             "provider": "openai",
             "supported": {
-              "operations": ["transcribe"],
+              "operations": [
+                "transcribe"
+              ],
               "serviceTiers": []
             },
             "type": "audio"
@@ -3468,7 +3818,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -3481,7 +3834,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3502,7 +3858,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3523,7 +3882,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3544,7 +3906,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3565,7 +3930,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3586,7 +3954,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3607,7 +3978,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3628,7 +4002,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -3665,7 +4042,10 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "aliases": [
+              "deepseek-chat",
+              "deepseek-reasoner"
+            ],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -3758,7 +4138,10 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "aliases": [
+              "deepseek-chat",
+              "deepseek-reasoner"
+            ],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -3835,7 +4218,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -3856,7 +4243,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -3896,7 +4287,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -3922,7 +4317,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -3966,7 +4365,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -3992,7 +4395,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4039,7 +4446,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4081,7 +4492,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -4102,7 +4517,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -4126,7 +4545,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4166,7 +4589,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4203,7 +4630,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4245,7 +4676,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4284,7 +4719,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4324,7 +4763,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -4348,7 +4791,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4388,7 +4835,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4428,7 +4879,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4465,7 +4920,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4502,7 +4961,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4539,7 +5002,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4581,7 +5048,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4618,7 +5089,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4655,7 +5130,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4694,7 +5173,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4740,12 +5223,22 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 10,
@@ -4799,7 +5292,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -4825,7 +5322,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4872,7 +5373,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4914,7 +5419,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4951,7 +5460,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -4988,7 +5501,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5030,7 +5547,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -5050,14 +5571,20 @@
             "type": "text"
           },
           {
-            "aliases": ["gpt-5.6"],
+            "aliases": [
+              "gpt-5.6"
+            ],
             "cacheReadTokenCostPer1M": 0.4,
             "cacheWriteTokenCostPer1M": 5,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5105,7 +5632,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5151,7 +5682,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -5177,12 +5712,22 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": false
             },
             "completionTokenCostPer1M": 50,
@@ -5214,7 +5759,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5254,7 +5803,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -5275,7 +5828,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5315,7 +5872,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5352,7 +5913,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5389,7 +5954,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5431,7 +6000,11 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "flex", "priority"],
+              "serviceTiers": [
+                "standard",
+                "flex",
+                "priority"
+              ],
               "showThoughts": true,
               "structuredOutputs": true,
               "temperature": false,
@@ -5528,7 +6101,10 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "temperatureOne": true,
               "thinkingBudget": true
@@ -5577,7 +6153,10 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -5902,7 +6481,9 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native"],
+              "structuredOutputModes": [
+                "native"
+              ],
               "structuredOutputs": true,
               "temperatureOne": true,
               "thinkingBudget": true
@@ -5946,7 +6527,9 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native"],
+              "structuredOutputModes": [
+                "native"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -6412,7 +6995,9 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native"],
+              "structuredOutputModes": [
+                "native"
+              ],
               "structuredOutputs": true,
               "temperatureOne": true,
               "thinkingBudget": true
@@ -6456,7 +7041,9 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native"],
+              "structuredOutputModes": [
+                "native"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -7031,7 +7618,9 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native"],
+              "structuredOutputModes": [
+                "native"
+              ],
               "structuredOutputs": true,
               "temperatureOne": true,
               "thinkingBudget": true
@@ -7075,7 +7664,9 @@
             "provider": "anthropic",
             "supported": {
               "showThoughts": true,
-              "structuredOutputModes": ["native"],
+              "structuredOutputModes": [
+                "native"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -7290,22 +7881,36 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "grok-4.6",
         "displayName": "xAI Grok",
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
+            "aliases": [
+              "grok-4-1-fast-non-reasoning-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -7326,13 +7931,18 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4-1-fast-reasoning-latest"],
+            "aliases": [
+              "grok-4-1-fast-reasoning-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -7357,12 +7967,21 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 0.5,
@@ -7386,7 +8005,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -7416,7 +8038,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -7448,7 +8073,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -7469,13 +8097,19 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4.3-latest", "grok-latest"],
+            "aliases": [
+              "grok-4.3-latest",
+              "grok-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.2,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
@@ -7508,12 +8142,21 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 4,
@@ -7528,18 +8171,30 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4.5-latest", "grok-build-latest"],
+            "aliases": [
+              "grok-4.5-latest",
+              "grok-build-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.3,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "completionTokenCostPer1M": 6,
@@ -7560,7 +8215,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -7581,7 +8239,10 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": false,
               "temperature": true,
@@ -7602,12 +8263,21 @@
               "audioInput": false,
               "audioOutput": false,
               "imageOutput": false,
-              "serviceTiers": ["standard", "priority"],
+              "serviceTiers": [
+                "standard",
+                "priority"
+              ],
               "showThoughts": false,
               "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true
             },
             "currency": "USD",
@@ -7750,7 +8420,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": true,
           "thinkingLevels": [
             "none",
@@ -7770,7 +8443,13 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API",
@@ -7794,7 +8473,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -7804,15 +8489,29 @@
             },
             "isDefault": true,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.3",
             "provider": "meta",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -7836,26 +8535,49 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
             "contextWindow": 1048576,
             "dataUse": {
-              "appliesTo": ["prompt", "completion"],
+              "appliesTo": [
+                "prompt",
+                "completion"
+              ],
               "providerTraining": "allowed"
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.3-contributor",
             "provider": "meta",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -7879,7 +8601,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -7889,15 +8617,29 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.2",
             "provider": "meta",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -7921,26 +8663,49 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
             "contextWindow": 1048576,
             "dataUse": {
-              "appliesTo": ["prompt", "completion"],
+              "appliesTo": [
+                "prompt",
+                "completion"
+              ],
               "providerTraining": "allowed"
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.2-contributor",
             "provider": "meta",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -7964,7 +8729,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -7974,15 +8745,29 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.1",
             "provider": "meta",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8011,8 +8796,13 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["image"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "image"
+              ]
             },
             "name": "muse-image-1.0",
             "notSupported": {
@@ -8022,7 +8812,9 @@
             "provider": "meta",
             "supported": {
               "imageOutput": true,
-              "operations": ["chat"]
+              "operations": [
+                "chat"
+              ]
             },
             "type": "image"
           },
@@ -8053,8 +8845,12 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["audio"],
-              "output": ["text"]
+              "input": [
+                "audio"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-voice-transcribe-1.0",
             "notSupported": {
@@ -8063,7 +8859,10 @@
             },
             "provider": "meta",
             "supported": {
-              "operations": ["chat", "transcribe"]
+              "operations": [
+                "chat",
+                "transcribe"
+              ]
             },
             "type": "audio"
           }
@@ -8074,7 +8873,13 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Chat Completions",
@@ -8098,7 +8903,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -8108,15 +8919,29 @@
             },
             "isDefault": true,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.3",
             "provider": "meta-chat",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8140,26 +8965,49 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
             "contextWindow": 1048576,
             "dataUse": {
-              "appliesTo": ["prompt", "completion"],
+              "appliesTo": [
+                "prompt",
+                "completion"
+              ],
               "providerTraining": "allowed"
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.3-contributor",
             "provider": "meta-chat",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8183,7 +9031,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -8193,15 +9047,29 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.2",
             "provider": "meta-chat",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8225,26 +9093,49 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
             "contextWindow": 1048576,
             "dataUse": {
-              "appliesTo": ["prompt", "completion"],
+              "appliesTo": [
+                "prompt",
+                "completion"
+              ],
               "providerTraining": "allowed"
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.2-contributor",
             "provider": "meta-chat",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8268,7 +9159,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -8278,15 +9175,29 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.1",
             "provider": "meta-chat",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function", "json_object"],
+              "structuredOutputModes": [
+                "native",
+                "function",
+                "json_object"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8299,7 +9210,13 @@
         "capabilities": {
           "serviceTiers": [],
           "thinking": true,
-          "thinkingLevels": ["minimal", "low", "medium", "high", "highest"]
+          "thinkingLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "highest"
+          ]
         },
         "defaultModel": "muse-spark-1.3",
         "displayName": "Meta Model API Messages",
@@ -8323,7 +9240,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -8333,15 +9256,28 @@
             },
             "isDefault": true,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.3",
             "provider": "meta-messages",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8365,26 +9301,48 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
             "contextWindow": 1048576,
             "dataUse": {
-              "appliesTo": ["prompt", "completion"],
+              "appliesTo": [
+                "prompt",
+                "completion"
+              ],
               "providerTraining": "allowed"
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.3-contributor",
             "provider": "meta-messages",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8408,7 +9366,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -8418,15 +9382,28 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.2",
             "provider": "meta-messages",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8450,26 +9427,48 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
             "contextWindow": 1048576,
             "dataUse": {
-              "appliesTo": ["prompt", "completion"],
+              "appliesTo": [
+                "prompt",
+                "completion"
+              ],
               "providerTraining": "allowed"
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.2-contributor",
             "provider": "meta-messages",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8493,7 +9492,13 @@
               "textInput": true,
               "textOutput": true,
               "thinkingBudget": true,
-              "thinkingLevels": ["minimal", "low", "medium", "high", "highest"],
+              "thinkingLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "highest"
+              ],
               "topP": true,
               "videoInput": true
             },
@@ -8503,15 +9508,28 @@
             },
             "isDefault": false,
             "modalities": {
-              "input": ["text", "image", "audio", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "name": "muse-spark-1.1",
             "provider": "meta-messages",
             "supported": {
-              "operations": ["chat"],
+              "operations": [
+                "chat"
+              ],
               "showThoughts": true,
-              "structuredOutputModes": ["native", "function"],
+              "structuredOutputModes": [
+                "native",
+                "function"
+              ],
               "structuredOutputs": true,
               "thinkingBudget": true
             },
@@ -8533,7 +9551,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8555,7 +9577,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8577,7 +9602,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8588,7 +9617,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8610,7 +9642,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8632,7 +9667,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8643,7 +9682,11 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "flex", "priority"],
+          "serviceTiers": [
+            "standard",
+            "flex",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8654,7 +9697,10 @@
       },
       {
         "capabilities": {
-          "serviceTiers": ["standard", "priority"],
+          "serviceTiers": [
+            "standard",
+            "priority"
+          ],
           "thinking": false,
           "thinkingLevels": []
         },
@@ -8897,7 +9943,12 @@
     ],
     "modelCount": 251,
     "openaiFirstModel": "text-embedding-3-small",
-    "openaiModelTypes": ["audio", "code", "embeddings", "text"],
+    "openaiModelTypes": [
+      "audio",
+      "code",
+      "embeddings",
+      "text"
+    ],
     "providerCount": 51,
     "providerNames": [
       "google-gemini",

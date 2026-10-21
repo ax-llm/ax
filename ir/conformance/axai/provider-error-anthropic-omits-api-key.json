@@ -1,6 +1,8 @@
 {
   "api_key": "sk-fixture-secret-key-7b41",
-  "expected_error_excludes": ["sk-fixture-secret-key-7b41"],
+  "expected_error_excludes": [
+    "sk-fixture-secret-key-7b41"
+  ],
   "expected_error_request": {
     "json": {
       "messages": [

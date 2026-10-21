@@ -1,7 +1,13 @@
 {
   "embed_model": "gemini-embedding-2",
   "expected_output": {
-    "embeddings": [[0.1, 0.2, 0.3]],
+    "embeddings": [
+      [
+        0.1,
+        0.2,
+        0.3
+      ]
+    ],
     "model_usage": {
       "ai": "google-gemini",
       "model": "gemini-embedding-2",
@@ -41,7 +47,9 @@
   "provider": "google-gemini",
   "request": {
     "dimensions": 768,
-    "texts": ["hello world"]
+    "texts": [
+      "hello world"
+    ]
   },
   "service_options": {
     "auto_truncate": false,
@@ -53,7 +61,11 @@
     {
       "json": {
         "embedding": {
-          "values": [0.1, 0.2, 0.3]
+          "values": [
+            0.1,
+            0.2,
+            0.3
+          ]
         },
         "usageMetadata": {
           "promptTokenCount": 3,

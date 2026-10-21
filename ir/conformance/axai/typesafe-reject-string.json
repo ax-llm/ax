@@ -23,7 +23,9 @@
               "type": "string"
             }
           },
-          "required": ["result"],
+          "required": [
+            "result"
+          ],
           "type": "object"
         }
       },

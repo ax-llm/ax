@@ -1,0 +1,289 @@
+{
+  "alternative_indices": [
+    1,
+    2
+  ],
+  "expected_compatibility_report": {
+    "providerScores": [
+      {
+        "missingCapabilities": [],
+        "provider": "OutputBackup",
+        "score": 62,
+        "supportedCapabilities": [
+          "Audio",
+          "Audio output"
+        ]
+      },
+      {
+        "missingCapabilities": [
+          "Audio output support"
+        ],
+        "provider": "InputOnly",
+        "score": 27,
+        "supportedCapabilities": [
+          "Audio"
+        ]
+      },
+      {
+        "missingCapabilities": [
+          "Audio support"
+        ],
+        "provider": "OutputOnly",
+        "score": 27,
+        "supportedCapabilities": [
+          "Audio output"
+        ]
+      }
+    ],
+    "recommendedProvider": "OutputBackup",
+    "summary": "OutputBackup supports 2/2 requirements (100% compatibility)"
+  },
+  "expected_output": {
+    "recommendation": {
+      "degradations": [],
+      "processingApplied": [],
+      "provider": "OutputBackup",
+      "warnings": []
+    }
+  },
+  "kind": "ai_provider_router",
+  "name": "provider-audio-compatibility-input-and-output",
+  "primary_index": 0,
+  "request": {
+    "capabilities": {
+      "requiresAudio": true,
+      "requiresAudioOutput": true
+    },
+    "chatPrompt": []
+  },
+  "routing": {
+    "capability": {
+      "allowDegradation": true,
+      "requireExactMatch": false
+    }
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [
+              "wav"
+            ],
+            "output": {
+              "formats": [
+                "disabled-format"
+              ],
+              "supported": false
+            },
+            "supported": true
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "InputOnly-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          },
+          "embed": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          }
+        }
+      },
+      "name": "InputOnly"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [
+                "pcm16",
+                "wav"
+              ],
+              "supported": true
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "OutputOnly-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          },
+          "embed": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          }
+        }
+      },
+      "name": "OutputOnly"
+    },
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [
+              "wav"
+            ],
+            "output": {
+              "formats": [
+                "wav",
+                "mp3"
+              ],
+              "supported": true
+            },
+            "supported": true
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "OutputBackup-id",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          },
+          "embed": {
+            "mean": 1,
+            "p95": 6,
+            "p99": 10,
+            "samples": [
+              1
+            ]
+          }
+        }
+      },
+      "name": "OutputBackup"
+    }
+  ]
+}

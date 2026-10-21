@@ -6,7 +6,9 @@
   "request": {
     "chat_prompt": [
       {
-        "content": ["hi"],
+        "content": [
+          "hi"
+        ],
         "role": "user"
       }
     ]

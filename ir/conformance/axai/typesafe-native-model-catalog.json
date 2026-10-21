@@ -6,7 +6,10 @@
       "release_date": "2026-09-01"
     }
   ],
-  "expected_transport_absent": ["json", "data"],
+  "expected_transport_absent": [
+    "json",
+    "data"
+  ],
   "expected_transport_request": {
     "method": "GET",
     "url": "https://api.typesafe.ai/v1/models"

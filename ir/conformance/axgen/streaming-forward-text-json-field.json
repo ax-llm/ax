@@ -10,7 +10,10 @@
     {
       "delta": {
         "details": {
-          "a": [1, 2]
+          "a": [
+            1,
+            2
+          ]
         }
       },
       "index": 0,
@@ -20,7 +23,10 @@
   "expected_output": {
     "answer": "see details",
     "details": {
-      "a": [1, 2]
+      "a": [
+        1,
+        2
+      ]
     }
   },
   "expected_request_count": 1,

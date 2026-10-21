@@ -1743,3 +1743,8 @@ class AxDecisionRefusalError(RuntimeError):
 
 def _core_decision_refusal_error(path, provenance):
     return AxDecisionRefusalError(path, provenance)
+
+
+def novel_f1_score(history: str, prediction: str, ground_truth: str, return_recall: bool = False) -> float:
+    """Score novel token overlap, excluding history and stopwords; two empty inputs score one."""
+    return eval_novel_f1(history, prediction, ground_truth, return_recall)

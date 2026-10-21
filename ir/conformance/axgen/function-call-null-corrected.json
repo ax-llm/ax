@@ -23,7 +23,9 @@
         {
           "content": "",
           "finish_reason": "function_call",
-          "function_calls": [null],
+          "function_calls": [
+            null
+          ],
           "index": 0
         }
       ]

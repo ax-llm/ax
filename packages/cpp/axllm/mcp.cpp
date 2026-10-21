@@ -574,7 +574,8 @@ void AxMCPStreamableHTTPTransport::open_request_stream(Value message){
 }
 
 void AxMCPStreamableHTTPTransport::close_request_stream(){
-  listen_stop_=true;std::thread thread;{std::lock_guard<std::mutex> lock(listen_mutex_);if(listen_thread_.joinable())thread=std::move(listen_thread_);}if(thread.joinable()&&thread.get_id()!=std::this_thread::get_id())thread.join();
+  {std::lock_guard<std::mutex> lock(listen_wait_mutex_);listen_stop_=true;}
+  listen_wait_condition_.notify_all();std::thread thread;{std::lock_guard<std::mutex> lock(listen_mutex_);if(listen_thread_.joinable())thread=std::move(listen_thread_);}if(thread.joinable()&&thread.get_id()!=std::this_thread::get_id())thread.join();
 }
 
 void AxMCPStreamableHTTPTransport::close(){
@@ -622,7 +623,10 @@ void AxMCPStreamableHTTPTransport::listen_loop(){
     auto result=curl_easy_perform(curl);curl_slist_free_all(headers);curl_easy_cleanup(curl);
     if(!listen_stop_&&connected_once&&lifecycle_handler_)lifecycle_handler_("disconnected");
     if(listen_stop_)break;
-    if(result!=CURLE_OK||context.announced)std::this_thread::sleep_for(std::chrono::milliseconds(std::max(1L,delay)));
+    if(result!=CURLE_OK||context.announced){
+      std::unique_lock<std::mutex> lock(listen_wait_mutex_);
+      listen_wait_condition_.wait_for(lock,std::chrono::milliseconds(std::max(1L,delay)),[this]{return listen_stop_.load();});
+    }
   }
 #endif
 }

@@ -1748,6 +1748,13 @@ module @ax.provider version "0.1" {
         %value_audio = core.get %audio["supported"] default false
         core.return %value_audio
       }
+      %is_audio_output = core.call intrinsic.eq(%path, "audio_output")
+      core.if %is_audio_output {
+        %audio = core.get %media["audio"] default null
+        %output = core.get %audio["output"] default null
+        %supported = core.get %output["supported"] default false
+        core.return %supported
+      }
       %is_files = core.call intrinsic.eq(%path, "files")
       core.if %is_files {
         %files = core.get %media["files"] default null
@@ -1983,6 +1990,16 @@ module @ax.provider version "0.1" {
           core.append %missing, "Audio support"
         }
       }
+      %needs_audio_output = core.get %requirements["hasAudioOutput"] default false
+      core.if %needs_audio_output {
+        %ok_audio_output = core.call @provider_features_support(%features, "audio_output")
+        core.if %ok_audio_output {
+          %score = core.call intrinsic.add(%score, 25)
+          core.append %supported, "Audio output"
+        } else {
+          core.append %missing, "Audio output support"
+        }
+      }
       %needs_files = core.get %requirements["hasFiles"] default false
       core.if %needs_files {
         %ok_files = core.call @provider_features_support(%features, "files")
@@ -2045,6 +2062,61 @@ module @ax.provider version "0.1" {
       core.if %multi_turn {
         %score = core.call intrinsic.add(%score, 2)
       }
+      %media = core.get %features["media"] default null
+      %images = core.get %media["images"] default null
+      %audio = core.get %media["audio"] default null
+      %files = core.get %media["files"] default null
+      %urls = core.get %media["urls"] default null
+      %caching = core.get %features["caching"] default null
+      %image_ok = core.call @provider_features_support(%features, "images")
+      %image_bonus = core.call intrinsic.and(%needs_images, %image_ok)
+      core.if %image_bonus {
+        %empty = core.list
+        %details = core.get %images["detailLevels"] default %empty
+        %high = core.call intrinsic.contains(%details, "high")
+        core.if %high { %score = core.call intrinsic.add(%score, 5) }
+        %size = core.get %images["maxSize"] default 0
+        %large = core.call intrinsic.gt(%size, 10485760)
+        core.if %large { %score = core.call intrinsic.add(%score, 3) }
+      }
+      %audio_ok = core.call @provider_features_support(%features, "audio")
+      %audio_bonus = core.call intrinsic.and(%needs_audio, %audio_ok)
+      core.if %audio_bonus {
+        %duration = core.get %audio["maxDuration"] default 0
+        %long_duration = core.call intrinsic.gt(%duration, 600)
+        core.if %long_duration { %score = core.call intrinsic.add(%score, 5) }
+      }
+      %files_ok = core.call @provider_features_support(%features, "files")
+      %file_bonus = core.call intrinsic.and(%needs_files, %files_ok)
+      core.if %file_bonus {
+        %upload = core.get %files["uploadMethod"] default ""
+        %cloud = core.call intrinsic.eq(%upload, "cloud")
+        core.if %cloud { %score = core.call intrinsic.add(%score, 3) }
+      }
+      %urls_ok = core.call @provider_features_support(%features, "urls")
+      %url_bonus = core.call intrinsic.and(%needs_urls, %urls_ok)
+      core.if %url_bonus {
+        %search = core.get %urls["webSearch"] default false
+        core.if %search { %score = core.call intrinsic.add(%score, 5) }
+      }
+      %functions_ok = core.call @provider_features_support(%features, "functions")
+      %function_bonus = core.call intrinsic.and(%needs_functions, %functions_ok)
+      core.if %function_bonus {
+        %cot = core.get %features["functionCot"] default false
+        core.if %cot { %score = core.call intrinsic.add(%score, 3) }
+      }
+      %caching_ok = core.call @provider_features_support(%features, "caching")
+      %cache_bonus = core.call intrinsic.and(%needs_caching, %caching_ok)
+      core.if %cache_bonus {
+        %empty = core.list
+        %types = core.get %caching["types"] default %empty
+        %persistent = core.call intrinsic.contains(%types, "persistent")
+        core.if %persistent { %score = core.call intrinsic.add(%score, 3) }
+      }
+      %budget = core.get %features["hasThinkingBudget"] default false
+      core.if %budget { %score = core.call intrinsic.add(%score, 1) }
+      %thoughts = core.get %features["hasShowThoughts"] default false
+      core.if %thoughts { %score = core.call intrinsic.add(%score, 1) }
       %missing_count = core.call intrinsic.len(%missing)
       %penalty = core.call intrinsic.mul(%missing_count, -10)
       %score = core.call intrinsic.add(%score, %penalty)
@@ -2362,6 +2434,13 @@ module @ax.provider version "0.1" {
         core.if %audio_bad {
           core.return false
         }
+      }
+      %snake_output = core.get %capabilities["requires_audio_output"] default false
+      %requires_output = core.get %capabilities["requiresAudioOutput"] default %snake_output
+      core.if %requires_output {
+        %output_ok = core.call @provider_features_support(%features, "audio_output")
+        core.if %output_ok { core.return true }
+        core.return false
       }
       core.return true
     }
@@ -12512,6 +12591,118 @@ module @ax.provider version "0.1" {
         core.return %network_delay
       }
       core.return %none
+    }
+  }
+
+  op ax.provider.semantic @provider_merge_audio_output {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/balance.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%features: json, %child: json) {
+      %child_media = core.get %child["media"] default null
+      %child_audio = core.get %child_media["audio"] default null
+      %child_output = core.get %child_audio["output"] default null
+      %supported = core.get %child_output["supported"] default false
+      core.if %supported {
+        %media = core.get %features["media"]
+        %audio = core.get %media["audio"]
+        %empty = core.map
+        %output = core.get %audio["output"] default %empty
+        core.set %output["supported"] = true
+        %empty_formats = core.list
+        %formats = core.get %output["formats"] default %empty_formats
+        %child_formats = core.get %child_output["formats"] default %empty_formats
+        core.for %format in %child_formats {
+          %present = core.call intrinsic.contains(%formats, %format)
+          %missing = core.call intrinsic.not(%present)
+          core.if %missing { core.append %formats, %format }
+        }
+        core.set %output["formats"] = %formats
+        core.set %audio["output"] = %output
+        core.set %media["audio"] = %audio
+        core.set %features["media"] = %media
+      }
+      core.return %features
+    }
+  }
+
+  op ax.provider.semantic @provider_compatibility_report {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/capabilities.ts"
+    type signature = "(json, json) -> json"
+    body @entry(%providers: json, %request: json) {
+      %requirements = core.call @provider_route_request_requirements(%request)
+      %total = core.let 0
+      %keys = core.call intrinsic.json.parse("[\"hasImages\",\"hasAudio\",\"hasAudioOutput\",\"hasFiles\",\"hasUrls\",\"requiresFunctions\",\"requiresStreaming\",\"requiresCaching\"]")
+      core.for %key in %keys {
+        %required = core.get %requirements[%key] default false
+        core.if %required { %total = core.call intrinsic.add(%total, 1) }
+      }
+      %pending = core.list
+      core.for %provider in %providers {
+        %compatible = core.get %provider["requestCompatible"] default true
+        core.if %compatible {
+          %entry = core.call @provider_route_score(%provider, %requirements)
+          %name = core.get %provider["name"] default ""
+          core.set %entry["provider"] = %name
+          core.append %pending, %entry
+        }
+      }
+      // Stable descending score order, including the TS tie convention.
+      %scores = core.list
+      core.loop {
+        %count = core.call intrinsic.len(%pending)
+        %empty = core.call intrinsic.eq(%count, 0)
+        core.if %empty { core.break }
+        %best_index = core.let 0
+        %best = core.call intrinsic.list.get(%pending, 0)
+        %best_score = core.get %best["score"] default 0
+        %index = core.let 0
+        core.for %entry in %pending {
+          %score = core.get %entry["score"] default 0
+          %better = core.call intrinsic.gt(%score, %best_score)
+          core.if %better {
+            %best = core.let %entry
+            %best_score = core.let %score
+            %best_index = core.let %index
+          }
+          %index = core.call intrinsic.add(%index, 1)
+        }
+        core.append %scores, %best
+        %remaining = core.list
+        %index = core.let 0
+        core.for %entry in %pending {
+          %keep = core.call intrinsic.ne(%index, %best_index)
+          core.if %keep { core.append %remaining, %entry }
+          %index = core.call intrinsic.add(%index, 1)
+        }
+        %pending = core.let %remaining
+      }
+      %recommended = core.call intrinsic.none()
+      %summary = core.let "No suitable providers found"
+      %count = core.call intrinsic.len(%scores)
+      %has_best = core.call intrinsic.gt(%count, 0)
+      core.if %has_best {
+        %best = core.call intrinsic.list.get(%scores, 0)
+        %recommended = core.get %best["provider"]
+        %supported = core.get %best["supportedCapabilities"]
+        %supported_count = core.call intrinsic.len(%supported)
+        %denominator = core.let %total
+        %none = core.call intrinsic.eq(%denominator, 0)
+        core.if %none { %denominator = core.let 1 }
+        %percent = core.call intrinsic.div(%supported_count, %denominator)
+        %percent = core.call intrinsic.mul(%percent, 100)
+        %percent = core.call intrinsic.add(%percent, 0.5)
+        %percent = core.call intrinsic.math.floor(%percent)
+        %summary = core.call intrinsic.string.format("{} supports {}/{} requirements ({}% compatibility)", %recommended, %supported_count, %total, %percent)
+      }
+      %out = core.map
+      core.set %out["providerScores"] = %scores
+      core.set %out["recommendedProvider"] = %recommended
+      core.set %out["summary"] = %summary
+      core.return %out
     }
   }
 }

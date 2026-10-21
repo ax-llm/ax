@@ -1,0 +1,348 @@
+module @ax.eval version "0.1" {
+  dialect @ax.gen version "0.1"
+
+  op ax.gen.semantic @eval_codepoints_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/eval.ts"
+    type signature = "(string) -> json"
+    body @entry(%text: string) {
+      %units = core.call intrinsic.string.utf16_units(%text)
+      %out = core.list
+      %i = core.let 0
+      %count = core.call intrinsic.len(%units)
+      core.loop {
+        %done = core.call intrinsic.gte(%i, %count)
+        core.if %done { core.break }
+        %unit = core.get %units[%i]
+        %i = core.call intrinsic.add(%i, 1)
+        %next = core.get %units[%i] default 0
+        %high = core.call intrinsic.gte(%unit, 55296)
+        %high_end = core.call intrinsic.lte(%unit, 56319)
+        %low = core.call intrinsic.gte(%next, 56320)
+        %low_end = core.call intrinsic.lte(%next, 57343)
+        %pair = core.call intrinsic.and(%high, %high_end)
+        %pair = core.call intrinsic.and(%pair, %low)
+        %pair = core.call intrinsic.and(%pair, %low_end)
+        core.if %pair {
+          %unit = core.call intrinsic.add(%unit, -55296)
+          %unit = core.call intrinsic.mul(%unit, 1024)
+          %unit = core.call intrinsic.add(%unit, %next)
+          %unit = core.call intrinsic.add(%unit, 9216)
+          %i = core.call intrinsic.add(%i, 1)
+        }
+        core.append %out, %unit
+      }
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @eval_codepoint_text_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/eval.ts"
+    type signature = "(json) -> string"
+    body @entry(%units: json) {
+      %out = core.let "\""
+      core.for %unit in %units {
+        %astral = core.call intrinsic.gte(%unit, 65536)
+        core.if %astral {
+          %rest = core.call intrinsic.add(%unit, -65536)
+          %high = core.call @date_floor_div_impl(%rest, 1024)
+          %base = core.call intrinsic.mul(%high, -1024)
+          %low = core.call intrinsic.add(%rest, %base)
+          %low = core.call intrinsic.add(%low, 56320)
+          %high = core.call intrinsic.add(%high, 55296)
+          %h = core.call @date_js_hex4_impl(%high)
+          %l = core.call @date_js_hex4_impl(%low)
+          %escape = core.call intrinsic.string.format("\\u{}\\u{}", %h, %l)
+          %out = core.call intrinsic.add(%out, %escape)
+        } else {
+          %hex = core.call @date_js_hex4_impl(%unit)
+          %escape = core.call intrinsic.string.format("\\u{}", %hex)
+          %out = core.call intrinsic.add(%out, %escape)
+        }
+      }
+      %out = core.call intrinsic.add(%out, "\"")
+      %text = core.call intrinsic.json.parse(%out)
+      core.return %text
+    }
+  }
+
+  op ax.gen.semantic @eval_normalize_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/eval.ts"
+    type signature = "(string, json) -> string"
+    body @entry(%text: string, %tables: json) {
+      %decompositions = core.get %tables["nfd"]
+      %ccc = core.get %tables["ccc"]
+      %lower = core.get %tables["lower"]
+      %cased = core.get %tables["cased"]
+      %ignorable = core.get %tables["case_ignorable"]
+      %source = core.call @eval_codepoints_impl(%text)
+      %decomposed = core.list
+      core.for %cp in %source {
+        %key = core.call intrinsic.string.format("{}", %cp)
+        %fallback = core.list
+        core.append %fallback, %cp
+        %parts = core.get %decompositions[%key] default %fallback
+      // Unicode Hangul decomposition: L + V + optional trailing consonant.
+      %hangul_low = core.call intrinsic.gte(%cp, 44032)
+      %hangul_high = core.call intrinsic.lte(%cp, 55203)
+      %hangul = core.call intrinsic.and(%hangul_low, %hangul_high)
+      core.if %hangul {
+        %syllable = core.call intrinsic.add(%cp, -44032)
+        %leading = core.call @date_floor_div_impl(%syllable, 588)
+        %negative_leading = core.call intrinsic.mul(%leading, -588)
+        %remainder = core.call intrinsic.add(%syllable, %negative_leading)
+        %vowel = core.call @date_floor_div_impl(%remainder, 28)
+        %negative_vowel = core.call intrinsic.mul(%vowel, -28)
+        %trailing = core.call intrinsic.add(%remainder, %negative_vowel)
+        %leading = core.call intrinsic.add(%leading, 4352)
+        %vowel = core.call intrinsic.add(%vowel, 4449)
+        %parts = core.list
+        core.append %parts, %leading
+        core.append %parts, %vowel
+        %has_trailing = core.call intrinsic.gt(%trailing, 0)
+        core.if %has_trailing {
+          %trailing = core.call intrinsic.add(%trailing, 4519)
+          core.append %parts, %trailing
+        }
+      }
+        core.for %part in %parts { core.append %decomposed, %part }
+      }
+      // Stable canonical ordering within each combining sequence.
+      %ordered = core.let %decomposed
+      // Bubble adjacent marks only; starters and equal classes are stable barriers.
+      %changed = core.let true
+      core.loop {
+        core.if %changed {} else { core.break }
+        %changed = core.let false
+        %next = core.list
+        %pending = core.let -1
+        core.for %cp in %ordered {
+          %key = core.call intrinsic.string.format("{}", %cp)
+          %rank = core.get %ccc[%key] default 0
+          %pk = core.call intrinsic.string.format("{}", %pending)
+          %pr = core.get %ccc[%pk] default 0
+          %swap = core.call intrinsic.gt(%pr, %rank)
+          %mark = core.call intrinsic.gt(%rank, 0)
+          %swap = core.call intrinsic.and(%swap, %mark)
+          core.if %swap {
+            core.append %next, %cp
+            %changed = core.let true
+          } else {
+            %has_pending = core.call intrinsic.gte(%pending, 0)
+            core.if %has_pending { core.append %next, %pending }
+            %pending = core.let %cp
+          }
+        }
+        %has_pending = core.call intrinsic.gte(%pending, 0)
+        core.if %has_pending { core.append %next, %pending }
+        %ordered = core.let %next
+      }
+      // Remove lowercase articles using ECMAScript's ASCII word boundaries.
+      %article_free = core.list
+      %index = core.let 0
+      %length = core.call intrinsic.len(%ordered)
+      core.loop {
+        %end = core.call intrinsic.gte(%index, %length)
+        core.if %end { core.break }
+        %cp = core.get %ordered[%index]
+        %previous_index = core.call intrinsic.add(%index, -1)
+        %previous = core.get %ordered[%previous_index] default 0
+        %left_word = core.call @eval_ascii_word_impl(%previous)
+        %left_boundary = core.call intrinsic.not(%left_word)
+        %width = core.let 0
+        core.if %left_boundary {
+          %a = core.call intrinsic.eq(%cp, 97)
+          %t = core.call intrinsic.eq(%cp, 116)
+          %next_index = core.call intrinsic.add(%index, 1)
+          %next = core.get %ordered[%next_index] default 0
+          core.if %a {
+            %n = core.call intrinsic.eq(%next, 110)
+            %width = core.let 1
+            core.if %n { %width = core.let 2 }
+          }
+          core.if %t {
+            %h = core.call intrinsic.eq(%next, 104)
+            %third_index = core.call intrinsic.add(%index, 2)
+            %third = core.get %ordered[%third_index] default 0
+            %e = core.call intrinsic.eq(%third, 101)
+            %the = core.call intrinsic.and(%h, %e)
+            core.if %the { %width = core.let 3 }
+          }
+          %after_index = core.call intrinsic.add(%index, %width)
+          %after = core.get %ordered[%after_index] default 0
+          %right_word = core.call @eval_ascii_word_impl(%after)
+          core.if %right_word { %width = core.let 0 }
+        }
+        %article = core.call intrinsic.gt(%width, 0)
+        core.if %article {
+          core.append %article_free, 32
+          %index = core.call intrinsic.add(%index, %width)
+        } else {
+          core.append %article_free, %cp
+          %index = core.call intrinsic.add(%index, 1)
+        }
+      }
+      // Squash ECMAScript whitespace before removing ASCII punctuation.
+      %spaces = core.get %tables["whitespace"]
+      %punctuation = core.get %tables["punctuation"]
+      %units = core.list
+      %was_space = core.let false
+      core.for %cp in %article_free {
+        %key = core.call intrinsic.string.format("{}", %cp)
+        %space = core.get %spaces[%key] default false
+        core.if %space {
+          core.if %was_space {} else { core.append %units, 32 }
+        } else {
+          %punct = core.get %punctuation[%key] default false
+          core.if %punct {} else { core.append %units, %cp }
+        }
+        %was_space = core.let %space
+      }
+      %folded = core.list
+      %before_cased = core.let false
+      %index = core.let 0
+      %length = core.call intrinsic.len(%units)
+      core.for %cp in %units {
+        %key = core.call intrinsic.string.format("{}", %cp)
+        %single = core.list
+        core.append %single, %cp
+        %parts = core.get %lower[%key] default %single
+        // Unicode's default case conversion has one contextual rule: final sigma.
+        %sigma = core.call intrinsic.eq(%cp, 931)
+        %is_final_sigma = core.call intrinsic.and(%sigma, %before_cased)
+        core.if %is_final_sigma {
+          %ahead = core.call intrinsic.add(%index, 1)
+          core.loop {
+            %end = core.call intrinsic.gte(%ahead, %length)
+            core.if %end { core.break }
+            %following = core.get %units[%ahead]
+            %fk = core.call intrinsic.string.format("{}", %following)
+            %skip = core.get %ignorable[%fk] default false
+            core.if %skip {
+              %ahead = core.call intrinsic.add(%ahead, 1)
+              core.continue
+            }
+            %next_cased = core.get %cased[%fk] default false
+            %is_final_sigma = core.call intrinsic.not(%next_cased)
+            core.break
+          }
+          core.if %is_final_sigma { %parts = core.list
+            core.append %parts, 962
+          }
+        }
+        core.for %part in %parts { core.append %folded, %part }
+        %skip = core.get %ignorable[%key] default false
+        core.if %skip {} else {
+          %before_cased = core.get %cased[%key] default false
+        }
+        %index = core.call intrinsic.add(%index, 1)
+      }
+      %out = core.call @eval_codepoint_text_impl(%folded)
+      core.return %out
+    }
+  }
+
+  op ax.gen.semantic @eval_novel_f1 {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "src/ax/dsp/eval.ts"
+    type signature = "(string, string, string, bool) -> number"
+    body @entry(%history: string, %prediction: string, %ground_truth: string, %return_recall: bool) {
+      %tables = core.call intrinsic.json.parse(file "data/eval-text.json")
+      %stopwords = core.get %tables["stopwords"]
+      %exclusions = core.map
+      core.for %word in %stopwords { core.set %exclusions[%word] = true }
+      %empty_token = core.let ""
+      core.set %exclusions[%empty_token] = true
+      %history_text = core.call @eval_normalize_impl(%history, %tables)
+      %history_tokens = core.call intrinsic.string.split(%history_text, " ")
+      core.for %token in %history_tokens { core.set %exclusions[%token] = true }
+      %pred_text = core.call @eval_normalize_impl(%prediction, %tables)
+      %truth_text = core.call @eval_normalize_impl(%ground_truth, %tables)
+      %pred_tokens = core.call intrinsic.string.split(%pred_text, " ")
+      %truth_tokens = core.call intrinsic.string.split(%truth_text, " ")
+      %pred = core.map
+      %truth = core.map
+      %pred_length = core.let 0
+      %truth_length = core.let 0
+      core.for %token in %pred_tokens {
+        %excluded = core.get %exclusions[%token] default false
+        core.if %excluded {} else {
+          %count = core.get %pred[%token] default 0
+          %count = core.call intrinsic.add(%count, 1)
+          core.set %pred[%token] = %count
+          %pred_length = core.call intrinsic.add(%pred_length, 1)
+        }
+      }
+      core.for %token in %truth_tokens {
+        %excluded = core.get %exclusions[%token] default false
+        core.if %excluded {} else {
+          %count = core.get %truth[%token] default 0
+          %count = core.call intrinsic.add(%count, 1)
+          core.set %truth[%token] = %count
+          %truth_length = core.call intrinsic.add(%truth_length, 1)
+        }
+      }
+      %pred_empty = core.call intrinsic.eq(%pred_length, 0)
+      %truth_empty = core.call intrinsic.eq(%truth_length, 0)
+      %empty = core.call intrinsic.or(%pred_empty, %truth_empty)
+      core.if %empty {
+        %both = core.call intrinsic.and(%pred_empty, %truth_empty)
+        core.if %both { core.return 1 }
+        core.return 0
+      }
+      %overlap = core.let 0
+      %keys = core.call intrinsic.map.keys(%pred)
+      core.for %token in %keys {
+        %p = core.get %pred[%token] default 0
+        %t = core.get %truth[%token] default 0
+        %common = core.let %p
+      %smaller = core.call intrinsic.lt(%t, %p)
+      core.if %smaller { %common = core.let %t }
+        %overlap = core.call intrinsic.add(%overlap, %common)
+      }
+      %zero = core.call intrinsic.eq(%overlap, 0)
+      core.if %zero { core.return 0 }
+      %recall = core.call intrinsic.div(%overlap, %truth_length)
+      core.if %return_recall { core.return %recall }
+      %precision = core.call intrinsic.div(%overlap, %pred_length)
+      %numerator = core.call intrinsic.mul(%precision, %recall)
+      %numerator = core.call intrinsic.mul(%numerator, 2)
+      %denominator = core.call intrinsic.add(%precision, %recall)
+      %score = core.call intrinsic.div(%numerator, %denominator)
+      core.return %score
+    }
+  }
+
+  op ax.gen.semantic @eval_ascii_word_impl {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "src/ax/dsp/eval.ts"
+    type signature = "(json) -> bool"
+    body @entry(%cp: json) {
+      %digit_low = core.call intrinsic.gte(%cp, 48)
+      %digit_high = core.call intrinsic.lte(%cp, 57)
+      %digit = core.call intrinsic.and(%digit_low, %digit_high)
+      %upper_low = core.call intrinsic.gte(%cp, 65)
+      %upper_high = core.call intrinsic.lte(%cp, 90)
+      %upper = core.call intrinsic.and(%upper_low, %upper_high)
+      %lower_low = core.call intrinsic.gte(%cp, 97)
+      %lower_high = core.call intrinsic.lte(%cp, 122)
+      %lower = core.call intrinsic.and(%lower_low, %lower_high)
+      %under = core.call intrinsic.eq(%cp, 95)
+      %word = core.call intrinsic.or(%digit, %upper)
+      %word = core.call intrinsic.or(%word, %lower)
+      %word = core.call intrinsic.or(%word, %under)
+      core.return %word
+    }
+  }
+}

@@ -25,12 +25,31 @@
   "expected_output": {
     "answer": "done"
   },
-  "expected_request_contains": ["Answer in French."],
+  "expected_request_contains": [
+    "Answer in French."
+  ],
   "expected_request_count": 3,
   "expected_request_roles": [
-    ["system", "user"],
-    ["system", "user", "assistant", "function", "user"],
-    ["system", "user", "assistant", "function", "user", "assistant", "function"]
+    [
+      "system",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "function",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "function",
+      "user",
+      "assistant",
+      "function"
+    ]
   ],
   "expected_tool_calls": [
     {

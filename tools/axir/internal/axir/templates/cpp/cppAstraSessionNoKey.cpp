@@ -651,6 +651,30 @@ static void owned_child_controls(){
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+static void mcp_listen_delay_cleanup(){
+  int listener=::socket(AF_INET,SOCK_STREAM,0);if(listener<0)throw std::runtime_error("socket failed");
+  sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+  if(bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))||listen(listener,1))throw std::runtime_error("listen failed");
+  socklen_t size=sizeof(address);getsockname(listener,reinterpret_cast<sockaddr*>(&address),&size);
+  auto server=std::async(std::launch::async,[listener]{
+    fd_set readable;FD_ZERO(&readable);FD_SET(listener,&readable);timeval timeout{3,0};
+    if(select(listener+1,&readable,nullptr,nullptr,&timeout)!=1){::close(listener);throw std::runtime_error("listener did not connect");}
+    int connection=accept(listener,nullptr,nullptr);::close(listener);
+    setsockopt(connection,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+    std::string request;char byte;while(request.find("\r\n\r\n")==std::string::npos&&recv(connection,&byte,1,0)==1)request+=byte;
+    std::string body=": ping\n\n";
+    std::string response="HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: "+std::to_string(body.size())+"\r\nConnection: close\r\n\r\n"+body;
+    send(connection,response.data(),response.size(),0);::close(connection);
+  });
+  std::promise<void> disconnected;auto ready=disconnected.get_future();
+  AxMCPStreamableHTTPTransport transport("http://127.0.0.1:"+std::to_string(ntohs(address.sin_port)),object({{"reconnectDelayMs",5000},{"ssrfProtection",object({{"requireHttps",false},{"allowLocalhost",true},{"allowPrivateNetworks",true}})}}));
+  transport.set_lifecycle_handler([&](std::string event){if(event=="disconnected")disconnected.set_value();});
+  transport.start_listening();
+  if(ready.wait_for(std::chrono::seconds(2))!=std::future_status::ready){transport.close();server.get();throw std::runtime_error("listener did not reach reconnect wait");}
+  auto started=std::chrono::steady_clock::now();transport.close();
+  if(std::chrono::steady_clock::now()-started>std::chrono::milliseconds(500))throw std::runtime_error("close retained reconnect sleep");
+  server.get();
+}
 static void mcp_http_context_cancellation(){
   int listener=::socket(AF_INET,SOCK_STREAM,0);if(listener<0)throw std::runtime_error("socket failed");
   sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
@@ -700,6 +724,7 @@ static void mcp_http_context_cancellation(){
 }
 #else
 static void mcp_http_context_cancellation(){}
+static void mcp_listen_delay_cleanup(){}
 #endif
 
 // "Generate failed: Unable to fix validation error: ..." rewraps twice: each
@@ -852,6 +877,7 @@ int main(int argc,char** argv){
   cache_hit_telemetry();
   flow_cache_hit_telemetry();
   mcp_http_context_cancellation();
+  mcp_listen_delay_cleanup();
   owned_child_controls();
   owned_flow_failure();
   owned_flow_overlap();

@@ -163,7 +163,9 @@
               "type": "string"
             }
           },
-          "required": ["city"],
+          "required": [
+            "city"
+          ],
           "type": "object"
         }
       },
@@ -176,7 +178,9 @@
               "type": "string"
             }
           },
-          "required": ["city"],
+          "required": [
+            "city"
+          ],
           "type": "object"
         }
       }

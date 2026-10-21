@@ -103,13 +103,17 @@
             "mean": 10,
             "p95": 15,
             "p99": 19,
-            "samples": [10]
+            "samples": [
+              10
+            ]
           },
           "embed": {
             "mean": 10,
             "p95": 15,
             "p99": 19,
-            "samples": [10]
+            "samples": [
+              10
+            ]
           }
         }
       },
@@ -137,7 +141,10 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png", "jpeg"],
+            "formats": [
+              "png",
+              "jpeg"
+            ],
             "supported": true
           },
           "urls": {
@@ -169,13 +176,17 @@
             "mean": 50,
             "p95": 55,
             "p99": 59,
-            "samples": [50]
+            "samples": [
+              50
+            ]
           },
           "embed": {
             "mean": 50,
             "p95": 55,
             "p99": 59,
-            "samples": [50]
+            "samples": [
+              50
+            ]
           }
         }
       },

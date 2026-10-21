@@ -9,7 +9,10 @@
   "name": "request-retry-auth-not-retried",
   "options": {
     "retry": {
-      "retryableStatusCodes": [401, 503]
+      "retryableStatusCodes": [
+        401,
+        503
+      ]
     }
   },
   "provider": "openai",

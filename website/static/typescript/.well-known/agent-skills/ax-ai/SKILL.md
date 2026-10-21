@@ -281,6 +281,11 @@ In TypeScript, `capabilities.requiresAudioOutput` or
 `media.audio.output.supported`. Audio input and output are separate requirements.
 Balancer output formats come only from children that support output; compatibility
 reports count requested input and output independently.
+Generated provider routers expose the same independent counts through
+`get_compatibility_report` (Python, C++, Rust), `GetCompatibilityReport` (Go),
+and `getCompatibilityReport` (Java). Reports include ranked provider names,
+scores, missing/supported capabilities, and a summary for request-compatible
+providers.
 
 Adaptive balancing is operational routing, not semantic prompt-to-model routing. Every provider model behind an alias must be an acceptable substitute for that application. Keep quality evaluation and content-aware model selection outside the balancer.
 

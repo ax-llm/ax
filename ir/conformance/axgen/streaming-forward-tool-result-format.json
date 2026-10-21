@@ -106,7 +106,10 @@
       "description": "Look up a key",
       "name": "lookup",
       "result": {
-        "checks": [2, 1],
+        "checks": [
+          2,
+          1
+        ],
         "note": null,
         "status": "green"
       }

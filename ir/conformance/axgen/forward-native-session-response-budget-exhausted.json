@@ -13,105 +13,158 @@
   "expected_error_cause_contains": "Chat session failed: Maximum steps reached with unincorporated tool results (0); unresolved calls: none",
   "expected_error_contains": "Generate failed: Chat session failed: Maximum steps reached with unincorporated tool results (0); unresolved calls: none",
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "expected_session_log": [
     {
       "op": "open"
     },
     {
-      "call_ids": ["c1"],
+      "call_ids": [
+        "c1"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c2"],
+      "call_ids": [
+        "c2"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c3"],
+      "call_ids": [
+        "c3"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c4"],
+      "call_ids": [
+        "c4"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c5"],
+      "call_ids": [
+        "c5"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c6"],
+      "call_ids": [
+        "c6"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c7"],
+      "call_ids": [
+        "c7"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c8"],
+      "call_ids": [
+        "c8"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c9"],
+      "call_ids": [
+        "c9"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c10"],
+      "call_ids": [
+        "c10"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c11"],
+      "call_ids": [
+        "c11"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c12"],
+      "call_ids": [
+        "c12"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c13"],
+      "call_ids": [
+        "c13"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c14"],
+      "call_ids": [
+        "c14"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c15"],
+      "call_ids": [
+        "c15"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c16"],
+      "call_ids": [
+        "c16"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c17"],
+      "call_ids": [
+        "c17"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c18"],
+      "call_ids": [
+        "c18"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c19"],
+      "call_ids": [
+        "c19"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c20"],
+      "call_ids": [
+        "c20"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c21"],
+      "call_ids": [
+        "c21"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c22"],
+      "call_ids": [
+        "c22"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c23"],
+      "call_ids": [
+        "c23"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c24"],
+      "call_ids": [
+        "c24"
+      ],
       "op": "continue"
     },
     {

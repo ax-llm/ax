@@ -102,13 +102,17 @@
             "mean": 5,
             "p95": 10,
             "p99": 14,
-            "samples": [5]
+            "samples": [
+              5
+            ]
           },
           "embed": {
             "mean": 5,
             "p95": 10,
             "p99": 14,
-            "samples": [5]
+            "samples": [
+              5
+            ]
           }
         }
       },
@@ -144,7 +148,10 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png", "jpeg"],
+            "formats": [
+              "png",
+              "jpeg"
+            ],
             "supported": true
           },
           "urls": {
@@ -176,13 +183,17 @@
             "mean": 20,
             "p95": 25,
             "p99": 29,
-            "samples": [20]
+            "samples": [
+              20
+            ]
           },
           "embed": {
             "mean": 20,
             "p95": 25,
             "p99": 29,
-            "samples": [20]
+            "samples": [
+              20
+            ]
           }
         }
       },
@@ -218,7 +229,10 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png", "jpeg"],
+            "formats": [
+              "png",
+              "jpeg"
+            ],
             "supported": true
           },
           "urls": {
@@ -250,13 +264,17 @@
             "mean": 10,
             "p95": 15,
             "p99": 19,
-            "samples": [10]
+            "samples": [
+              10
+            ]
           },
           "embed": {
             "mean": 10,
             "p95": 15,
             "p99": 19,
-            "samples": [10]
+            "samples": [
+              10
+            ]
           }
         }
       },

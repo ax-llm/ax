@@ -72,7 +72,9 @@
           }
         ]
       },
-      "stopSequences": ["END"],
+      "stopSequences": [
+        "END"
+      ],
       "stream": false,
       "thinkingTokenBudget": "medium"
     }

@@ -29,14 +29,20 @@
         "schema": {
           "properties": {
             "team": {
-              "enum": ["support", "billing"],
+              "enum": [
+                "support",
+                "billing"
+              ],
               "type": "string"
             },
             "urgent": {
               "type": "boolean"
             }
           },
-          "required": ["urgent", "team"],
+          "required": [
+            "urgent",
+            "team"
+          ],
           "type": "object"
         }
       },

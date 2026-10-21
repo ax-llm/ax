@@ -29,7 +29,9 @@
         "type": "response.completed"
       },
       "expected_active_id": "successor",
-      "expected_types": ["response.completed"]
+      "expected_types": [
+        "response.completed"
+      ]
     },
     {
       "event": {
@@ -53,7 +55,9 @@
         "type": "response.incomplete"
       },
       "expected_active_id": null,
-      "expected_types": ["response.completed"]
+      "expected_types": [
+        "response.completed"
+      ]
     },
     {
       "event": {

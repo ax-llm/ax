@@ -19,11 +19,18 @@
     }
   },
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "features": {
     "functions": true,
     "requires_structured_output": true,
-    "structured_output_modes": ["json_object"],
+    "structured_output_modes": [
+      "json_object"
+    ],
     "structured_outputs": false
   },
   "input": {

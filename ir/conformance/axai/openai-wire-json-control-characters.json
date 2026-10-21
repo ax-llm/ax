@@ -65,7 +65,9 @@
               "type": "string"
             }
           },
-          "required": ["q"],
+          "required": [
+            "q"
+          ],
           "type": "object"
         }
       }

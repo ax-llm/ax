@@ -14,7 +14,9 @@
                 "type": "string"
               }
             },
-            "required": ["answer"],
+            "required": [
+              "answer"
+            ],
             "type": "object"
           },
           "name": "__axOutput"
@@ -60,7 +62,9 @@
               "type": "string"
             }
           },
-          "required": ["answer"],
+          "required": [
+            "answer"
+          ],
           "type": "object"
         }
       }

@@ -932,7 +932,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                     }
                     _=>{}
                 }
-                if !stop.load(Ordering::SeqCst){thread::sleep(Duration::from_millis(delay))}
+                if !stop.load(Ordering::SeqCst){thread::park_timeout(Duration::from_millis(delay))}
             }
         }));Ok(())
     }
@@ -941,8 +941,8 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         let _=self.close_request_stream();let stop=Arc::new(AtomicBool::new(false));self.listen_stop=stop.clone();let endpoint=self.endpoint.clone();let client=self.client.clone();let method=message.get("method").and_then(Value::as_str).unwrap_or_default().to_string();let headers=self.build_request_headers(Map::new(),true,&method,message.get("params").unwrap_or(&Value::Null),&Map::new());let handler=self.message_handler.clone();let request_handler=self.request_handler.clone();let lifecycle=self.lifecycle_handler.clone();
         self.listen_thread=Some(thread::spawn(move||{let mut request=client.post(&endpoint).js_json(&message);for(key,value)in &headers{if let Some(text)=value.as_str(){request=request.header(key,text)}}if let Ok(response)=request.send(){if response.status().is_success(){let reader=BufReader::new(response);let mut data=Vec::<String>::new();for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").js_json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}}}if !stop.load(Ordering::SeqCst){if let Some(callback)=lifecycle{callback("disconnected".into())}}}));Ok(())
     }
-    fn close_request_stream(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);let _=self.listen_thread.take();Ok(())}
-    fn close(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);if self.era.as_deref()==Some("modern"){let _=self.listen_thread.take();}else if let Some(thread)=self.listen_thread.take(){let _=thread.join();}Ok(())}
+    fn close_request_stream(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);if let Some(thread)=self.listen_thread.take(){thread.thread().unpark();}Ok(())}
+    fn close(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);if let Some(thread)=self.listen_thread.take(){thread.thread().unpark();if self.era.as_deref()!=Some("modern"){let _=thread.join();}}Ok(())}
 }
 
 fn ax_mcp_encode_header_value(value:&str)->String{let plan=crate::core_value_to_json(&crate::mcp_header_value_plan(&[crate::CoreValue::from(value)]).unwrap_or(crate::CoreValue::Null));if plan.get("mode").and_then(Value::as_str)==Some("plain"){value.into()}else{format!("=?base64?{}?=",crate::encode_base64(value.as_bytes()))}}
@@ -1830,5 +1830,38 @@ mod websocket_cleanup_tests {
         let abort=AxCancellationToken::default();let context=AxToolContext{cancellation:Some(abort.clone()),..Default::default()};
         let run=transport.clone();let requests=batch.clone();let cancelled=thread::spawn(move||run.send_batch(requests,&context));wait_sent(&socket,3);abort.cancel("stop");assert!(cancelled.join().unwrap().unwrap_err().message.contains("cancelled"));assert!(transport.state.lock().unwrap().pending.is_empty());
         let run=transport.clone();let closed=thread::spawn(move||run.send_batch(batch,&AxToolContext::default()));wait_sent(&socket,4);transport.close_socket();assert!(closed.join().unwrap().unwrap_err().message.contains("closed"));assert!(transport.state.lock().unwrap().pending.is_empty());Ok(())
+    }
+}
+
+#[cfg(test)]
+mod listen_delay_cleanup_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    #[test]
+    fn close_wakes_reconnect_delay() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let count = socket.read(&mut chunk).unwrap();
+                assert!(count > 0, "missing listener request headers");
+                request.extend_from_slice(&chunk[..count]);
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let (ended, receiver) = std::sync::mpsc::channel();
+        let mut transport = AxMCPStreamableHTTPTransport::new(format!("http://127.0.0.1:{port}"), json!({"reconnectDelayMs":5000,"ssrfProtection":{"requireHttps":false,"allowLocalhost":true,"allowPrivateNetworks":true}})).unwrap();
+        transport.set_lifecycle_handler(Arc::new(move |event| {if event=="disconnected" {let _=ended.send(());}}));
+        transport.start_listening().unwrap();
+        receiver.recv_timeout(Duration::from_secs(2)).expect("listener did not finish the first request");
+        let started = std::time::Instant::now();
+        transport.close().unwrap();
+        assert!(started.elapsed()<Duration::from_millis(500),"close retained reconnect sleep");
+        assert!(transport.listen_thread.is_none());
+        server.join().unwrap();
     }
 }

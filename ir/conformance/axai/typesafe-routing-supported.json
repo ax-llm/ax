@@ -1,5 +1,7 @@
 {
-  "alternative_indices": [1],
+  "alternative_indices": [
+    1
+  ],
   "expected_output": {
     "recommendation": {
       "provider": "Typesafe"
@@ -27,7 +29,9 @@
               "type": "boolean"
             }
           },
-          "required": ["urgent"],
+          "required": [
+            "urgent"
+          ],
           "type": "object"
         }
       },

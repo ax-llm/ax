@@ -14,49 +14,74 @@
     "answer": "done"
   },
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "expected_session_log": [
     {
       "op": "open"
     },
     {
-      "call_ids": ["c1"],
+      "call_ids": [
+        "c1"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c2"],
+      "call_ids": [
+        "c2"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c3"],
+      "call_ids": [
+        "c3"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c4"],
+      "call_ids": [
+        "c4"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c5"],
+      "call_ids": [
+        "c5"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c6"],
+      "call_ids": [
+        "c6"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c7"],
+      "call_ids": [
+        "c7"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c8"],
+      "call_ids": [
+        "c8"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c9"],
+      "call_ids": [
+        "c9"
+      ],
       "op": "continue"
     },
     {
-      "call_ids": ["c10"],
+      "call_ids": [
+        "c10"
+      ],
       "op": "continue"
     },
     {

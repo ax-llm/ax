@@ -10,10 +10,28 @@
   "expected_error_contains": "Generate failed: Unable to fix validation error: The answer must be Paris.",
   "expected_request_count": 4,
   "expected_request_roles": [
-    ["system", "user"],
-    ["system", "user", "assistant", "user"],
-    ["system", "user", "assistant", "user"],
-    ["system", "user", "assistant", "user"]
+    [
+      "system",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "user"
+    ]
   ],
   "input": {
     "question": "Status?"

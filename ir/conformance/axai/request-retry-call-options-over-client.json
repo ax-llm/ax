@@ -1,6 +1,8 @@
 {
   "description": "The call's retry options replace the client's (options.retry ?? this.retry). TS request count and delays from src/ax/util/apicall.ts.",
-  "expected_retry_delays_ms": [10],
+  "expected_retry_delays_ms": [
+    10
+  ],
   "expected_transport_request_count": 2,
   "kind": "ai_chat",
   "model": "gpt-5.4-mini",

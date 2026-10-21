@@ -6,7 +6,9 @@
     "features": {
       "caching": {
         "supported": true,
-        "types": ["ephemeral"]
+        "types": [
+          "ephemeral"
+        ]
       },
       "media": {
         "audio": {

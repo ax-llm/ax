@@ -49,7 +49,9 @@
     },
     {
       "schema": {
-        "enum": [true]
+        "enum": [
+          true
+        ]
       },
       "arguments": 1,
       "valid": false,
@@ -217,7 +219,10 @@
     },
     {
       "schema": {
-        "type": ["string", "null"]
+        "type": [
+          "string",
+          "null"
+        ]
       },
       "arguments": null,
       "valid": true,
@@ -225,7 +230,10 @@
     },
     {
       "schema": {
-        "type": ["string", "null"]
+        "type": [
+          "string",
+          "null"
+        ]
       },
       "arguments": 3,
       "valid": false,
@@ -331,7 +339,11 @@
     },
     {
       "schema": {
-        "enum": ["a", 2, null]
+        "enum": [
+          "a",
+          2,
+          null
+        ]
       },
       "arguments": null,
       "valid": true,
@@ -339,7 +351,11 @@
     },
     {
       "schema": {
-        "enum": ["a", 2, null]
+        "enum": [
+          "a",
+          2,
+          null
+        ]
       },
       "arguments": "2",
       "valid": false,
@@ -353,11 +369,17 @@
     {
       "schema": {
         "const": {
-          "a": [1, true]
+          "a": [
+            1,
+            true
+          ]
         }
       },
       "arguments": {
-        "a": [1, true]
+        "a": [
+          1,
+          true
+        ]
       },
       "valid": true,
       "errors": []
@@ -487,7 +509,10 @@
           "type": "integer"
         }
       },
-      "arguments": [1, 2],
+      "arguments": [
+        1,
+        2
+      ],
       "valid": true,
       "errors": []
     },
@@ -495,7 +520,9 @@
       "schema": {
         "minItems": 2
       },
-      "arguments": [1],
+      "arguments": [
+        1
+      ],
       "valid": false,
       "errors": [
         {
@@ -508,7 +535,10 @@
       "schema": {
         "maxItems": 1
       },
-      "arguments": [1, 2],
+      "arguments": [
+        1,
+        2
+      ],
       "valid": false,
       "errors": [
         {
@@ -523,7 +553,10 @@
           "type": "integer"
         }
       },
-      "arguments": [1, "2"],
+      "arguments": [
+        1,
+        "2"
+      ],
       "valid": false,
       "errors": [
         {
@@ -535,7 +568,9 @@
     {
       "schema": {
         "type": "object",
-        "required": ["a"],
+        "required": [
+          "a"
+        ],
         "properties": {
           "a": {
             "type": "string"
@@ -557,7 +592,9 @@
     },
     {
       "schema": {
-        "required": ["a"]
+        "required": [
+          "a"
+        ]
       },
       "arguments": {},
       "valid": false,
@@ -631,7 +668,10 @@
         }
       },
       "arguments": {
-        "nested": [1, "bad"]
+        "nested": [
+          1,
+          "bad"
+        ]
       },
       "valid": false,
       "errors": [
@@ -705,7 +745,9 @@
         "properties": {
           "a": {
             "type": "object",
-            "required": ["b"],
+            "required": [
+              "b"
+            ],
             "properties": {
               "b": {
                 "type": "string"
@@ -756,7 +798,9 @@
       "schema": {
         "type": "string"
       },
-      "arguments": [1],
+      "arguments": [
+        1
+      ],
       "valid": false,
       "errors": [
         {
@@ -780,7 +824,10 @@
     },
     {
       "schema": {
-        "type": ["integer", "string"]
+        "type": [
+          "integer",
+          "string"
+        ]
       },
       "arguments": {},
       "valid": false,
@@ -796,7 +843,9 @@
         "type": "object",
         "properties": {
           "a": {
-            "enum": ["x"]
+            "enum": [
+              "x"
+            ]
           }
         }
       },
@@ -814,7 +863,10 @@
     {
       "schema": {
         "type": "object",
-        "required": ["a", "b"],
+        "required": [
+          "a",
+          "b"
+        ],
         "properties": {
           "a": {
             "type": "string"

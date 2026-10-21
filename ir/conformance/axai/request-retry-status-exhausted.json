@@ -1,7 +1,11 @@
 {
   "description": "apiCall surfaces the status error once maxRetries (default 3) retries are spent. TS request count and delays from src/ax/util/apicall.ts.",
   "expected_error_type": "AxAIServiceStatusError",
-  "expected_retry_delays_ms": [1000, 2000, 4000],
+  "expected_retry_delays_ms": [
+    1000,
+    2000,
+    4000
+  ],
   "expected_status": 503,
   "expected_transport_request_count": 4,
   "kind": "ai_error",

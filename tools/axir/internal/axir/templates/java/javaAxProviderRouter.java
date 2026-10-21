@@ -99,6 +99,7 @@ public final class AxProviderRouter implements AiClient,ChatRunSelector,AxChatSe
     return Core.asMap(Core.provider_route_validation(providerRecords((String)request.get("model"), request), Core.coerceChatRequest(request), processing, routing));
   }
 
+  public Map<String,Object> getCompatibilityReport(Map<String,Object> request) { return Core.asMap(Core.provider_compatibility_report(providerRecords((String)request.get("model"),request),Core.coerceChatRequest(request))); }
   public Map<String, Object> getRoutingStats() {
     return Core.asMap(Core.provider_routing_stats(providerRecords()));
   }

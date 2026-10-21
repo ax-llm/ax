@@ -1,9 +1,9 @@
 {
   "expected_output": {
-    "thought": "Native thought",
     "user": {
       "name": "Ada"
-    }
+    },
+    "thought": "Native thought"
   },
   "expected_request": {
     "provider_metadata": {

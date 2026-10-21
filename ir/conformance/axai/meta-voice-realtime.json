@@ -202,8 +202,12 @@
       "accessToken": "Bearer meta-key"
     },
     "emitAudioProgress": true,
-    "keywords": ["Ax"],
-    "languageBias": ["en"],
+    "keywords": [
+      "Ax"
+    ],
+    "languageBias": [
+      "en"
+    ],
     "mode": "DIARIZATION",
     "model": "muse-voice-transcribe-1.0",
     "partialMode": "CUMULATIVE"
@@ -237,8 +241,12 @@
     "model_config": {
       "realtimeTranscription": {
         "emitAudioProgress": true,
-        "keywords": ["Ax"],
-        "languageBias": ["en"],
+        "keywords": [
+          "Ax"
+        ],
+        "languageBias": [
+          "en"
+        ],
         "mode": "diarization",
         "partialMode": "cumulative"
       }

@@ -36,7 +36,10 @@
       }
     ]
   },
-  "expected_transport_json_absent": ["thinking", "output_config"],
+  "expected_transport_json_absent": [
+    "thinking",
+    "output_config"
+  ],
   "expected_transport_request": {
     "json": {
       "messages": [
@@ -145,7 +148,9 @@
               "type": "string"
             }
           },
-          "required": ["query"],
+          "required": [
+            "query"
+          ],
           "type": "object"
         }
       }

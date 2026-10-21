@@ -27,11 +27,16 @@
     }
   ],
   "expected_output": {
-    "answer": "Paris",
-    "thought": "Thinking"
+    "thought": "Thinking",
+    "answer": "Paris"
   },
   "expected_request_count": 1,
-  "expected_request_roles": [["system", "user"]],
+  "expected_request_roles": [
+    [
+      "system",
+      "user"
+    ]
+  ],
   "expected_session_log": [
     {
       "op": "open"

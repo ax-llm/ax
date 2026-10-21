@@ -3,7 +3,9 @@
   "expected_output": {
     "caching": {
       "supported": true,
-      "types": ["ephemeral"]
+      "types": [
+        "ephemeral"
+      ]
     },
     "functions": true,
     "thinking": true

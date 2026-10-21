@@ -71,7 +71,9 @@
     },
     {
       "event": {
-        "ids": ["b"],
+        "ids": [
+          "b"
+        ],
         "type": "results.submitted"
       },
       "expected_action": {
@@ -111,7 +113,9 @@
     },
     {
       "event": {
-        "ids": ["a"],
+        "ids": [
+          "a"
+        ],
         "type": "results.submitted"
       },
       "expected_action": {

@@ -11,6 +11,7 @@ import {
   sampleBalancerRouteHealth,
 } from '../../../src/ax/ai/balance_adaptive.js';
 import { resetDroppedSamplingWarnings } from '../../../src/ax/ai/base.js';
+import { axGetCompatibilityReport } from '../../../src/ax/ai/capabilities.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import {
   AxAIGoogleGemini,
@@ -16876,3 +16877,279 @@ writeFixture('gemini-live-ws-url-encodes-key', {
     }),
   });
 }
+
+// Output-only services must remain selectable independently of audio input support.
+const audioService = (
+  name: string,
+  input: boolean,
+  output: boolean,
+  formats: string[]
+) => ({
+  name,
+  id: `${name}-id`,
+  metrics: balancerMetrics(1),
+  features: routerFeatures({
+    media: {
+      ...routerFeatures().media,
+      audio: {
+        supported: input,
+        formats: input ? ['wav'] : [],
+        output: { supported: output, formats },
+      },
+    },
+  }),
+});
+const audioSpecs = [
+  audioService('InputOnly', true, false, ['disabled-format']),
+  audioService('OutputOnly', false, true, ['pcm16', 'wav']),
+  audioService('OutputBackup', true, true, ['wav', 'mp3']),
+];
+for (const [label, services] of [
+  ['mixed', audioSpecs],
+  ['output-only', [audioSpecs[1]!]],
+  ['disabled', [audioSpecs[0]!]],
+] as const) {
+  const children = services.map((spec) => new FixtureAIService(spec));
+  const balancer = new AxBalancer(children as any, {
+    comparator: AxBalancer.inputOrderComparator,
+    debug: false,
+  });
+  const request = {
+    chatPrompt: [{ role: 'user', content: 'Speak.' }],
+    capabilities: { requiresAudioOutput: true },
+  };
+  const operations = label !== 'disabled' ? [{ name: 'chat', request }] : [];
+  const outputs: Record<string, Json> = {};
+  if (operations.length)
+    outputs.chat = (await balancer.chat(request as any, {})) as any;
+  writeFixture(`balancer-audio-output-${label}`, {
+    kind: 'ai_balancer',
+    services: services as any,
+    options: { strategy: 'input_order', debug: false },
+    operations: operations as any,
+    expected_output: {
+      features: balancer.getFeatures() as any,
+      outputs,
+      serviceCalls: children
+        .map((child) => normalizeFixtureServiceCalls(child.requests))
+        .filter((calls) => calls.length > 0),
+    },
+  });
+}
+
+// Record real cache creation, including systems placed beyond the content breakpoint.
+for (const [label, before, after] of [
+  ['ordered', ['Follow policy.', 'Be concise.'], ['Use citations.']],
+  ['after-only', [], ['Late system instruction.']],
+  ['none', [], []],
+] as const) {
+  const request = {
+    chatPrompt: [
+      ...before.map((content) => ({ role: 'system' as const, content })),
+      { role: 'user' as const, content: 'Reference material', cache: true },
+      ...after.map((content) => ({ role: 'system' as const, content })),
+      { role: 'user' as const, content: 'Summarize it.' },
+    ],
+  };
+  const generate = {
+    candidates: [
+      {
+        content: { role: 'model', parts: [{ text: 'ok' }] },
+        finishReason: 'STOP',
+      },
+    ],
+  };
+  const responses = [
+    { name: 'cachedContents/multi-system', expireTime: '2099-01-01T00:00:00Z' },
+    generate,
+  ];
+  const calls: Json[] = [];
+  const client = ai({
+    name: 'google-gemini',
+    apiKey: 'test-key',
+    config: { model: AxAIGoogleGeminiModel.Gemini38Flash },
+    models: [],
+    options: {
+      fetch: async (input, init) => {
+        calls.push({
+          url: String(input),
+          json: JSON.parse(String(init?.body)),
+        });
+        return new Response(JSON.stringify(responses[calls.length - 1]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    },
+  });
+  const response = await client.chat(request, {
+    stream: false,
+    contextCache: { minTokens: 0 },
+  });
+  writeFixture(`gemini-cache-all-system-messages-${label}`, {
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    model: AxAIGoogleGeminiModel.Gemini38Flash,
+    request: request as any,
+    options: { contextCache: { minTokens: 0 } },
+    transport_responses: responses.map((json) => ({
+      status: 200,
+      json,
+    })) as any,
+    expected_transport_request_count: 2,
+    // Cache displayName includes a clock value; provider safety defaults are unrelated.
+    // Compare the portable cache contents and complete ordered system instruction.
+    expected_transport_requests: calls.map((call) => {
+      const recorded = call as { url: string; json: Record<string, Json> };
+      const {
+        displayName: _displayName,
+        safetySettings: _safetySettings,
+        ...body
+      } = recorded.json;
+      return { url: recorded.url, json: body };
+    }),
+    expected_output: {
+      model_usage: response.modelUsage ?? null,
+      results: response.results.map((result) => ({
+        index: result.index ?? 0,
+        content: result.content!,
+        finish_reason: result.finishReason!,
+        function_calls: [],
+      })),
+    } as any,
+  });
+}
+
+for (const [label, requiresAudio, requiresAudioOutput] of [
+  ['output', false, true],
+  ['input-and-output', true, true],
+  ['input', true, false],
+] as const) {
+  const children = audioSpecs.map((spec) => new FixtureAIService(spec));
+  const request = {
+    chatPrompt: [],
+    capabilities: { requiresAudio, requiresAudioOutput },
+  };
+  const report = axGetCompatibilityReport(request, children as any);
+  const router = new AxProviderRouter({
+    providers: {
+      primary: children[0] as any,
+      alternatives: children.slice(1) as any,
+    },
+    routing: {
+      capability: { requireExactMatch: false, allowDegradation: true },
+    },
+  });
+  const rec = await router.getRoutingRecommendation(request);
+  writeFixture(`provider-audio-compatibility-${label}`, {
+    kind: 'ai_provider_router',
+    services: audioSpecs,
+    primary_index: 0,
+    alternative_indices: [1, 2],
+    request,
+    routing: {
+      capability: { requireExactMatch: false, allowDegradation: true },
+    },
+    expected_output: {
+      recommendation: {
+        provider: rec.provider.getName(),
+        processingApplied: rec.processingApplied,
+        degradations: rec.degradations,
+        warnings: rec.warnings,
+      },
+    },
+    expected_compatibility_report: {
+      summary: report.summary,
+      recommendedProvider: report.recommendedProvider?.getName() ?? null,
+      providerScores: report.providerScores.map((score) => ({
+        ...score,
+        provider: score.provider.getName(),
+      })),
+    },
+  });
+}
+
+const bonusFeatures = routerFeatures({
+  functions: true,
+  streaming: true,
+  thinking: true,
+  multiTurn: true,
+  functionCot: true,
+  hasThinkingBudget: true,
+  hasShowThoughts: true,
+  media: {
+    images: {
+      supported: true,
+      formats: ['png'],
+      detailLevels: ['high'],
+      maxSize: 20 * 1024 * 1024,
+    },
+    audio: {
+      supported: true,
+      formats: ['wav'],
+      maxDuration: 1200,
+      output: { supported: true, formats: ['pcm16'] },
+    },
+    files: { supported: true, formats: ['pdf'], uploadMethod: 'cloud' },
+    urls: { supported: true, webSearch: true, contextFetching: true },
+  },
+  caching: { supported: true, types: ['persistent'] },
+});
+const bonusSpec = {
+  name: 'AllCapabilities',
+  id: 'all-capabilities',
+  features: bonusFeatures,
+};
+const bonusProvider = new FixtureAIService(bonusSpec);
+const bonusRequest = {
+  chatPrompt: [{ role: 'user' as const, content: 'Hello', cache: true }],
+  functions: [
+    {
+      name: 'lookup',
+      description: 'Lookup',
+      parameters: { type: 'object', properties: {} },
+    },
+  ],
+  modelConfig: { stream: true },
+  capabilities: {
+    requiresImages: true,
+    requiresAudio: true,
+    requiresAudioOutput: true,
+    requiresFiles: true,
+    requiresWebSearch: true,
+  },
+};
+const bonusReport = axGetCompatibilityReport(
+  bonusRequest as any,
+  [bonusProvider] as any
+);
+const bonusRouter = new AxProviderRouter({
+  providers: { primary: bonusProvider as any, alternatives: [] },
+  routing: { capability: { requireExactMatch: false, allowDegradation: true } },
+});
+const bonusRec = await bonusRouter.getRoutingRecommendation(
+  bonusRequest as any
+);
+writeFixture('provider-capability-report-bonuses', {
+  kind: 'ai_provider_router',
+  services: [bonusSpec],
+  request: bonusRequest as any,
+  primary_index: 0,
+  alternative_indices: [],
+  expected_output: {
+    recommendation: {
+      provider: bonusRec.provider.getName(),
+      processingApplied: bonusRec.processingApplied,
+      degradations: bonusRec.degradations,
+      warnings: bonusRec.warnings,
+    },
+  },
+  expected_compatibility_report: {
+    summary: bonusReport.summary,
+    recommendedProvider: bonusReport.recommendedProvider?.getName() ?? null,
+    providerScores: bonusReport.providerScores.map((score) => ({
+      ...score,
+      provider: score.provider.getName(),
+    })),
+  },
+});

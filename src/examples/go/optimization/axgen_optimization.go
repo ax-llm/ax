@@ -1,7 +1,7 @@
 // ax-example:start
 // title: Go AxGen Optimization
 // group: optimization
-// description: Runs a baseline OpenAI prediction and applies an optimizer artifact.
+// description: Runs an OpenAI prediction, applies an optimizer artifact, and scores novel rationale overlap.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -25,7 +25,7 @@ func openAIClient() ax.AIClient {
 	if apiKey == "" { apiKey = os.Getenv("OPENAI_APIKEY") }
 	if apiKey == "" { panic("Set OPENAI_API_KEY or OPENAI_APIKEY to run this example.") }
 	model := os.Getenv("AX_OPENAI_MODEL")
-	if model == "" { model = "gpt-5.4-mini" }
+	if model == "" { model = "gpt-6-luna" }
 	return ax.NewAI("openai", map[string]ax.Value{"api_key": apiKey, "model": model, "model_config": ax.Object("temperature", 0)})
 }
 
@@ -46,5 +46,6 @@ func main() {
 	program.ApplyOptimizedComponents(map[string]ax.Value{"priority::instruction": "Classify operational risk. Use high for production-impacting urgency."})
 	after, err := program.Forward(ctx, client, map[string]ax.Value{"emailText": "Production checkout is failing for enterprise customers."}, nil)
 	if err != nil { panic(err) }
-	printJSON(ax.Object("baseline", baseline, "artifact", artifact, "after", after))
+	score := ax.NovelF1Score("", fmt.Sprint(after["rationale"]), "Production checkout is failing for enterprise customers.", false)
+	printJSON(ax.Object("baseline", baseline, "artifact", artifact, "after", after, "rationaleNovelF1", score))
 }

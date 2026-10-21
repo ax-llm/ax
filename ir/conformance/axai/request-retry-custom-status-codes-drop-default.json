@@ -10,7 +10,9 @@
   "name": "request-retry-custom-status-codes-drop-default",
   "options": {
     "retry": {
-      "retryableStatusCodes": [418]
+      "retryableStatusCodes": [
+        418
+      ]
     }
   },
   "provider": "openai",

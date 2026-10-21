@@ -44,7 +44,9 @@
                   "type": "boolean"
                 }
               },
-              "required": ["urgent"],
+              "required": [
+                "urgent"
+              ],
               "type": "object"
             }
           },

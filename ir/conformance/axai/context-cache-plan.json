@@ -1,14 +1,30 @@
 {
   "cases": [
     {
-      "args": [false, true, "", {}, 1000, 300, true],
+      "args": [
+        false,
+        true,
+        "",
+        {},
+        1000,
+        300,
+        true
+      ],
       "expected": {
         "action": "none",
         "managed": false
       }
     },
     {
-      "args": [true, true, "cachedContents/explicit", {}, 1000, 300, true],
+      "args": [
+        true,
+        true,
+        "cachedContents/explicit",
+        {},
+        1000,
+        300,
+        true
+      ],
       "expected": {
         "action": "use",
         "cacheName": "cachedContents/explicit",
@@ -54,7 +70,15 @@
       }
     },
     {
-      "args": [true, true, "", {}, 1000, 300, true],
+      "args": [
+        true,
+        true,
+        "",
+        {},
+        1000,
+        300,
+        true
+      ],
       "expected": {
         "action": "create",
         "managed": true

@@ -22,6 +22,10 @@
 #endif
 
 namespace axllm {
+double novel_f1_score(const std::string& history, const std::string& prediction, const std::string& ground_truth, bool return_recall) {
+  return Core::number(Core::eval_novel_f1(history, prediction, ground_truth, return_recall));
+}
+
 static std::function<bool()> agent_cancellation_check(Value options);
 namespace detail {
 static thread_local std::shared_ptr<AgentExecutionContext> active_mcp_context;
@@ -10059,6 +10063,7 @@ static Value merge_service_features_cpp(const std::vector<std::shared_ptr<AxAISe
   bool all_modes_advertised = !services.empty();
   for (const auto& service : services) {
     Value raw = service->get_features(model);
+    features = Core::provider_merge_audio_output(features, raw);
     Value raw_modes = Core::get(raw, "structuredOutputModes", Core::get(raw, "structured_output_modes", Value()));
     if (raw_modes.is_null()) all_modes_advertised = false;
     else append_unique_cpp(structured_output_modes, raw_modes);
@@ -10609,6 +10614,7 @@ Value ProviderRouter::validate_request(Value request) {
   return Core::provider_route_validation(provider_records(Core::get(request,"model"), request), Core::coerce_chat_request(request), processing_, routing_);
 }
 
+Value ProviderRouter::get_compatibility_report(Value request) { return Core::provider_compatibility_report(provider_records(Core::get(request,"model"),request),Core::coerce_chat_request(request)); }
 Value ProviderRouter::get_routing_stats() { return Core::provider_routing_stats(provider_records()); }
 Value ProviderRouter::chat(Value request, Value options) {
   return chat(std::move(request), std::move(options), nullptr);

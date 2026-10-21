@@ -1,0 +1,310 @@
+{
+  "cases": [
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "kiwi mango mango",
+      "history": "",
+      "name": "multiset-overlap-f1",
+      "prediction": "kiwi kiwi mango",
+      "return_recall": false
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "kiwi mango mango",
+      "history": "",
+      "name": "multiset-overlap-recall",
+      "prediction": "kiwi kiwi mango",
+      "return_recall": true
+    },
+    {
+      "expected": 0.4,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "prediction-repetition-f1",
+      "prediction": "kiwi kiwi kiwi kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "prediction-repetition-recall",
+      "prediction": "kiwi kiwi kiwi kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 0.5,
+      "ground_truth": "kiwi kiwi mango",
+      "history": "",
+      "name": "recall-denominator-f1",
+      "prediction": "kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 0.3333333333333333,
+      "ground_truth": "kiwi kiwi mango",
+      "history": "",
+      "name": "recall-denominator-recall",
+      "prediction": "kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 0.5,
+      "ground_truth": "kiwi mango pear",
+      "history": "kiwi",
+      "name": "history-exclusion-f1",
+      "prediction": "kiwi mango peach",
+      "return_recall": false
+    },
+    {
+      "expected": 0.5,
+      "ground_truth": "kiwi mango pear",
+      "history": "kiwi",
+      "name": "history-exclusion-recall",
+      "prediction": "kiwi mango peach",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "stopwords-f1",
+      "prediction": "the and kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "stopwords-recall",
+      "prediction": "the and kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "",
+      "history": "",
+      "name": "empty-both-f1",
+      "prediction": "",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "",
+      "history": "",
+      "name": "empty-both-recall",
+      "prediction": "",
+      "return_recall": true
+    },
+    {
+      "expected": 0,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "empty-prediction-f1",
+      "prediction": "",
+      "return_recall": false
+    },
+    {
+      "expected": 0,
+      "ground_truth": "kiwi",
+      "history": "",
+      "name": "empty-prediction-recall",
+      "prediction": "",
+      "return_recall": true
+    },
+    {
+      "expected": 0,
+      "ground_truth": "",
+      "history": "",
+      "name": "empty-truth-f1",
+      "prediction": "kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 0,
+      "ground_truth": "",
+      "history": "",
+      "name": "empty-truth-recall",
+      "prediction": "kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "the kiwi",
+      "history": "kiwi",
+      "name": "all-filtered-f1",
+      "prediction": "kiwi the",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "the kiwi",
+      "history": "kiwi",
+      "name": "all-filtered-recall",
+      "prediction": "kiwi the",
+      "return_recall": true
+    },
+    {
+      "expected": 0,
+      "ground_truth": "mango",
+      "history": "",
+      "name": "disjoint-f1",
+      "prediction": "kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 0,
+      "ground_truth": "mango",
+      "history": "",
+      "name": "disjoint-recall",
+      "prediction": "kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 0.6666666666666666,
+      "ground_truth": "constructor",
+      "history": "",
+      "name": "prototype-tokens-f1",
+      "prediction": "constructor constructor",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "constructor",
+      "history": "",
+      "name": "prototype-tokens-recall",
+      "prediction": "constructor constructor",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "café",
+      "history": "",
+      "name": "unicode-nfd-f1",
+      "prediction": "CAFÉ",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "café",
+      "history": "",
+      "name": "unicode-nfd-recall",
+      "prediction": "CAFÉ",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "cafẹ́",
+      "history": "",
+      "name": "unicode-order-f1",
+      "prediction": "cafẹ́",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "cafẹ́",
+      "history": "",
+      "name": "unicode-order-recall",
+      "prediction": "cafẹ́",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "가나다",
+      "history": "",
+      "name": "unicode-hangul-f1",
+      "prediction": "가나다",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "가나다",
+      "history": "",
+      "name": "unicode-hangul-recall",
+      "prediction": "가나다",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "ος",
+      "history": "",
+      "name": "unicode-case-f1",
+      "prediction": "ΟΣ",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "ος",
+      "history": "",
+      "name": "unicode-case-recall",
+      "prediction": "ΟΣ",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "𐐨",
+      "history": "",
+      "name": "unicode-astral-case-f1",
+      "prediction": "𐐀",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "𐐨",
+      "history": "",
+      "name": "unicode-astral-case-recall",
+      "prediction": "𐐀",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "é kiwi",
+      "history": "",
+      "name": "ascii-word-boundary-f1",
+      "prediction": "éthe kiwi",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "é kiwi",
+      "history": "",
+      "name": "ascii-word-boundary-recall",
+      "prediction": "éthe kiwi",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "café",
+      "history": "",
+      "name": "normalization-order-f1",
+      "prediction": "THE café!",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "café",
+      "history": "",
+      "name": "normalization-order-recall",
+      "prediction": "THE café!",
+      "return_recall": true
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi mango",
+      "history": "",
+      "name": "whitespace-f1",
+      "prediction": "﻿kiwi mango ",
+      "return_recall": false
+    },
+    {
+      "expected": 1,
+      "ground_truth": "kiwi mango",
+      "history": "",
+      "name": "whitespace-recall",
+      "prediction": "﻿kiwi mango ",
+      "return_recall": true
+    }
+  ],
+  "kind": "eval_novel_f1",
+  "name": "eval-novel-f1"
+}

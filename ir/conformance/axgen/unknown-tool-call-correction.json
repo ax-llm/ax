@@ -1,24 +1,25 @@
 {
-  "name": "unknown-tool-call-correction",
-  "kind": "forward",
-  "signature": "query:string -> answer:string",
+  "expected_function_traces_subset": [
+    {
+      "id": "call_1",
+      "name": "lookup",
+      "status": "error"
+    }
+  ],
+  "expected_output": {
+    "answer": "No lookup tool is registered."
+  },
+  "expected_request_contains": [
+    "Function not found: lookup",
+    "Available functions: search"
+  ],
+  "expected_request_count": 2,
+  "expected_tool_calls": [],
   "input": {
     "query": "docs"
   },
-  "tools": [
-    {
-      "name": "search",
-      "description": "Search docs",
-      "args": {
-        "query": {
-          "type": "string"
-        }
-      },
-      "result": {
-        "title": "Docs"
-      }
-    }
-  ],
+  "kind": "forward",
+  "name": "unknown-tool-call-correction",
   "responses": [
     {
       "content": "",
@@ -36,20 +37,19 @@
       "content": "Answer: No lookup tool is registered."
     }
   ],
-  "expected_output": {
-    "answer": "No lookup tool is registered."
-  },
-  "expected_function_traces_subset": [
+  "signature": "query:string -> answer:string",
+  "tools": [
     {
-      "id": "call_1",
-      "name": "lookup",
-      "status": "error"
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {
+        "title": "Docs"
+      }
     }
-  ],
-  "expected_request_contains": [
-    "Function not found: lookup",
-    "Available functions: search"
-  ],
-  "expected_request_count": 2,
-  "expected_tool_calls": []
+  ]
 }

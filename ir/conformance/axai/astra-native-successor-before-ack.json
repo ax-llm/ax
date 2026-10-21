@@ -70,7 +70,9 @@
     },
     {
       "event": {
-        "required_call_ids": ["old"],
+        "required_call_ids": [
+          "old"
+        ],
         "response_id": "parent",
         "status": "pending",
         "steer_id": "s1",

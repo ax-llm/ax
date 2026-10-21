@@ -53,8 +53,17 @@
   },
   "expected_request_count": 2,
   "expected_request_roles": [
-    ["system", "user"],
-    ["system", "user", "assistant", "assistant", "user"]
+    [
+      "system",
+      "user"
+    ],
+    [
+      "system",
+      "user",
+      "assistant",
+      "assistant",
+      "user"
+    ]
   ],
   "expected_session_log": [
     {

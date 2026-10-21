@@ -60,3 +60,10 @@ the final answer and usage. The generator regression tests require one model
 response for the final structured answer, preventing an empty assistant history
 and an unnecessary correction request. Completion commit and PR evidence are
 recorded in the file-routing entry of `ir/axir-backlog.json`.
+
+Audio output is independent of input: balancers reject children that cannot
+satisfy `requiresAudioOutput`, union output formats only from enabled output
+children, and score/count input and output separately in compatibility reports.
+Gemini request mapping already collects every system message in prompt order;
+cache regressions verify the actual creation and generation payloads when
+systems appear before and after a marked content breakpoint.

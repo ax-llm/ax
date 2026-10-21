@@ -333,6 +333,12 @@
         "kind": "stream",
         "runner": "rust:axgen",
         "category": "semantic"
+      },
+      {
+        "suite": "axgen",
+        "kind": "eval_novel_f1",
+        "runner": "rust:axgen",
+        "category": "semantic"
       }
     ],
     "axmcp": [

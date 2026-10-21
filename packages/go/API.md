@@ -64,6 +64,16 @@ Create an AxGen program from a string or parsed signature.
 qa := axllm.NewAx("question:string -> answer:string", nil)
 ```
 
+### `axllm.NovelF1Score`
+
+Score novel multiset token overlap after Unicode normalization and history/stopword exclusion. Two empty filtered answers score one; a single empty answer scores zero.
+
+- Canonical Ax concept: `NovelF1Score`
+- Kind: `function`
+- Form: `axllm.NovelF1Score`
+- Returns: `score in [0, 1]`
+- Important options: history, prediction, ground truth, return recall
+
 ### `axllm.AxGen`
 
 Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.
@@ -539,6 +549,16 @@ Choose a service by capability or model routing policy.
 - Form: `axllm.MultiServiceRouter`
 - Returns: `AI service`
 - Important options: services, routing
+
+### `axllm.ProviderRouter.GetCompatibilityReport`
+
+Rank request-compatible providers and summarize supported requirements, counting audio input and audio output independently.
+
+- Canonical Ax concept: `ProviderRouter.GetCompatibilityReport`
+- Kind: `method`
+- Form: `axllm.ProviderRouter.GetCompatibilityReport`
+- Returns: `provider names, scores and compatibility summary`
+- Important options: request
 
 ### `axllm.ProviderRouter`
 

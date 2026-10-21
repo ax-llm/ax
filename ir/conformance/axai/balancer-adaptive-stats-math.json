@@ -39,7 +39,13 @@
           "outcome": "success"
         }
       ],
-      "random_values": [0.5, 0.25, 0.5, 0.5, 0.25]
+      "random_values": [
+        0.5,
+        0.25,
+        0.5,
+        0.5,
+        0.25
+      ]
     }
   ],
   "options": {
@@ -100,13 +106,17 @@
             "mean": 10,
             "p95": 15,
             "p99": 19,
-            "samples": [10]
+            "samples": [
+              10
+            ]
           },
           "embed": {
             "mean": 10,
             "p95": 15,
             "p99": 19,
-            "samples": [10]
+            "samples": [
+              10
+            ]
           }
         }
       },

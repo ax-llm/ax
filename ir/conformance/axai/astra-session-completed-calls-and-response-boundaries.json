@@ -52,7 +52,9 @@
         "type": "function"
       },
       "expected_response_id": "r1",
-      "expected_types": ["tool.call"]
+      "expected_types": [
+        "tool.call"
+      ]
     },
     {
       "event": {
@@ -81,7 +83,9 @@
         "type": "response.completed"
       },
       "expected_response_id": "r1",
-      "expected_types": ["response.completed"]
+      "expected_types": [
+        "response.completed"
+      ]
     },
     {
       "event": {
@@ -111,7 +115,9 @@
         "type": "response.completed"
       },
       "expected_response_id": "r2",
-      "expected_types": ["response.completed"]
+      "expected_types": [
+        "response.completed"
+      ]
     }
   ],
   "kind": "ai_session_events",
