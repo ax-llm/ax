@@ -125633,7 +125633,7 @@ func extractQuotedSuffix(s string) (Value, error) {
 
 func _core_type_is_json(value Value) Value { return true }
 
-func Version() string { return "25.4.4" }
+func Version() string { return "25.4.5" }
 
 // NovelF1Score scores novel token overlap after excluding history and stopwords.
 // Set returnRecall to return recall instead of the harmonic F1 score.

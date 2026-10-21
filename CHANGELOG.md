@@ -1,5 +1,23 @@
 # Changelog
 
+## [25.4.5](https://github.com/ax-llm/ax/compare/25.4.4...25.4.5) (2026-10-21)
+
+### Generated-language parity
+
+* Preserve quoted text, escaped quotes, and punctuation while repairing partial streamed JSON in Python, Java, C++, Go, and Rust.
+* Route audio-output requests using output capabilities, merge supported output formats, and report input and output requirements separately.
+* Interrupt MCP reconnect waits promptly when closing generated transports.
+* Add a shared novel F1/recall metric with token-overlap counting, Unicode normalization, and finite scores for empty filtered inputs.
+* Cover Gemini context-cache instruction ordering across all five generated languages, including instructions after the cache breakpoint.
+
+All five AxIR backlog entries are complete; there are no open entries. Public package APIs, runnable examples, and language documentation are updated together ([#862](https://github.com/ax-llm/ax/pull/862)).
+
+## [25.4.4](https://github.com/ax-llm/ax/compare/25.4.3...25.4.4) (2026-10-20)
+
+### Bug Fixes
+
+* **gemini:** preserve every system message in context caches ([#851](https://github.com/ax-llm/ax/issues/851)) ([98ab9bd](https://github.com/ax-llm/ax/commit/98ab9bd4be327180fbaf2e43c8e9e596422f8f80))
+
 ## [25.4.4](https://github.com/ax-llm/ax/compare/25.4.3...25.4.4) (2026-10-21)
 
 ### Bug Fixes
