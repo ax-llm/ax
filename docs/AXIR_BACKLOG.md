@@ -23,41 +23,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-10-18-novel-f1-token-overlap-and-finite-empty-input-scores` [axgen] Novel F1 token overlap and finite empty-input scores
-  - Status: open
-  - Source PR: #856
-  - Source commit: `826d1b142070f4dc07b68069c3f41996258a4847`
-  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
-  - Impact: Generated evaluation helpers must match the TypeScript metric's history and stopword exclusions, multiset overlap, recall, and finite empty-input convention.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-10-14-port-mcp-client-ping-timer-and-listening-delay-cleanup` [axmcp] Port MCP client ping timer and listening delay cleanup
-  - Status: open
-  - Source PR: #847
-  - Source commit: `be1ada76bc7c9540ab2eb7d94289118038a1a2df`
-  - TS paths: `src/ax/mcp/client.ts`, `src/ax/mcp/client.test.ts`
-  - Impact: AxMCPClient.ping() now clears its timeout timer and listeningDelay() removes its abort listener when the delay elapses; the AxIR ports of the MCP client should mirror this
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting` [axai] Audio output capability routing and compatibility accounting
-  - Status: open
-  - Source PR: #857
-  - Source commit: `9702dd704647ab86b80de680bc11ee9ed775f568`
-  - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/capabilities.ts`, `src/ax/ai/balance.test.ts`, `src/ax/ai/capabilities.test.ts`
-  - Impact: Generated balancers and compatibility reports must preserve the TypeScript audio-output requirement, aggregate output support/formats, and count generated audio independently of audio input.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-10-18-preserve-streamed-json-string-text-during-partial-repair` [axgen] Preserve streamed JSON string text during partial repair
-  - Status: open
-  - Source PR: #846
-  - Source commit: `19f1e2c76a84d886fb998d670045d66e63a95a9e`
-  - TS paths: `src/ax/util/partialJson.ts`, `src/ax/util/partialJson.test.ts`
-  - Impact: Generated partial JSON repair in ir/axcore/stream.axir must preserve string fragments and remove trailing commas only outside strings, matching the TypeScript fix in PR 846.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-10-15-preserve-all-gemini-cached-system-messages` [axai] Preserve all Gemini cached system messages
-  - Status: open
-  - Source PR: #851
-  - Source commit: `2503761ae75b5cc858f04c107a7a47ef3dab6713`
-  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/api.test.ts`
-  - Impact: Generated Gemini adapters must combine every system message in prompt order when creating a context cache, matching ordinary requests and retaining instructions after the cache breakpoint.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -1454,6 +1420,16 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-13
   - Completed by: `225275bc0764389c992126d2d6e4deb969755421`
   - Verification: `Current TS-derived streaming and overload-retry fixtures cover cumulative input/cache usage, explicit zero, null and omitted fields, successive deltas, and retained speed metadata. The shared stream state keeps the latest normalized usage. Release-mode builds, package consumers, examples, and 1915 conformance fixtures pass in Python, Java, C++, Go, and Rust. Package freshness, TS-derived fixture synchronization, 3906 TypeScript unit tests, type checks, skills, and the 1988-page website checks pass.`
+- `axir-2026-10-14-port-mcp-client-ping-timer-and-listening-delay-cleanup` [axmcp] Port MCP client ping timer and listening delay cleanup
+  - Status: done
+  - Source PR: #847
+  - Source commit: `be1ada76bc7c9540ab2eb7d94289118038a1a2df`
+  - TS paths: `src/ax/mcp/client.ts`, `src/ax/mcp/client.test.ts`
+  - Impact: AxMCPClient.ping() now clears its timeout timer and listeningDelay() removes its abort listener when the delay elapses; the AxIR ports of the MCP client should mirror this
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-21
+  - Completed by: `61dee3a131a42b983c4b9ac6ef71158b06c3c6c6`
+  - Verification: `Native HTTP reconnect-delay cleanup tests passed in all five targets, including libcurl-enabled C++ Astra HTTP tests. Generated ping is synchronous and owns no JS timeout/listener; applicability is documented in ir/axcore/mcp.md.`
 - `axir-2026-10-15-port-jev-image-assets-and-box-signature-fields` [axai] Port Jev image assets and Box signature fields
   - Status: done
   - Source PR: #848
@@ -1464,3 +1440,43 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-10-15
   - Completed by: `ac97e1f260ccb09bf777842ea69be9bf7fa3a67e`
   - Verification: `41 TypeScript-derived image and Box regressions and 1956 conformance cases pass across Python, Java, C++, Go and Rust. Native typed APIs, PNG/JPEG references, experimental headers, Box schemas, evidence, refusal handling, streaming and Decisions rejection are covered. All five public localization examples pass against live Jev 1.14.0. Full TypeScript checks pass with 3937 tests and one skip; 72 CI compiler tests, fixture synchronization, generated package freshness, provider profiles and the 1992-page website checks pass.`
+- `axir-2026-10-15-preserve-all-gemini-cached-system-messages` [axai] Preserve all Gemini cached system messages
+  - Status: done
+  - Source PR: #851
+  - Source commit: `2503761ae75b5cc858f04c107a7a47ef3dab6713`
+  - TS paths: `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: Generated Gemini adapters must combine every system message in prompt order when creating a context cache, matching ordinary requests and retaining instructions after the cache breakpoint.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-21
+  - Completed by: `61dee3a131a42b983c4b9ac6ef71158b06c3c6c6`
+  - Verification: `gemini-cache-all-system-messages-{ordered,after-only,none} passed in all five native conformance runners. Actual cache creation/generation payloads preserve all ordered system messages; the shared mapper was already correct.`
+- `axir-2026-10-18-audio-output-capability-routing-and-compatibility-accounting` [axai] Audio output capability routing and compatibility accounting
+  - Status: done
+  - Source PR: #857
+  - Source commit: `9702dd704647ab86b80de680bc11ee9ed775f568`
+  - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/capabilities.ts`, `src/ax/ai/balance.test.ts`, `src/ax/ai/capabilities.test.ts`
+  - Impact: Generated balancers and compatibility reports must preserve the TypeScript audio-output requirement, aggregate output support/formats, and count generated audio independently of audio input.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-21
+  - Completed by: `61dee3a131a42b983c4b9ac6ef71158b06c3c6c6`
+  - Verification: `balancer-audio-output-* and provider-audio-compatibility-* plus provider-capability-report-bonuses passed in all five native conformance runners. Released 25.4.4 fails the output capability regression.`
+- `axir-2026-10-18-novel-f1-token-overlap-and-finite-empty-input-scores` [axgen] Novel F1 token overlap and finite empty-input scores
+  - Status: done
+  - Source PR: #856
+  - Source commit: `826d1b142070f4dc07b68069c3f41996258a4847`
+  - TS paths: `src/ax/dsp/eval.ts`, `src/ax/dsp/eval.test.ts`
+  - Impact: Generated evaluation helpers must match the TypeScript metric's history and stopword exclusions, multiset overlap, recall, and finite empty-input convention.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-21
+  - Completed by: `61dee3a131a42b983c4b9ac6ef71158b06c3c6c6`
+  - Verification: `eval-novel-f1.json: 48 TypeScript-derived F1/recall cases passed via public Python, Java, C++, Go, and Rust APIs, including multiset counts, stopword/history exclusions, empty inputs, Unicode, and literal backslashes.`
+- `axir-2026-10-18-preserve-streamed-json-string-text-during-partial-repair` [axgen] Preserve streamed JSON string text during partial repair
+  - Status: done
+  - Source PR: #846
+  - Source commit: `19f1e2c76a84d886fb998d670045d66e63a95a9e`
+  - TS paths: `src/ax/util/partialJson.ts`, `src/ax/util/partialJson.test.ts`
+  - Impact: Generated partial JSON repair in ir/axcore/stream.axir must preserve string fragments and remove trailing commas only outside strings, matching the TypeScript fix in PR 846.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-10-21
+  - Completed by: `61dee3a131a42b983c4b9ac6ef71158b06c3c6c6`
+  - Verification: `All six streaming-forward-string-repair-* fixtures passed in Python, Java, C++, Go, and Rust, asserting TypeScript intermediate deltas and final values including escaped quotes.`
