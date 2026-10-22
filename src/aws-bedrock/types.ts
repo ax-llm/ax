@@ -11,6 +11,7 @@ export enum AxAIBedrockModel {
   ClaudeSonnet5 = 'us.anthropic.claude-sonnet-5',
   ClaudeOpus55 = 'us.anthropic.claude-opus-5-5',
   ClaudeSonnet55 = 'us.anthropic.claude-sonnet-5-5',
+  ClaudeHaiku55 = 'us.anthropic.claude-haiku-5-5',
   ClaudeOpus5 = 'us.anthropic.claude-opus-5',
   ClaudeOpus48 = 'us.anthropic.claude-opus-4-8',
   ClaudeSonnet46 = 'us.anthropic.claude-sonnet-4-6',

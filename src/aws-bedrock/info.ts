@@ -110,6 +110,14 @@ export const axBedrockModelCapabilities: Readonly<
     thinkingAlwaysOn: true,
     structuredOutputModes: ['json_object'],
   }),
+  // Haiku 5.5 thinks by default like Opus 5 and also accepts
+  // output_config.format, so structured output can be native.
+  [AxAIBedrockModel.ClaudeHaiku55]: claude({
+    cacheTTLs: ['5m', '1h'],
+    thinking: 'adaptive',
+    thinkingDefault: true,
+    structuredOutputModes: ['native', 'function'],
+  }),
   [AxAIBedrockModel.ClaudeOpus5]: claude({
     cacheTTLs: ['5m', '1h'],
     thinking: 'adaptive',
@@ -199,6 +207,19 @@ export const axModelInfoBedrock: AxModelInfo[] = [
     supported: {
       showThoughts: true,
       structuredOutputModes: ['json_object'],
+      serviceTiers: ['standard'],
+    },
+  },
+  {
+    name: AxAIBedrockModel.ClaudeHaiku55,
+    currency: 'usd',
+    maxTokens: 128000,
+    contextWindow: 1000000,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      showThoughts: true,
+      structuredOutputs: true,
+      structuredOutputModes: ['native', 'function'],
       serviceTiers: ['standard'],
     },
   },

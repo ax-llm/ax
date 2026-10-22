@@ -301,15 +301,16 @@ describe('AxAIBedrock Converse capabilities', () => {
     }
   });
 
-  it('advertises Haiku 4.5 native structured output support', () => {
-    const features = createAI(AxAIBedrockModel.ClaudeHaiku45).getFeatures(
-      AxAIBedrockModel.ClaudeHaiku45
-    );
-
-    expect(features).toMatchObject({
-      structuredOutputs: true,
-      structuredOutputModes: ['native', 'function'],
-    });
+  it('advertises Haiku 4.5 and Haiku 5.5 native structured output support', () => {
+    for (const model of [
+      AxAIBedrockModel.ClaudeHaiku45,
+      AxAIBedrockModel.ClaudeHaiku55,
+    ]) {
+      expect(createAI(model).getFeatures(model)).toMatchObject({
+        structuredOutputs: true,
+        structuredOutputModes: ['native', 'function'],
+      });
+    }
   });
 });
 
@@ -469,7 +470,7 @@ describe('AxAIBedrock Converse request mapping', () => {
     });
   });
 
-  it('omits GPT-6 temperature/topP and maps thinking to reasoning effort', async () => {
+  it('omits GPT-6 and Haiku 5.5 temperature/topP and maps thinking budgets', async () => {
     const sent: ConverseRequest[] = [];
     const chatWith = async (
       model: AxAIBedrockModel,
@@ -517,9 +518,16 @@ describe('AxAIBedrock Converse request mapping', () => {
       { thinkingTokenBudget: 'high' },
       { temperature: 0.3, topP: 0.9 }
     );
+    // Haiku 5.5 rejects temperature and top_p even with thinking disabled.
+    await chatWith(
+      AxAIBedrockModel.ClaudeHaiku55,
+      { thinkingTokenBudget: 'none' },
+      { temperature: 0.3, topP: 0.9 }
+    );
     await chatWith(AxAIBedrockModel.GptOss120B);
 
     expect(sent.map((r) => r.inferenceConfig)).toEqual([
+      { maxTokens: 4096 },
       { maxTokens: 4096 },
       { maxTokens: 4096 },
       { maxTokens: 4096 },
@@ -535,6 +543,7 @@ describe('AxAIBedrock Converse request mapping', () => {
       { reasoning: { effort: 'max' } },
       { reasoning: { effort: 'low' } },
       { reasoning: { effort: 'high' } },
+      { thinking: { type: 'disabled' } },
       undefined,
     ]);
   });
@@ -568,20 +577,23 @@ describe('AxAIBedrock Converse request mapping', () => {
     ).rejects.toThrow('Adaptive thinking cannot be disabled');
   });
 
-  it('allows disabling Opus 5 adaptive thinking', async () => {
-    const [, request] = await getImpl(
-      createAI(AxAIBedrockModel.ClaudeOpus5)
-    ).createChatReq(
-      {
-        model: AxAIBedrockModel.ClaudeOpus5,
-        chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
-      },
-      { thinkingTokenBudget: 'none' }
-    );
+  it('allows disabling Opus 5 and Haiku 5.5 adaptive thinking', async () => {
+    for (const model of [
+      AxAIBedrockModel.ClaudeOpus5,
+      AxAIBedrockModel.ClaudeHaiku55,
+    ]) {
+      const [, request] = await getImpl(createAI(model)).createChatReq(
+        {
+          model,
+          chatPrompt: [{ role: 'user', content: 'Answer briefly.' }],
+        },
+        { thinkingTokenBudget: 'none' }
+      );
 
-    expect(request.additionalModelRequestFields).toEqual({
-      thinking: { type: 'disabled' },
-    });
+      expect(request.additionalModelRequestFields).toEqual({
+        thinking: { type: 'disabled' },
+      });
+    }
   });
 
   it('rejects disabling Opus 5.5 and Sonnet 5.5 adaptive thinking', async () => {
