@@ -1,0 +1,31 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_error_contains": "does not permit function tools",
+  "expected_transport_request_count": 0,
+  "kind": "ai_chat",
+  "model": "us.openai.gpt-6.1-sol",
+  "name": "bedrock-profile-us-openai-gpt-6-1-sol-tools-rejected",
+  "provider": "amazon-bedrock",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Look up a record",
+        "name": "lookup",
+        "parameters": {
+          "properties": {},
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": []
+}

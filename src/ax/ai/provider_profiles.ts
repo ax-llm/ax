@@ -99,6 +99,7 @@ export type AxAIProfileCapabilities = {
 export type AxAIProfileRequestRules = {
   reasoning?: 'thinking-object' | 'effort' | 'openrouter';
   toolChoice?: 'supported' | 'unforced' | 'no-named';
+  functionToolsRequireEffort?: 'none';
   defaultThinkingLevel?:
     | NonNullable<AxAIServiceOptions['thinkingTokenBudget']>
     | 'xhigh'
@@ -526,6 +527,17 @@ const applyRequestRules = (
       payload.reasoning = { effort: payload.reasoning_effort };
     }
     delete payload.reasoning_effort;
+  }
+
+  if (
+    rules.functionToolsRequireEffort &&
+    Array.isArray(payload.tools) &&
+    payload.tools.length > 0 &&
+    payload.reasoning_effort !== rules.functionToolsRequireEffort
+  ) {
+    throw new Error(
+      "This deployment model supports function tools only with reasoning disabled; use thinkingTokenBudget: 'none' or the openai-responses provider"
+    );
   }
 
   if (rules.toolChoice === 'unforced') {

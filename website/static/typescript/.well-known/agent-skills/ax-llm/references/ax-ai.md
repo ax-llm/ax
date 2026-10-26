@@ -40,6 +40,17 @@ Profile-only branded classes were removed in the major-version migration. Use
 Mistral, Reka, and Grok. Retained low-level classes represent genuine
 transports/runtimes only; legacy model enum and catalog exports remain usable.
 
+For Amazon Bedrock's OpenAI Chat Completions deployment profile, verified GPT-6
+Sol/Luna, GPT-6 Astra, GPT-6.1 Sol, and GPT-5.6 Sol IDs (including geographic
+prefixes) support native JSON Schema and mapped thinking budgets. These models
+accept the Standard service tier; unsupported Flex/Priority requests fail locally.
+Astra and GPT-6.1 Sol require reasoning and reject function tools on this profile.
+Sol/Luna and GPT-5.6 Sol require explicit `thinkingTokenBudget: 'none'` (or
+`config.reasoningEffort: 'none'`) for function tools. Use `name: 'openai-responses'`
+with the same Bedrock base URL when reasoning and tools are both required.
+For complex signatures, AxGen uses native schema output by default, so output alone does not
+need to disable reasoning. GPT-OSS and unknown-model defaults are unchanged.
+
 ## Typesafe / Jev (TypeScript)
 
 Use the [ax-typesafe skill](https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-typesafe.md)

@@ -85,6 +85,7 @@ const allowedStructuredOutputModes = new Set([
 const allowedRequestRuleKeys = new Set([
   'reasoning',
   'toolChoice',
+  'functionToolsRequireEffort',
   'defaultThinkingLevel',
   'effortMap',
   'unsupportedThinkingLevels',
@@ -153,6 +154,14 @@ const validateRequestRules = (rules, context) => {
     !['supported', 'unforced', 'no-named'].includes(rules.toolChoice)
   ) {
     throw new Error(`${context} has invalid tool choice rule`);
+  }
+  if (
+    rules.functionToolsRequireEffort !== undefined &&
+    rules.functionToolsRequireEffort !== 'none'
+  ) {
+    throw new Error(
+      `${context} has invalid function tool reasoning requirement`
+    );
   }
   if (
     rules.defaultThinkingLevel &&
@@ -514,6 +523,9 @@ const modelRuleCaveat = (rule) => {
   }
   if (rule.request?.defaultThinkingLevel) {
     details.push(`default thinking \`${rule.request.defaultThinkingLevel}\``);
+  }
+  if (rule.request?.functionToolsRequireEffort) {
+    details.push('function tools require disabled reasoning');
   }
   if (rule.request?.toolChoice === 'unforced') {
     details.push('no forced tool choice');

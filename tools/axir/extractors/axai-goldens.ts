@@ -17153,3 +17153,153 @@ writeFixture('provider-capability-report-bonuses', {
     })),
   },
 });
+
+// Issue #679: deployment rules must govern Bedrock IDs, rather than inheriting
+// the OpenAI platform profile or falling back to generic compatibility.
+const bedrockProfileModels = [
+  'us.openai.gpt-6-sol',
+  'openai.gpt-6-luna',
+  'global.openai.gpt-6-astra',
+  'us.openai.gpt-6.1-sol',
+  'us.openai.gpt-5.6-sol',
+] as const;
+for (const model of bedrockProfileModels) {
+  const slug = model.replace(/[^a-z0-9]+/g, '-');
+  const base = {
+    kind: 'ai_chat',
+    provider: 'amazon-bedrock',
+    model,
+    base_url: bedrockRuntimeURL,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'hi' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: 'bedrock_profile_rules',
+          model,
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        },
+      },
+    ],
+  };
+  const expected = (json: Json) => ({
+    method: 'POST',
+    url: `${bedrockRuntimeURL}/chat/completions`,
+    json,
+  });
+  for (const [budget, effort] of [
+    ['minimal', 'low'],
+    ['highest', 'xhigh'],
+  ] as const) {
+    writeFixture(`bedrock-profile-${slug}-thinking-${budget}`, {
+      ...base,
+      request: {
+        ...base.request,
+        model_config: { stream: false, thinkingTokenBudget: budget },
+      },
+      expected_transport_request: expected({ model, reasoning_effort: effort }),
+      expected_transport_json_absent: ['temperature', 'top_p', 'stop'],
+    });
+  }
+  for (const serviceTier of ['flex', 'priority'] as const) {
+    writeFixture(`bedrock-profile-${slug}-tier-${serviceTier}-rejected`, {
+      ...base,
+      transport_responses: [],
+      service_options: { serviceTier },
+      expected_error_contains: `service tier ${serviceTier} is not verified`,
+      expected_transport_request_count: 0,
+    });
+  }
+  const schema = {
+    name: 'result',
+    schema: {
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+      additionalProperties: false,
+    },
+  };
+  writeFixture(`bedrock-profile-${slug}-native-schema`, {
+    ...base,
+    request: {
+      ...base.request,
+      response_format: { type: 'json_schema', schema },
+    },
+    expected_transport_request: expected({
+      model,
+      response_format: { type: 'json_schema', json_schema: schema },
+    }),
+    expected_transport_json_absent: ['tools', 'temperature'],
+  });
+  const functions = [
+    {
+      name: 'lookup',
+      description: 'Look up a record',
+      parameters: { type: 'object', properties: {} },
+    },
+  ];
+  const requiredReasoning =
+    model.includes('astra') || model.includes('gpt-6.1-sol');
+  if (requiredReasoning) {
+    writeFixture(`bedrock-profile-${slug}-tools-rejected`, {
+      ...base,
+      transport_responses: [],
+      request: { ...base.request, functions },
+      expected_error_contains: 'does not permit function tools',
+      expected_transport_request_count: 0,
+    });
+    writeFixture(`bedrock-profile-${slug}-none-rejected`, {
+      ...base,
+      transport_responses: [],
+      request: {
+        ...base.request,
+        model_config: { stream: false, thinkingTokenBudget: 'none' },
+      },
+      expected_error_contains: 'does not support disabling reasoning',
+      expected_transport_request_count: 0,
+    });
+  } else {
+    for (const effort of [undefined, 'high'] as const) {
+      writeFixture(
+        `bedrock-profile-${slug}-tools-${effort ?? 'default'}-rejected`,
+        {
+          ...base,
+          transport_responses: [],
+          request: {
+            ...base.request,
+            functions,
+            model_config: {
+              stream: false,
+              ...(effort ? { reasoningEffort: effort } : {}),
+            },
+          },
+          expected_error_contains: 'only with reasoning disabled',
+          expected_transport_request_count: 0,
+        }
+      );
+    }
+    writeFixture(`bedrock-profile-${slug}-tools-none`, {
+      ...base,
+      request: {
+        ...base.request,
+        functions,
+        model_config: { stream: false, thinkingTokenBudget: 'none' },
+      },
+      expected_transport_request: expected({
+        model,
+        reasoning_effort: 'none',
+        tools: [{ type: 'function', function: functions[0] }],
+      }),
+      expected_transport_json_absent: ['temperature', 'top_p'],
+    });
+  }
+}

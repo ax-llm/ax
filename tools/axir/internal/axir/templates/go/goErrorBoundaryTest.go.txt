@@ -210,6 +210,36 @@ func TestExceptionRewrapKeepsClassAndCause(t *testing.T) {
 	}
 }
 
+func TestGenerateErrorValueRoundTripKeepsCause(t *testing.T) {
+	provider := AIServiceError{AxError{Category: "ai", Type: "AxAIServiceStatusError", Message: "Service unavailable", Status: 503, Code: "unavailable", Retryable: true, Payload: Object("detail", "busy"), URL: "https://provider.example/chat", RequestBody: Object("model", "test")}}
+	inner := _core_exception_rewrap(provider, "request failed: Service unavailable")
+	original := asError(_core_exception_generate(inner, "Generate failed: request failed: Service unavailable"))
+	for round := 0; round < 3; round++ {
+		original = asError(errorValue(original))
+		var generated AxGenerateError
+		if !errors.As(original, &generated) || generated.Error() != "Generate failed: request failed: Service unavailable" {
+			t.Fatalf("round %d: generation error = %T %v", round, original, original)
+		}
+		cause := errors.Unwrap(original)
+		if cause == nil || cause.Error() != "request failed: Service unavailable" {
+			t.Fatalf("round %d: immediate cause = %v", round, cause)
+		}
+		root := errors.Unwrap(cause)
+		if root == nil || root.Error() != provider.Message || errors.Unwrap(root) != nil {
+			t.Fatalf("round %d: root cause = %v", round, root)
+		}
+		var envelope AxError
+		if !errors.As(original, &envelope) || envelope.Status != 503 || envelope.Code != "unavailable" || !envelope.Retryable || envelope.URL != provider.URL || !equal(envelope.RequestBody, provider.RequestBody) || !equal(envelope.Payload, provider.Payload) {
+			t.Fatalf("round %d: provider envelope = %+v", round, envelope)
+		}
+	}
+	rewrapped := asError(_core_exception_rewrap(original, "agent failed"))
+	var generated AxGenerateError
+	if !errors.As(rewrapped, &generated) || rewrapped.Error() != "agent failed" || errors.Unwrap(rewrapped) == nil || errors.Unwrap(rewrapped).Error() != original.Error() {
+		t.Fatalf("rewrapped generation error = %T %v, cause = %v", rewrapped, rewrapped, errors.Unwrap(rewrapped))
+	}
+}
+
 // cachingTestClient answers each chat with the next reply and counts the
 // requests.
 type cachingTestClient struct {
