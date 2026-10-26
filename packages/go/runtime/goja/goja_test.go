@@ -37,7 +37,7 @@ func TestAgentProviderErrorKeepsGenerateTypeAndCause(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": string(content)}, "finish_reason": "stop"}}})
 				}))
 				defer server.Close()
-				client := ax.NewOpenAICompatibleClient(ax.Object("base_url", server.URL, "api_key", "test", "model", "gpt-5.4-mini", "retry", ax.Object("max_retries", 0)))
+				client := ax.NewOpenAICompatibleClient(ax.Object("base_url", server.URL, "api_key", "test", "model", "gpt-6-luna", "retry", ax.Object("max_retries", 0)))
 				agent := ax.NewAgent("question:string -> answer:string", ax.Object("runtime", NewRuntime(), "directResponse", "off"))
 				var err error
 				if streaming {
