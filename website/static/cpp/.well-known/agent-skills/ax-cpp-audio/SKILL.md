@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-audio"
 description: "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "25.4.5"
+version: "25.4.6"
 ---
 # Ax Audio And Realtime For C++
 
