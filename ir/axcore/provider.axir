@@ -4036,6 +4036,7 @@ module @ax.provider version "0.1" {
         %is_multi_turn = core.call intrinsic.eq(%key, "multiTurn")
         %is_thinking_budget = core.call intrinsic.eq(%key, "thinkingBudget")
         %is_show_thoughts = core.call intrinsic.eq(%key, "showThoughts")
+        %is_service_tiers = core.call intrinsic.eq(%key, "serviceTiers")
         core.if %is_structured_outputs {
           core.set %features["structured_outputs"] = %value
         } else {
@@ -4056,6 +4057,10 @@ module @ax.provider version "0.1" {
               }
             }
           }
+        }
+        core.if %is_service_tiers {
+          core.set %features["service_tiers"] = %value
+          core.call intrinsic.map.delete(%features, "serviceTiers")
         }
       }
       %model_info_snake = core.get %options["model_info"]
@@ -4321,6 +4326,21 @@ module @ax.provider version "0.1" {
           core.set %payload["reasoning"] = %reasoning
         }
         core.call intrinsic.map.delete(%payload, "reasoning_effort")
+      }
+      %required_tools_effort = core.get %rules["functionToolsRequireEffort"] default ""
+      %has_tools_effort_requirement = core.call intrinsic.truthy(%required_tools_effort)
+      %effort_tools = core.get %payload["tools"] default %empty_list
+      %effort_tools_count = core.call intrinsic.len(%effort_tools)
+      %has_effort_tools = core.call intrinsic.gt(%effort_tools_count, 0)
+      %validate_tools_effort = core.call intrinsic.and(%has_tools_effort_requirement, %has_effort_tools)
+      core.if %validate_tools_effort {
+        %wire_tools_effort = core.get %payload["reasoning_effort"]
+        %valid_tools_effort = core.call intrinsic.eq(%wire_tools_effort, %required_tools_effort)
+        %invalid_tools_effort = core.call intrinsic.not(%valid_tools_effort)
+        core.if %invalid_tools_effort {
+          %tools_effort_error = core.call intrinsic.ai.error.unsupported("This deployment model supports function tools only with reasoning disabled; use thinkingTokenBudget: 'none' or the openai-responses provider")
+          core.raise %tools_effort_error
+        }
       }
       %tool_choice_mode = core.get %rules["toolChoice"] default ""
       %unforced = core.call intrinsic.eq(%tool_choice_mode, "unforced")
@@ -4653,6 +4673,21 @@ module @ax.provider version "0.1" {
       %model_rules = core.get %model_rule["request"] default %empty_rules
       %payload = core.call @provider_apply_request_rules(%payload, %sampled_request, %model_rules, %options)
       %features = core.call @provider_resolve_features(%provider_id, %model, %options)
+      %capability_functions = core.get %sampled_request["functions"] default %empty_list
+      %capability_function_count = core.call intrinsic.len(%capability_functions)
+      %has_capability_functions = core.call intrinsic.gt(%capability_function_count, 0)
+      %native_functions_supported = core.get %features["functions"] default true
+      %native_functions_unsupported = core.call intrinsic.not(%native_functions_supported)
+      %function_emulation = core.get %features["functionEmulation"] default true
+      %function_emulation_disabled = core.call intrinsic.eq(%function_emulation, false)
+      %function_tools_forbidden = core.call intrinsic.and(%native_functions_unsupported, %function_emulation_disabled)
+      %invalid_function_tools = core.call intrinsic.and(%has_capability_functions, %function_tools_forbidden)
+      core.if %invalid_function_tools {
+        %profile_display_name = core.get %descriptor["name"] default %provider_id
+        %function_tools_message = core.call intrinsic.string.format("{} model {} does not permit function tools", %profile_display_name, %model)
+        %function_tools_error = core.call intrinsic.ai.error.unsupported(%function_tools_message)
+        core.raise %function_tools_error
+      }
       %payload = core.call @provider_apply_service_tier(%provider_id, %payload, %sampled_request, %options, %features, %profile_rules, %model_rules)
       %is_meta_messages_final = core.call intrinsic.eq(%provider_id, "meta-messages")
       core.if %is_meta_messages_final {

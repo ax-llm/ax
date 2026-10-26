@@ -17,6 +17,7 @@ Use this for work on generated Ax libraries such as Python, Java, C++, Go, or fu
 
 - Keep semantics Core-owned. Provider mapping, Agent context/runtime behavior, Flow graph semantics, optimizer/GEPA behavior, envelopes, state, logs, and traces should come from Core helpers/descriptors.
 - Keep target code idiomatic but thin. Target templates own language wrappers, dynamic value representation, transports, error boundary shape, package metadata, and examples.
+- Error catch/rethrow conversions must preserve the concrete generation error type and its nested causes, including provider status and request metadata. Exercise both agent forward and streaming boundaries with failures in each stage.
 - Prefer standard-library dependencies for base packages. Optional runtime profiles may remain dependency-bearing and opt-in.
 - Use deterministic ordering for generated output, JSON/string rendering, prompt fields, snapshots, catalogs, action logs, and conformance output.
 - Public APIs should feel native in the target language while preserving Ax concepts. Document unavoidable naming differences in generated README/examples.

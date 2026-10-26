@@ -1521,6 +1521,9 @@ func runtimeJSONValue(value Value) any {
 
 func axErrorValue(v AxError) Value {
 	out := Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
+	if v.cause != nil {
+		coreSet(out, "cause", errorValue(v.cause))
+	}
 	if v.URL != "" || v.RequestBody != nil {
 		// A rewrapped provider error keeps its request, as in the other ports.
 		request := Object()
@@ -1586,7 +1589,11 @@ func asAxError(value Value) AxError {
 	m := asMap(value)
 	if cat := display(m["__error"]); cat != "" {
 		request := coreGet(m, "request", nil)
-		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"]), URL: display(coreGet(request, "url", "")), RequestBody: publicValue(coreGet(request, "json", coreGet(request, "data", nil)))}
+		envelope := AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"]), URL: display(coreGet(request, "url", "")), RequestBody: publicValue(coreGet(request, "json", coreGet(request, "data", nil)))}
+		if cause := coreGet(m, "cause", nil); cause != nil {
+			envelope.cause = asError(cause)
+		}
+		return envelope
 	}
 	return AxError{Category: "runtime", Message: display(value)}
 }
@@ -1598,6 +1605,9 @@ func _core_decision_refusal_error(path Value, provenance Value) Value {
 func asError(value Value) error {
 	if err, ok := value.(error); ok { return err }
 	axErr := asAxError(value)
+	if axErr.Type == "AxGenerateError" {
+		return AxGenerateError{axErr}
+	}
     if axErr.Type == "AxDecisionRefusalError" { return AxDecisionRefusalError{axErr, display(coreGet(axErr.Payload,"fieldPath",nil)), coreGet(axErr.Payload,"provenance",nil)} }
 	if axErr.Type == "AxAIServiceAbortedError" || axErr.Category == "aborted" {
 		return AxAIServiceAbortedError{AIServiceError{axErr}}
@@ -2242,6 +2252,9 @@ func _core_exception_rewrap(err Value, message Value) Value {
 	switch e := original.(type) {
 	case AxError:
 		return rewrapAxError(e, text, original)
+	case AxGenerateError:
+		e.AxError = rewrapAxError(e.AxError, text, original)
+		return e
 	case AxAIServiceAbortedError:
 		e.AIServiceError.AxError = rewrapAxError(e.AIServiceError.AxError, text, original)
 		return e

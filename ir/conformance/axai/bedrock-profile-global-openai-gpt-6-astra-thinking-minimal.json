@@ -1,0 +1,47 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_json_absent": ["temperature", "top_p", "stop"],
+  "expected_transport_request": {
+    "json": {
+      "model": "global.openai.gpt-6-astra",
+      "reasoning_effort": "low"
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "global.openai.gpt-6-astra",
+  "name": "bedrock-profile-global-openai-gpt-6-astra-thinking-minimal",
+  "provider": "amazon-bedrock",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "minimal"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "bedrock_profile_rules",
+        "model": "global.openai.gpt-6-astra"
+      },
+      "status": 200
+    }
+  ]
+}

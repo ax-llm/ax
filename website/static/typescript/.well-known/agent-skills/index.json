@@ -6,14 +6,14 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:c231b34d518eb17892d8a5e0415c1070059bbd77862ba94bb4c3f4e53ee30fa7"
+      "digest": "sha256:4777df62b1c7795740c9bfc2470173c3c373729e8d107069ee1450b2c1300317"
     },
     {
       "name": "ax-ai",
       "type": "archive",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Meta/Mistral/Cohere/Reka/Grok/Typesafe/Jev with @ax-llm/ax.",
       "url": "ax-ai/skill.tar.gz",
-      "digest": "sha256:bd15d43eb5d2364b23ef01cb7292604fa377f2bdfa51e9c7f95b9816252db132"
+      "digest": "sha256:ce8163e7d3b83166a670c3d9f7af69089694956434eff9735d820c905241b9ec"
     },
     {
       "name": "ax-typesafe",

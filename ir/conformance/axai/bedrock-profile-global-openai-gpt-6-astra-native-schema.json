@@ -1,0 +1,77 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_json_absent": ["tools", "temperature"],
+  "expected_transport_request": {
+    "json": {
+      "model": "global.openai.gpt-6-astra",
+      "response_format": {
+        "json_schema": {
+          "name": "result",
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "type": "string"
+              }
+            },
+            "required": ["answer"],
+            "type": "object"
+          }
+        },
+        "type": "json_schema"
+      }
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "global.openai.gpt-6-astra",
+  "name": "bedrock-profile-global-openai-gpt-6-astra-native-schema",
+  "provider": "amazon-bedrock",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    },
+    "response_format": {
+      "schema": {
+        "name": "result",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": ["answer"],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "bedrock_profile_rules",
+        "model": "global.openai.gpt-6-astra"
+      },
+      "status": 200
+    }
+  ]
+}

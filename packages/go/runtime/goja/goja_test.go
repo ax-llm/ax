@@ -1,12 +1,73 @@
 package goja
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"unicode/utf8"
 
 	ax "github.com/ax-llm/ax/packages/go"
 )
+
+// Exercise the public agent boundary with a real provider HTTP failure and
+// the Goja runtime used in issue #831, at each of the three agent stages.
+func TestAgentProviderErrorKeepsGenerateTypeAndCause(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for failAt := 1; failAt <= 3; failAt++ {
+			t.Run(fmt.Sprintf("stream=%v/stage=%d", streaming, failAt), func(t *testing.T) {
+				var requests atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					request := int(requests.Add(1))
+					if request >= failAt {
+						http.Error(w, "invalid api key", http.StatusUnauthorized)
+						return
+					}
+					code := `await final("Find reference", {});`
+					if request == 2 {
+						code = `await final("Report reference", {answer: "REF-42"});`
+					}
+					content, _ := json.Marshal(map[string]string{"javascriptCode": code})
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": string(content)}, "finish_reason": "stop"}}})
+				}))
+				defer server.Close()
+				client := ax.NewOpenAICompatibleClient(ax.Object("base_url", server.URL, "api_key", "test", "model", "gpt-6-luna", "retry", ax.Object("max_retries", 0)))
+				agent := ax.NewAgent("question:string -> answer:string", ax.Object("runtime", NewRuntime(), "directResponse", "off"))
+				var err error
+				if streaming {
+					for _, streamErr := range agent.StreamingForward(context.Background(), client, ax.Object("question", "Find reference"), nil) {
+						if streamErr != nil {
+							err = streamErr
+							break
+						}
+					}
+				} else {
+					_, err = agent.Forward(context.Background(), client, ax.Object("question", "Find reference"), nil)
+				}
+				var generated ax.AxGenerateError
+				if !errors.As(err, &generated) {
+					t.Fatalf("error = %T %v, want AxGenerateError", err, err)
+				}
+				var envelope ax.AxError
+				if !errors.As(err, &envelope) || envelope.Status != http.StatusUnauthorized {
+					t.Fatalf("provider envelope = %+v, want HTTP 401", envelope)
+				}
+				if cause := errors.Unwrap(err); cause == nil || !strings.Contains(cause.Error(), "invalid api key") {
+					t.Fatalf("cause = %v, want the provider failure", cause)
+				}
+				if got := int(requests.Load()); got != failAt {
+					t.Fatalf("made %d requests, want failure at stage %d", got, failAt)
+				}
+			})
+		}
+	}
+}
 
 func newTestSession(t *testing.T) *Session {
 	t.Helper()

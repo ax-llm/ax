@@ -1,0 +1,70 @@
+{
+  "base_url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+  "expected_transport_json_absent": ["temperature", "top_p"],
+  "expected_transport_request": {
+    "json": {
+      "model": "us.openai.gpt-6-sol",
+      "reasoning_effort": "none",
+      "tools": [
+        {
+          "function": {
+            "description": "Look up a record",
+            "name": "lookup",
+            "parameters": {
+              "properties": {},
+              "type": "object"
+            }
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "us.openai.gpt-6-sol",
+  "name": "bedrock-profile-us-openai-gpt-6-sol-tools-none",
+  "provider": "amazon-bedrock",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi",
+        "role": "user"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Look up a record",
+        "name": "lookup",
+        "parameters": {
+          "properties": {},
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "bedrock_profile_rules",
+        "model": "us.openai.gpt-6-sol"
+      },
+      "status": 200
+    }
+  ]
+}

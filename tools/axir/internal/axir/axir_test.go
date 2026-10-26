@@ -1315,8 +1315,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
 				checkGeneratedFileContains(t, dir, "axllm.go", "func AsAxError(err error) (AxError, bool)", "func IsRetryable(err error) bool", "func (e AIServiceError) Unwrap() error")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
-				checkGeneratedFileContains(t, dir, "runtime/goja/goja_test.go", "TestExecuteSurfacesConsoleLogsOnIntermediateStep", "TestExecuteResetsLogsBetweenTurns", "TestConsoleVariantsDoNotThrow")
-				checkGeneratedFileContains(t, dir, "errors_test.go", "TestErrorsAsReachesAxErrorThroughServiceError", "TestAsAxErrorReportsEnvelopePresence", "TestIsRetryableFollowsCoreStatusSet")
+				checkGeneratedFileContains(t, dir, "runtime/goja/goja_test.go", "TestExecuteSurfacesConsoleLogsOnIntermediateStep", "TestExecuteResetsLogsBetweenTurns", "TestConsoleVariantsDoNotThrow", "TestAgentProviderErrorKeepsGenerateTypeAndCause")
+				checkGeneratedFileContains(t, dir, "errors_test.go", "TestErrorsAsReachesAxErrorThroughServiceError", "TestAsAxErrorReportsEnvelopePresence", "TestIsRetryableFollowsCoreStatusSet", "TestGenerateErrorValueRoundTripKeepsCause")
 				checkGeneratedFileContains(t, dir, "ordered_values_test.go", "TestForwardReturnsPlainMaps", "TestInternalForwardKeepsKeyOrder", "TestMapCopiesListEachKeyOnce", "TestDeleteThenSetListsKeyOnceAtTheEnd", "TestJSONTextOmitsOrderListsAndHTMLEscapes", "TestMCPWireJSONOmitsOrderListsAndEscapesControlCharacters", "TestLoneSurrogateEscapesKeepTheirHalves", "TestStreamedSplitSurrogatePairJoins")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			case "rust":
