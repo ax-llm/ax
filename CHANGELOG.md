@@ -1,5 +1,20 @@
 # Changelog
 
+## [25.4.6](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-26)
+
+### Features
+
+* **Bedrock:** Add Claude Haiku 5.5 to the AWS Bedrock provider ([#865](https://github.com/ax-llm/ax/pull/865)).
+
+### Bug Fixes
+
+* **Go agents:** Preserve `AxGenerateError`, nested provider causes, HTTP status, and request metadata through forward and streaming calls ([#831](https://github.com/ax-llm/ax/issues/831), [#866](https://github.com/ax-llm/ax/pull/866)).
+* **Bedrock OpenAI:** Apply model-specific reasoning and native structured-output rules, reject unsupported function-tool combinations, and validate service tiers in TypeScript and all five generated languages ([#679](https://github.com/ax-llm/ax/issues/679), [#866](https://github.com/ax-llm/ax/pull/866)).
+
+### Documentation
+
+* Reconcile the implemented G1 real-engine checks and G5 behavioral-parity ledger with their current CI wiring ([#807](https://github.com/ax-llm/ax/issues/807)).
+
 ## [25.4.5](https://github.com/ax-llm/ax/compare/25.4.4...25.4.5) (2026-10-21)
 
 ### Generated-language parity
