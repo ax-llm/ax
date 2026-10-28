@@ -6,7 +6,7 @@
       "type": "archive",
       "description": "Build or debug TypeScript LLM applications with @ax-llm/ax. Use for Ax providers, structured generation, signatures, agents and tools, memory, MCP, workflows, audio, and optimization.",
       "url": "ax-llm/skill.tar.gz",
-      "digest": "sha256:94dba17cb6926d1dd8e10b37c9aa68120b2ab4e3c4f29af7cf4f4a1d872aae25"
+      "digest": "sha256:4aa6954efaf38dc2da3059d0561a6d9ebd701a823847f611fdb9631dd01b7b1d"
     },
     {
       "name": "ax-ai",
@@ -41,7 +41,7 @@
       "type": "archive",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/skill.tar.gz",
-      "digest": "sha256:e9f439ea4bb1943eaf48aeb97d0be69e2e44d5c37d94cc5d4a18560788aba9d4"
+      "digest": "sha256:c8a5c9835fc2e90eeddc4085a401c9df1ac00f6658ffe722c2f66ab04b491fd3"
     },
     {
       "name": "ax-mcp",

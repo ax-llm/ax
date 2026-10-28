@@ -23,7 +23,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-10-28-drop-refused-assistant-turn-before-refusal-retry` [axgen] Drop refused assistant turn before refusal retry
+  - Status: open
+  - Source commit: `7948e19213325e41f39ba0715ad8fd2a89714210`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.refusal-retry.test.ts`
+  - Impact: Generated AxGen retry loops must remove an assistant turn streamed into memory before a provider refusal, so the retried request ends on the user or function-result message instead of an assistant prefill.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

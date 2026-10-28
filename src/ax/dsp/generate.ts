@@ -2938,6 +2938,14 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 handleRefusalErrorForGenerate(
                   args as HandleErrorForGenerateArgs<AxAIRefusalError>
                 );
+                // A refusal that arrives mid-stream leaves the refused turn in
+                // memory. Resending it would end the request on an assistant
+                // message, which providers such as Anthropic reject, so the
+                // retry starts without it.
+                if (mem.getLast(options.sessionId)?.role === 'assistant') {
+                  mem.addTag('invalid-assistant', options.sessionId);
+                  mem.removeByTag('invalid-assistant', options.sessionId);
+                }
               } else if (e instanceof AxAIServiceStreamTerminatedError) {
                 // Route stream termination to infrastructure retry logic
                 throw e;

@@ -3716,6 +3716,28 @@
       "completedAt": "2026-10-21",
       "completedByCommit": "61dee3a131a42b983c4b9ac6ef71158b06c3c6c6",
       "verification": "All six streaming-forward-string-repair-* fixtures passed in Python, Java, C++, Go, and Rust, asserting TypeScript intermediate deltas and final values including escaped quotes."
+    },
+    {
+      "id": "axir-2026-10-28-drop-refused-assistant-turn-before-refusal-retry",
+      "status": "open",
+      "title": "Drop refused assistant turn before refusal retry",
+      "createdAt": "2026-10-28",
+      "sourcePR": null,
+      "sourceCommit": "7948e19213325e41f39ba0715ad8fd2a89714210",
+      "tsPaths": [
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/generate.refusal-retry.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "Generated AxGen retry loops must remove an assistant turn streamed into memory before a provider refusal, so the retried request ends on the user or function-result message instead of an assistant prefill.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
