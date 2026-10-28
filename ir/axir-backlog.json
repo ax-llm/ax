@@ -3738,6 +3738,33 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-10-28-expose-pre-bootstrap-optimizer-baseline-scores",
+      "status": "open",
+      "title": "Expose pre-bootstrap optimizer baseline scores",
+      "createdAt": "2026-10-28",
+      "sourcePR": null,
+      "sourceCommit": "7948e19213325e41f39ba0715ad8fd2a89714210",
+      "tsPaths": [
+        "src/ax/dsp/optimizer.ts",
+        "src/ax/dsp/optimize.ts",
+        "src/ax/dsp/optimizers/gepa.ts",
+        "src/ax/dsp/optimizers/gepaEvaluation.ts",
+        "src/ax/dsp/optimizers/bootstrapFewshot.ts",
+        "src/ax/dsp/optimizers/gepaBootstrap.ts",
+        "src/ax/dsp/optimizers/bootstrapTraces.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "Port issue #869 baselineScore and baselineScores to generated optimizers: evaluate the original program before bootstrap, reuse the seed without new demos, preserve objective averages and selection scalarization, and count validation passes against the GEPA budget. Fit required validation passes into the helper's implicit budget while respecting explicit limits. Collect only fresh traces from each bootstrap training run so inactive children cannot leak held-out baseline traces into demos.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

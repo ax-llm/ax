@@ -33,6 +33,14 @@ program.applyOptimization(result.optimizedProgram)
 
 Generated language packages expose the optimizer surface available in their AxIR API, usually as an `AxGEPA` engine.
 
+### Baseline Reporting In TypeScript
+
+TypeScript `optimize(...)` and `AxGEPA.compile()` return `baselineScore` and `baselineScores` for the program before bootstrap or prompt changes. Existing caller-supplied demos are part of that baseline. Compare `bestScore - baselineScore` to report the change, even when the original candidate is no longer on the Pareto frontier.
+
+Both scores use the same validation subset, sampling and metric or adapter. `baselineScores` holds averaged objective values (`{ score: value }` for scalar metrics), and `baselineScore` applies the same scalarization as `bestScore`. These fields are optional on the shared optimizer result because other optimizers may omit them. Save the baseline alongside the optimized artifact when recording experiments.
+
+When bootstrap adds demos, allow two validation passes within `maxMetricCalls`; without new demos, GEPA reuses the initial evaluation. The helper's implicit budget is at least 100 and grows when needed to fit those passes; an explicit budget stays unchanged. Bootstrap demo generation retains its separate limits and collects fresh training traces, excluding stale held-out traces from inactive children. Generated-language baseline reporting is tracked in the AxIR backlog.
+
 ## Common Patterns
 
 - Start with deterministic eval fixtures for the metric.

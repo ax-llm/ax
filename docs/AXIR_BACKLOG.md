@@ -30,6 +30,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.refusal-retry.test.ts`
   - Impact: Generated AxGen retry loops must remove an assistant turn streamed into memory before a provider refusal, so the retried request ends on the user or function-result message instead of an assistant prefill.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-10-28-expose-pre-bootstrap-optimizer-baseline-scores` [axoptimize] Expose pre-bootstrap optimizer baseline scores
+  - Status: open
+  - Source commit: `7948e19213325e41f39ba0715ad8fd2a89714210`
+  - TS paths: `src/ax/dsp/optimizer.ts`, `src/ax/dsp/optimize.ts`, `src/ax/dsp/optimizers/gepa.ts`, `src/ax/dsp/optimizers/gepaEvaluation.ts`, `src/ax/dsp/optimizers/bootstrapFewshot.ts`, `src/ax/dsp/optimizers/gepaBootstrap.ts`, `src/ax/dsp/optimizers/bootstrapTraces.ts`
+  - Impact: Port issue #869 baselineScore and baselineScores to generated optimizers: evaluate the original program before bootstrap, reuse the seed without new demos, preserve objective averages and selection scalarization, and count validation passes against the GEPA budget. Fit required validation passes into the helper's implicit budget while respecting explicit limits. Collect only fresh traces from each bootstrap training run so inactive children cannot leak held-out baseline traces into demos.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
