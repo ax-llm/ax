@@ -19,7 +19,7 @@ const llm = ai({
   name: 'openai',
   apiKey,
   config: {
-    model: AxAIOpenAIModel.GPT54Mini,
+    model: AxAIOpenAIModel.GPT56Luna,
     temperature: 0,
   },
 });
@@ -57,7 +57,7 @@ const result = await optimize(program, train, metric, {
   studentAI: llm,
   teacherAI: llm,
   numTrials: 1,
-  maxMetricCalls: 4,
+  maxMetricCalls: 12,
 });
 
 if (!result.optimizedProgram) {

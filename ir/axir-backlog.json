@@ -8,9 +8,7 @@
       "createdAt": "2026-06-07",
       "sourcePR": null,
       "sourceCommit": "4e8da4ba",
-      "tsPaths": [
-        "src/ax/mcp"
-      ],
+      "tsPaths": ["src/ax/mcp"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
       "suggestedAxirWork": [
@@ -51,9 +49,7 @@
       "createdAt": "2026-06-24",
       "sourcePR": 556,
       "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
-      "tsPaths": [
-        "src/ax/ai"
-      ],
+      "tsPaths": ["src/ax/ai"],
       "portableSurface": "axai",
       "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
       "suggestedAxirWork": [
@@ -121,9 +117,7 @@
       "createdAt": "2026-07-01",
       "sourcePR": null,
       "sourceCommit": "6d7286ce",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/coordinator.ts"
-      ],
+      "tsPaths": ["src/ax/agent/agentInternal/coordinator.ts"],
       "portableSurface": "axagent",
       "impact": "In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.",
       "suggestedAxirWork": [
@@ -296,9 +290,7 @@
       "createdAt": "2026-07-12",
       "sourcePR": null,
       "sourceCommit": "9c0520371669a553eed605351fdd5417a734da1f",
-      "tsPaths": [
-        "src/ax/event"
-      ],
+      "tsPaths": ["src/ax/event"],
       "portableSurface": "axprogram",
       "impact": "Generated Python, Java, C++, Go, and Rust now enforce strict same-instance retry ordering and normalize callback/default event input through the destination signature, including cloning accepted values, stripping undeclared fields, and rejecting invalid values before invocation.",
       "suggestedAxirWork": [
@@ -317,9 +309,7 @@
       "createdAt": "2026-07-12",
       "sourcePR": null,
       "sourceCommit": "47856347b35aed15f2ec0f7884c235f0868c3f88",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust now expose catalog snapshots, explicit/all/selector subscription policies, logical ownership, dynamic catalog reconciliation, reconnect restoration, and real Streamable HTTP/SSE wake/resume behavior.",
       "suggestedAxirWork": [
@@ -440,10 +430,7 @@
       "createdAt": "2026-07-14",
       "sourcePR": 561,
       "sourceCommit": "5dfd044af5b6ac2c1839a40262286fec7c55e2ec",
-      "tsPaths": [
-        "src/ax/ai/anthropic/types.ts",
-        "src/ax/ai/anthropic/api.ts"
-      ],
+      "tsPaths": ["src/ax/ai/anthropic/types.ts", "src/ax/ai/anthropic/api.ts"],
       "portableSurface": "axai",
       "impact": "TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ — the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).",
       "suggestedAxirWork": [
@@ -517,10 +504,7 @@
       "createdAt": "2026-07-21",
       "sourcePR": null,
       "sourceCommit": "f1d93bbcc79a4223e21c4197cf875a23e889c37f",
-      "tsPaths": [
-        "src/ax/ai/balance.ts",
-        "src/ax/ai/balance_adaptive.ts"
-      ],
+      "tsPaths": ["src/ax/ai/balance.ts", "src/ax/ai/balance_adaptive.ts"],
       "portableSurface": "axai",
       "impact": "Adds opt-in chat routing based on shared failure EWMA, log-latency Thompson sampling, deadline risk, and estimated provider cost.",
       "suggestedAxirWork": [
@@ -539,9 +523,7 @@
       "createdAt": "2026-07-21",
       "sourcePR": null,
       "sourceCommit": "1acfd7dede33f7de6c9e2c56a6457bfcec9c95a0",
-      "tsPaths": [
-        "src/ax/ai/google-gemini"
-      ],
+      "tsPaths": ["src/ax/ai/google-gemini"],
       "portableSurface": "axai",
       "impact": "TypeScript exposes the new Gemini 3.6 Flash and 3.5 Flash-Lite model IDs, catalog pricing and limits, explicit context caching, and server-managed sampling behavior. Generated Python, Java, C++, Go, and Rust providers do not yet expose equivalent model metadata or omit temperature, top_p, and top_k for these models.",
       "suggestedAxirWork": [
@@ -627,9 +609,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "8b69691ef0fb0d957428f198de38354b46b26069",
-      "tsPaths": [
-        "src/ax/mcp"
-      ],
+      "tsPaths": ["src/ax/mcp"],
       "portableSurface": "axmcp",
       "impact": "TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.",
       "suggestedAxirWork": [
@@ -648,9 +628,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients still initialize only the 2025-11-25 stateful lifecycle and do not probe server/discover, classify and cache an endpoint era, retry -32022 with a mutual version, or expose discover and getEra.",
       "suggestedAxirWork": [
@@ -669,9 +647,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/transports/httpStreamTransport.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/transports/httpStreamTransport.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust Streamable HTTP transports still build legacy session headers and do not derive Mcp-Method or Mcp-Name, validate RFC 9110 header values, or omit Mcp-Session-Id for modern requests.",
       "suggestedAxirWork": [
@@ -690,9 +666,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/cache.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/cache.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust catalog and resource readers ignore 2026-07-28 ttlMs and cacheScope metadata and lack the CacheableResult refresh and cache-expiry contract.",
       "suggestedAxirWork": [
@@ -711,9 +685,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/oauth/oauthHelper.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/oauth/oauthHelper.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust OAuth surfaces are currently stubs, so the RFC 9207 authorization-response iss check is a near-noop until their OAuth authorization-code flows become functional.",
       "suggestedAxirWork": [
@@ -732,9 +704,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/tasksV2.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/tasksV2.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients implement the legacy task draft only and do not negotiate io.modelcontextprotocol/tasks, expose task outcomes and tasks/update input, or consume embedded terminal results and errors.",
       "suggestedAxirWork": [
@@ -753,9 +723,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/meta.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/meta.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients do not attach 2026-07-28 protocolVersion and clientCapabilities metadata to every request, leaving a zero-footprint modern metadata boundary in the generated ports.",
       "suggestedAxirWork": [
@@ -774,9 +742,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust event adapters still use legacy resources/subscribe plus GET/SSE and Last-Event-ID; they do not issue or restart subscriptions/listen POST streams with modern interests.",
       "suggestedAxirWork": [
@@ -795,9 +761,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/mrtr.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/mrtr.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients initially could not fulfill modern input_required rounds. This completed first tranche deliberately covered roots only and is superseded by the MRTR elicitation host-callback tranche; sampling remains outside the generated-port scope.",
       "suggestedAxirWork": [
@@ -816,9 +780,7 @@
       "createdAt": "2026-07-30",
       "sourcePR": null,
       "sourceCommit": "4f0d018f",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "TypeScript can dispatch a legacy server-initiated elicitation/create request through the host handler, while generated clients currently expose elicitation only inside modern MRTR input rounds; Rust and C++ also lack general inbound server-request plumbing.",
       "suggestedAxirWork": [
@@ -837,10 +799,7 @@
       "createdAt": "2026-07-30",
       "sourcePR": null,
       "sourceCommit": "4f0d018f",
-      "tsPaths": [
-        "src/ax/mcp/mrtr.ts",
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/mrtr.ts", "src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.",
       "suggestedAxirWork": [
@@ -859,9 +818,7 @@
       "createdAt": "2026-07-30",
       "sourcePR": null,
       "sourceCommit": "4f0d018f",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.",
       "suggestedAxirWork": [
@@ -907,9 +864,7 @@
       "createdAt": "2026-07-31",
       "sourcePR": null,
       "sourceCommit": "9e4f3ed15f28dcc891556cc611ed7da997bb9aac",
-      "tsPaths": [
-        "src/ax/mcp/oauth/oauthHelper.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/oauth/oauthHelper.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust OAuth transports fabricate bearer tokens instead of performing RFC 9728 discovery, PKCE authorization-code or client-credentials exchange, 60-second-skew refresh, RFC 8707 resource binding, and RFC 9207 issuer validation against the discovered authorization server.",
       "suggestedAxirWork": [
@@ -1065,10 +1020,7 @@
       "createdAt": "2026-08-12",
       "sourcePR": 576,
       "sourceCommit": "2215088b466141dc82c31b8db9206c64295ada6a",
-      "tsPaths": [
-        "src/ax/ai/anthropic/info.ts",
-        "src/ax/ai/catalog.test.ts"
-      ],
+      "tsPaths": ["src/ax/ai/anthropic/info.ts", "src/ax/ai/catalog.test.ts"],
       "portableSurface": "axai",
       "impact": "Generated Python, Java, C++, Go, and Rust catalogs still embed the pre-correction Claude Sonnet 5 rates ($3/$15 per 1M, $0.30 cache read, $3.75 cache write), so cost estimates on those targets are ~50% high and cheapest-first model ordering ranks Sonnet 5 above its true cost.",
       "suggestedAxirWork": [
@@ -1087,9 +1039,7 @@
       "createdAt": "2026-08-13",
       "sourcePR": null,
       "sourceCommit": "83468e8c20e760ece48dc921c67c2bc874860f3f",
-      "tsPaths": [
-        "src/ax/ai/google-gemini"
-      ],
+      "tsPaths": ["src/ax/ai/google-gemini"],
       "portableSurface": "axai",
       "impact": "TypeScript should expose the Gemini 3.7 Flash model ID, catalog metadata, explicit context caching, and server-managed sampling behavior; generated language providers remain unchanged.",
       "suggestedAxirWork": [
@@ -1154,10 +1104,7 @@
       "createdAt": "2026-08-15",
       "sourcePR": null,
       "sourceCommit": "30ae9feee1833307577cc43408d9c0256f8693d7",
-      "tsPaths": [
-        "src/ax/dsp/prompt.ts",
-        "src/ax/agent/templates/dsp/dspy.md"
-      ],
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/agent/templates/dsp/dspy.md"],
       "portableSurface": "axgen",
       "impact": "Custom AxGen instructions must compose with identity, tools, exact output wire keys, nested shapes, examples, and formatting rules in TypeScript and every AxIR-generated package instead of replacing the structured prompt.",
       "suggestedAxirWork": [
@@ -1270,9 +1217,7 @@
       "createdAt": "2026-08-28",
       "sourcePR": null,
       "sourceCommit": "2eb335322230bc3a33ccca9744d55719063c29df",
-      "tsPaths": [
-        "ir/axcore/ai.axir"
-      ],
+      "tsPaths": ["ir/axcore/ai.axir"],
       "portableSurface": "axai",
       "impact": "Generated Python, Java, C++, Go, and Rust provider streams currently buffer complete HTTP response bodies before exposing normalized deltas, preventing time-to-first-token parity, prompt cancellation, and TypeScript-equivalent pre-content versus mid-stream failure behavior.",
       "suggestedAxirWork": [
@@ -1407,10 +1352,7 @@
       "createdAt": "2026-09-06",
       "sourcePR": 647,
       "sourceCommit": "039f1d7e36fc0dd05817d340350264376dd98e75",
-      "tsPaths": [
-        "src/ax/event/types.ts",
-        "src/ax/event/types.test.ts"
-      ],
+      "tsPaths": ["src/ax/event/types.ts", "src/ax/event/types.test.ts"],
       "portableSurface": "axprogram",
       "impact": "Generated system and manual event clocks need the TypeScript cancellation cleanup contract so successful and cancelled sleeps promptly release wake callbacks, timers, waiters, and condition registrations.",
       "suggestedAxirWork": [
@@ -1429,10 +1371,7 @@
       "createdAt": "2026-09-06",
       "sourcePR": 645,
       "sourceCommit": "2034b04f688bcfe64ffd8f728a4efccaa8045aff",
-      "tsPaths": [
-        "src/ax/util/apicall.ts",
-        "src/ax/util/apicall.test.ts"
-      ],
+      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/util/apicall.test.ts"],
       "portableSurface": "axai",
       "impact": "Generated Python, Java, C++, Go, and Rust provider operations need the TypeScript request cancellation cleanup contract across HTTP/SSE, retry, routing, forwarding, and custom transports, with terminal non-retryable aborted errors and no listener or attempt retention.",
       "suggestedAxirWork": [
@@ -1477,9 +1416,7 @@
       "createdAt": "2026-09-07",
       "sourcePR": 649,
       "sourceCommit": "0072270c8f6de37da546f739e6f8ef2c25ff7459",
-      "tsPaths": [
-        "src/ax/ai/openai/responses_api.ts"
-      ],
+      "tsPaths": ["src/ax/ai/openai/responses_api.ts"],
       "portableSurface": "axai",
       "impact": "Preserve parallel Responses calls, stream call identities and nonduplicated content, replay-only assistant payloads, and audio item metadata; reject early realtime closes before upload completion.",
       "suggestedAxirWork": [
@@ -1608,9 +1545,7 @@
       "createdAt": "2026-09-23",
       "sourcePR": null,
       "sourceCommit": "67d11445c97baa88e7234193c7a40f414e6147b3",
-      "tsPaths": [
-        "src/ax/ai/google-gemini/api.ts"
-      ],
+      "tsPaths": ["src/ax/ai/google-gemini/api.ts"],
       "portableSurface": "axai",
       "impact": "TypeScript captures Gemini thoughtSignature from response parts (stream and non-stream) into thoughtBlocks[].signature and replays it as thought_signature on the first functionCall part (or on the thought text part when there are no function calls) when rebuilding assistant turns. The AxIR Gemini response merge ignores thoughtSignature and the Gemini request builder never emits it, so every generated port's Gemini 3 tool loop fails on the second request with HTTP 400 'Function call is missing a thought_signature in functionCall parts' (live-reproduced 2026-09-23 with the Python port on gemini-3.6-flash once tool schemas moved to parametersJsonSchema). gen.axir already copies response thought_blocks into assistant memory, so only Gemini capture and replay are missing.",
       "suggestedAxirWork": [
@@ -1652,9 +1587,7 @@
       "createdAt": "2026-09-23",
       "sourcePR": null,
       "sourceCommit": "e690b4823b8309e258594064abe941d4cff6ef89",
-      "tsPaths": [
-        "src/ax/ai/audio/util.ts"
-      ],
+      "tsPaths": ["src/ax/ai/audio/util.ts"],
       "portableSurface": "axai",
       "impact": "TS speak() now reports sampleRate and channels from mime parameters such as audio/l16; rate=24000; channels=1 (Gemini 3.1 TTS). Generated ports return format and mime_type but not the parsed sampleRate/channels fields.",
       "suggestedAxirWork": [
@@ -1718,9 +1651,7 @@
       "createdAt": "2026-09-24",
       "sourcePR": null,
       "sourceCommit": null,
-      "tsPaths": [
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript AxGen retries a failed provider request only for infrastructure errors (AxAIServiceStatusError with a 5xx status, AxAIServiceNetworkError, AxAIServiceTimeoutError, AxAIServiceStreamTerminatedError), up to maxRetries (default 3) times with backoff, and surfaces every other error after one request. The generated ports retried every non-abort error up to infra_retries (default 2) and ignored maxRetries, so a 400, a 429, a response error or a pre-request rejection was sent twice more with backoff before surfacing. TypeScript also retries a model refusal (AxAIRefusalError) inside its validation loop: a refusal spends the validation budget, and the same prompt goes out again at once with no backoff and no correction message. The ports retried refusals in the infrastructure loop with backoff instead, and an infrastructure-only classifier alone would surface them after one request.",
       "suggestedAxirWork": [
@@ -1856,9 +1787,7 @@
       "createdAt": "2026-09-25",
       "sourcePR": null,
       "sourceCommit": "5debd12d19b90be27bd2035a9f131295a2cb36a9",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript AxGen gives each step maxRetries + 1 validation attempts (maxRetries defaults to 3, so 4) and starts every tool step with a fresh budget; refusals spend the same budget. The generated ports defaulted validation_retries to 2 (3 attempts), ignored maxRetries for validation, and counted attempts across all steps of the tool loop, so a later step could run out of retries that TypeScript would still grant.",
       "suggestedAxirWork": [
@@ -1925,9 +1854,7 @@
       "createdAt": "2026-09-25",
       "sourcePR": null,
       "sourceCommit": "54cb4074079188e739242edabcfff272708d3adc",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript AxGen nests the validation loop inside the infrastructure retry loop of each step: an infrastructure error (5xx status, network, timeout, terminated stream) spends one budget shared by the whole step (maxRetries, default 3) and restarts the validation loop with a fresh validation budget, and the next tool step starts with fresh budgets. The generated ports retried infrastructure errors per request, so each request got its own budget and a retry left the validation attempt count unchanged.",
       "suggestedAxirWork": [
@@ -1946,9 +1873,7 @@
       "createdAt": "2026-09-25",
       "sourcePR": null,
       "sourceCommit": "78de31b0b5b2b67a897fbfaafdaf1bff6c810800",
-      "tsPaths": [
-        "src/ax/ai/base.ts"
-      ],
+      "tsPaths": ["src/ax/ai/base.ts"],
       "portableSurface": "axai",
       "impact": "A TypeScript client built with models: [{ key, model | embedModel, modelConfig, thinkingTokenBudget, ... }] treats a request whose model (or embedModel) names a key as that entry's model: AxBaseAI.getModelByKey resolves the id, layers the key's modelConfig under the request's own and its option defaults (thinkingTokenBudget, showThoughts, serviceTier for chat, stream, debug, useExpensiveModel, beta) under the caller's options, and a key used as the client default resolves the id only. The generated ports stored the models list but never consulted it on single clients, so a key went out as the literal model name.",
       "suggestedAxirWork": [
@@ -1988,9 +1913,7 @@
       "createdAt": "2026-09-25",
       "sourcePR": null,
       "sourceCommit": "54cb4074079188e739242edabcfff272708d3adc",
-      "tsPaths": [
-        "src/ax/dsp/asserts.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/asserts.ts"],
       "portableSurface": "axgen",
       "impact": "In TypeScript an assertion that returns false without a message throws a plain Error (src/ax/dsp/asserts.ts:106), which the AxGen validation loop surfaces after one request; a string result or false with a message is an AxAssertionError and is retried within the validation budget. The generated ports retry all three. Not contained in IR: assertion evaluation and the message-less decision live in host code in every port (intrinsic.axgen.run_assertions in pyGen.py, goRuntime.go.txt, rustLib.rs, javaCore.java and cppRuntime.cpp), each raising a plain runtime error; callable assertions carry no message in any port API, and Go supports only declarative assertion specs. An IR-level fix needs a host-to-IR assertion outcome contract in all five ports.",
       "suggestedAxirWork": [
@@ -2033,10 +1956,7 @@
       "createdAt": "2026-09-26",
       "sourcePR": null,
       "sourceCommit": "a14c26b0f960cd360472b778263b606cbdda09fd",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts",
-        "src/ax/ai/util.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts", "src/ax/ai/util.ts"],
       "portableSurface": "axgen",
       "impact": "A TypeScript AxGen forward with stream: true streams the model's response and folds its chunks into one answer (content and thought append; function-call fragments merge by id), so its output matches a non-streaming forward, thought included. In the generated ports complete_once handed a streamed chat result straight to chat_response_to_completion: the Python port parsed empty content and its retry was rejected locally, and the other ports sent a non-streaming request.",
       "suggestedAxirWork": [
@@ -2055,10 +1975,7 @@
       "createdAt": "2026-09-26",
       "sourcePR": null,
       "sourceCommit": "1d0811ccc9cc29a501e64cc32752623b77c9738f",
-      "tsPaths": [
-        "src/ax/dsp/optimizers/ace.ts",
-        "src/ax/dsp/playbook.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/optimizers/ace.ts", "src/ax/dsp/playbook.ts"],
       "portableSurface": "axoptimize",
       "impact": "TypeScript's ACE reflector and curator programs get the playbook as JSON.stringify({markdown, structured}), the example's input fields as the question and its output fields as the expected answer, bounded to maxSerializedFieldChars. The ports passed the rendered markdown, which is empty for an empty playbook, so the reflector's required playbook input failed and playbook().evolve never grew the playbook.",
       "suggestedAxirWork": [
@@ -2188,9 +2105,7 @@
       "createdAt": "2026-09-26",
       "sourcePR": null,
       "sourceCommit": "aaf45800d6ea5337041ab120e1947fde480fccb0",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "When the model calls a user stop function, TypeScript AxGen runs it and ends the forward with an empty output: the tool result is not an output, and neither is any content or the stop step's thought, while earlier tool steps' thought is kept. The generated ports validated the last tool result against the output signature and returned it as the output.",
       "suggestedAxirWork": [
@@ -2255,10 +2170,7 @@
       "createdAt": "2026-09-26",
       "sourcePR": null,
       "sourceCommit": "a14c26b0f960cd360472b778263b606cbdda09fd",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts",
-        "src/ax/dsp/response/streaming.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts", "src/ax/dsp/response/streaming.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript AxGen streamingForward yields { version, index, delta } field deltas, with the thought as a delta under the thought field, and re-emits values with a new version after a retry. The generated ports' streaming APIs (streaming_forward / stream and their equivalents) yield the provider's raw chat response chunks instead. Thought chunks already reach callers as raw results[].thought, and a forward with stream: true returns the folded answer and thought.",
       "suggestedAxirWork": [
@@ -2375,9 +2287,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "ec229a1fe66ae91383e7befff2205894e123abac",
-      "tsPaths": [
-        "src/ax/flow/flow.ts"
-      ],
+      "tsPaths": ["src/ax/flow/flow.ts"],
       "portableSurface": "axflow",
       "impact": "TypeScript AxFlow.forward reads a per-call or process-wide cachingFunction before running (a hit runs no node, read errors are ignored, a run control skips it) and stores its returned output afterwards; its options also reach the AxGen nodes. The ports had only a cache_store test seam at the flow level, so a flow cached nothing of its own. TypeScript also keyed a flow without nodes differently on its first call, so its first entry was never read.",
       "suggestedAxirWork": [
@@ -2419,10 +2329,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "1c83032daba575846bae2d85eb88e74a4605b6ed",
-      "tsPaths": [
-        "src/ax/ai/validate.ts",
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/ai/validate.ts", "src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript checks every part of a response's function calls before any function runs (AxMemory.addResponse for a forward, the merged calls for a stream): a null call, a missing or non-string id, a type other than 'function', no function object, no name, or params that are not a string or an object fail the run at once with its message. The ports checked only the name (#754), under functionCallValidation: a call with a bad id, type or params ran as given, and a null call or one without a function object got the nameless correction. TypeScript's forward itself threw a TypeError ('Cannot read properties of null') for a null call or one without a function object, because the chat log read the call before the check; a stream failed with the check's message.",
       "suggestedAxirWork": [
@@ -2441,9 +2348,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "54f626c2a0bff242fea15d356b7f9b325d6befae",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript applies a run control's pending updates when each step starts (a steer is a user message that stays in memory, a thinking level sets the budget, each starts a new streaming version) and takes another step after a final answer while an update is pending. The ports returned the first answer: a steer queued while the request was in flight was never applied and no applied event was emitted.",
       "suggestedAxirWork": [
@@ -2555,10 +2460,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "a0db9f007391c0cabc498eeafcaa308341032a2d",
-      "tsPaths": [
-        "src/ax/dsp/chatSession.ts",
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/chatSession.ts", "src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript's axRunChatSession lets one model request's native session make (maxSteps ?? 25) - stepIndex responses (generate.ts maxResponses) and then fails with 'Chat session failed: Maximum steps reached with unincorporated tool results (N); unresolved calls: ...'. The ports cap a session at the max_steps option or 10, without the step index, and fail with 'Maximum model steps exhausted before final completion'. Reproduced with a scripted session of 10 sequential tool-call responses and a final answer (11 responses): TypeScript completes with {answer: done} after 10 continues; Python on the 3b-2 branch fails with 'Generate failed: Maximum model steps exhausted before final completion'. At 26 responses TypeScript fails with its message. Go, Java, Rust and C++ create the session state with the same max_steps default of 10 (read, not run). Affects session-capable providers only, for a request whose session makes 11 to 25 responses.",
       "suggestedAxirWork": [
@@ -2577,9 +2479,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "4867ffe31e2ea7176ce7f9bbf1275f64a122c4c3",
-      "tsPaths": [
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript's AxGen takes an abortSignal in its constructor as the default for every forward, which a call's own abortSignal replaces. Python and Java honored a constructor cancellation token that way; Go, C++ and Rust took cancellation per call only (a ctx or a token), so a program could not carry one.",
       "suggestedAxirWork": [
@@ -2643,9 +2543,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "af38cd35839a83461ac28242a01a10fd9ff1632c",
-      "tsPaths": [
-        "src/ax/dsp/extract/delta.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/extract/delta.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript joins an escaped surrogate pair split across stream events into one character (a trailing high surrogate waits for its low half). Go's encoding/json decodes each lone surrogate escape to U+FFFD, so the character is lost (two U+FFFD). Rust's serde_json rejects a lone surrogate escape, which failed the whole stream; since 2e its SSE parsers read each lone half as U+FFFD (the same loss as Go), and its WebSocket frame parsers (realtime and native chat sessions) still fail on one. Python and Java hold lone surrogates natively, and C++ keeps them as WTF-8 and joins them (2e). Go and Rust need surrogate-preserving JSON decoding of stream events (for example a pre-pass that turns escaped UTF-16 surrogates into WTF-8) plus 2e's join intrinsics, and then run streaming-forward-split-surrogate-pair instead of skipping it.",
       "suggestedAxirWork": [
@@ -2833,9 +2731,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "439191e63628f5cd82001ffbdb8f2f89cab10023",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "TypeScript's AxMCPClient returns a modern server's task through callToolOutcome or callTool taskHandling expose, records it, and asks its modern listener for the task's notifications (taskIds). The Python, Go, Java, C++ and Rust clients only auto-awaited a task, never sent taskIds, and Core normalized only the legacy notifications/tasks/status. The five task-resume examples read a legacy task shape and failed against the modern demo server (KeyError, nil map, NPE, unwrap None, timeout).",
       "suggestedAxirWork": [
@@ -2902,10 +2798,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "6b9f5659470a0fd756101b79acc5a6fb52ce9748",
-      "tsPaths": [
-        "src/ax/util/apicall.ts",
-        "src/ax/ai/base.ts"
-      ],
+      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/ai/base.ts"],
       "portableSurface": "axai",
       "impact": "TypeScript's apiCall sends a request again after a network error or a status in retryableStatusCodes (500, 408, 429, 502, 503, 504, 529 by default), streaming or not, under the call's retry options, else the client's. It waits min(maxDelayMs, initialDelayMs * backoffFactor^attempt) times a 0.75-1.25 jitter, or a status response's Retry-After when that is no longer than maxDelayMs, and never retries a timeout, an abort, a 401 or a 403. The ports sent non-streaming chat, embed and context-cache requests once, and retried a stream's open with their own wait (no jitter, no Retry-After, a fixed status list), also for AxAIServiceResponseError, AxAIServiceStreamTerminatedError and a stream whose first event fails to read, which apiCall does not retry.",
       "suggestedAxirWork": [
@@ -2924,10 +2817,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "d691dd63fb7f6ec665309a3c354322e6320f229d",
-      "tsPaths": [
-        "src/ax/dsp/chatSession.ts",
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/chatSession.ts", "src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript's axRunChatSession opens a native chat session for each AxGen request and closes it when the request's response completes; a validation or assertion correction (and a processor-feedback continuation) is a new request, so it opens a fresh session whose prompt ends with the correction message. The ports keep one session for the whole run and steer it with the correction text, then continue it: reproduced in Python with a scripted session (TS: open, close, open with the correction [{type: 'text', text: 'Follow these instructions: The answer must be Paris.'}], close; Python: open, steer 'The previous response failed validation: The answer must be Paris.. Return only corrected JSON.', continue, close). The request sequence on the wire differs for session-capable providers (for example GPT-6 Astra WebSocket sessions).",
       "suggestedAxirWork": [
@@ -3014,10 +2904,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "de478da3e9660d6cf727dc38ab6b43b6a0b88c4c",
-      "tsPaths": [
-        "src/ax/ai/audio/api.ts",
-        "src/ax/ai/audio/types.ts"
-      ],
+      "tsPaths": ["src/ax/ai/audio/api.ts", "src/ax/ai/audio/types.ts"],
       "portableSurface": "axai",
       "impact": "TypeScript speak() returns AxSpeechResponse: data, format, mimeType, sampleRate and channels from the mime type, and the request text as transcript. The ports returned audio, mime_type and sample_rate. A port speak() result fed to the next program as an audio input fails the ports' own validation, which, like TypeScript's validAudio, needs a string or an object with a data or id key.",
       "suggestedAxirWork": [
@@ -3035,10 +2922,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "f3c069b14",
-      "tsPaths": [
-        "src/ax/util/apicall.ts",
-        "src/ax/util/apicall.test.ts"
-      ],
+      "tsPaths": ["src/ax/util/apicall.ts", "src/ax/util/apicall.test.ts"],
       "portableSurface": "axai",
       "impact": "Python and Java provider errors kept the whole transport call on error.request (Authorization, x-api-key and x-goog-api-key headers included) and no port read includeRequestBodyInErrors; Go and Rust realtime connect errors repeated the Gemini Live ?key= URL and Java kept it on the handshake response. Provider errors now keep only what TypeScript's AxAIServiceError keeps: the URL, plus the body unless includeRequestBodyInErrors is false.",
       "suggestedAxirWork": [
@@ -3104,10 +2988,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "de478da3e9660d6cf727dc38ab6b43b6a0b88c4c",
-      "tsPaths": [
-        "src/ax/dsp/audioArtifacts.ts",
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/audioArtifacts.ts", "src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript AxGen turns the text in a non-array audio output field into audio with ai.speak(). The request is speech.speak, then speech.fields.<field>, then the text; the field becomes the speak() result, with the text as its transcript unless speak() gave one. It renders after forward, on a cachingFunction cache hit and on the streamingForward delta that a result picker selects. The ports never called speak() for an output and returned the model's text.",
       "suggestedAxirWork": [
@@ -3125,10 +3006,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "35469b35c0b41678fc1b5e2858766fbffeb52aad",
-      "tsPaths": [
-        "src/ax/dsp/prompt.ts",
-        "src/ax/dsp/generate.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/dsp/generate.ts"],
       "portableSurface": "axgen",
       "impact": "TypeScript builds each forward's prompt template for the selected rung (structuredOutput when a rung is selected, the __axOutput function name and function under the function rung), so the system prompt ends its output fields with the exact JSON shape and gives the rung's formatting rule, with no turn after the user message; a provider that requires structured output gets a rung chosen by its modes. The ports appended a user instruction turn on every structured rung, gave the function rung the JSON rule without listing __axOutput, left a forced- or requires-structured simple signature (such as the agent actor stage) on the text-contract rule while demanding JSON, and always chose the native rung for requiresStructuredOutput.",
       "suggestedAxirWork": [
@@ -3213,9 +3091,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "0b6a079a75591e15c7be5cabd3e12d2ca23146b7",
-      "tsPaths": [
-        "src/ax/funcs/jsRuntime.ts"
-      ],
+      "tsPaths": ["src/ax/funcs/jsRuntime.ts"],
       "portableSurface": "runtime",
       "impact": "TS's AxJSRuntime captures console.log output as the execution result (stdout mode) and the actor sees it in its action log. The Java AxQuickJsCodeRuntime (AxQuickJsCodeSession.__ax_run) returns only the completion and the bindings, so console.log output never reaches the actor: live (gemini-3.5-flash, Java data-analyst example on 3b03f7c10, before and after #765) the distiller logged inputs.schema about 40 times, each with an empty Result, and failed with 'agent distiller loop exceeded max steps'. After #765 the same example answered correctly in Python, Go, Rust and C++; checking their console capture is part of the fix.",
       "suggestedAxirWork": [
@@ -3233,10 +3109,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "b5130b8359db5173fe09c312d93612f9635ba86f",
-      "tsPaths": [
-        "src/ax/flow/flow.ts",
-        "src/ax/flow/executor.ts"
-      ],
+      "tsPaths": ["src/ax/flow/flow.ts", "src/ax/flow/executor.ts"],
       "portableSurface": "axflow",
       "impact": "TypeScript's executor runs every node at <parent>/<node>, with or without a flow control, so a node's own run control (an AxGen constructor control) reports the node's path; and AxFlow.forward emits the flow's own started, completed or failed at its path. The ports set a node's path only under a flow control (a node's own control reported root) and never emitted the flow's lifecycle, so a flow control heard only its nodes.",
       "suggestedAxirWork": [
@@ -3284,10 +3157,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "67b2e78e8",
-      "tsPaths": [
-        "src/ax/ai/audio/api.ts",
-        "src/ax/ai/google-gemini/api.ts"
-      ],
+      "tsPaths": ["src/ax/ai/audio/api.ts", "src/ax/ai/google-gemini/api.ts"],
       "portableSurface": "axai",
       "impact": "The ports' OpenAI speak defaulted to tts-1 (TypeScript gpt-4o-mini-tts), sent a voice object whole, dropped speed and sent pcm16; Mistral went through the OpenAI builder (TypeScript's mistral-speech dialect sends voxtral-mini-tts-2603 and voice_id); Grok dropped speed. JSON speech bodies were read from their audio key or passed through whole, binary bodies lost their Content-Type, and Gemini audio without a mime type was labelled wav. TypeScript's axFetchJsonSpeech reads the audio_data, audioData, data, audio.data, output.audio.data and inline data keys, raises when none holds audio, and takes the mime type from the Content-Type.",
       "suggestedAxirWork": [
@@ -3327,9 +3197,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "0a2c467d45cbf24fa9a76a40b5cd4d41e3a9e346",
-      "tsPaths": [
-        "src/ax/ai/base.ts"
-      ],
+      "tsPaths": ["src/ax/ai/base.ts"],
       "portableSurface": "axai",
       "impact": "normalizeForStableStringify in src/ax/ai/base.ts orders object keys with localeCompare, which depends on the machine's locale; the ports' stable_stringify sorts by code point. For mixed-case keys the context-cache tool-state hash, and so the provider cache key, differs between TS and the ports and between TS machines. Measure where the hash is persisted before choosing code-point order in TS.",
       "suggestedAxirWork": [
@@ -3348,9 +3216,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "c3662628d8916a174fc1ef3bd0484f7b3ffd989c",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/pipelineForward.ts"
-      ],
+      "tsPaths": ["src/ax/agent/agentInternal/pipelineForward.ts"],
       "portableSurface": "axagent",
       "impact": "TypeScript AxAgent.streamingForward now runs its stages under root/distiller, root/executor and root/responder and reports the run at root, as forward does (a steer targeted at a stage used to be ignored while streaming); the ports gain AxAgent streaming forward and the same run-control events",
       "suggestedAxirWork": [
@@ -3392,9 +3258,7 @@
       "createdAt": "2026-09-27",
       "sourcePR": null,
       "sourceCommit": "46b4182ccb5f3570c9c5f4d7bf6186c2a0a67f68",
-      "tsPaths": [
-        "src/ax/util/apicall.ts"
-      ],
+      "tsPaths": ["src/ax/util/apicall.ts"],
       "portableSurface": "axai",
       "impact": "TypeScript's apiCall raises AxAIServiceTimeoutError for a timeout and AxAIServiceNetworkError for a failed connection, and AxGen retries both as infrastructure errors (the #703/#707 classification). Rust's reqwest transport maps them to an untyped, non-retryable AxError (category ai_service), as a per-call timeout in seconds shows on origin/main ('error sending request for url', no error type). The other ports' real HTTP clients (urllib, net/http, HttpClient, libcurl) are not yet audited against TypeScript for these two cases.",
       "suggestedAxirWork": [
@@ -3579,10 +3443,7 @@
       "createdAt": "2026-10-14",
       "sourcePR": 847,
       "sourceCommit": "be1ada76bc7c9540ab2eb7d94289118038a1a2df",
-      "tsPaths": [
-        "src/ax/mcp/client.ts",
-        "src/ax/mcp/client.test.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts", "src/ax/mcp/client.test.ts"],
       "portableSurface": "axmcp",
       "impact": "AxMCPClient.ping() now clears its timeout timer and listeningDelay() removes its abort listener when the delay elapses; the AxIR ports of the MCP client should mirror this",
       "suggestedAxirWork": [
@@ -3680,10 +3541,7 @@
       "createdAt": "2026-10-18",
       "sourcePR": 856,
       "sourceCommit": "826d1b142070f4dc07b68069c3f41996258a4847",
-      "tsPaths": [
-        "src/ax/dsp/eval.ts",
-        "src/ax/dsp/eval.test.ts"
-      ],
+      "tsPaths": ["src/ax/dsp/eval.ts", "src/ax/dsp/eval.test.ts"],
       "portableSurface": "axgen",
       "impact": "Generated evaluation helpers must match the TypeScript metric's history and stopword exclusions, multiset overlap, recall, and finite empty-input convention.",
       "suggestedAxirWork": [
@@ -3716,6 +3574,33 @@
       "completedAt": "2026-10-21",
       "completedByCommit": "61dee3a131a42b983c4b9ac6ef71158b06c3c6c6",
       "verification": "All six streaming-forward-string-repair-* fixtures passed in Python, Java, C++, Go, and Rust, asserting TypeScript intermediate deltas and final values including escaped quotes."
+    },
+    {
+      "id": "axir-2026-10-28-expose-pre-bootstrap-optimizer-baseline-scores",
+      "status": "open",
+      "title": "Expose pre-bootstrap optimizer baseline scores",
+      "createdAt": "2026-10-28",
+      "sourcePR": null,
+      "sourceCommit": "7948e19213325e41f39ba0715ad8fd2a89714210",
+      "tsPaths": [
+        "src/ax/dsp/optimizer.ts",
+        "src/ax/dsp/optimize.ts",
+        "src/ax/dsp/optimizers/gepa.ts",
+        "src/ax/dsp/optimizers/gepaEvaluation.ts",
+        "src/ax/dsp/optimizers/bootstrapFewshot.ts",
+        "src/ax/dsp/optimizers/gepaBootstrap.ts",
+        "src/ax/dsp/optimizers/bootstrapTraces.ts"
+      ],
+      "portableSurface": "axoptimize",
+      "impact": "Port issue #869 baselineScore and baselineScores to generated optimizers: evaluate the original program before bootstrap, reuse the seed without new demos, preserve objective averages and selection scalarization, and count validation passes against the GEPA budget. Fit required validation passes into the helper's implicit budget while respecting explicit limits. Collect only fresh traces from each bootstrap training run so inactive children cannot leak held-out baseline traces into demos.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
@@ -3728,21 +3613,14 @@
         "src/ax/agent/agentInternal/agentStateTypes.ts"
       ],
       "scopedFiles": [],
-      "tags": [
-        "claim-complete",
-        "target-native",
-        "public-inventory"
-      ],
+      "tags": ["claim-complete", "target-native", "public-inventory"],
       "reason": "The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.",
       "createdAt": "2026-07-22"
     },
     {
       "id": "chrome-ai-browser-only",
       "surface": "axai",
-      "paths": [
-        "src/ax/ai/chrome-ai",
-        "src/examples/chrome-ai-chat.html"
-      ],
+      "paths": ["src/ax/ai/chrome-ai", "src/examples/chrome-ai-chat.html"],
       "scopedFiles": [
         "src/ax/ai/wrap.ts",
         "src/ax/ai/catalog.ts",
@@ -3751,22 +3629,14 @@
         "src/ax/ai/provider_profiles.ts",
         "src/ax/skills/ax-ai.md"
       ],
-      "tags": [
-        "chrome-ai",
-        "browser-only",
-        "typescript-only",
-        "host-engine"
-      ],
+      "tags": ["chrome-ai", "browser-only", "typescript-only", "host-engine"],
       "reason": "Chrome Built-in AI uses the browser LanguageModel JavaScript host API. The provider is TypeScript/JavaScript only and is excluded from portable AxIR catalogs and Python/Java/C++/Go/Rust packages.",
       "createdAt": "2026-10-04"
     },
     {
       "id": "webllm-browser-only",
       "surface": "axai",
-      "paths": [
-        "src/ax/ai/webllm",
-        "src/examples/webllm-chat.html"
-      ],
+      "paths": ["src/ax/ai/webllm", "src/examples/webllm-chat.html"],
       "scopedFiles": [
         "src/ax/ai/wrap.ts",
         "src/ax/ai/catalog.ts",
@@ -3774,12 +3644,7 @@
         "src/ax/ai/wrap.test.ts",
         "src/ax/skills/ax-ai.md"
       ],
-      "tags": [
-        "webllm",
-        "browser-only",
-        "webgpu",
-        "host-engine"
-      ],
+      "tags": ["webllm", "browser-only", "webgpu", "host-engine"],
       "reason": "WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.",
       "createdAt": "2026-06-26"
     }

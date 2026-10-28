@@ -21,7 +21,7 @@ const createSingleRootProgram = (
     },
     getSignature: () => ({
       getDescription: () => baseInstruction,
-      toString: () => `\"${baseInstruction}\" question:string -> answer:string`,
+      toString: () => `"${baseInstruction}" question:string -> answer:string`,
     }),
     namedProgramInstances: () => [{ id, program }],
     getOptimizableComponents: () => [
@@ -61,7 +61,7 @@ const createInstructionNode = (id: string, description: string) => {
     },
     getSignature: () => ({
       getDescription: () => description,
-      toString: () => `\"${description}\" input:string -> output:string`,
+      toString: () => `"${description}" input:string -> output:string`,
     }),
     getOptimizableComponents: () => [
       {
@@ -133,6 +133,9 @@ describe('AxGEPA Optimizer', () => {
       );
 
       expect(result.bestScore).toBe(1);
+      expect(result.baselineScore).toBe(1);
+      expect(result.baselineScores).toEqual({ score: 1 });
+      expect(result.stats.totalCalls).toBe(2);
       expect(result.paretoFront[0]?.scores).toEqual({ score: 1 });
       expect(result.optimizedProgram?.componentMap).toEqual({
         'root::instruction': 'task',
@@ -219,7 +222,13 @@ describe('AxGEPA Optimizer', () => {
               },
             },
           ];
-          return { answer: example.answer };
+          return {
+            answer:
+              example.question.startsWith('held-out') &&
+              appliedDemos.length === 0
+                ? 'wrong'
+                : example.answer,
+          };
         },
         getTraces: () => latestTraces,
         setDemos: (demos: any[]) => {
@@ -240,7 +249,11 @@ describe('AxGEPA Optimizer', () => {
           (prediction as any).answer === (example as any).answer ? 1 : 0,
         {
           bootstrap: true,
-          maxMetricCalls: 2,
+          maxMetricCalls: 4,
+          validationExamples: [
+            { question: 'held-out-1', answer: 'v1' },
+            { question: 'held-out-2', answer: 'v2' },
+          ],
         }
       );
 
@@ -253,6 +266,134 @@ describe('AxGEPA Optimizer', () => {
         ],
       });
       expect(result.optimizedProgram?.demos).toEqual(appliedDemos);
+      expect(result.baselineScore).toBe(0);
+      expect(result.bestScore).toBe(1);
+      expect(result.stats.totalCalls).toBe(6);
+    });
+
+    it('reuses the baseline evaluation when bootstrap produces no demos', async () => {
+      let calls = 0;
+      const program = createSingleRootProgram('task', () => {
+        calls++;
+        return { score: 0 };
+      });
+      const result = await new AxGEPA({
+        studentAI: {} as AxAIService,
+        numTrials: 0,
+      }).compile(
+        program as any,
+        [{ question: 'q1' }, { question: 'q2' }],
+        ({ prediction }) => prediction.score,
+        { bootstrap: true, maxMetricCalls: 2 }
+      );
+      expect(result.baselineScore).toBe(0);
+      expect(result.bestScore).toBe(0);
+      expect(result.stats.totalCalls).toBe(4);
+      expect(calls).toBe(4);
+    });
+
+    it('uses adapter objectives for the baseline without extra evaluations', async () => {
+      let evaluations = 0;
+      const program = createSingleRootProgram('task', () => {
+        throw new Error('direct evaluation must not run');
+      });
+      const result = await new AxGEPA({
+        studentAI: {} as AxAIService,
+        numTrials: 0,
+      }).compile(
+        program as any,
+        [{ question: 'q1' }, { question: 'q2' }],
+        () => {
+          throw new Error('adapter owns scoring');
+        },
+        {
+          maxMetricCalls: 2,
+          gepaAdapter: {
+            evaluate: (batch) => {
+              evaluations++;
+              return {
+                outputs: batch.map(() => ({})),
+                scores: [0, 0],
+                scoreVectors: [{ quality: 0.4 }, { quality: 0.8 }],
+              };
+            },
+            make_reflective_dataset: () => ({}),
+          },
+        }
+      );
+      expect(result.baselineScore).toBeCloseTo(0.6);
+      expect(result.baselineScores?.quality).toBeCloseTo(0.6);
+      expect(evaluations).toBe(1);
+      expect(result.stats.totalCalls).toBe(2);
+    });
+
+    it('retains the original baseline when an improved candidate dominates the seed', async () => {
+      const optimizer = new AxGEPA({
+        studentAI: {} as AxAIService,
+        numTrials: 1,
+        minibatch: false,
+      });
+      (optimizer as any).reflectTargetInstruction = async () => 'better';
+      const program = createSingleRootProgram('task', (instruction) => ({
+        score: instruction === 'better' ? 1 : 0.25,
+      }));
+      const result = await optimizer.compile(
+        program as any,
+        [{ question: 'q1' }, { question: 'q2' }],
+        ({ prediction }) => prediction.score,
+        { maxMetricCalls: 20 }
+      );
+
+      expect(result.bestScore).toBe(1);
+      expect(result.baselineScore).toBe(0.25);
+      expect(result.baselineScores).toEqual({ score: 0.25 });
+      expect(
+        result.paretoFront.every((point) => point.configuration.candidate !== 0)
+      ).toBe(true);
+    });
+
+    it('scalarizes the averaged baseline objectives on the same held-out set as selection', async () => {
+      const optimizer = new AxGEPA({
+        studentAI: {} as AxAIService,
+        numTrials: 0,
+        sampleCount: 3,
+      });
+      const seen: unknown[] = [];
+      const program = createSingleRootProgram('task', () => ({}));
+      program.forward = async (_ai, example, options?: any) => {
+        seen.push({ example, sampleCount: options?.sampleCount });
+        return example;
+      };
+      const validation = [
+        { quality: 0.2, brevity: 1 },
+        { quality: 0.8, brevity: 0 },
+      ];
+      const result = await optimizer.compile(
+        program as any,
+        [
+          { quality: 1, brevity: 1 },
+          { quality: 1, brevity: 1 },
+        ],
+        ({ prediction }) => ({
+          quality: prediction.quality,
+          brevity: prediction.brevity,
+        }),
+        {
+          validationExamples: validation,
+          maxMetricCalls: 2,
+          paretoScalarize: (scores: Record<string, number>) =>
+            scores.quality! ** 2 + scores.brevity!,
+        } as any
+      );
+
+      expect(result.baselineScores).toEqual({ quality: 0.5, brevity: 0.5 });
+      expect(result.baselineScore).toBe(0.75);
+      expect(result.bestScore).toBe(result.baselineScore);
+      expect(seen).toEqual(
+        validation.map((example) => ({ example, sampleCount: 3 }))
+      );
+      result.baselineScores!.quality = 0;
+      expect(result.paretoFront[0]?.scores.quality).toBe(0.5);
     });
 
     it('throws before spending calls when maxMetricCalls cannot cover the initial Pareto set', async () => {

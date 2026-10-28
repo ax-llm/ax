@@ -14,7 +14,7 @@ import {
   type AxParetoResult,
 } from '../optimizer.js';
 import { ax } from '../template.js';
-import type { AxGenOut, AxProgrammable } from '../types.js';
+import type { AxGenOut, AxProgramDemos, AxProgrammable } from '../types.js';
 import type { AxGEPAAdapter } from './gepaAdapter.js';
 import {
   bootstrapGEPADemos,
@@ -27,7 +27,9 @@ import {
 import { getGEPAUpdateGroup } from './gepaDependencies.js';
 import {
   type AxGEPABatchEvaluation,
+  type AxGEPAEvaluationState,
   evaluateGEPABatch,
+  getGEPAParetoSetSize,
   normalizeGEPAScores,
   scalarizeGEPAScores,
 } from './gepaEvaluation.js';
@@ -184,11 +186,7 @@ export class AxGEPA extends AxBaseOptimizer {
     this.minImprovementThreshold = args.minImprovementThreshold ?? 0.0;
     this.sampleCount = args.sampleCount ?? 1;
     // How many validation instances to track for Pareto set (cap cost)
-    const argPareto = (args as any)?.paretoSetSize as number | undefined;
-    this.paretoSetSize =
-      argPareto && argPareto > 0
-        ? Math.min(1000, Math.max(5, Math.floor(argPareto)))
-        : Math.max(10, Math.min(200, this.minibatchSize * 3));
+    this.paretoSetSize = getGEPAParetoSetSize(args);
 
     // GEPA+ defaults
     const argCrossoverEvery = (args as any)?.crossoverEvery as
@@ -230,7 +228,40 @@ export class AxGEPA extends AxBaseOptimizer {
   }
 
   /**
-   * Multi-objective GEPA: reflective evolution with Pareto frontier
+   * Prepare demonstrations after measuring the original program. The optimize()
+   * helper overrides this phase to compose AxBootstrapFewShot with GEPA.
+   */
+  protected async bootstrapProgram<IN, OUT extends AxGenOut>(
+    program: Readonly<AxProgrammable<IN, OUT>>,
+    examples: readonly AxTypedExample<IN>[],
+    metricFn: AxMetricFn | AxMultiMetricFn,
+    options: AxCompileOptions | undefined,
+    cfg: Readonly<Record<string, string>>,
+    state: AxGEPAEvaluationState
+  ): Promise<{ demos: AxProgramDemos<any, OUT>[]; metricCalls: number }> {
+    const bootstrapOptions = resolveBootstrapOptions(
+      options?.bootstrap,
+      examples.length
+    );
+    if (!bootstrapOptions) return { demos: [], metricCalls: 0 };
+
+    return bootstrapGEPADemos({
+      program,
+      ai: this.studentAI,
+      examples,
+      metricFn,
+      cfg,
+      applyConfig: (config) => applyGEPAComponentConfig(program, config),
+      options: bootstrapOptions,
+      state,
+      sampleCount: this.sampleCount,
+    });
+  }
+
+  /**
+   * Multi-objective GEPA: reflective evolution with Pareto frontier.
+   * Baseline scores describe the program before any configured bootstrap phase,
+   * using the same validation subset, sampling and scalarization as bestScore.
    */
   public async compile<IN, OUT extends AxGenOut>(
     program: Readonly<AxProgrammable<IN, OUT>>,
@@ -357,37 +388,36 @@ export class AxGEPA extends AxBaseOptimizer {
       baseCfg[target.id] = target.current;
     }
 
-    const bootstrapOptions = resolveBootstrapOptions(
-      (options as any)?.bootstrap,
-      examples.length
-    );
-    let bootstrappedDemos: any[] = [];
-    if (bootstrapOptions) {
-      const bootstrapResult = await bootstrapGEPADemos({
-        program,
-        ai: this.studentAI,
-        examples,
-        metricFn,
-        cfg: baseCfg,
-        applyConfig,
-        options: bootstrapOptions,
-        state: evaluationState,
-        sampleCount: this.sampleCount,
-      });
-      bootstrappedDemos = bootstrapResult.demos;
-      bootstrapMetricCalls = bootstrapResult.metricCalls;
-      this.stats.totalCalls = bootstrapMetricCalls;
-      if (bootstrappedDemos.length > 0) {
-        program.setDemos(bootstrappedDemos);
-      }
-    }
-
-    const baseEval = await evalBatch(
+    const baselineEval = (await evalBatch(
       baseCfg,
       paretoSet,
       'initial Pareto evaluation',
       true
+    ))!;
+    const baselineScores = { ...baselineEval.avg };
+    const baselineScore = scalarize(baselineScores);
+
+    const bootstrapResult = await this.bootstrapProgram(
+      program,
+      examples,
+      metricFn,
+      options,
+      baseCfg,
+      evaluationState
     );
+    const bootstrappedDemos = bootstrapResult.demos;
+    bootstrapMetricCalls = bootstrapResult.metricCalls;
+    this.stats.totalCalls = bootstrapMetricCalls + evaluationState.totalCalls;
+    let baseEval = baselineEval;
+    if (bootstrappedDemos.length > 0) {
+      program.setDemos(bootstrappedDemos);
+      baseEval = (await evalBatch(
+        baseCfg,
+        paretoSet,
+        'bootstrapped Pareto evaluation',
+        true
+      ))!;
+    }
     const candidates: {
       cfg: Record<string, string>;
       parent?: number;
@@ -396,11 +426,11 @@ export class AxGEPA extends AxBaseOptimizer {
       {
         cfg: { ...baseCfg },
         parent: undefined,
-        scores: baseEval!.avg,
+        scores: baseEval.avg,
       },
     ];
 
-    const perInstanceScores: number[][] = [baseEval!.scalars];
+    const perInstanceScores: number[][] = [baseEval.scalars];
 
     optLogger?.({
       name: 'OptimizationStart',
@@ -435,7 +465,8 @@ export class AxGEPA extends AxBaseOptimizer {
     for (let t = 0; t < this.numTrials; t++) {
       if (
         rolloutBudgetPareto !== undefined &&
-        this.stats.totalCalls >= Math.max(1, Math.floor(rolloutBudgetPareto))
+        evaluationState.totalCalls >=
+          Math.max(1, Math.floor(rolloutBudgetPareto))
       ) {
         break;
       }
@@ -986,6 +1017,8 @@ export class AxGEPA extends AxBaseOptimizer {
       demos: bootstrappedDemos,
       stats: this.stats,
       bestScore,
+      baselineScore,
+      baselineScores,
       paretoFront: pareto.map((p) => ({
         demos: bootstrappedDemos,
         scores: p.scores,

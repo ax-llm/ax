@@ -3,6 +3,7 @@ import type {
   AxExample,
   AxMetricFn,
   AxMultiMetricFn,
+  AxOptimizerArgs,
   AxTypedExample,
 } from '../common_types.js';
 import type {
@@ -11,6 +12,15 @@ import type {
   AxProgrammable,
 } from '../types.js';
 import type { AxGEPAAdapter } from './gepaAdapter.js';
+
+export const getGEPAParetoSetSize = (
+  args: Readonly<AxOptimizerArgs & { paretoSetSize?: number }>
+): number => {
+  const size = args.paretoSetSize;
+  return size && size > 0
+    ? Math.min(1000, Math.max(5, Math.floor(size)))
+    : Math.max(10, Math.min(200, (args.minibatchSize ?? 20) * 3));
+};
 
 export type AxGEPABatchRow = {
   input: AxExample;
@@ -116,7 +126,7 @@ export async function evaluateGEPABatch<IN, OUT extends AxGenOut>(args: {
   if (args.state.totalCalls + requiredCalls > args.maxMetricCalls) {
     if (args.throwIfInsufficient) {
       throw new Error(
-        `AxGEPA: options.maxMetricCalls=${args.maxMetricCalls} is too small to evaluate the initial Pareto set; need at least ${requiredCalls} metric calls`
+        `AxGEPA: options.maxMetricCalls=${args.maxMetricCalls} is too small for ${args.phase}; need at least ${args.state.totalCalls + requiredCalls} metric calls`
       );
     }
     return undefined;
