@@ -1,10 +1,18 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   AxMCPStdioTransport,
   axCreateMCPStdioTransport,
 } from './stdioTransport.js';
+import {
+  escapeArgument,
+  escapeCommand,
+  windowsShellCommand,
+} from './windowsSpawn.js';
 
 const transports: AxMCPStdioTransport[] = [];
 const request = { jsonrpc: '2.0' as const, id: 1, method: 'test' };
@@ -145,3 +153,80 @@ describe('AxMCPStdioTransport', () => {
     await termination;
   });
 });
+
+describe('Windows command escaping', () => {
+  it('escapes cmd.exe metacharacters in the command', () => {
+    expect(escapeCommand(String.raw`C:\Program Files\nodejs\npx.cmd`)).toBe(
+      String.raw`C:\Program^ Files\nodejs\npx.cmd`
+    );
+  });
+
+  it('quotes arguments and escapes metacharacters once or twice', () => {
+    expect(escapeArgument('a b', false)).toBe('^"a^ b^"');
+    expect(escapeArgument('& echo pwned', false)).toBe('^"^&^ echo^ pwned^"');
+    expect(escapeArgument('%PATH%', true)).toBe('^^^"^^^%PATH^^^%^^^"');
+  });
+
+  it('escapes quotes and the backslashes before them', () => {
+    expect(escapeArgument('a"b', false)).toBe(String.raw`^"a\^"b^"`);
+    expect(escapeArgument(String.raw`a\\"b`, false)).toBe(
+      String.raw`^"a\\\\\^"b^"`
+    );
+    expect(escapeArgument('trail\\\\', false)).toBe(String.raw`^"trail\\\\^"`);
+  });
+});
+
+describe.runIf(process.platform === 'win32')(
+  'AxMCPStdioTransport on Windows',
+  () => {
+    it('spawns .exe commands directly', () => {
+      expect(windowsShellCommand('node', [], process.env)).toBeUndefined();
+    });
+
+    it('runs .cmd servers with arguments passed through unchanged', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'ax-mcp-'));
+      try {
+        const server = `
+        require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+          const request = JSON.parse(line);
+          console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: process.argv.slice(2) }));
+        });
+      `;
+        writeFileSync(join(dir, 'server.js'), server);
+        writeFileSync(
+          join(dir, 'mcp-server.cmd'),
+          `@"${process.execPath}" "%~dp0server.js" %*\r\n`
+        );
+        const args = [
+          'with space',
+          'a"b',
+          '%PATH%',
+          '^',
+          '& echo pwned',
+          '"&echo pwned&rem "',
+          '| <nul > out.txt (x)',
+          'trail\\\\',
+          '',
+        ];
+        const pathKey =
+          Object.keys(process.env).find(
+            (key) => key.toUpperCase() === 'PATH'
+          ) ?? 'PATH';
+        const transport = new AxMCPStdioTransport({
+          command: 'mcp-server',
+          args,
+          env: { [pathKey]: `${dir};${process.env[pathKey]}` },
+        });
+        transports.push(transport);
+        await expect(transport.send(request)).resolves.toEqual({
+          jsonrpc: '2.0',
+          id: 1,
+          result: args,
+        });
+        await transport.terminate();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+);
