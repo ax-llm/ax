@@ -3722,7 +3722,7 @@
       "status": "open",
       "title": "Drop refused assistant turn before refusal retry",
       "createdAt": "2026-10-28",
-      "sourcePR": null,
+      "sourcePR": 871,
       "sourceCommit": "7948e19213325e41f39ba0715ad8fd2a89714210",
       "tsPaths": [
         "src/ax/dsp/generate.ts",
