@@ -9,6 +9,8 @@ import type {
   AxMCPTransport,
 } from '@ax-llm/ax';
 
+import { windowsShellCommand } from './windowsSpawn.js';
+
 export interface StdioTransportConfig {
   command: string;
   args?: string[];
@@ -32,9 +34,17 @@ export class AxMCPStdioTransport implements AxMCPTransport {
   ) => void | Promise<void>;
 
   constructor(config: Readonly<StdioTransportConfig>) {
-    this.process = spawn(config.command, config.args ?? [], {
-      env: config.env ? { ...process.env, ...config.env } : process.env,
-    });
+    const env = config.env ? { ...process.env, ...config.env } : process.env;
+    const shell =
+      process.platform === 'win32'
+        ? windowsShellCommand(config.command, config.args ?? [], env)
+        : undefined;
+    this.process = shell
+      ? spawn(shell.command, shell.args, {
+          env,
+          windowsVerbatimArguments: true,
+        })
+      : spawn(config.command, config.args ?? [], { env });
     this.closePromise = new Promise((resolve) => {
       this.process.once('close', () => {
         this.closeWithError(new Error('MCP server process closed'));
