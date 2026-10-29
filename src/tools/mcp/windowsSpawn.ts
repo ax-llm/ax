@@ -1,4 +1,4 @@
-// cspell:ignore PATHEXT
+// cspell:ignore PATHEXT COMSPEC
 import { statSync } from 'node:fs';
 import path from 'node:path';
 
@@ -7,6 +7,18 @@ import path from 'node:path';
 // Lookup and escaping follow cross-spawn (lib/parse.js, lib/util/escape.js).
 
 const metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
+
+function windowsEnvValue(
+  env: NodeJS.ProcessEnv,
+  name: string
+): string | undefined {
+  // Node sorts keys and passes only the first case-insensitive match to the
+  // child. Use the same value for lookup and escaping as the spawned process.
+  const key = Object.keys(env)
+    .sort()
+    .find((key) => key.toUpperCase() === name);
+  return key === undefined ? undefined : env[key];
+}
 
 export function escapeCommand(command: string): string {
   return command.replace(metaCharsRegExp, '^$1');
@@ -35,14 +47,12 @@ function resolveCommand(
   command: string,
   env: NodeJS.ProcessEnv
 ): string | undefined {
-  const pathKey =
-    Object.keys(env)
-      .reverse()
-      .find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
   const dirs = /[\\/]/.test(command)
     ? ['']
-    : [process.cwd(), ...(env[pathKey] ?? '').split(';')];
-  const exts = (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';');
+    : [process.cwd(), ...(windowsEnvValue(env, 'PATH') ?? '').split(';')];
+  const exts = (windowsEnvValue(env, 'PATHEXT') ?? '.EXE;.CMD;.BAT;.COM').split(
+    ';'
+  );
   if (command.includes('.') && exts[0] !== '') exts.unshift('');
   for (const dir of dirs) {
     const base = path.join(dir.replace(/^"(.*)"$/, '$1'), command);
@@ -79,7 +89,7 @@ export function windowsShellCommand(
     ...args.map((arg) => escapeArgument(arg, doubleEscape)),
   ].join(' ');
   return {
-    command: process.env.ComSpec ?? 'cmd.exe',
+    command: windowsEnvValue(env, 'COMSPEC') ?? 'cmd.exe',
     args: ['/d', '/s', '/c', `"${commandLine}"`],
   };
 }

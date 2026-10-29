@@ -1,9 +1,10 @@
+// cspell:ignore PATHEXT
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AxMCPStdioTransport,
   axCreateMCPStdioTransport,
@@ -39,6 +40,7 @@ afterEach(async () => {
   await Promise.all(
     transports.splice(0).map((transport) => transport.terminate())
   );
+  vi.unstubAllEnvs();
 });
 
 describe('AxMCPStdioTransport', () => {
@@ -179,6 +181,49 @@ describe('Windows command escaping', () => {
 describe.runIf(process.platform === 'win32')(
   'AxMCPStdioTransport on Windows',
   () => {
+    it.each(['PATHEXT', 'PATH'] as const)(
+      'uses the effective child %s for lookup and argument escaping',
+      async (key) => {
+        const dir = mkdtempSync(join(tmpdir(), 'ax-mcp-child-env-'));
+        try {
+          const decoy = join(dir, 'decoy');
+          mkdirSync(decoy);
+          writeFileSync(join(decoy, 'ax-child-server.EXE'), '');
+          writeFileSync(
+            join(dir, 'server.js'),
+            `require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+              const request = JSON.parse(line);
+              console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: process.argv.slice(2) }));
+            });`
+          );
+          writeFileSync(
+            join(dir, 'ax-child-server.CMD'),
+            `@"${process.execPath}" "%~dp0server.js" %*\r\n`
+          );
+          const args = ['literal&value', 'with space', 'a"b', '%PATH%', ''];
+          if (key === 'PATHEXT') vi.stubEnv('PATHEXT', '.EXE');
+          const transport = new AxMCPStdioTransport({
+            command: 'ax-child-server',
+            args,
+            env: {
+              PATH: dir,
+              Path: key === 'PATH' ? decoy : dir,
+              PATHEXT: key === 'PATHEXT' ? '.CMD' : '.EXE;.CMD',
+            },
+          });
+          transports.push(transport);
+          await expect(transport.send(request)).resolves.toEqual({
+            jsonrpc: '2.0',
+            id: 1,
+            result: args,
+          });
+          await transport.terminate();
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    );
+
     it('spawns .exe commands directly', () => {
       expect(windowsShellCommand('node', [], process.env)).toBeUndefined();
     });
