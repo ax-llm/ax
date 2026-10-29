@@ -1,21 +1,20 @@
 # Changelog
 
-## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-29)
-
-### Bug Fixes
-
-* **dsp:** drop the refused turn before retrying a refusal ([#871](https://github.com/ax-llm/ax/issues/871)) ([7e0e16c](https://github.com/ax-llm/ax/commit/7e0e16c2bd55abb1674e283f1a1584111ce8df73))
-* **mcp:** spawn .cmd stdio servers such as npx on Windows ([#870](https://github.com/ax-llm/ax/issues/870)) ([91dfc2d](https://github.com/ax-llm/ax/commit/91dfc2d8d8a8c733db1fee41bfafc2f8604eabb0))
-
-## [25.4.6](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-26)
+## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.6...25.4.7) (2026-10-29)
 
 ### Features
 
-* **bedrock:** add Claude Haiku 5.5 to AxAIBedrock ([#865](https://github.com/ax-llm/ax/issues/865)) ([55cea37](https://github.com/ax-llm/ax/commit/55cea37e37ab5f35a7191ddc3fd91c502f56a620))
+* **Optimization:** Report `baselineScore` and `baselineScores` for the original program before bootstrap, using the same held-out validation subset and scoring rules as the final result. Apply this behavior to TypeScript, Python, Java, C++, Go, and Rust ([#869](https://github.com/ax-llm/ax/issues/869), [#872](https://github.com/ax-llm/ax/pull/872)).
+* **Generated optimizers:** Evaluate native Go programs in `Optimize`, and add Rust `optimize_with_client` for provider-backed evaluation. Keep validation budgets, training demonstrations, public examples, and language documentation synchronized ([#872](https://github.com/ax-llm/ax/pull/872)).
 
 ### Bug Fixes
 
-* preserve Go agent errors and validate Bedrock OpenAI requests ([#866](https://github.com/ax-llm/ax/issues/866)) ([a2780f9](https://github.com/ax-llm/ax/commit/a2780f9a10acf6576765092153c7604babf277c3))
+* **Generation:** Remove provisional refused content and thinking before retrying while retaining completed tool turns. Verify forward and streaming behavior across all six languages ([#871](https://github.com/ax-llm/ax/pull/871), [#872](https://github.com/ax-llm/ax/pull/872)).
+* **Windows MCP:** Start `.cmd` and `.bat` stdio servers, including `npx`, using the child environment's PATH and PATHEXT ([#870](https://github.com/ax-llm/ax/pull/870)).
+
+### Generated-language parity
+
+* Complete the optimizer baseline and refusal retry backlog entries with TypeScript-derived conformance tests. The AxIR backlog has no open entries ([#872](https://github.com/ax-llm/ax/pull/872)).
 
 ## [25.4.6](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-26)
 
