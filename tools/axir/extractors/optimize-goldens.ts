@@ -3029,6 +3029,99 @@ await (async () => {
   });
 })();
 
+// An actual student fails its original validation, then succeeds during
+// bootstrap and seeded validation. This distinguishes the original baseline
+// from the post-bootstrap score through the real helper evaluation path.
+await (async () => {
+  const program = ax('question:string -> answer:string');
+  const responses = [
+    { content: 'Answer: incomplete', finish_reason: 'length' },
+    { content: 'Answer: incomplete', finish_reason: 'length' },
+    ...Array.from({ length: 3 }, () => ({
+      content: 'Answer: ok',
+      finish_reason: 'stop',
+    })),
+  ];
+  let calls = 0;
+  const client = new AxMockAIService({
+    chatResponse: async () => {
+      const response = responses[calls++];
+      if (!response)
+        throw new Error(
+          'baseline-helper-improves-after-bootstrap: unexpected request'
+        );
+      return {
+        results: [
+          {
+            index: 0,
+            content: response.content,
+            finishReason: response.finish_reason as 'stop' | 'length',
+          },
+        ],
+      };
+    },
+  });
+  const train = [
+    { question: 'training-only-0', answer: 'ok' },
+    { question: 'training-only-1', answer: 'ok' },
+  ];
+  const validation = [
+    { question: 'held-out-0', answer: 'ok' },
+    { question: 'held-out-1', answer: 'ok' },
+  ];
+  const options = {
+    numTrials: 0,
+    maxMetricCalls: 4,
+    bootstrap: { maxRounds: 1, maxExamples: 1, maxDemos: 1 },
+  };
+  const result = await optimizeProgram(
+    program,
+    train,
+    ({ prediction }) => (prediction.answer === 'ok' ? 1 : 0),
+    {
+      ...options,
+      studentAI: client,
+      teacherAI: client,
+      validationExamples: validation,
+    }
+  );
+  if (calls !== 5 || result.baselineScore !== 0 || result.bestScore !== 1)
+    throw new Error(
+      'baseline-helper-improves-after-bootstrap: expected original 0, seeded 1, and five calls'
+    );
+  writeFixture('baseline-helper-improves-after-bootstrap', {
+    kind: 'optimize',
+    operation: 'helper',
+    program: 'axgen',
+    signature: 'question:string -> answer:string',
+    dataset: train.map(({ question }) => ({
+      input: { question },
+      expectedOutput: { answer: 'ok' },
+    })),
+    responses,
+    optimize_options: {
+      ...options,
+      validationExamples: validation.map(({ question }) => ({
+        input: { question },
+        expectedOutput: { answer: 'ok' },
+      })),
+    },
+    expected_demo_count: 1,
+    expected_artifact_subset: {
+      baselineScore: result.baselineScore!,
+      baselineScores: result.baselineScores! as Json,
+      metadata: {
+        baselineScore: result.baselineScore!,
+        baselineScores: result.baselineScores! as Json,
+        bestScore: result.bestScore,
+        totalMetricCalls: 4,
+        bootstrapMetricCalls: 1,
+        totalCalls: 5,
+      },
+    },
+  });
+})();
+
 // --- playbook() evolve through the real reflector and curator programs ------
 // ace-compile-* fixtures script the reflector and curator outputs; this one
 // runs TS playbook().evolve with scripted student and teacher clients, so the

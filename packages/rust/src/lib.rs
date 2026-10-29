@@ -19383,6 +19383,12 @@ fn fixture_chat_response(response: Value) -> Value {
             "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
         }]
     });
+    if let Some(reason) = response
+        .get("finish_reason")
+        .or_else(|| response.get("finishReason"))
+    {
+        out["results"][0]["finish_reason"] = reason.clone();
+    }
     if let Some(usage) = response.get("usage") {
         out["model_usage"] = json!({"tokens": usage.clone()});
     }
