@@ -1,7 +1,7 @@
 ---
 name: "ax-python-audio"
 description: "Use when writing Python code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "25.4.6"
+version: "25.4.7"
 ---
 # Ax Audio And Realtime For Python
 

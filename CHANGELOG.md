@@ -1,5 +1,22 @@
 # Changelog
 
+## [25.4.7](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-29)
+
+### Bug Fixes
+
+* **dsp:** drop the refused turn before retrying a refusal ([#871](https://github.com/ax-llm/ax/issues/871)) ([7e0e16c](https://github.com/ax-llm/ax/commit/7e0e16c2bd55abb1674e283f1a1584111ce8df73))
+* **mcp:** spawn .cmd stdio servers such as npx on Windows ([#870](https://github.com/ax-llm/ax/issues/870)) ([91dfc2d](https://github.com/ax-llm/ax/commit/91dfc2d8d8a8c733db1fee41bfafc2f8604eabb0))
+
+## [25.4.6](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-26)
+
+### Features
+
+* **bedrock:** add Claude Haiku 5.5 to AxAIBedrock ([#865](https://github.com/ax-llm/ax/issues/865)) ([55cea37](https://github.com/ax-llm/ax/commit/55cea37e37ab5f35a7191ddc3fd91c502f56a620))
+
+### Bug Fixes
+
+* preserve Go agent errors and validate Bedrock OpenAI requests ([#866](https://github.com/ax-llm/ax/issues/866)) ([a2780f9](https://github.com/ax-llm/ax/commit/a2780f9a10acf6576765092153c7604babf277c3))
+
 ## [25.4.6](https://github.com/ax-llm/ax/compare/25.4.5...25.4.6) (2026-10-26)
 
 ### Features
